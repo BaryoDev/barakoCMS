@@ -235,6 +235,31 @@ public class PostJournalActionTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public async Task A_key_whose_entry_was_voided_fails_for_good_and_posts_nothing_new()
+    {
+        var setup = await SetupAsync();
+        var subject = Subject(120m);
+        var first = await RunAsync(subject, setup.Mapping, "receipt");
+        first.Succeeded.Should().BeTrue(first.Error);
+
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var entry = (await session.LoadAsync<Content>(Guid.Parse(first.Outputs["id"]), Ct))!;
+            entry.LifecycleState = AccountingContentTypes.VoidedState;
+            session.Store(entry);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var again = await RunAsync(subject, setup.Mapping, "receipt");
+
+        again.Succeeded.Should().BeFalse();
+        again.Retryable.Should().BeFalse();
+        again.Error.Should().Contain("new ActionKey");
+        (await EntriesForAsync(subject)).Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task A_user_made_entry_carrying_the_reference_under_another_id_does_not_stop_the_posting()
     {
         var setup = await SetupAsync();

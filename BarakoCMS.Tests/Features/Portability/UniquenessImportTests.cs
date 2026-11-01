@@ -145,6 +145,27 @@ public class UniquenessImportTests
     }
 
     [Fact]
+    public async Task A_record_with_no_type_or_an_unknown_status_is_refused_naming_it()
+    {
+        var tenant = await TenantAsync();
+        var client = await AdminOfAsync(tenant);
+        var type = NewType();
+        var noType = Record(type, "X-1");
+        noType.ContentType = " ";
+        var badStatus = Record(type, "X-2");
+        badStatus.Status = "Pubished";
+
+        var response = await ImportAsync(
+            client, [Register(type, BadgeRule())], [Record(type, "X-0"), noType, badStatus]);
+        var body = await BodyAsync(response);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("contents[1]").And.Contain("contents[2]");
+        body.Should().NotContain("contents[0]");
+        (await StoredAsync(tenant, type)).Should().BeNull("the import is all or nothing");
+    }
+
+    [Fact]
     public async Task A_type_exports_its_rules_and_another_tenant_imports_them()
     {
         var source = await TenantAsync();
