@@ -13,7 +13,8 @@ public class ContentEraserSchemaTests
     public async Task The_erase_statement_targets_the_configured_schema()
     {
         var id = Guid.NewGuid();
-        var options = new StoreOptions { DatabaseSchemaName = "tenant_schema" };
+        var options = new StoreOptions { DatabaseSchemaName = "doc_schema" };
+        options.Events.DatabaseSchemaName = "tenant_schema";
         var store = Substitute.For<IDocumentStore>();
         store.Options.Returns(options);
 
@@ -35,5 +36,6 @@ public class ContentEraserSchemaTests
         sql[0].Should().Contain("tenant_schema.mt_events");
         sql[0].Should().Contain("tenant_schema.mt_streams");
         sql[0].Should().NotContain("public.");
+        sql[0].Should().NotContain("doc_schema");
     }
 }
