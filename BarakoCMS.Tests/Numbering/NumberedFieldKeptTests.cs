@@ -273,6 +273,7 @@ public class NumberedFieldKeptTests(IntegrationTestFixture factory)
         });
 
         put.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await put.Content.ReadAsStringAsync()).Should().Contain("numbered by the server");
         (await StoredNumberAsync(id)).Should().Be(number);
     }
 
@@ -293,6 +294,7 @@ public class NumberedFieldKeptTests(IntegrationTestFixture factory)
         });
 
         move.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await move.Content.ReadAsStringAsync()).Should().Contain("numbered by the server");
         (await StoredNumberAsync(id)).Should().Be(number);
     }
 }
