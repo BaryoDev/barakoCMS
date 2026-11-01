@@ -1,0 +1,1 @@
+- **A preview token no longer loads every entry of the type.** The route finds the entry by slug in the database, oldest first, instead of reading all entries of the type into memory.
