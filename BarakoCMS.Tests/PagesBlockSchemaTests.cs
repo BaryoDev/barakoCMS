@@ -66,15 +66,16 @@ public class PagesBlockSchemaTests
         var (_, admin) = await TenantAsync();
         await RegisterAsync(admin, """
             { "note": { "type": "object", "properties": { "anything": true, "never": false,
-                                                          "title": { "type": "string" } } } }
+                                                          "title": { "type": "string" },
+                                                          "count": { "type": "integer" } } } }
             """);
 
         var served = await ServedAsync(admin);
 
         var fields = Block(served, "note").GetProperty("fields").EnumerateArray().ToList();
-        fields.Should().HaveCount(3);
-        fields.Select(f => f.GetProperty("name").GetString()).Should().Equal("anything", "never", "title");
-        fields.Select(f => f.GetProperty("kind").GetString()).Should().OnlyContain(k => k == "text");
+        fields.Should().HaveCount(4);
+        fields.Select(f => f.GetProperty("name").GetString()).Should().Equal("anything", "never", "title", "count");
+        fields.Select(f => f.GetProperty("kind").GetString()).Should().Equal("text", "text", "text", "number");
     }
 
     [Fact]
