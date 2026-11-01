@@ -67,6 +67,23 @@ internal class Endpoint(
         ThrowIfAnyErrors();
     }
 
+    /// <summary>
+    /// The events for a status field that differs from the stored status. A type with a lifecycle
+    /// changes status through a named transition, the rule change-status applies, and the status
+    /// field here would otherwise step around it. A pending publish time is dropped with the move.
+    /// </summary>
+    private async Task<List<object>> StatusEventsAsync(barakoCMS.Models.Content existing, ContentStatus newStatus, Guid userId, CancellationToken ct)
+    {
+        var definition = await session.Query<ContentTypeDefinition>().FirstNamedAsync(existing.ContentType, ct);
+        if (definition?.Lifecycle is not null)
+        {
+            ThrowError($"Content type '{existing.ContentType}' declares a lifecycle, so it changes status through a Transition, not Status.", 400);
+        }
+
+        return barakoCMS.Features.Content.ChangeStatus.ScheduleClearing.With(
+            existing, new barakoCMS.Events.ContentStatusChanged(existing.Id, newStatus, userId, DateTime.UtcNow), newStatus, userId);
+    }
+
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         // Configure() calls Claims("UserId"), so a request with no claim never reaches here, and the
@@ -156,8 +173,7 @@ internal class Endpoint(
         // 2. Status Change Event (if changed)
         if (statusChanged)
         {
-            var statusEvent = new barakoCMS.Events.ContentStatusChanged(req.Id, req.Status!.Value, userId, DateTime.UtcNow);
-            events.Add(statusEvent);
+            events.AddRange(await StatusEventsAsync(existingContent, req.Status!.Value, userId, ct));
         }
 
         // Which contract this request is answered under. The persistence decision is the writer's

@@ -174,9 +174,7 @@ internal class RollbackEndpoint(
         var rollbackEvent = new ContentUpdated(req.Id, data, userId, searchText, DateTime.UtcNow);
 
         // 6. Append the new event and update the document together
-        await contentWriter.AppendAsync(content, rollbackEvent, ct);
-
-        await session.SaveChangesAsync(ct);
+        await CommitRollbackAsync(content, rollbackEvent, ct);
 
         // 8. Return the new state, through the read rules a GET applies: the caller is shown what
         // they may read of it and nothing more. Rollback asks for update, not read, so a caller no
@@ -198,6 +196,26 @@ internal class RollbackEndpoint(
         var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, content.ContentType, ct);
         if (definition is not null)
             barakoCMS.Infrastructure.Services.ContentValidatorService.KeepStoredNumber(definition, data, content, refuseDifferent: false);
+    }
+
+    /// <summary>
+    /// Appends under an expected-version check: the restore is a whole-document write built from a
+    /// document loaded earlier in the request, so a plain append would overwrite an edit that landed
+    /// in between. 409, as change-status answers.
+    /// </summary>
+    private async Task CommitRollbackAsync(barakoCMS.Models.Content content, ContentUpdated rollbackEvent, CancellationToken ct)
+    {
+        try
+        {
+            await contentWriter.AppendOptimisticAsync(content, new object[] { rollbackEvent }, ct);
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
+            || ex.GetType().Name.Contains("Concurrency")
+            || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
+        {
+            ThrowError("The content was changed by another writer. Please refresh and try again.", 409);
+        }
     }
 
     /// <summary>The restored entry as a read by this caller would show it, recorded as a read when it shows anything above Public.</summary>
