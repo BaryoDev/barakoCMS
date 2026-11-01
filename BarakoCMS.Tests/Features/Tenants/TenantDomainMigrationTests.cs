@@ -78,13 +78,14 @@ public class TenantDomainMigrationTests
         var solo = new Tenant { Id = Guid.NewGuid(), Slug = "solo-" + suffix, Name = "Solo", Domains = [$"Www.Solo-{suffix}.example.com", $"two-{suffix}.example.com"] };
         var rival = new Tenant { Id = Guid.NewGuid(), Slug = "rival-" + suffix, Name = "Rival", Domains = [$"two-{suffix}.example.com"] };
         var none = new Tenant { Id = Guid.NewGuid(), Slug = "none-" + suffix, Name = "None" };
+        var edge = new Tenant { Id = Guid.NewGuid(), Slug = "edge-" + suffix, Name = "Edge", Domains = [$"Ported-{suffix}.example.com:8443", $"dotted-{suffix}.example.com.", $"both-{suffix}.example.com.:8080"] };
 
         await using var connection = await OpenAsync();
         var scratch = await NewSchemaAsync(connection);
         try
         {
             await ExecuteAsync(connection, $"CREATE TABLE {scratch}.mt_doc_tenants (id uuid PRIMARY KEY, data jsonb NOT NULL)");
-            foreach (var tenant in new[] { solo, rival, none })
+            foreach (var tenant in new[] { solo, rival, none, edge })
             {
                 await using var insert = new NpgsqlCommand($"INSERT INTO {scratch}.mt_doc_tenants (id, data) VALUES (@id, @data::jsonb)", connection);
                 insert.Parameters.AddWithValue("id", tenant.Id);
@@ -106,15 +107,22 @@ public class TenantDomainMigrationTests
                 }
             }
 
-            rows.Should().ContainSingle("the shared host is skipped, the other is copied once, and the second run adds nothing");
-            var row = rows[0];
+            rows.Should().HaveCount(4, "the shared host is skipped, the others are copied once, and the second run adds nothing");
+            rows.Select(r => r.Id).Should().BeEquivalentTo(new[]
+            {
+                $"solo-{suffix}.example.com",
+                $"ported-{suffix}.example.com",
+                $"dotted-{suffix}.example.com",
+                $"both-{suffix}.example.com",
+            }, "the port and a trailing dot are cut the way the request path cuts them");
+            var row = rows.Single(r => r.Id == $"solo-{suffix}.example.com");
             row.Id.Should().Be($"solo-{suffix}.example.com", "the host is stored without www and in lower case");
             row.TenantSlug.Should().Be(solo.Slug);
             row.Status.Should().Be(TenantDomainStatus.Verified);
             row.VerifiedAt.Should().NotBeNull();
             row.Token.Should().MatchRegex("^[0-9a-f]{48}$");
 
-            var map = TenantDomainSource.Build([solo, rival, none], rows, NullLogger.Instance);
+            var map = TenantDomainSource.Build([solo, rival, none, edge], rows, NullLogger.Instance);
             map.Find($"solo-{suffix}.example.com").Should().Be(solo.Slug, "a backfilled domain stays routed");
             map.Find($"two-{suffix}.example.com").Should().BeNull("two tenants listed it, so neither is given it");
         }
