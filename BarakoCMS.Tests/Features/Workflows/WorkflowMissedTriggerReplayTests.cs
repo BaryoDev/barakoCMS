@@ -165,6 +165,10 @@ public class WorkflowMissedTriggerReplayTests
         (await SweepAsync(tenant)).Should().Be(1, "the row is handled and removed");
 
         (await RunsAsync(tenant, id)).Should().BeEmpty("no workflow of any kind is stored, so the real queue has nothing to enqueue");
+        await using var query = Store.QuerySession(tenant);
+        (await query.LoadAsync<MissedWorkflowTrigger>(
+            MissedWorkflowTrigger.IdFor(WorkflowEvents.Unpublished, id, events[2].Sequence), Ct))
+            .Should().BeNull("the sweep removes the row even when there is nothing to run");
     }
 
     [Fact]
