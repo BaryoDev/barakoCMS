@@ -73,7 +73,7 @@ public sealed class ContentEraser(
         // the foreign key checked once at the end of it.
         //
         // Marten's placeholder is ?, not a named parameter, and each occurrence takes its own value.
-        var schema = session.DocumentStore.Options.DatabaseSchemaName;
+        var schema = session.DocumentStore.Options.Events.DatabaseSchemaName;
         session.QueueSqlCommand(
             $"with erased_events as (delete from {schema}.mt_events where stream_id = ? returning stream_id) "
             + $"delete from {schema}.mt_streams where id = ?",
