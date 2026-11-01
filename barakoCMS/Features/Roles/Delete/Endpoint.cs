@@ -97,10 +97,17 @@ internal class Endpoint(
 
         // Named rather than merely refused: "still assigned" with no location is a dead end for
         // whoever has to go and unassign it.
-        return tenantsHoldingRole.Count == 0
-            ? null
-            : "Cannot delete role: it is still assigned through memberships in "
+        if (tenantsHoldingRole.Count > 0)
+        {
+            return "Cannot delete role: it is still assigned through memberships in "
                 + $"{string.Join(", ", tenantsHoldingRole)}. Remove the role from those members first.";
+        }
+
+        // MembershipRoles.GroupRoleIdsAsync grants a live group's roles to its members, so a role
+        // only a group holds would be left dangling for every one of them.
+        return await session.Query<UserGroup>().AnyAsync(g => g.DeletedAt == null && g.RoleIds.Contains(roleId), ct)
+            ? "Cannot delete role: it is still assigned to a user group. Remove the role from the group first."
+            : null;
     }
 
     /// <summary>
