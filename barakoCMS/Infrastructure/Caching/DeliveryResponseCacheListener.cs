@@ -65,6 +65,11 @@ internal sealed class DeliveryResponseCacheListener(
             scopes.Add(CacheScope.Named("sitemap"));
         }
 
+        var redirectChanged = commit.Inserted.Concat(commit.Updated).OfType<UrlRedirect>().Any()
+            || commit.Deleted.Any(d => d.DocumentType == typeof(UrlRedirect));
+        if (redirectChanged)
+            scopes.Add(CacheScope.Named("redirects"));
+
         var known = contents.Select(c => c.Id).ToHashSet();
         foreach (var stream in commit.GetEvents().Select(e => e.StreamId).Distinct().Where(id => !known.Contains(id)))
         {

@@ -86,6 +86,7 @@ internal sealed class ImportRedirectsEndpoint(
         // so line 300 is checked against line 12 as well as against what was already there.
         var chain = stored.ToDictionary(r => r.FromPath, r => r.ToPath, StringComparer.Ordinal);
 
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         var rejected = new List<string>();
         var created = 0;
         var updated = 0;
@@ -108,13 +109,10 @@ internal sealed class ImportRedirectsEndpoint(
                 continue;
             }
 
-            var from = UrlRedirect.Normalize(parts[0]);
+            if (!ReadFrom(parts[0], seen, $"Line {number}: ", rejected, out var from)) continue;
+
             var to = UrlRedirect.Normalize(parts[1]);
-
-            var permanent = parts.Count > 2
-                && (parts[2].Trim().Equals("true", StringComparison.OrdinalIgnoreCase)
-                 || parts[2].Trim() == "301");
-
+            var permanent = ReadPermanent(parts);
             var note = parts.Count > 3 ? parts[3].Trim() : null;
 
             var without = new Dictionary<string, string>(chain, StringComparer.Ordinal);
@@ -129,7 +127,7 @@ internal sealed class ImportRedirectsEndpoint(
             if (byPath.TryGetValue(from, out var existing))
             {
                 existing.ToPath = to;
-                existing.Permanent = permanent;
+                existing.Permanent = permanent ?? existing.Permanent;
                 existing.Note = note ?? existing.Note;
                 existing.UpdatedAt = DateTime.UtcNow;
 
@@ -143,7 +141,7 @@ internal sealed class ImportRedirectsEndpoint(
                     Id = Guid.NewGuid(),
                     FromPath = from,
                     ToPath = to,
-                    Permanent = permanent,
+                    Permanent = permanent ?? false,
                     Note = note,
                 };
 
@@ -182,6 +180,32 @@ internal sealed class ImportRedirectsEndpoint(
             Updated = updated,
             Rejected = rejected,
         }, ct);
+    }
+
+    /// <summary>Normalises the from side, or adds why the line cannot be imported to the rejections.</summary>
+    private static bool ReadFrom(
+        string raw, HashSet<string> seen, string prefix, List<string> rejected, out string from)
+    {
+        raw = raw.Trim();
+        from = UrlRedirect.Normalize(raw);
+
+        if (raw.AsSpan().IndexOfAny('?', '#') >= 0 || raw.Contains("://", StringComparison.Ordinal))
+            rejected.Add(prefix + "the from side must be a path, with no query, fragment or host.");
+        else if (!seen.Add(from))
+            rejected.Add($"{prefix}{from} already appears earlier in this file.");
+        else
+            return true;
+
+        return false;
+    }
+
+    /// <summary>Null when the column is absent or empty, so the stored value is kept.</summary>
+    private static bool? ReadPermanent(List<string> parts)
+    {
+        if (parts.Count < 3 || parts[2].Trim().Length == 0) return null;
+
+        var value = parts[2].Trim();
+        return value.Equals("true", StringComparison.OrdinalIgnoreCase) || value == "301";
     }
 
     /// <summary>
