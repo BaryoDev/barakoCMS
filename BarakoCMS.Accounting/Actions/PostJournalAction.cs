@@ -69,7 +69,7 @@ public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore 
         if (posted.Conflict is not null)
             return WorkflowActionResult.PermanentFailure(posted.Conflict);
         if (posted.Entry is { } existing)
-            return Done(existing.Id, ContentData.AsString(ContentData.Get(existing.Data, "EntryNumber")) ?? string.Empty);
+            return Repeat(existing);
 
         var chart = (await AccountingContentReader.AccountsAsync(session, ct))
             .GroupBy(a => a.Code, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Code, StringComparer.OrdinalIgnoreCase);
@@ -93,6 +93,11 @@ public sealed class PostJournalAction(LedgerService ledger, AccountMappingStore 
         await session.SaveChangesAsync(ct);
         return Done(entryId, result.Entry!.EntryNumber);
     }
+
+    private static WorkflowActionResult Repeat(Content existing) =>
+        existing.LifecycleState == AccountingContentTypes.VoidedState
+            ? WorkflowActionResult.PermanentFailure("The entry for this ActionKey was voided. Use a new ActionKey to post again.")
+            : Done(existing.Id, ContentData.AsString(ContentData.Get(existing.Data, "EntryNumber")) ?? string.Empty);
 
     private static WorkflowActionResult Done(Guid id, string number) => WorkflowActionResult.Success(
         new Dictionary<string, string> { ["id"] = id.ToString(), ["entryNumber"] = number },

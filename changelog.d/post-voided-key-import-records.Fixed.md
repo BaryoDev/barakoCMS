@@ -1,0 +1,1 @@
+- **A voided posting key and bad import records are now refused.** Accounting.PostJournal fails for good, asking for a new ActionKey, when the entry for its key was voided, where it used to report success without posting. A portability import refuses a record with no content type or an unrecognised status by name, where it used to skip the first and publish the second.
