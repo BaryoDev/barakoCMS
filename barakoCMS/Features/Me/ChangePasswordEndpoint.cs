@@ -1,6 +1,7 @@
 using FastEndpoints;
 using FluentValidation;
 using Marten;
+using Marten.Patching;
 using barakoCMS.Models;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
@@ -63,7 +64,7 @@ internal class ChangePasswordEndpoint(
         }
 
         // Re-authenticate with the current password before allowing a change.
-        if (!BCrypt.Net.BCrypt.Verify(req.CurrentPassword, user.PasswordHash))
+        if (!PasswordHashing.Verify(req.CurrentPassword, user.PasswordHash))
         {
             ThrowError(r => r.CurrentPassword, "Current password is incorrect.");
             return;
@@ -77,14 +78,13 @@ internal class ChangePasswordEndpoint(
         }
 
         // A "change" that keeps the same password is almost certainly a mistake.
-        if (BCrypt.Net.BCrypt.Verify(req.NewPassword, user.PasswordHash))
+        if (PasswordHashing.Verify(req.NewPassword, user.PasswordHash))
         {
             ThrowError(r => r.NewPassword, "New password must be different from the current password.");
             return;
         }
 
-        user.PasswordHash = barakoCMS.Infrastructure.Auth.PasswordHashing.Hash(req.NewPassword);
-        session.Store(user);
+        session.Patch<User>(user.Id).Set(x => x.PasswordHash, PasswordHashing.Hash(req.NewPassword));
 
         // Revoke the user's refresh tokens so a token stolen before the change can't be refreshed
         // afterwards. (Outstanding short-lived access tokens still expire on their own.)
