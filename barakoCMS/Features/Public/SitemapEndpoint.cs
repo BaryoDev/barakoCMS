@@ -18,7 +18,7 @@ internal class SitemapEndpoint(IQuerySession session, IConfiguration config) : E
     }
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var definitions = await session.Query<ContentTypeDefinition>()
+        var definitions = await session.Query<ContentTypeDefinition>().OrderBy(d => d.Name)
             .ToListAsync(ct);
 
         var deliverableDefinitions = definitions
@@ -33,7 +33,7 @@ internal class SitemapEndpoint(IQuerySession session, IConfiguration config) : E
             .Where(c => deliverableTypes.Contains(c.ContentType)
                         && c.Status == ContentStatus.Published
                         && c.Sensitivity == SensitivityLevel.Public)
-            .Take(50000)
+            .OrderBy(c => c.Id).Take(50000)
             .ToListAsync(ct);
 
         // Resolved the same way the feed resolves it, because they answer the same question (#670).
@@ -109,9 +109,5 @@ internal class SitemapEndpoint(IQuerySession session, IConfiguration config) : E
             "application/xml; charset=utf-8",
             ct);
     }
-    private static string Esc(string value) =>
-    value.Replace("&", "&amp;")
-         .Replace("<", "&lt;")
-         .Replace(">", "&gt;")
-         .Replace("\"", "&quot;");
+    private static string Esc(string value) => XmlText.Escape(value);
 }

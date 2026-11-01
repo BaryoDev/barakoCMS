@@ -552,7 +552,7 @@ internal sealed class DeliveryQuery
 
         return "(SELECT CASE WHEN " + GeoIsPointSql + " THEN " + HaversineSql(lat, lng) + " END "
              + $"FROM jsonb_each(d.data -> 'Data') e WHERE lower(e.key) = lower('{near.Field}') LIMIT 1) "
-             + $"{direction} NULLS LAST, (d.data ->> 'CreatedAt')::timestamptz DESC";
+             + $"{direction} NULLS LAST, (d.data ->> 'CreatedAt')::timestamptz DESC, d.id";
     }
 
     /// <summary>
@@ -663,13 +663,13 @@ internal sealed class DeliveryQuery
 
         var direction = sort.Descending ? "DESC" : "ASC";
 
-        // CreatedAt is the tiebreaker, in the same fragment because OrderBySql returns IQueryable
+        // CreatedAt then id is the tiebreaker, in the same fragment because OrderBySql returns IQueryable
         // rather than IOrderedQueryable and there is no ThenBy to chain. Cast to timestamptz rather
         // than compared as text: the stored form trims trailing zeros from the fraction, so
         // "...53.6Z" sorts after "...53.613507Z" as text and before it as a time.
         return $"(SELECT e.value FROM jsonb_each(d.data -> 'Data') e "
              + $"WHERE lower(e.key) = lower('{sort.Field}') LIMIT 1) {direction} NULLS LAST, "
-             + "(d.data ->> 'CreatedAt')::timestamptz DESC";
+             + "(d.data ->> 'CreatedAt')::timestamptz DESC, d.id";
     }
 
     /// <summary>The choice and reference fields that hold a list, by name, case-insensitively.</summary>

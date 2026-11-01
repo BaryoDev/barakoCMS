@@ -653,7 +653,7 @@ internal class ListPublishedEndpoint(
         {
             { Near: { } n, DistanceSortDescending: { } desc } => baseQuery.OrderBySql(DeliveryQuery.DistanceOrderBySql(n, desc)),
             { Sort: { } sort } => baseQuery.OrderBySql(DeliveryQuery.ToOrderBySql(sort)),
-            _ => baseQuery.OrderByDescending(c => c.CreatedAt),
+            _ => baseQuery.OrderByDescending(c => c.CreatedAt).ThenBy(c => c.Id),
         };
 
         var page = await ordered
