@@ -53,12 +53,18 @@ public class ScheduledSweepIsolationTests
     [Fact]
     public async Task A_tenant_whose_sweep_throws_does_not_stop_the_tenants_after_it()
     {
+        var ct = TestContext.Current.CancellationToken;
+        var logger = _fixture.Services.GetRequiredService<ILogger<ScheduledContentService>>();
+
+        // Leftover due content in other tenants would take the one throw, so clear it first.
+        (await new ScheduledContentService(Store(), logger).TrySweepAllTenantsAsync(DateTime.UtcNow, ct))
+            .Should().BeTrue();
+
         var first = await SeedDueTenantAsync();
         var second = await SeedDueTenantAsync();
 
         var calls = 0;
-        var service = new ScheduledContentService(
-            Store(), _fixture.Services.GetRequiredService<ILogger<ScheduledContentService>>())
+        var service = new ScheduledContentService(Store(), logger)
         {
             AfterLoad = _ =>
             {
@@ -67,16 +73,20 @@ public class ScheduledSweepIsolationTests
             },
         };
 
-        var swept = await service.TrySweepAllTenantsAsync(DateTime.UtcNow, TestContext.Current.CancellationToken);
+        var swept = false;
+        var act = async () => swept = await service.TrySweepAllTenantsAsync(DateTime.UtcNow, ct);
+        await act.Should().NotThrowAsync();
 
         swept.Should().BeTrue("a failing tenant is logged and skipped, the sweep still ran");
-        calls.Should().BeGreaterThan(1, "later tenants with due content were still swept after the first threw");
+        calls.Should().Be(2, "both tenants had due content, so the hook ran for the failing one and the one after it");
 
         var statuses = new[]
         {
             await StatusOfAsync(first.Slug, first.ContentId),
             await StatusOfAsync(second.Slug, second.ContentId),
         };
-        statuses.Should().Contain(ContentStatus.Published, "a tenant after the failing one was still processed");
+        statuses.Should().HaveCount(2);
+        statuses.Should().BeEquivalentTo(new[] { ContentStatus.Scheduled, ContentStatus.Published },
+            "the tenant whose sweep threw is left as it was and the other was still published");
     }
 }
