@@ -57,6 +57,24 @@ internal class Endpoint : Endpoint<Request, Response>
         ThrowError("Refresh token was already used. Please log in again.", 401);
     }
 
+    private async Task<User> LoadUsableUserAsync(RefreshToken refreshToken, CancellationToken ct)
+    {
+        var user = await _querySession.LoadAsync<User>(refreshToken.UserId, ct);
+        if (user == null)
+        {
+            _logger.LogError("User not found for valid refresh token. UserId: {UserId}", refreshToken.UserId);
+            ThrowError("User not found", 401);
+        }
+
+        if (barakoCMS.Infrastructure.Auth.AccountLockout.LockedMessage(user) is not null)
+        {
+            _logger.LogWarning("Refresh refused for locked account. UserId: {UserId}", user.Id);
+            ThrowError("Invalid refresh token", 401);
+        }
+
+        return user;
+    }
+
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         // Body first, then the cookie. The body keeps working for every non-browser caller, and the
@@ -121,20 +139,7 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        var user = await _querySession.LoadAsync<User>(refreshToken.UserId, ct);
-        if (user == null)
-        {
-            _logger.LogError("User not found for valid refresh token. UserId: {UserId}", refreshToken.UserId);
-            ThrowError("User not found", 401);
-            return;
-        }
-
-        if (barakoCMS.Infrastructure.Auth.AccountLockout.LockedMessage(user) is not null)
-        {
-            _logger.LogWarning("Refresh refused for locked account. UserId: {UserId}", user.Id);
-            ThrowError("Invalid refresh token", 401);
-            return;
-        }
+        var user = await LoadUsableUserAsync(refreshToken, ct);
 
         // The client sends X-Tenant on refresh, so without a membership check a refresh is a free
         // tenant hop: present a legitimately-issued refresh token with a different X-Tenant and walk
