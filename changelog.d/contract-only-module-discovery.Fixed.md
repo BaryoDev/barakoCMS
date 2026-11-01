@@ -1,0 +1,1 @@
+- **A module built only on `BarakoCMS.Abstractions` is discovered.** Discovery used to skip any library that did not depend on core, so such a module was ignored with no error. No HTTP shape changes.
