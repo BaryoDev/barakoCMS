@@ -37,6 +37,12 @@ internal class UpdateSettingEndpoint(IDocumentSession session, IConfiguration co
             ThrowError(PlatformScope.DeploymentWideMessage, 403);
         }
 
+        // Nothing makes a key unique, so the read and the insert share one transaction under a lock
+        // on the key, and two first saves of one key cannot both find nothing.
+        await session.BeginTransactionAsync(ct);
+        await session.QueryAsync<int>(
+            "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct, $"barakocms:setting:{req.Key}");
+
         var setting = await session.Query<SystemSetting>()
             .FirstOrDefaultAsync(s => s.Key == req.Key, ct);
 
