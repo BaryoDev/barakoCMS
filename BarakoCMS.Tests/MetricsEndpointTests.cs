@@ -139,6 +139,22 @@ public class MetricsEndpointTests
         (await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().NotContain("process_");
     }
 
+    [Theory]
+    [InlineData("//metrics")]
+    [InlineData("///metrics")]
+    [InlineData("/metrics//")]
+    public async Task A_doubled_slash_with_the_key_is_let_past_the_guard(string path)
+    {
+        var client = Scrapeable();
+        client.DefaultRequestHeaders.Add(MetricsScrapeAccess.HeaderName, ScrapeKey);
+        var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost" + path);
+
+        var res = await client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized,
+            "the guard treats this spelling as the metrics route, so a scraper holding the key is not refused by it");
+    }
+
     [Fact]
     public async Task The_guard_does_not_touch_the_rest_of_the_api()
     {
