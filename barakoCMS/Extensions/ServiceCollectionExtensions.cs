@@ -897,6 +897,17 @@ public static class ServiceCollectionExtensions
             .Index(x => x.ExecuteAfter);
     }
 
+    private static void MapIdempotencyRecords(StoreOptions options)
+    {
+        options.Schema.For<IdempotencyRecord>()
+            .SingleTenanted()
+            .DocumentAlias("idempotency_records")
+            .Index(x => x.Key, idx => idx.IsUnique = true)  // Unique constraint prevents race condition
+            // The retention sweep and its count filter and order on CreatedAt. An existing database
+            // needs migrations/5.5.0/idempotency-created-at-index.sql.
+            .Index(x => x.CreatedAt);
+    }
+
     private static void MapGlobalDocuments(StoreOptions options)
     {
         options.Schema.For<EmailSettings>()
@@ -934,13 +945,7 @@ public static class ServiceCollectionExtensions
             .Index(x => x.TokenJti, idx => idx.IsUnique = true)  // Index for fast revocation check
             .Index(x => x.ExpiresAt);  // Index for cleanup queries
 
-        options.Schema.For<IdempotencyRecord>()
-            .SingleTenanted()
-            .DocumentAlias("idempotency_records")
-            .Index(x => x.Key, idx => idx.IsUnique = true)  // Unique constraint prevents race condition
-            // The retention sweep and its count filter and order on CreatedAt. An existing database
-            // needs migrations/5.5.0/idempotency-created-at-index.sql.
-            .Index(x => x.CreatedAt);
+        MapIdempotencyRecords(options);
 
         options.Schema.For<OtpCode>()
             .SingleTenanted() // sign-in codes are keyed by global email, not by club
