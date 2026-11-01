@@ -166,6 +166,28 @@ public class UniquenessImportTests
     }
 
     [Fact]
+    public async Task A_blank_status_stays_published_and_a_status_is_read_without_regard_to_case()
+    {
+        var tenant = await TenantAsync();
+        var client = await AdminOfAsync(tenant);
+        var type = NewType();
+        var blank = Record(type, "S-1");
+        blank.Status = null!;
+        var lower = Record(type, "S-2");
+        lower.Status = "draft";
+
+        var response = await ImportAsync(client, [Register(type, BadgeRule())], [blank, lower]);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(response));
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using var session = store.QuerySession(tenant);
+        var stored = await session.Query<Content>().Where(c => c.ContentType == type).ToListAsync(Ct);
+        stored.Should().HaveCount(2);
+        stored.Single(c => c.Data["Badge"].ToString() == "S-1").Status.Should().Be(ContentStatus.Published);
+        stored.Single(c => c.Data["Badge"].ToString() == "S-2").Status.Should().Be(ContentStatus.Draft);
+    }
+
+    [Fact]
     public async Task A_type_exports_its_rules_and_another_tenant_imports_them()
     {
         var source = await TenantAsync();
