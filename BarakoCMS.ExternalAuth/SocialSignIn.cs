@@ -36,7 +36,15 @@ public static class SocialSignIn
 
     /// <summary>Profile fields a provider shared (any may be null). Only non-null values are stored.</summary>
     public sealed record ProfileData(
-        string? Name, string? PhotoUrl, string? Birthday, string? Location, string Source);
+        string? Name, string? PhotoUrl, string? Birthday, string? Location, string Source)
+    {
+        /// <summary>
+        /// <see cref="ExternalIdentity.KeyOf"/> of the provider account, set by the sign-in so the
+        /// stored profile can be found again from a provider id (a deletion request has nothing
+        /// else). Never the raw provider id.
+        /// </summary>
+        public string? AccountKey { get; init; }
+    }
 
     /// <summary>
     /// Sign-in through one of the OAuth providers (Google, Facebook, GitHub, LinkedIn). It names the
@@ -158,7 +166,8 @@ public static class SocialSignIn
 
         var mapped = await MappedRolesAsync(session, config, identity, provider, club, ct);
 
-        var profile = profileOverride ?? new ProfileData(identity.Name, identity.Picture, null, null, provider);
+        var profile = (profileOverride ?? new ProfileData(identity.Name, identity.Picture, null, null, provider))
+            with { AccountKey = key };
         return (await IssueForUserAsync(
             session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, beforeFinalCommit, mapped), false);
     }
@@ -234,10 +243,23 @@ public static class SocialSignIn
         // provider account takeover would sidestep the second factor.
         if (await mfa.IsEnabledAsync(user.Id, ct))
         {
+            if (signUp is null && !await FacebookDeletionFlow.HoldPendingForSignInAsync(session, user.Id, ct))
+            {
+                return Tokens.Denied();
+            }
+
+            FacebookDeletionFlow.StageKeepOnSignIn(session, user.Id);
             beforeFinalCommit?.Invoke(session);
             await session.SaveChangesAsync(ct); // persist the user/profile created above
             var challenge = await MfaChallengeAsync(session, config, user, tenantSlug, mapped, ct);
             return Tokens.MfaRequired(challenge);
+        }
+
+        // The profile and link are queued and the device gate may commit them, so an account erased
+        // since it was loaded is refused before that. A new account has no request to race.
+        if (signUp is null && !await FacebookDeletionFlow.HoldPendingForSignInAsync(session, user.Id, ct))
+        {
+            return Tokens.Denied();
         }
 
         var device = DeviceContext.From(http);
@@ -264,7 +286,15 @@ public static class SocialSignIn
 
         var jwt = issued.Token;
 
+        // Again in the transaction that commits the token: the gate above may have committed and
+        // released the first hold, and the person may have been erased since.
+        if (signUp is null && !await FacebookDeletionFlow.HoldPendingForSignInAsync(session, user.Id, ct))
+        {
+            return Tokens.Denied();
+        }
+
         var refresh = StageRefreshToken(session, user, issued.RefreshLifetime, device.DeviceId);
+        FacebookDeletionFlow.StageKeepOnSignIn(session, user.Id);
         beforeFinalCommit?.Invoke(session);
         await session.SaveChangesAsync(ct);
 
@@ -330,6 +360,11 @@ public static class SocialSignIn
         var tokens = await transaction.RunAsync<Tokens?>(async (scope, token) =>
         {
             var writes = scope.GetRequiredService<IDocumentSession>();
+            if (!await FacebookDeletionFlow.HoldPendingForSignInAsync(writes, user.Id, token))
+            {
+                return new barakoCMS.Infrastructure.Services.ContentBatchOutcome<Tokens?>(null, Commit: false);
+            }
+
             granted = await StageMappedRolesAsync(writes, user, tenantSlug, mapped, token);
             await writes.SaveChangesAsync(token);
 
@@ -341,6 +376,7 @@ public static class SocialSignIn
             }
 
             var refresh = StageRefreshToken(writes, user, issued.RefreshLifetime, device.DeviceId);
+            FacebookDeletionFlow.StageKeepOnSignIn(writes, user.Id);
             beforeFinalCommit?.Invoke(writes);
             return new barakoCMS.Infrastructure.Services.ContentBatchOutcome<Tokens?>(
                 new Tokens(issued.Token, refresh), Commit: true);
@@ -397,10 +433,39 @@ public static class SocialSignIn
     {
         var sp = await session.Query<SocialProfile>().FirstOrDefaultAsync(p => p.UserId == user.Id, ct)
                  ?? new SocialProfile { Id = Guid.NewGuid(), UserId = user.Id };
-        sp.Name = profile.Name ?? sp.Name;
-        sp.PhotoUrl = profile.PhotoUrl ?? sp.PhotoUrl;
-        sp.Birthday = profile.Birthday ?? sp.Birthday;
-        sp.Location = profile.Location ?? sp.Location;
+        // Which fields Facebook last supplied, so a deletion request clears those and nothing a
+        // later provider wrote. Read before the merge, because a row from before this tracking
+        // is worked out from what it holds.
+        var facebook = SocialProfileFields.FacebookFieldsOf(sp);
+        var fromFacebook = profile.Source == FacebookDeletionFlow.FacebookProfileSource;
+        void Merge(string field, string? value, Action<string> set)
+        {
+            if (value is null)
+            {
+                return;
+            }
+
+            set(value);
+            if (fromFacebook)
+            {
+                facebook.Add(field);
+            }
+            else
+            {
+                facebook.Remove(field);
+            }
+        }
+
+        Merge(nameof(SocialProfile.Name), profile.Name, v => sp.Name = v);
+        Merge(nameof(SocialProfile.PhotoUrl), profile.PhotoUrl, v => sp.PhotoUrl = v);
+        Merge(nameof(SocialProfile.Birthday), profile.Birthday, v => sp.Birthday = v);
+        Merge(nameof(SocialProfile.Location), profile.Location, v => sp.Location = v);
+        sp.FacebookFields = facebook.Order().ToList();
+        if (fromFacebook && profile.AccountKey is not null)
+        {
+            sp.FacebookKey = profile.AccountKey;
+        }
+
         sp.Source = profile.Source;
         sp.UpdatedAt = DateTime.UtcNow;
         session.Store(sp);
@@ -451,6 +516,13 @@ public static class SocialSignIn
             return FrontendError(baseUrl, $"Couldn't reach {label}. Please try again, or use your email code.", club);
         }
 
+        // Before anything is issued: a refresh token is saved by the sign-in, and a handoff that
+        // cannot store its code would leave that token behind.
+        if (SocialHandoff.Enabled(config) && await SocialHandoff.RefusalAsync(session, http, baseUrl, club, ct) is { } refusal)
+        {
+            return refusal;
+        }
+
         Tokens tokens;
         bool emailNotVerified;
         try
@@ -467,7 +539,7 @@ public static class SocialSignIn
 
         if (tokens.RequiresMfa)
         {
-            return FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club);
+            return await SuccessRedirectAsync(session, config, http, baseUrl, tokens, club, ct);
         }
 
         if (!tokens.Allowed)
@@ -477,7 +549,28 @@ public static class SocialSignIn
                 baseUrl, emailNotVerified && !email.Contains('@') ? noEmailMessage : "You are not a member of this club.", club);
         }
 
-        return FrontendCallback(baseUrl, tokens.Token, tokens.Refresh, club);
+        return await SuccessRedirectAsync(session, config, http, baseUrl, tokens, club, ct);
+    }
+
+    /// <summary>
+    /// Where the browser goes once a sign-in has an outcome: the tokens or the MFA challenge in the
+    /// fragment, which is what every deployment gets unless it turned the code handoff on, in which
+    /// case only a single-use code travels (see <see cref="SocialHandoff"/>).
+    /// </summary>
+    internal static Task<string> SuccessRedirectAsync(
+        IDocumentSession session, IConfiguration config, HttpContext http, string baseUrl, Tokens tokens,
+        string club, CancellationToken ct)
+    {
+        if (SocialHandoff.Enabled(config))
+        {
+            return SocialHandoff.RedirectAsync(
+                session, http, baseUrl,
+                new SocialHandoffOutcome(tokens.Token, tokens.Refresh, tokens.RequiresMfa, tokens.MfaChallenge, club), ct);
+        }
+
+        return Task.FromResult(tokens.RequiresMfa
+            ? FrontendMfaCallback(baseUrl, tokens.MfaChallenge!, club)
+            : FrontendCallback(baseUrl, tokens.Token, tokens.Refresh, club));
     }
 }
 
@@ -498,5 +591,88 @@ public class SocialProfile
 
     /// <summary>Which provider last populated this (e.g. "facebook", "linkedin").</summary>
     public string? Source { get; set; }
+
+    /// <summary>
+    /// The fields (property names) whose current value Facebook supplied. A field another provider
+    /// overwrote is not listed. Null on a row written before this was tracked.
+    /// </summary>
+    public List<string>? FacebookFields { get; set; }
+
+    /// <summary>
+    /// <see cref="ExternalIdentity.KeyOf"/> of the Facebook account that filled this, so a deletion
+    /// request can find the profile even when no link row exists (an address the operator trusts
+    /// signs in without storing one). Null on a row written before this was stored.
+    /// </summary>
+    public string? FacebookKey { get; set; }
     public DateTime UpdatedAt { get; set; }
+}
+
+/// <summary>Which of a <see cref="SocialProfile"/>'s fields Facebook supplied.</summary>
+internal static class SocialProfileFields
+{
+    public static readonly string[] All =
+    [
+        nameof(SocialProfile.Name), nameof(SocialProfile.PhotoUrl),
+        nameof(SocialProfile.Birthday), nameof(SocialProfile.Location),
+    ];
+
+    private static string? ValueOf(SocialProfile sp, string field) => field switch
+    {
+        nameof(SocialProfile.Name) => sp.Name,
+        nameof(SocialProfile.PhotoUrl) => sp.PhotoUrl,
+        nameof(SocialProfile.Birthday) => sp.Birthday,
+        _ => sp.Location,
+    };
+
+    /// <summary>
+    /// The fields Facebook supplied. Tracked rows say so. For a row from before tracking: when
+    /// Facebook wrote it last, every field it holds; otherwise only the ones no other provider
+    /// supplies. Birthday comes only from Facebook. Location comes from Facebook and GitHub, so a
+    /// row GitHub wrote last keeps it (it may be GitHub's), and one Google or LinkedIn wrote last
+    /// loses it (they share none). Name and photo come from every provider and are kept.
+    /// </summary>
+    public static HashSet<string> FacebookFieldsOf(SocialProfile sp)
+    {
+        if (sp.FacebookFields is { } tracked)
+        {
+            return [.. tracked];
+        }
+
+        var set = new HashSet<string>();
+        var facebookLast = sp.Source == FacebookDeletionFlow.FacebookProfileSource;
+        foreach (var field in All)
+        {
+            if (ValueOf(sp, field) is null)
+            {
+                continue;
+            }
+
+            var facebooks = facebookLast || field == nameof(SocialProfile.Birthday)
+                || (field == nameof(SocialProfile.Location) && sp.Source != "github");
+            if (facebooks)
+            {
+                set.Add(field);
+            }
+        }
+
+        return set;
+    }
+
+    /// <summary>Clears <paramref name="fields"/> and says whether the profile still holds anything.</summary>
+    public static bool ClearAndAnyLeft(SocialProfile sp, IEnumerable<string> fields)
+    {
+        foreach (var field in fields)
+        {
+            switch (field)
+            {
+                case nameof(SocialProfile.Name): sp.Name = null; break;
+                case nameof(SocialProfile.PhotoUrl): sp.PhotoUrl = null; break;
+                case nameof(SocialProfile.Birthday): sp.Birthday = null; break;
+                case nameof(SocialProfile.Location): sp.Location = null; break;
+            }
+        }
+
+        sp.FacebookFields = [];
+        return All.Any(f => ValueOf(sp, f) is not null);
+    }
 }

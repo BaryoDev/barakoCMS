@@ -25,6 +25,9 @@ internal sealed class OAuthStubHandler : HttpMessageHandler
     public string GoogleAudience { get; set; } = "google-client";
     public string FacebookId { get; set; } = "";
     public string FacebookEmail { get; set; } = "";
+    public string? FacebookName { get; set; } = "Eff Bee";
+    public string? FacebookBirthday { get; set; }
+    public string? FacebookLocation { get; set; }
     public long GitHubId { get; set; }
     public string GitHubEmail { get; set; } = "";
 
@@ -51,7 +54,7 @@ internal sealed class OAuthStubHandler : HttpMessageHandler
             var u when u.Contains("graph.facebook.com/v21.0/oauth/access_token", StringComparison.Ordinal)
                 => """{"access_token":"fb.stub"}""",
             var u when u.Contains("graph.facebook.com/v21.0/me", StringComparison.Ordinal)
-                => $$"""{"id":"{{FacebookId}}","name":"Eff Bee","email":"{{FacebookEmail}}"}""",
+                => $$"""{"id":"{{FacebookId}}","email":"{{FacebookEmail}}"{{(FacebookName is null ? "" : $",\"name\":\"{FacebookName}\"")}}{{(FacebookBirthday is null ? "" : $",\"birthday\":\"{FacebookBirthday}\"")}}{{(FacebookLocation is null ? "" : $",\"location\":{{\"name\":\"{FacebookLocation}\"}}")}}}""",
             var u when u.Contains("login/oauth/access_token", StringComparison.Ordinal)
                 => """{"access_token":"gho_stub","token_type":"bearer"}""",
             var u when u.EndsWith("api.github.com/user/emails", StringComparison.Ordinal)

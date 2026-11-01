@@ -76,6 +76,7 @@ public class GoogleStartEndpoint(IConfiguration config, IQuerySession session) :
         var state = ExternalAuthSupport.NewState();
         HttpContext.Response.Cookies.Append("gg_state", state, ExternalAuthSupport.ShortCookie());
         HttpContext.Response.Cookies.Append("gg_club", club, ExternalAuthSupport.ShortCookie());
+        SocialHandoff.BindDevice(HttpContext, config);
 
         var redirect = Gg.CallbackUrl(config, HttpContext);
         var url =

@@ -69,6 +69,13 @@ public sealed class ExternalAuthModule : IBarakoModule
                             OidcSupport.Positive(limits, "WindowSeconds", OidcSupport.DefaultWindowSeconds)),
                     });
             }));
+
+        // The exchange and the deletion routes are anonymous too, and one of them can end an
+        // account, so they share a tighter bucket of their own.
+        services.Configure<RateLimiterOptions>(SocialRateLimit.Register);
+
+        services.AddScoped<UserEraser>();
+        services.AddHostedService<FacebookDeletionSweeper>();
     }
 
     public void ConfigureSchema(IModuleSchema schema)
@@ -100,5 +107,21 @@ public sealed class ExternalAuthModule : IBarakoModule
             .SingleTenanted()
             .DocumentAlias("oidc_used_nonces")
             .Index(x => x.ExpiresAt);
+
+        // Global too: a handoff code is collected by the browser that started the sign-in, whichever
+        // club it was for. Optimistic concurrency is what lets exactly one of two exchanges win.
+        schema.For<SocialHandoffCode>()
+            .SingleTenanted()
+            .DocumentAlias("social_handoff_codes")
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.ExpiresAt);
+
+        // Global too: Facebook's deletion callback has no club.
+        schema.For<FacebookDeletionRequest>()
+            .SingleTenanted()
+            .DocumentAlias("facebook_deletion_requests")
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.ExpiresAt)
+            .Index(x => x.SettledAt);
     }
 }
