@@ -317,4 +317,100 @@ public class ErasureTests
         var found = await session.LoadManyAsync<barakoCMS.Models.SiteShareLink>(ids);
         return found.Select(l => l.Id).ToList();
     }
+
+    /// <summary>
+    /// Erasing an entry removes the values its published messages and workflow runs copied.
+    /// </summary>
+    /// <remarks>
+    /// The outbox body is the exact JSON sent, so it holds field values. A run's captured outputs and
+    /// error text can hold what a provider returned. Another entry's rows are the control.
+    /// </remarks>
+    [Fact]
+    public async Task Erasing_an_entry_clears_its_outbox_messages_and_run_values_and_no_others()
+    {
+        await AuthenticateAsync("SuperAdmin");
+        var needle = $"cascade-{Guid.NewGuid():n}";
+        var erased = await SeedAsync(needle);
+        var kept = await SeedAsync($"cascade-{Guid.NewGuid():n}");
+        var erasedMessage = await StoreMessageAsync(erased, needle);
+        var keptMessage = await StoreMessageAsync(kept, needle);
+        var erasedRun = await StoreRunAsync(erased, needle);
+        var keptRun = await StoreRunAsync(kept, needle);
+
+        (await StoredMessageIdsAsync(erasedMessage, keptMessage)).Should().HaveCount(2,
+            "the rows have to be there first, or their absence below proves nothing");
+
+        (await _client.DeleteAsync($"/api/contents/{erased}/erase")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await StoredMessageIdsAsync(erasedMessage, keptMessage)).Should().BeEquivalentTo(new[] { keptMessage });
+
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var gone = await session.LoadAsync<barakoCMS.Models.WorkflowRun>(erasedRun);
+        gone.Should().NotBeNull("the run stays as history");
+        gone!.Actions.Should().HaveCount(1);
+        System.Text.Json.JsonSerializer.Serialize(gone).Should().NotContain(needle);
+        gone.ContentId.Should().Be(erased);
+
+        var survivor = await session.LoadAsync<barakoCMS.Models.WorkflowRun>(keptRun);
+        survivor.Should().NotBeNull();
+        System.Text.Json.JsonSerializer.Serialize(survivor).Should().Contain(needle);
+    }
+
+    private async Task<Guid> StoreMessageAsync(Guid contentId, string needle)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var id = Guid.NewGuid();
+        session.Store(new barakoCMS.Models.OutboxMessage
+        {
+            Id = id,
+            Tenant = "default",
+            ContentType = "erasure-probe",
+            ContentId = contentId,
+            Topic = "t",
+            MessageType = "m",
+            Url = "https://example.com/hook",
+            Body = "{\"payload\":{\"name\":\"" + needle + "\"}}",
+            CreatedAt = DateTimeOffset.UtcNow,
+            NextAttemptAt = DateTimeOffset.UtcNow.AddDays(1),
+        });
+        await session.SaveChangesAsync();
+        return id;
+    }
+
+    private async Task<Guid> StoreRunAsync(Guid contentId, string needle)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var id = Guid.NewGuid();
+        session.Store(new barakoCMS.Models.WorkflowRun
+        {
+            Id = id,
+            ContentId = contentId,
+            ContentType = "erasure-probe",
+            WorkflowName = "probe",
+            TriggerEvent = "Created",
+            Actions =
+            [
+                new barakoCMS.Models.WorkflowActionAttempt
+                {
+                    ActionType = "Webhook",
+                    Outputs = new Dictionary<string, string> { ["email"] = needle },
+                    Error = "refused " + needle,
+                    History = [new barakoCMS.Models.WorkflowAttemptEntry { Number = 1, Error = needle }],
+                },
+            ],
+        });
+        await session.SaveChangesAsync();
+        return id;
+    }
+
+    private async Task<List<Guid>> StoredMessageIdsAsync(params Guid[] ids)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var found = await session.LoadManyAsync<barakoCMS.Models.OutboxMessage>(ids);
+        return found.Select(m => m.Id).ToList();
+    }
 }
