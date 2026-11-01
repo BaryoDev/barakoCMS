@@ -18,4 +18,6 @@ internal sealed class ModuleWorkflowAction(IWorkflowAction inner, string type) :
 
     public Task<WorkflowActionResult> RunAsync(WorkflowContext context, CancellationToken ct) =>
         Inner.RunAsync(context, ct);
+
+    public bool HonoursIdempotencyKey => Inner.HonoursIdempotencyKey;
 }

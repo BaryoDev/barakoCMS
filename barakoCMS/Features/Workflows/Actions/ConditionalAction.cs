@@ -171,7 +171,7 @@ internal class ConditionalAction : IWorkflowAction
                     ActionParameters.WithTriggerOf(parameters, ResolveChild(extractor, childAction.Type, childParameters, content)),
                     content, ct);
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            catch (Exception ex) when (ex is SendOutcomeUnknownException || (ex is OperationCanceledException && ct.IsCancellationRequested))
             {
                 throw;
             }
