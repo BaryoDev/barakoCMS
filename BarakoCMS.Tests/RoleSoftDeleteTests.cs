@@ -102,6 +102,37 @@ public class RoleSoftDeleteTests
     }
 
     [Fact]
+    public async Task Restoring_a_group_drops_its_deleted_roles_and_keeps_its_live_ones()
+    {
+        var live = Guid.NewGuid();
+        var dead = Guid.NewGuid();
+        var groupId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new Role { Id = live, Name = "live" + Guid.NewGuid().ToString("n")[..8], IsPlatform = true });
+            session.Store(new Role { Id = dead, Name = "dead" + Guid.NewGuid().ToString("n")[..8], IsPlatform = true, DeletedAt = DateTime.UtcNow });
+            session.Store(new UserGroup
+            {
+                Id = groupId,
+                Name = "g" + Guid.NewGuid().ToString("n")[..8],
+                RoleIds = [live, dead],
+                DeletedAt = DateTime.UtcNow,
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var client = await ClientFor("SuperAdmin");
+        (await client.PostAsync($"/api/user-groups/{groupId}/restore", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var read = _factory.Services.CreateScope();
+        var group = (await read.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<UserGroup>(groupId, Ct))!;
+        group.DeletedAt.Should().BeNull();
+        group.RoleIds.Should().NotBeEmpty();
+        group.RoleIds.Should().BeEquivalentTo([live], "the deleted role is dropped and the live one stays");
+    }
+
+    [Fact]
     public async Task Erasing_a_deleted_role_is_final_and_a_live_role_cannot_be_erased()
     {
         var client = await ClientFor("SuperAdmin");
