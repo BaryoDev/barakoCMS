@@ -126,16 +126,19 @@ internal class VerifyEndpoint(
         return (token, expiry);
     }
 
+    private async Task<OtpCode?> LatestPendingCodeAsync(string email, CancellationToken ct) =>
+        (await session.Query<OtpCode>()
+                .Where(o => o.Email == email && !o.Consumed)
+                .ToListAsync(ct))
+            .OrderByDescending(o => o.CreatedAt)
+            .FirstOrDefault();
+
     public override async Task HandleAsync(OtpVerifyRequest req, CancellationToken ct)
     {
         var email = (req.Email ?? string.Empty).Trim().ToLowerInvariant();
         var code = (req.Code ?? string.Empty).Trim();
 
-        var otp = (await session.Query<OtpCode>()
-                .Where(o => o.Email == email && !o.Consumed)
-                .ToListAsync(ct))
-            .OrderByDescending(o => o.CreatedAt)
-            .FirstOrDefault();
+        var otp = await LatestPendingCodeAsync(email, ct);
 
         if (otp == null || otp.ExpiresAt < DateTime.UtcNow)
         {
