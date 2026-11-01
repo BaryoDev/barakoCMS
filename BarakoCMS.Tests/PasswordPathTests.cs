@@ -56,7 +56,7 @@ public class PasswordPathTests
         var changedEmail = $"changed-{user.Id:N}@example.com";
 
         var change = _client.PostAsJsonAsync("/api/me/password", new { CurrentPassword = OldPassword, NewPassword }, Ct);
-        await Task.Delay(40, Ct);
+        await Task.Delay(150, Ct);
         await PatchEmailAsync(user.Id, changedEmail);
         var res = await change;
 
@@ -75,7 +75,7 @@ public class PasswordPathTests
 
         // The reset hashes at the work factor before it saves, which is the window.
         var reset = _client.PostAsJsonAsync($"/api/users/{user.Id}/password", new { NewPassword }, Ct);
-        await Task.Delay(40, Ct);
+        await Task.Delay(60, Ct);
         await PatchEmailAsync(user.Id, changedEmail);
         var res = await reset;
 
@@ -109,7 +109,7 @@ public class PasswordPathTests
         var changedEmail = $"changed-{user.Id:N}@example.com";
 
         var login = _client.PostAsJsonAsync("/api/auth/login", new { user.Username, Password = OldPassword }, Ct);
-        await Task.Delay(40, Ct);
+        await Task.Delay(120, Ct);
         await PatchEmailAsync(user.Id, changedEmail);
         var res = await login;
 
