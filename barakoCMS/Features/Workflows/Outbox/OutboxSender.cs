@@ -71,8 +71,15 @@ internal sealed class OutboxSender(
 
         foreach (var tenantId in await TenantPartitions.ListAsync(store, config, PartitionsWithMessagesSql, ct))
         {
-            await using var session = store.LightweightSession(tenantId);
-            sent += await DeliverDueAsync(session, now, ct);
+            try
+            {
+                await using var session = store.LightweightSession(tenantId);
+                sent += await DeliverDueAsync(session, now, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError("The outbox sender failed for tenant {Tenant} ({Exception})", tenantId, ex.GetType().Name);
+            }
         }
 
         return sent;
