@@ -49,6 +49,42 @@ public class CollectionPushTests
     }
 
     [Fact]
+    public async Task A_push_under_another_case_of_the_type_name_updates_the_same_entry()
+    {
+        var type = await ArrangeTypeAsync();
+        var client = await AdminAsync();
+        var spelled = type.ToUpperInvariant();
+        spelled.Should().NotBe(type);
+
+        await PushOkAsync(client, spelled, new { entries = new[] { Entry("a", "First") } });
+        var (status, body) = await PushAsync(client, type, new { entries = new[] { Entry("a", "First") } });
+
+        status.Should().Be(HttpStatusCode.OK, body.ToString());
+        Count(body, "created").Should().Be(0);
+        var entries = await EntriesAsync(type);
+        entries.Should().HaveCount(1);
+        entries.Should().OnlyContain(e => e.ContentType == type);
+    }
+
+    [Fact]
+    public async Task A_push_finds_and_archives_entries_stored_under_another_case_of_the_type_name()
+    {
+        var type = await ArrangeTypeAsync();
+        var client = await AdminAsync();
+        await PushOkAsync(client, type, new { entries = new[] { Entry("a", "A"), Entry("gone", "Gone") } });
+        await RespellStoredTypeAsync(type, type.ToUpperInvariant());
+
+        var (status, body) = await PushAsync(client, type, new { archiveMissing = true, entries = new[] { Entry("a", "A") } });
+
+        status.Should().Be(HttpStatusCode.OK, body.ToString());
+        Count(body, "created").Should().Be(0);
+        Count(body, "archived").Should().Be(1);
+        var entries = await EntriesAsync(type.ToUpperInvariant());
+        entries.Should().HaveCount(2);
+        Status(entries, "gone").Should().Be(ContentStatus.Archived);
+    }
+
+    [Fact]
     public async Task A_second_push_updates_the_changed_entry_and_leaves_the_unchanged_one_alone()
     {
         var type = await ArrangeTypeAsync();
@@ -608,6 +644,18 @@ public class CollectionPushTests
         return (await session.Query<Content>()
             .Where(c => c.ContentType == type)
             .ToListAsync(TestContext.Current.CancellationToken)).ToList();
+    }
+
+    private async Task RespellStoredTypeAsync(string type, string spelled)
+    {
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using var session = store.LightweightSession();
+        var rows = await session.Query<Content>().Where(c => c.ContentType == type)
+            .ToListAsync(TestContext.Current.CancellationToken);
+        rows.Should().NotBeEmpty();
+        foreach (var row in rows) row.ContentType = spelled;
+        session.Store(rows.ToArray());
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 
     private static string? Value(Content entry, string field) =>

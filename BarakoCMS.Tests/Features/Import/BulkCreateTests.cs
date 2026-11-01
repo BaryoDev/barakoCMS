@@ -129,6 +129,25 @@ public class BulkCreateTests
             "the count in the report is only worth anything if the documents are actually there");
     }
 
+    [Fact]
+    public async Task A_bulk_create_stores_the_type_name_as_the_definition_spells_it()
+    {
+        var type = await ContentTypeAsync();
+        var client = await ClientAsync("SuperAdmin");
+        var typed = type.ToUpperInvariant();
+        typed.Should().NotBe(type);
+
+        var response = await client.PostAsJsonAsync("/api/import/content", new
+        {
+            contentType = typed,
+            records = new[] { new Dictionary<string, object> { ["Title"] = "First" } },
+        }, TestContext.Current.CancellationToken);
+
+        response.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", response.StatusCode,
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        (await CountAsync(type)).Should().Be(1);
+    }
+
     /// <summary>
     /// One bad row in an all-or-nothing import writes nothing at all, including the good rows
     /// that came before it.
