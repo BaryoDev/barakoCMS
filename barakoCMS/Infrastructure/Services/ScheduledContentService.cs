@@ -128,7 +128,17 @@ public class ScheduledContentService : BackgroundService
             }
         }
 
-        return await SweepHeldAsync(nowUtc, lease, ct);
+        var swept = false;
+        try
+        {
+            swept = await SweepHeldAsync(nowUtc, lease, ct);
+        }
+        finally
+        {
+            await SweepMissedPartitionsAsync(lease, ct);
+        }
+
+        return swept;
     }
 
     /// <summary>Runs once, after a tenant's due items are loaded and before the first is written. Tests only.</summary>
@@ -168,7 +178,6 @@ public class ScheduledContentService : BackgroundService
                 session, nowUtc, _logger, DefaultBatchSize, DefaultMaxBatchesPerSweep,
                 beforeSave: null, afterLoad: AfterLoad, ct);
             await SweepScheduleWorkflowsAsync(session, nowUtc, _logger, _configuration, ct);
-            await SweepMissedTriggersAsync(session, BeforeMissedTriggers, _logger, ct);
             span?.SetTag(Tracing.BarakoTracing.ScheduledTransitionsTag, changed);
             if (changed > 0)
                 _logger.LogInformation("Scheduled sweep applied {Count} transition(s) for tenant {Tenant}",
@@ -321,14 +330,60 @@ public class ScheduledContentService : BackgroundService
         }
     }
 
-    /// <summary>Runs before a tenant's missed workflow triggers are replayed. Tests only.</summary>
+    /// <summary>Runs before a partition's missed workflow triggers are replayed. Tests only.</summary>
     internal Func<IDocumentSession, CancellationToken, Task>? BeforeMissedTriggers { get; set; }
 
     /// <summary>
-    /// Replays the workflow triggers the projection could not queue, inside the same sweep lock.
+    /// Replays the workflow triggers the projection could not queue, in every partition that holds
+    /// one, inside the same sweep lock.
     /// </summary>
     /// <remarks>
-    /// A failure here is logged and not thrown, so the tenants after this one are still replayed.
+    /// Run after the content and schedule sweeps and whether or not they threw, in a session of its
+    /// own so nothing they left pending is saved with it. Not limited to the partitions those sweeps
+    /// visit: a row of a tenant that is not Active is still replayed, since the event happened
+    /// before it was deactivated, and so is a row in the default partition under Multi, where the
+    /// projection writes one for an event stored with no tenant. A failure in one partition is
+    /// logged and the next is still replayed.
+    /// </remarks>
+    private async Task SweepMissedPartitionsAsync(AdvisoryLease lease, CancellationToken ct)
+    {
+        IReadOnlyList<string> partitions;
+        try
+        {
+            partitions = await MissedPartitionsAsync(ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError("Listing the partitions with missed workflow triggers failed ({ErrorType}); the next sweep tries again", ex.GetType().Name);
+            return;
+        }
+
+        foreach (var tenant in partitions)
+        {
+            if (!await lease.IsHeldAsync(ct))
+            {
+                _logger.LogWarning("The scheduled sweep lost its advisory lock; stopping the missed workflow triggers before tenant {Tenant}", tenant);
+                return;
+            }
+
+            await using var session = _store.LightweightSession(tenant);
+            await SweepMissedTriggersAsync(session, BeforeMissedTriggers, _logger, ct);
+        }
+    }
+
+    /// <remarks>
+    /// The registry, active or not, and the default partition, whatever the tenancy mode. A listing of
+    /// the rows would reach a slug nobody registered, but it reads a table a database that has not
+    /// had the migration yet may not have, and would log an error every minute until it does.
+    /// </remarks>
+    private Task<IReadOnlyList<string>> MissedPartitionsAsync(CancellationToken ct) =>
+        Multitenancy.TenantPartitions.FromRegistryAsync(_store, ct);
+
+    /// <summary>
+    /// Replays one partition's missed workflow triggers.
+    /// </summary>
+    /// <remarks>
+    /// A failure here is logged and not thrown, so the partitions after this one are still replayed.
     /// The rows stay, and the next sweep a minute later reads them again.
     /// </remarks>
     private static async Task SweepMissedTriggersAsync(
@@ -344,7 +399,7 @@ public class ScheduledContentService : BackgroundService
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             session.EjectAllPendingChanges();
-            logger?.LogError(ex, "Replaying the missed workflow triggers failed for tenant {Tenant}; the next sweep tries again", session.TenantId);
+            logger?.LogError("Replaying the missed workflow triggers failed for tenant {Tenant} ({ErrorType}); the next sweep tries again", session.TenantId, ex.GetType().Name);
         }
     }
 

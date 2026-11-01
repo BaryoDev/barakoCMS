@@ -1151,9 +1151,9 @@ public static class ServiceCollectionExtensions
             }
 
             MapContentDocuments(options);
-
             MapIdentityAndSettingsDocuments(options);
-            MapTenantScopedDocuments(options); MapMissedWorkflowTriggers(options);
+            MapTenantScopedDocuments(options);
+            MapMissedWorkflowTriggers(options);
             options.Schema.For<barakoCMS.Data.SeedMarker>().SingleTenanted().DocumentAlias("seed_markers");
 
             MapGlobalDocuments(options);

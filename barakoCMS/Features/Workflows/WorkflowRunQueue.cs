@@ -129,7 +129,7 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
 
         if (workflows.Count == 0) return 0;
 
-        var queued = 0;
+        var runs = new List<WorkflowRun>();
 
         foreach (var workflow in workflows)
         {
@@ -153,16 +153,67 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
                 continue;
             }
 
-            session.Store(NewRun(workflow, content.Id, content.ContentType, eventType, eventSequence));
-            queued++;
+            runs.Add(NewRun(workflow, content.Id, content.ContentType, eventType, eventSequence,
+                RunIdFor(workflow.Id, content.Id, eventSequence)));
         }
 
-        if (queued > 0) await session.SaveChangesAsync(ct);
+        var queued = await InsertRunsAsync(runs, ct);
 
         WorkflowMetrics.Default.Queued(eventType, queued);
 
         return queued;
     }
+
+    /// <summary>The run of one workflow for one event of one entry, the same whoever queues it.</summary>
+    internal static Guid RunIdFor(Guid workflowId, Guid contentId, long eventSequence) =>
+        barakoCMS.Features.Workflows.Actions.DeterministicId.From($"event-run:{workflowId:N}:{contentId:N}:{eventSequence}");
+
+    /// <summary>
+    /// Inserts the runs in one save. A run another writer inserted first is skipped, and the others
+    /// are still saved.
+    /// </summary>
+    /// <remarks>
+    /// The check in <see cref="EnqueueAsync"/> and the save are separate round trips, so the daemon
+    /// and the missed trigger sweep can both pass it for the same event. The fixed id makes the
+    /// second insert fail instead of adding a second run. One conflict fails the whole save, which
+    /// would drop the runs of the other workflows on the event, so the save is repeated one run at a
+    /// time when that happens.
+    /// </remarks>
+    private async Task<int> InsertRunsAsync(List<WorkflowRun> runs, CancellationToken ct)
+    {
+        if (runs.Count == 0) return 0;
+
+        foreach (var run in runs) session.Insert(run);
+        try
+        {
+            await session.SaveChangesAsync(ct);
+            return runs.Count;
+        }
+        catch (Exception ex) when (IsAlreadyThere(ex))
+        {
+            session.EjectAllPendingChanges();
+        }
+
+        var queued = 0;
+        foreach (var run in runs)
+        {
+            session.Insert(run);
+            try
+            {
+                await session.SaveChangesAsync(ct);
+                queued++;
+            }
+            catch (Exception ex) when (IsAlreadyThere(ex))
+            {
+                session.EjectAllPendingChanges();
+            }
+        }
+
+        return queued;
+    }
+
+    private static bool IsAlreadyThere(Exception ex) =>
+        ex is JasperFx.DocumentAlreadyExistsException || ex.InnerException is JasperFx.DocumentAlreadyExistsException;
 
     public async Task<int> QueueDeletedAsync(Guid contentId, string contentType, CancellationToken ct)
     {

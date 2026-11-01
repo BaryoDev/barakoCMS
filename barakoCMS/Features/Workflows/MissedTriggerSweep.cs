@@ -17,6 +17,13 @@ namespace barakoCMS.Features.Workflows;
 /// A crash between the run's save and the row's delete replays the row again, and the queue's
 /// check for a run at the same sequence queues nothing the second time.
 /// </para>
+/// <para>
+/// A replay reads the entry and the workflow definitions as they are when it runs, not as they were
+/// when the event happened. The projection has the same gap for the moments between the event and
+/// its own read, and the sweep has it for as long as a row waited. A workflow switched off, edited
+/// or deleted in between is replayed as it is now. Created and Updated match their conditions on the
+/// data the event wrote, so those are not affected by a later edit of the entry.
+/// </para>
 /// </remarks>
 internal static class MissedTriggerSweep
 {
@@ -32,7 +39,8 @@ internal static class MissedTriggerSweep
     {
         var rows = await session.Query<MissedWorkflowTrigger>()
             .Where(r => r.Attempts < MaxAttempts)
-            .OrderBy(r => r.RecordedAt)
+            .OrderBy(r => r.Attempts)
+            .ThenBy(r => r.RecordedAt)
             .Take(BatchSize)
             .ToListAsync(ct);
 
@@ -49,13 +57,27 @@ internal static class MissedTriggerSweep
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 session.EjectAllPendingChanges();
-                logger?.LogWarning(ex, "Replaying the missed {EventType} trigger for content {ContentId} failed; it is tried again on the next sweep",
-                    row.EventType, row.ContentId);
+                LogFailedReplay(session, row, ex, logger);
                 await CountAttemptAsync(session, row, ex, logger, ct);
             }
         }
 
         return handled;
+    }
+
+    /// <remarks>Logs the type of the exception and not the exception, for the reason given on <see cref="MissedWorkflowTrigger.LastError"/>.</remarks>
+    private static void LogFailedReplay(IDocumentSession session, MissedWorkflowTrigger row, Exception cause, ILogger? logger)
+    {
+        var eventType = barakoCMS.Infrastructure.Logging.LogSafe.Value(row.EventType);
+        if (row.Attempts + 1 >= MaxAttempts)
+        {
+            logger?.LogError("The missed {EventType} trigger for content {ContentId} in tenant {Tenant} failed {Attempts} replays ({ErrorType}) and is stopped. The sweep no longer reads it. To retry it, set Attempts back to 0 on its row in workflow_missed_triggers",
+                eventType, row.ContentId, session.TenantId, MaxAttempts, cause.GetType().Name);
+            return;
+        }
+
+        logger?.LogWarning("Replaying the missed {EventType} trigger for content {ContentId} in tenant {Tenant} failed ({ErrorType}); attempt {Attempt} of {Attempts}, and the next sweep tries again",
+            eventType, row.ContentId, session.TenantId, cause.GetType().Name, row.Attempts + 1, MaxAttempts);
     }
 
     private static async Task CountAttemptAsync(
@@ -71,8 +93,8 @@ internal static class MissedTriggerSweep
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             session.EjectAllPendingChanges();
-            logger?.LogWarning(ex, "Could not count a failed replay of the missed {EventType} trigger for content {ContentId}",
-                row.EventType, row.ContentId);
+            logger?.LogWarning("Could not count a failed replay of the missed {EventType} trigger for content {ContentId} ({ErrorType})",
+                barakoCMS.Infrastructure.Logging.LogSafe.Value(row.EventType), row.ContentId, ex.GetType().Name);
         }
     }
 
