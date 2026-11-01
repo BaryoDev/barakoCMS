@@ -20,7 +20,8 @@ namespace barakoCMS.Infrastructure.Services;
 internal sealed class IdempotencyRetentionService(
     IDocumentStore store,
     IdempotencyOptions options,
-    ILogger<IdempotencyRetentionService> logger) : BackgroundService
+    ILogger<IdempotencyRetentionService> logger,
+    IConfiguration? configuration = null) : BackgroundService
 {
     /// <summary>Same family as the other sweep keys, ending in this issue's number.</summary>
     private const long SweepLockKey = 8_242_026_612L;
@@ -78,49 +79,49 @@ internal sealed class IdempotencyRetentionService(
     /// <returns>What it removed and whether rows were left, or null when another instance held the lock.</returns>
     public async Task<IdempotencySweepResult?> TrySweepAsync(DateTime nowUtc, CancellationToken ct)
     {
-        await using var lockConnection = store.Storage.Database.CreateConnection();
-        await lockConnection.OpenAsync(ct);
-
-        await using (var acquire = lockConnection.CreateCommand())
+        await using var lease = await AdvisoryLease.AcquireAsync(store, SweepLockKey, ct);
+        if (lease is null)
         {
-            acquire.CommandText = "select pg_try_advisory_lock(@key)";
-            acquire.Parameters.AddWithValue("key", SweepLockKey);
+            logger.LogDebug("Another instance is sweeping idempotency keys; skipping this tick.");
+            return null;
+        }
 
-            if ((bool?)await acquire.ExecuteScalarAsync(ct) is not true)
+        if (lease.PoolerSuspected)
+        {
+            AdvisoryLease.ReportPooler(logger, SweepLockKey);
+            if (AdvisoryLease.RefuseBehindPooler(configuration))
             {
-                logger.LogDebug("Another instance is sweeping idempotency keys; skipping this tick.");
                 return null;
             }
         }
 
-        try
+        if (AfterLockHeld is { } hook)
         {
-            await using var session = store.LightweightSession();
-            var cutoff = nowUtc - options.KeyLifetime;
-            var result = await SweepAsync(session, nowUtc, options.KeyLifetime, BatchSize, SweepBudget, ct);
-
-            if (result.Behind)
-            {
-                var left = await session.Query<IdempotencyRecord>().CountAsync(r => r.CreatedAt <= cutoff, ct);
-                logger.LogWarning(
-                    "Idempotency key retention removed {Count} record(s) and ran out of time with {Left} expired record(s) left; the next sweep runs in {Wait}",
-                    result.Removed, left, CatchUpInterval);
-            }
-            else if (result.Removed > 0)
-            {
-                logger.LogInformation("Idempotency key retention removed {Count} record(s)", result.Removed);
-            }
-
-            return result;
+            await hook(ct);
         }
-        finally
+
+        await using var session = store.LightweightSession();
+        var cutoff = nowUtc - options.KeyLifetime;
+        var result = await SweepAsync(
+            session, nowUtc, options.KeyLifetime, BatchSize, SweepBudget, ct, lease.IsHeldAsync);
+
+        if (result.Behind)
         {
-            await using var release = lockConnection.CreateCommand();
-            release.CommandText = "select pg_advisory_unlock(@key)";
-            release.Parameters.AddWithValue("key", SweepLockKey);
-            await release.ExecuteScalarAsync(CancellationToken.None);
+            var left = await session.Query<IdempotencyRecord>().CountAsync(r => r.CreatedAt <= cutoff, ct);
+            logger.LogWarning(
+                "Idempotency key retention removed {Count} record(s) and stopped with {Left} expired record(s) left; the next sweep runs in {Wait}",
+                result.Removed, left, CatchUpInterval);
         }
+        else if (result.Removed > 0)
+        {
+            logger.LogInformation("Idempotency key retention removed {Count} record(s)", result.Removed);
+        }
+
+        return result;
     }
+
+    /// <summary>Runs once the lock is held and before the first batch. Tests only.</summary>
+    internal Func<CancellationToken, Task>? AfterLockHeld { get; set; }
 
     /// <summary>
     /// Deletes the records past the window in batches until none are left or the budget is spent.
@@ -128,7 +129,8 @@ internal sealed class IdempotencyRetentionService(
     /// </summary>
     /// <remarks>At least one batch runs whatever the budget, so a tick always makes progress.</remarks>
     public static async Task<IdempotencySweepResult> SweepAsync(
-        IDocumentSession session, DateTime nowUtc, TimeSpan lifetime, int batchSize, TimeSpan budget, CancellationToken ct)
+        IDocumentSession session, DateTime nowUtc, TimeSpan lifetime, int batchSize, TimeSpan budget, CancellationToken ct,
+        Func<CancellationToken, Task<bool>>? stillHeld = null)
     {
         var cutoff = nowUtc - lifetime;
         var removed = 0;
@@ -136,6 +138,11 @@ internal sealed class IdempotencyRetentionService(
 
         while (true)
         {
+            if (stillHeld is not null && !await stillHeld(ct))
+            {
+                return new IdempotencySweepResult(removed, Behind: true);
+            }
+
             var due = await session.Query<IdempotencyRecord>()
                 .Where(r => r.CreatedAt <= cutoff)
                 .OrderBy(r => r.CreatedAt)
