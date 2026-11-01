@@ -81,6 +81,100 @@ public class WorkflowRunnerTakeoverTests
         SendOnceRunnerAction.RunsByKey.GetValueOrDefault(attempt.IdempotencyKey).Should().Be(0);
     }
 
+    private async Task<WorkflowRun> DrainSeededAsync(
+        Guid contentId, IReadOnlyList<WorkflowActionAttempt> attempts, Func<WorkflowRun, Task>? afterSeed = null)
+    {
+        WorkflowRun seeded = null!;
+
+        await _harness.WithHostedRunnerPausedAsync(async () =>
+        {
+            seeded = await _harness.SeedRunAsync(Guid.NewGuid(), contentId, attempts);
+            if (afterSeed is not null) await afterSeed(seeded);
+            await _harness.DrainAsync();
+        });
+
+        return await _harness.LoadRunAsync(seeded.Id);
+    }
+
+    [Fact]
+    public async Task A_rerun_after_a_takeover_keeps_the_attempt_number_its_marker_was_written_under()
+    {
+        var contentId = await _harness.StoreContentAsync(new Dictionary<string, object> { ["note"] = "before" });
+        var update = Abandoned("UpdateField", attempts: 0);
+        update.Parameters = new Dictionary<string, string> { ["Field"] = "note", ["Value"] = "after" };
+
+        var run = await DrainSeededAsync(contentId, [update], async seeded =>
+        {
+            await using var session = _harness.Store.LightweightSession();
+            session.Store(new WorkflowFieldApplyMarker { Key = seeded.Actions[0].IdempotencyKey, Attempt = 1, AppliedAt = DateTimeOffset.UtcNow });
+            await session.SaveChangesAsync(WorkflowStopHarness.Ct);
+        });
+
+        var attempt = run.Actions.Should().ContainSingle().Which;
+        attempt.Status.Should().Be(AttemptStatus.Succeeded);
+        attempt.Attempts.Should().Be(2, "the lost try is counted, so the cap and the history see it");
+        attempt.Takeovers.Should().Be(1);
+
+        await using var query = _harness.Store.QuerySession();
+        var content = await query.LoadAsync<Content>(contentId, WorkflowStopHarness.Ct);
+        content!.Data["note"].ToString().Should().Be("before", "the marker says attempt 1 already applied it, so the rerun leaves it alone");
+    }
+
+    [Fact]
+    public async Task A_halt_policy_email_taken_over_skips_the_action_behind_it()
+    {
+        var contentId = await _harness.StoreContentAsync();
+        var email = Abandoned("Email", attempts: 0);
+        email.OnFailure = WorkflowFailurePolicy.Halt;
+
+        var run = await DrainSeededAsync(contentId, [email, WorkflowStopHarness.Waiting(due: true)]);
+
+        run.Actions[0].Status.Should().Be(AttemptStatus.Unknown);
+        run.Actions[1].Status.Should().Be(AttemptStatus.Skipped);
+        run.Actions[1].HaltedBy.Should().Be(0);
+        WorkflowStopHarness.TimesRun(run.Actions[1]).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_run_ended_by_a_takeover_tells_the_failure_handlers_once()
+    {
+        var contentId = await _harness.StoreContentAsync();
+
+        var run = await DrainSeededAsync(contentId, [Abandoned("SendOnceRunner", attempts: 0)]);
+
+        run.Status.Should().Be(RunStatus.Failed);
+        RecordingFailureHandler.Told.GetValueOrDefault(run.Id).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task An_undo_that_lost_its_lease_is_counted_and_ends_unknown_when_it_cannot_dedupe()
+    {
+        var contentId = await _harness.StoreContentAsync();
+        var done = new WorkflowActionAttempt
+        {
+            ActionType = WorkflowStopHarness.Counting,
+            Status = AttemptStatus.Succeeded,
+            Attempts = 1,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Compensate = new WorkflowCompensation { Type = "SendOnceRunner" },
+            Compensation = new CompensationState
+            {
+                Status = CompensationStatus.Running,
+                IdempotencyKey = $"undo-{Guid.NewGuid():N}",
+                LeasedBy = WorkflowStopHarness.OtherNode,
+                LeaseExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-5),
+            },
+        };
+
+        var run = await DrainSeededAsync(contentId, [done]);
+
+        var undo = run.Actions.Should().ContainSingle().Which.Compensation!;
+        undo.Status.Should().Be(CompensationStatus.Unknown);
+        undo.Attempts.Should().Be(1);
+        undo.Takeovers.Should().Be(1);
+        SendOnceRunnerAction.RunsByKey.GetValueOrDefault(undo.IdempotencyKey).Should().Be(0);
+    }
+
     [Fact]
     public async Task A_takeover_of_an_action_that_honours_the_key_runs_it_again()
     {

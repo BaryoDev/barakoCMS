@@ -1,4 +1,5 @@
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Features.Workflows;
 using barakoCMS.Features.Workflows.Actions;
 using barakoCMS.Models;
 using FluentAssertions;
@@ -32,13 +33,12 @@ public class SmsActionSendOnceTests
         var provider = new FailingSms();
         var action = new SmsAction(provider, NullLogger<SmsAction>.Instance);
 
-        // The runner records an OperationCanceledException that is not its own as Unknown and does
-        // not retry it (WorkflowRunner, the catch after RunAsync).
         var send = () => action.RunAsync(
             new Dictionary<string, string> { ["To"] = "+15550100", ["Message"] = "hello" },
             new Content { Id = Guid.NewGuid() }, Ct);
 
-        await send.Should().ThrowAsync<OperationCanceledException>();
+        var thrown = await send.Should().ThrowAsync<SendOutcomeUnknownException>();
+        thrown.Which.Message.Should().NotContain("dropped the line");
         provider.Calls.Should().Be(1);
     }
 }

@@ -272,11 +272,9 @@ public class OutboundResilienceTests
         var provider = new ScriptedEmail(_ => throw new InvalidOperationException("SMTP send failed"), _ => Task.CompletedTask);
         var action = new EmailAction(provider, NullLogger<EmailAction>.Instance, resilience: new OutboundResilience(Fast()));
 
-        // The runner records an OperationCanceledException that is not its own as Unknown and does
-        // not retry it (WorkflowRunner, the catch after RunAsync).
         var send = () => action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
 
-        await send.Should().ThrowAsync<OperationCanceledException>();
+        await send.Should().ThrowAsync<SendOutcomeUnknownException>().WithMessage("*InvalidOperationException*");
         provider.Calls.Should().Be(1, "nothing tells a send that never left from one the relay may have taken");
     }
 
@@ -319,7 +317,7 @@ public class OutboundResilienceTests
 
         var send = () => action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
 
-        await send.Should().ThrowAsync<OperationCanceledException>();
+        await send.Should().ThrowAsync<SendOutcomeUnknownException>();
         provider.Calls.Should().Be(2, "the second failure may be a message the relay took");
     }
 
@@ -335,7 +333,7 @@ public class OutboundResilienceTests
 
         var send = () => action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
 
-        await send.Should().ThrowAsync<OperationCanceledException>().WithMessage("*not known whether the email was sent*");
+        await send.Should().ThrowAsync<SendOutcomeUnknownException>().WithMessage("*not known whether the email was sent*");
         provider.Calls.Should().Be(2, "the timed out send may have gone out");
     }
 
@@ -412,9 +410,7 @@ public class OutboundResilienceTests
 
         var send = () => action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
 
-        // The runner records an OperationCanceledException that is not its own as Unknown and does
-        // not retry it (WorkflowRunner, the catch after RunAsync).
-        await send.Should().ThrowAsync<OperationCanceledException>().WithMessage("*not known whether the email was sent*");
+        await send.Should().ThrowAsync<SendOutcomeUnknownException>().WithMessage("*not known whether the email was sent*");
         provider.Calls.Should().Be(1, "a send that timed out may have gone out, and a second one is a second email");
     }
 

@@ -581,6 +581,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.DeletedEchoAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.CountingRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.SendOnceRunnerAction>();
+            services.AddScoped<barakoCMS.Modules.IWorkflowRunFailureHandler, BarakoCMS.Tests.Features.Workflows.RecordingFailureHandler>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.HookedRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.SlowRunnerAction>();
             services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, BarakoCMS.Tests.Features.Workflows.MeteredRunnerAction>();
