@@ -103,17 +103,17 @@ public sealed class BarakoModuleBuilder
 
     /// <summary>
     /// Find modules in the application's dependency context: every library that depends on
-    /// BarakoCMS is loaded and scanned as <see cref="DiscoverFrom(Assembly[])"/> would.
+    /// BarakoCMS or BarakoCMS.Abstractions is loaded and scanned as <see cref="DiscoverFrom(Assembly[])"/> would.
     /// </summary>
     /// <remarks>
     /// <c>DependencyContext</c> rather than <c>AppDomain.CurrentDomain.GetAssemblies()</c>, because
     /// assemblies load lazily: a referenced module nothing has touched yet is simply absent from
     /// the loaded set, and this is meant to run before anything has touched a module.
     ///
-    /// Only libraries that reach BarakoCMS through their dependencies are loaded, so an unrelated
+    /// Only libraries that reach BarakoCMS or BarakoCMS.Abstractions through their dependencies are loaded, so an unrelated
     /// package is never loaded on the chance it holds a module. Reach, not a direct reference:
     /// <c>BarakoCMS.Files.S3</c> references <c>BarakoCMS.Files</c> and nothing else, and a module
-    /// built on another module is a shape worth keeping. A library that reaches core and then
+    /// built on another module is a shape worth keeping. A library that reaches either and then
     /// fails to load is reported by name rather than skipped: skipping it would look like "my
     /// module does nothing", which is the failure this whole mechanism exists to avoid.
     ///
@@ -143,7 +143,7 @@ public sealed class BarakoModuleBuilder
                 {
                     throw new InvalidOperationException(
                         $"Module discovery could not load assembly '{name}' from '{library.Name}' "
-                        + $"{library.Version}, which depends on BarakoCMS and so may hold a module. "
+                        + $"{library.Version}, which depends on BarakoCMS or BarakoCMS.Abstractions and so may hold a module. "
                         + "Fix the reference, or set BarakoCMS:Modules:Discover to false and add "
                         + "modules explicitly.", ex);
                 }
@@ -253,7 +253,13 @@ public sealed class BarakoModuleBuilder
     };
 
     /// <summary>
-    /// Whether a library's dependency closure contains core. Memoised, because the same packages
+    /// The contract package. A module built on it alone never references core, so a library that
+    /// depends on it is a candidate too. Neither it nor core counts as a candidate itself.
+    /// </summary>
+    private const string ContractLibraryName = "BarakoCMS.Abstractions";
+
+    /// <summary>
+    /// Whether a library's dependency closure contains core or the contract package. Memoised, because the same packages
     /// sit under every module; core itself answers false, since it does not depend on itself.
     /// </summary>
     internal static Func<string, bool> ReachesCore(DependencyContext context)
@@ -273,8 +279,9 @@ public sealed class BarakoModuleBuilder
             // Provisionally false, which is also what breaks a cycle should the graph hold one.
             memo[name] = false;
 
-            var result = dependencies.TryGetValue(name, out var deps)
-                && deps.Any(d => CoreLibraryNames.Contains(d) || Reaches(d));
+            var result = !IsHostLibrary(name)
+                && dependencies.TryGetValue(name, out var deps)
+                && deps.Any(d => IsHostLibrary(d) || Reaches(d));
 
             memo[name] = result;
             return result;
@@ -282,6 +289,10 @@ public sealed class BarakoModuleBuilder
 
         return Reaches;
     }
+
+    private static bool IsHostLibrary(string name) =>
+        CoreLibraryNames.Contains(name)
+        || string.Equals(name, ContractLibraryName, StringComparison.OrdinalIgnoreCase);
 
     private static bool IsDiscoverable(Type type) =>
         type.IsPublic

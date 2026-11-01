@@ -31,9 +31,10 @@ await app.RunBarakoModuleSeedersAsync();  // runs each module's SeedAsync
 ```
 
 `AddBarakoCMS` reads the application's dependency context (`DependencyContext.Default`, the
-`deps.json` next to the host) and loads every library that reaches `BarakoCMS` through its
+`deps.json` next to the host) and loads every library that reaches `BarakoCMS` or `BarakoCMS.Abstractions` through its
 dependencies, directly or through another module (`BarakoCMS.Files.S3` references only
-`BarakoCMS.Files`), so an unrelated package is never loaded on the chance it holds a module. In each
+`BarakoCMS.Files`). A module built on the contract package alone is found without a core
+reference. An unrelated package is never loaded on the chance it holds a module. In each
 one it looks for
 public, top-level, concrete `IBarakoModule` types with a parameterless constructor, and registers
 them ordered by type name so a build is reproducible. A private or nested implementation is not a
