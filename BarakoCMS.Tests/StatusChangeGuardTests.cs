@@ -11,12 +11,13 @@ using barakoCMS.Models;
 namespace BarakoCMS.Tests;
 
 /// <summary>
-/// Commits an unrelated event to the stream in the window the rollback endpoint cannot see, for a
-/// writer that is asked to append a single event.
+/// Commits another writer's edit to the entry's document row in the window the rollback endpoint
+/// cannot see, on every append overload including the single-event one rollback used to call.
 /// </summary>
 /// <remarks>
-/// Same shape as <c>StreamAdvancingContentWriter</c> in ContentUpdateVersionTests.cs, which does not
-/// advance on the single-event append that rollback used to call.
+/// Same shape as <c>DocumentAdvancingContentWriter</c> in ContentConcurrencyTests.cs, which does not
+/// advance on the single-event append. The stream is not touched: a real concurrent edit goes
+/// through the writer and stores the document, so the document version is what moves.
 /// </remarks>
 internal sealed class SingleAppendAdvancingContentWriter : IContentWriter
 {
@@ -64,8 +65,9 @@ internal sealed class SingleAppendAdvancingContentWriter : IContentWriter
         if (!_advancer.Claim(content.Id)) return;
 
         await using var other = _store.LightweightSession();
-        other.Events.Append(content.Id, new barakoCMS.Events.ContentUpdated(
-            content.Id, content.Data, Guid.Empty, string.Empty));
+        var theirs = await other.LoadAsync<Content>(content.Id, ct);
+        theirs!.Data["Title"] = "changed by another writer mid-request";
+        other.Store(theirs);
         await other.SaveChangesAsync(ct);
     }
 }
@@ -192,6 +194,38 @@ public class StatusChangeGuardTests
 
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await LoadAsync(id)).Status.Should().Be(before, "the status field must not step around the named transitions");
+    }
+
+    [Fact]
+    public async Task Updating_with_the_stored_status_on_a_type_with_a_lifecycle_still_succeeds()
+    {
+        var client = await AdminClientAsync();
+        var name = "sgt" + Guid.NewGuid().ToString("n")[..8];
+        var typeRes = await client.PostAsJsonAsync("/api/content-types", new
+        {
+            name,
+            displayName = "Invoice",
+            fields = new[] { new { name = "Title", type = "string" } },
+            lifecycle = new LifecycleDefinition
+            {
+                States = ["Draft", "Submitted"],
+                InitialState = "Draft",
+                Transitions = [new StateTransition { Name = "Submit", From = "Draft", To = "Submitted" }],
+            },
+        }, TestContext.Current.CancellationToken);
+        typeRes.IsSuccessStatusCode.Should().BeTrue("got {0}", typeRes.StatusCode);
+        var id = await CreateEntryAsync(client, name);
+        var stored = (await LoadAsync(id)).Status;
+
+        var res = await client.PutAsJsonAsync($"/api/contents/{id}", new
+        {
+            id,
+            data = new Dictionary<string, object> { ["Title"] = "second" },
+            status = stored.ToString(),
+        }, TestContext.Current.CancellationToken);
+
+        res.IsSuccessStatusCode.Should().BeTrue("a client echoing the stored status changes nothing, got {0}: {1}",
+            res.StatusCode, await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
