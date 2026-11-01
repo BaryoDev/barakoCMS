@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using Marten;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using barakoCMS.Features.Redirects;
 using barakoCMS.Models;
@@ -339,9 +340,9 @@ public class RedirectEndpointTests
             await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement;
     }
 
-    private async Task<string> ResolveToAsync(string from)
+    private async Task<string> ResolveToAsync(string from, WebApplicationFactory<Program>? host = null)
     {
-        using var anonymous = _factory.CreateClient();
+        using var anonymous = (host ?? _factory).CreateClient();
         var response = await anonymous.GetAsync(
             $"/api/public/redirects/resolve?path={Uri.EscapeDataString(from)}",
             TestContext.Current.CancellationToken);
@@ -355,12 +356,15 @@ public class RedirectEndpointTests
     public async Task An_edited_redirect_answers_with_the_new_target_straight_away()
     {
         await AuthenticateAsync();
+        // The resolve answer is output cached, and only a host with the delivery cache on carries the
+        // listener that evicts it, so the edit has to go through this host.
+        var host = _factory.WithSetting("Delivery:ResponseCache:Enabled", "true");
         var from = Unique();
         (await SaveAsync(from, "/first")).IsSuccessStatusCode.Should().BeTrue();
 
-        (await ResolveToAsync(from)).Should().Be("/first");
+        (await ResolveToAsync(from, host)).Should().Be("/first");
 
-        using (var scope = _factory.Services.CreateScope())
+        using (var scope = host.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             var rule = await session.Query<UrlRedirect>().FirstAsync(r => r.FromPath == from, TestContext.Current.CancellationToken);
@@ -369,19 +373,22 @@ public class RedirectEndpointTests
             await session.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
-        (await ResolveToAsync(from)).Should().Be("/second");
+        (await ResolveToAsync(from, host)).Should().Be("/second");
     }
 
     [Fact]
     public async Task A_deleted_redirect_stops_answering_straight_away()
     {
         await AuthenticateAsync();
+        // The resolve answer is output cached, and only a host with the delivery cache on carries the
+        // listener that evicts it, so the edit has to go through this host.
+        var host = _factory.WithSetting("Delivery:ResponseCache:Enabled", "true");
         var from = Unique();
         (await SaveAsync(from, "/first")).IsSuccessStatusCode.Should().BeTrue();
 
-        (await ResolveToAsync(from)).Should().Be("/first");
+        (await ResolveToAsync(from, host)).Should().Be("/first");
 
-        using (var scope = _factory.Services.CreateScope())
+        using (var scope = host.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             var rule = await session.Query<UrlRedirect>().FirstAsync(r => r.FromPath == from, TestContext.Current.CancellationToken);
@@ -389,7 +396,7 @@ public class RedirectEndpointTests
             await session.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
-        using var anonymous = _factory.CreateClient();
+        using var anonymous = host.CreateClient();
         var response = await anonymous.GetAsync(
             $"/api/public/redirects/resolve?path={Uri.EscapeDataString(from)}",
             TestContext.Current.CancellationToken);
