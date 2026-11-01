@@ -39,7 +39,13 @@ internal class DisableEndpoint(
         var user = await query.LoadAsync<User>(userId, ct);
         if (user is null)
         {
-            await Send.UnauthorizedAsync(ct);
+            ThrowError("Invalid code.");
+            return;
+        }
+
+        if (!await mfa.IsEnabledAsync(userId, ct))
+        {
+            ThrowError("Invalid code. Enter a current authenticator code or a recovery code to turn off MFA.");
             return;
         }
 
@@ -90,7 +96,7 @@ internal class DisableEndpoint(
             var appName = config["Branding:AppName"] ?? "BarakoCMS";
             var body =
                 $"<p>Two-factor authentication was just turned off for your {System.Net.WebUtility.HtmlEncode(appName)} account.</p>" +
-                "<p>Other devices have been signed out.</p>" +
+                "<p>All devices have been signed out.</p>" +
                 "<p><strong>If this wasn't you</strong>, someone else may have access to your account. " +
                 "Change your password immediately and contact an administrator.</p>";
             await email.SendEmailAsync(user.Email, $"Two-factor authentication disabled on {appName}", body, ct);
