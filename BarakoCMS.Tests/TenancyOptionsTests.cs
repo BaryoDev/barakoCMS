@@ -60,6 +60,8 @@ public class TenancyOptionsTests
     [InlineData("GET", "/metrics")]
     [InlineData("GET", "/metrics/")]
     [InlineData("GET", "/Metrics/")]
+    [InlineData("GET", "//metrics")]
+    [InlineData("GET", "/metrics//")]
     [InlineData("GET", "/api/meta")]
     [InlineData("GET", "/API/Meta")]
     [InlineData("POST", "/api/auth/login")]

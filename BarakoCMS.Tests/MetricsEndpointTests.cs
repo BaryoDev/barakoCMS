@@ -124,6 +124,20 @@ public class MetricsEndpointTests
         (await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().NotContain("process_");
     }
 
+    [Theory]
+    [InlineData("//metrics")]
+    [InlineData("///metrics")]
+    [InlineData("/metrics//")]
+    public async Task A_doubled_slash_does_not_get_past_the_scrape_key(string path)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost" + path);
+
+        var res = await Scrapeable().SendAsync(request, TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().NotBe(HttpStatusCode.OK);
+        (await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().NotContain("process_");
+    }
+
     [Fact]
     public async Task The_guard_does_not_touch_the_rest_of_the_api()
     {
