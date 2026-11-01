@@ -336,6 +336,8 @@ public class ErasureTests
         var keptMessage = await StoreMessageAsync(kept, needle);
         var erasedRun = await StoreRunAsync(erased, needle);
         var keptRun = await StoreRunAsync(kept, needle);
+        var erasedDelivery = await StoreDeliveryAsync(erasedRun, needle);
+        var keptDelivery = await StoreDeliveryAsync(keptRun, needle);
 
         (await StoredMessageIdsAsync(erasedMessage, keptMessage)).Should().HaveCount(2,
             "the rows have to be there first, or their absence below proves nothing");
@@ -355,6 +357,89 @@ public class ErasureTests
         var survivor = await session.LoadAsync<barakoCMS.Models.WorkflowRun>(keptRun);
         survivor.Should().NotBeNull();
         System.Text.Json.JsonSerializer.Serialize(survivor).Should().Contain(needle);
+
+        gone.Actions[0].Compensation.Should().NotBeNull();
+        gone.Actions[0].Compensation!.Error.Should().BeNull("a compensation error can quote the entry too");
+        survivor!.Actions[0].Compensation!.Error.Should().Contain(needle);
+
+        (await session.LoadAsync<barakoCMS.Models.WebhookDelivery>(erasedDelivery))!.ResponseBody
+            .Should().BeNull("a provider response to this entry's run can echo what it held");
+        (await session.LoadAsync<barakoCMS.Models.WebhookDelivery>(keptDelivery))!.ResponseBody
+            .Should().Contain(needle);
+    }
+
+    /// <summary>
+    /// A runner save between the erase's load of a run and its commit does not fail the erase.
+    /// </summary>
+    /// <remarks>
+    /// The extra cascade bumps the run's version from another session on its first call only, after
+    /// the real cascade has loaded it, so the first commit conflicts and the second attempt reloads.
+    /// </remarks>
+    [Fact]
+    public async Task An_erase_that_conflicts_with_a_runner_save_is_retried_and_clears_the_rows()
+    {
+        await AuthenticateAsync("SuperAdmin");
+        var needle = $"retry-{Guid.NewGuid():n}";
+        var erased = await SeedAsync(needle);
+        var run = await StoreRunAsync(erased, needle);
+        var message = await StoreMessageAsync(erased, needle);
+        var conflicting = new ConflictOnce(_factory.Services.GetRequiredService<IServiceScopeFactory>(), run);
+        var client = _factory.WithWebHostBuilder(b => b.ConfigureServices(s =>
+            s.AddSingleton(conflicting)
+                .AddScoped<barakoCMS.Core.Interfaces.IContentErasureCascade>(sp => sp.GetRequiredService<ConflictOnce>())))
+            .CreateClient();
+        client.DefaultRequestHeaders.Authorization = _client.DefaultRequestHeaders.Authorization;
+
+        (await StoredMessageIdsAsync(message)).Should().HaveCount(1);
+
+        (await client.DeleteAsync($"/api/contents/{erased}/erase")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        conflicting.Calls.Should().Be(2, "the first attempt conflicted and the second ran");
+        (await StoredMessageIdsAsync(message)).Should().BeEmpty();
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var gone = await session.LoadAsync<barakoCMS.Models.WorkflowRun>(run);
+        gone.Should().NotBeNull();
+        System.Text.Json.JsonSerializer.Serialize(gone).Should().NotContain(needle);
+        (await ScalarAsync("select count(*) from public.mt_doc_contents where id = @p", erased)).Should().Be(0);
+    }
+
+    private sealed class ConflictOnce(IServiceScopeFactory scopes, Guid runId) : barakoCMS.Core.Interfaces.IContentErasureCascade
+    {
+        public int Calls;
+
+        public async Task QueueAsync(IDocumentSession session, Guid contentId, string contentType, CancellationToken ct)
+        {
+            if (Interlocked.Increment(ref Calls) != 1)
+            {
+                return;
+            }
+
+            using var scope = scopes.CreateScope();
+            var other = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var run = await other.LoadAsync<barakoCMS.Models.WorkflowRun>(runId, ct);
+            run!.WorkflowName = "touched by the runner";
+            other.Store(run);
+            await other.SaveChangesAsync(ct);
+        }
+    }
+
+    private async Task<Guid> StoreDeliveryAsync(Guid runId, string needle)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var id = Guid.NewGuid();
+        session.Store(new barakoCMS.Models.WebhookDelivery
+        {
+            Id = id,
+            WorkflowId = Guid.NewGuid(),
+            RunId = runId,
+            Url = "https://example.com",
+            ResponseStatus = 400,
+            ResponseBody = "echo " + needle,
+        });
+        await session.SaveChangesAsync();
+        return id;
     }
 
     private async Task<Guid> StoreMessageAsync(Guid contentId, string needle)
@@ -398,6 +483,7 @@ public class ErasureTests
                     ActionType = "Webhook",
                     Outputs = new Dictionary<string, string> { ["email"] = needle },
                     Error = "refused " + needle,
+                    Compensation = new barakoCMS.Models.CompensationState { Error = "undo " + needle },
                     History = [new barakoCMS.Models.WorkflowAttemptEntry { Number = 1, Error = needle }],
                 },
             ],

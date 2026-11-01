@@ -53,32 +53,42 @@ internal class Endpoint(
 
         var contentType = entry?.ContentType;
 
-        var found = await eraser.QueueEraseAsync(req.Id, ct);
+        var found = true;
+        var queued = 0;
+
+        await ErasureRetry.RunAsync(session, async () =>
+        {
+            queued = 0;
+            found = await eraser.QueueEraseAsync(req.Id, ct);
+            if (!found)
+            {
+                return;
+            }
+
+            // On this session and unsaved, so the runs commit with the erasure and the audit entry.
+            if (contentType is not null)
+            {
+                queued = await workflowRuns.QueueDeletedAsync(req.Id, contentType, ct);
+            }
+
+            // Queued, not yet committed, and the audit entry joins it on the same session so that one
+            // SaveChanges commits both. Erasing first and auditing second would leave a window where
+            // the content is irrecoverably gone and the record of it failed to save, and a retry then
+            // returns not found: an erasure nobody can prove happened.
+            //
+            // The id only. An audit entry that quotes what was erased puts the data back.
+            await AuditLog.RecordAsync(session, tenant.Slug, "content.erased", userId,
+                User.FindFirst("Username")?.Value,
+                targetType: "content", targetId: req.Id.ToString(), ct: ct);
+
+            await session.SaveChangesAsync(ct);
+        });
+
         if (!found)
         {
             await Send.NotFoundAsync(ct);
             return;
         }
-
-        var queued = 0;
-
-        // On this session and unsaved, so the runs commit with the erasure and the audit entry.
-        if (contentType is not null)
-        {
-            queued = await workflowRuns.QueueDeletedAsync(req.Id, contentType, ct);
-        }
-
-        // Queued, not yet committed, and the audit entry joins it on the same session so that one
-        // SaveChanges commits both. Erasing first and auditing second would leave a window where
-        // the content is irrecoverably gone and the record of it failed to save, and a retry then
-        // returns not found: an erasure nobody can prove happened.
-        //
-        // The id only. An audit entry that quotes what was erased puts the data back.
-        await AuditLog.RecordAsync(session, tenant.Slug, "content.erased", userId,
-            User.FindFirst("Username")?.Value,
-            targetType: "content", targetId: req.Id.ToString(), ct: ct);
-
-        await session.SaveChangesAsync(ct);
 
         barakoCMS.Features.Workflows.WorkflowMetrics.Default.Queued(barakoCMS.Models.WorkflowEvents.Deleted, queued);
 

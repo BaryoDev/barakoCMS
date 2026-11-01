@@ -10,7 +10,8 @@ namespace barakoCMS.Infrastructure.Erasure;
 /// </summary>
 /// <remarks>
 /// An outbox message body is the exact JSON that was or would be sent, so the row goes, and a
-/// pending one cannot send afterwards. A run stays as history with its values blanked. Execution
+/// pending one cannot send afterwards. A run stays as history with its values blanked, and so do the
+/// response bodies of its webhook deliveries. Execution
 /// logs and missed triggers hold only ids and event names and are left alone.
 /// </remarks>
 internal sealed class WorkflowErasureCascade : IContentErasureCascade
@@ -34,6 +35,21 @@ internal sealed class WorkflowErasureCascade : IContentErasureCascade
             }
 
             session.Store(run);
+        }
+
+        // A delivery keeps the first bytes of what the provider answered, which can echo the entry.
+        // The row stays as the record of the attempt.
+        var runIds = runs.Select(r => r.Id).ToList();
+        if (runIds.Count > 0)
+        {
+            var deliveries = await session.Query<WebhookDelivery>()
+                .Where(d => d.RunId != null && runIds.Contains(d.RunId.Value))
+                .ToListAsync(ct);
+            foreach (var delivery in deliveries.Where(d => d.ResponseBody is not null))
+            {
+                delivery.ResponseBody = null;
+                session.Store(delivery);
+            }
         }
     }
 }
