@@ -110,7 +110,7 @@ internal class Endpoint(
         // overwrite a scheduler transition or an edit that landed in between.
         try
         {
-            await contentWriter.AppendOptimisticAsync(content, new[] { @event }, ct);
+            await contentWriter.AppendOptimisticAsync(content, ScheduleClearing.With(content, @event, newStatus, userId), ct);
 
             // There's no content-delete endpoint in barakoCMS today, and archiving is the closest
             // destructive-equivalent action, so it's what gets audited here rather than every routine
