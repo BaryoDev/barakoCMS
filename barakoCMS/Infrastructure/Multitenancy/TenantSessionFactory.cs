@@ -1,4 +1,5 @@
 using Marten;
+using Microsoft.Extensions.Logging;
 
 namespace barakoCMS.Infrastructure.Multitenancy;
 
@@ -58,7 +59,7 @@ public sealed class TenantSessionFactory : ISessionFactory
 /// hooks can read them; streams are started together immediately before the commit, and never for a
 /// batch that rolls back.
 /// </remarks>
-public sealed class BatchTransaction
+public sealed class BatchTransaction(ILogger<BatchTransaction>? logger = null)
 {
     private readonly List<(Guid Id, object Event, IReadOnlyDictionary<string, object>? Headers)> _streams = new();
 
@@ -102,7 +103,14 @@ public sealed class BatchTransaction
         _afterCommit.Clear();
         foreach (var work in held)
         {
-            await work(ct);
+            try
+            {
+                await work(ct);
+            }
+            catch (Exception ex)
+            {
+                logger?.LogError(ex, "Work held for a batch commit failed; the batch is committed and the rest still runs");
+            }
         }
     }
 
