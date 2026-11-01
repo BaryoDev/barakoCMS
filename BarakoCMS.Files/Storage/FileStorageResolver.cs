@@ -69,7 +69,20 @@ public sealed class FileStorageResolver(
     }
 
     /// <summary>The storage holding this file's bytes.</summary>
-    public async Task<IFileStorage> ForAsync(StoredFile file, CancellationToken ct)
+    public async Task<IFileStorage> ForAsync(StoredFile file, CancellationToken ct) =>
+        await ExactAsync(file, ct) ?? configured;
+
+    /// <summary>
+    /// The storage holding this file's bytes, for deleting them. Unlike <see cref="ForAsync"/> it
+    /// does not fall back to the configured storage when the file's own cannot be built, because a
+    /// delete against the wrong storage reports success and leaves the bytes behind.
+    /// </summary>
+    public async Task<IFileStorage> ForRemovalAsync(StoredFile file, CancellationToken ct) =>
+        await ExactAsync(file, ct)
+        ?? throw new InvalidOperationException(
+            $"No storage can be built for provider '{file.Provider}', so file {file.Id} was not removed.");
+
+    private async Task<IFileStorage?> ExactAsync(StoredFile file, CancellationToken ct)
     {
         if (string.Equals(file.Provider, configured.Provider, StringComparison.OrdinalIgnoreCase))
         {
@@ -81,7 +94,7 @@ public sealed class FileStorageResolver(
             return postgres;
         }
 
-        return FromSettings(await SettingsAsync(ct), file.Provider) ?? configured;
+        return FromSettings(await SettingsAsync(ct), file.Provider);
     }
 
     /// <summary>The tenant's saved settings, cached until <see cref="Forget"/> is called for the tenant.</summary>
