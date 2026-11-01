@@ -27,7 +27,7 @@ public class BuildHookSweepIsolationTests
         Store(),
         new ConfigurationBuilder().Build(),
         new FixedClientFactory(handler),
-        _fixture.Services.GetRequiredService<ISecretProtector>(),
+        new ThrowingProtector(),
         new OutboundAddressGuard(
             resolve: (_, _) => Task.FromResult(new[] { IPAddress.Parse("203.0.113.10") }),
             isBlocked: _ => false),
@@ -50,7 +50,12 @@ public class BuildHookSweepIsolationTests
                 ActionKey = "a-broken-row",
                 TenantId = tenant,
                 FireAt = clock.GetUtcNow().AddMinutes(-10),
-                Parameters = null!,
+                Parameters = new Dictionary<string, string>
+                {
+                    ["Preset"] = BuildHookPresets.GithubDispatch,
+                    ["Url"] = HookUrl,
+                    [WebhookSigning.SecretParameter] = ThrowingProtector.Poison,
+                },
             });
             seed.Store(new PendingBuild
             {
@@ -82,6 +87,16 @@ public class BuildHookSweepIsolationTests
         left.Should().NotBeEmpty("the broken row stays behind until its claim times out");
         left.Select(p => p.Id).Should().Equal("a-broken-row");
         left[0].ClaimedAt.Should().NotBeNull();
+    }
+
+    private sealed class ThrowingProtector : ISecretProtector
+    {
+        public const string Poison = "poison";
+
+        public string Protect(string plaintext) => plaintext;
+
+        public string? Unprotect(string protectedValue) =>
+            protectedValue == Poison ? throw new InvalidOperationException("the key ring failed") : protectedValue;
     }
 
     private sealed class FixedClock : TimeProvider
