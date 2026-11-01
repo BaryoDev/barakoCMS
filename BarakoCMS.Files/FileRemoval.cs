@@ -61,9 +61,35 @@ internal static class FileRemoval
         await session.SaveChangesAsync(ct);
 
         // After the save: if it fails, the bytes are still there for the record that stayed.
+        await DeleteBytesAsync(byteDeletes, ct);
+    }
+
+    /// <summary>Every delete is tried, so one failing resize does not strand the original's bytes.</summary>
+    private static async Task DeleteBytesAsync(
+        List<(BarakoCMS.Files.IFileStorage Storage, string Key)> byteDeletes,
+        CancellationToken ct)
+    {
+        var failures = new List<Exception>();
         foreach (var (target, key) in byteDeletes)
         {
-            await target.DeleteAsync(key, ct);
+            try
+            {
+                await target.DeleteAsync(key, ct);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                failures.Add(e);
+            }
+        }
+
+        if (failures.Count == 1)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(failures[0]);
+        }
+
+        if (failures.Count > 1)
+        {
+            throw new AggregateException(failures);
         }
     }
 }
