@@ -122,8 +122,7 @@ internal class RollbackEndpoint(
         // WRITE-PATH SENSITIVITY: a caller who may not see a field may not change it, and restoring
         // an old value is a change. Reverts any such field to what is stored, and refuses a restore
         // that changes a field the Update rule does not let the caller set.
-        await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
-            .ApplyWriteAsync(content, data, HttpContext, ct);
+        await PutBackOwnedFieldsAsync(content, data, ct);
 
         // The update rule has to hold for the entry as restored too, or restoring an old version
         // moves the entry out of the rows the rule limits this caller to.
@@ -185,6 +184,20 @@ internal class RollbackEndpoint(
         var response = await ReadBackAsync(actor, content, definition, ct);
 
         await Send.ResponseAsync(response, cancellation: ct);
+    }
+
+    /// <summary>
+    /// Puts back what an old version may not change: fields the caller cannot see, and the entry's
+    /// number, which is the server's and is kept whatever the old version held.
+    /// </summary>
+    private async Task PutBackOwnedFieldsAsync(barakoCMS.Models.Content content, Dictionary<string, object> data, CancellationToken ct)
+    {
+        await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
+            .ApplyWriteAsync(content, data, HttpContext, ct);
+
+        var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, content.ContentType, ct);
+        if (definition is not null)
+            barakoCMS.Infrastructure.Services.ContentValidatorService.KeepStoredNumber(definition, data, content, refuseDifferent: false);
     }
 
     /// <summary>The restored entry as a read by this caller would show it, recorded as a read when it shows anything above Public.</summary>

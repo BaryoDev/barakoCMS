@@ -116,7 +116,7 @@ public class ContentValidatorService(
         Models.Content? existing,
         System.Security.Claims.ClaimsPrincipal? caller)
     {
-        var errors = UndeclaredFieldErrors(schema, contentType, data, existing);
+        var errors = KeyErrors(schema, contentType, data, existing);
 
         // 3. Validate Fields
         foreach (var field in schema.Fields)
@@ -258,6 +258,61 @@ public class ContentValidatorService(
     }
 
     private static IEnumerable<string> One(string? error) => error is null ? [] : [error];
+
+    /// <summary>What is wrong with the keys a write sends, before any field's value is looked at.</summary>
+    private static List<string> KeyErrors(
+        ContentTypeDefinition schema,
+        string contentType,
+        Dictionary<string, object> data,
+        Models.Content? existing)
+    {
+        var errors = UndeclaredFieldErrors(schema, contentType, data, existing);
+        if (KeepStoredNumber(schema, data, existing, refuseDifferent: true) is { } numberError)
+            errors.Add(numberError);
+        return errors;
+    }
+
+    /// <summary>
+    /// Keeps the number an entry already holds in its numbering field. An omitted number is put
+    /// back from the stored entry. A different one is an error, or with
+    /// <paramref name="refuseDifferent"/> false it is replaced by the stored number, which is what a
+    /// rollback does with an old version.
+    /// </summary>
+    /// <remarks>
+    /// The server writes the number once, on create. An entry with no number yet is left as it is.
+    /// Returns the error to report, or null.
+    /// </remarks>
+    internal static string? KeepStoredNumber(
+        ContentTypeDefinition schema,
+        Dictionary<string, object> data,
+        Models.Content? existing,
+        bool refuseDifferent)
+    {
+        if (existing is null || schema.Numbering is not { Field.Length: > 0 } rule)
+            return null;
+
+        bool Named(string key) => key.Equals(rule.Field, StringComparison.OrdinalIgnoreCase);
+
+        var storedKey = existing.Data.Keys.FirstOrDefault(Named);
+        var stored = storedKey is null ? null : existing.Data[storedKey];
+
+        if (refuseDifferent && data.Any(kv => Named(kv.Key) && !ComputedFields.SameAsStored(kv.Value, stored)))
+        {
+            var field = schema.Fields.FirstOrDefault(f => f.Name.Equals(rule.Field, StringComparison.OrdinalIgnoreCase));
+            return $"Field '{field?.DisplayName ?? rule.Field}' ({rule.Field}) is numbered by the server and cannot be set. Leave it out.";
+        }
+
+        if (!refuseDifferent)
+        {
+            foreach (var key in data.Keys.Where(Named).ToList())
+                data.Remove(key);
+        }
+
+        if (storedKey is not null && !data.Keys.Any(Named) && !ComputedFields.SameAsStored(null, stored))
+            data[storedKey] = stored!;
+
+        return null;
+    }
 
     /// <summary>
     /// Refuses a key the type does not declare as a field, so nothing is stored that no field
