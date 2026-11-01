@@ -2,6 +2,8 @@ using Xunit;
 using FluentAssertions;
 using System.Net;
 using System.Net.Http.Json;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Tests.Features.UserGroups;
 
@@ -54,6 +56,55 @@ public class UserGroupMembersTests
         (await GetGroupAsync(groupId)).UserIds.Should().ContainSingle().Which.Should().Be(userId);
 
         var removed = await _client.DeleteAsync($"/api/user-groups/{groupId}/users/{userId}");
+        removed.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await GetGroupAsync(groupId)).UserIds.Should().BeEmpty();
+    }
+
+    private async Task<(Guid GroupId, Guid UserId)> SeedDoubledMemberAsync()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var userId = Guid.NewGuid();
+        var groupId = Guid.NewGuid();
+        session.Store(new barakoCMS.Models.User
+        {
+            Id = userId,
+            Username = $"member_{Guid.NewGuid():n}",
+            Email = $"m_{Guid.NewGuid():n}@example.com",
+            GroupIds = [groupId]
+        });
+        session.Store(new barakoCMS.Models.UserGroup
+        {
+            Id = groupId,
+            Name = $"g_{Guid.NewGuid():n}",
+            UserIds = [userId, userId]
+        });
+        await session.SaveChangesAsync();
+        return (groupId, userId);
+    }
+
+    [Fact]
+    public async Task Removing_a_user_from_a_group_clears_a_stored_duplicate()
+    {
+        await SignInAsync();
+        var (groupId, userId) = await SeedDoubledMemberAsync();
+        (await GetGroupAsync(groupId)).UserIds.Should().HaveCount(2);
+
+        var removed = await _client.DeleteAsync($"/api/user-groups/{groupId}/users/{userId}");
+        removed.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await GetGroupAsync(groupId)).UserIds.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Removing_a_group_from_a_user_clears_a_stored_duplicate()
+    {
+        await SignInAsync();
+        var (groupId, userId) = await SeedDoubledMemberAsync();
+        (await GetGroupAsync(groupId)).UserIds.Should().HaveCount(2);
+
+        var removed = await _client.DeleteAsync($"/api/users/{userId}/groups/{groupId}");
         removed.StatusCode.Should().Be(HttpStatusCode.OK);
 
         (await GetGroupAsync(groupId)).UserIds.Should().BeEmpty();
