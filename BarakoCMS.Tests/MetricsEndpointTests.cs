@@ -155,6 +155,22 @@ public class MetricsEndpointTests
             "the guard treats this spelling as the metrics route, so a scraper holding the key is not refused by it");
     }
 
+    [Theory]
+    [InlineData("//metrics")]
+    [InlineData("///metrics")]
+    [InlineData("/metrics//")]
+    public async Task A_doubled_slash_with_the_wrong_key_is_refused(string path)
+    {
+        var client = Scrapeable();
+        client.DefaultRequestHeaders.Add(MetricsScrapeAccess.HeaderName, ScrapeKey + "-wrong");
+        var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost" + path);
+
+        var res = await client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "with the guard gone this path is an unmatched route and answers 404");
+    }
+
     [Fact]
     public async Task The_guard_does_not_touch_the_rest_of_the_api()
     {
