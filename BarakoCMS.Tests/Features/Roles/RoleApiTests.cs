@@ -264,6 +264,47 @@ public class RoleApiTests
         (await _client.GetAsync($"/api/roles/{roleId}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task A_role_held_only_by_a_user_group_cannot_be_deleted()
+    {
+        var roleId = await CreateRoleAsync("group-held");
+        await StoreGroupAsync(roleId, deleted: false);
+
+        var response = await _client.DeleteAsync($"/api/roles/{roleId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("group");
+        (await _client.GetAsync($"/api/roles/{roleId}")).StatusCode.Should().Be(HttpStatusCode.OK,
+            "the role must still be there after a refused delete");
+    }
+
+    [Fact]
+    public async Task A_role_held_only_by_a_deleted_user_group_is_still_deletable()
+    {
+        var roleId = await CreateRoleAsync("deleted-group-held");
+        await StoreGroupAsync(roleId, deleted: true);
+
+        var response = await _client.DeleteAsync($"/api/roles/{roleId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    private async Task StoreGroupAsync(Guid roleId, bool deleted)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<Marten.IDocumentSession>();
+
+        session.Store(new barakoCMS.Models.UserGroup
+        {
+            Id = Guid.NewGuid(),
+            Name = $"g_{Guid.NewGuid():n}",
+            RoleIds = new List<Guid> { roleId },
+            DeletedAt = deleted ? DateTime.UtcNow : null,
+        });
+
+        await session.SaveChangesAsync();
+    }
+
     private async Task<Guid> CreateRoleAsync(string label)
     {
         _client.DefaultRequestHeaders.Authorization =
