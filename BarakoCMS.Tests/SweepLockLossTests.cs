@@ -152,4 +152,79 @@ public class SweepLockLossTests
 
         swept.Should().BeFalse("a sweep that lost its lock did not cover every tenant");
     }
+
+    private static IConfiguration RefusingConfiguration() => new ConfigurationBuilder()
+        .AddInMemoryCollection(new Dictionary<string, string?> { [AdvisoryLease.RefuseBehindPoolerKey] = "true" })
+        .Build();
+
+    /// <summary>Revert to see it red: delete the pooler refusal return in <c>IdempotencyRetentionService.TrySweepAsync</c>.</summary>
+    [Fact]
+    public async Task The_idempotency_sweep_does_nothing_behind_a_pooler_when_refusal_is_on()
+    {
+        var store = Store;
+        var prefix = $"pooler-{Guid.NewGuid():N}-";
+        var now = DateTime.UtcNow;
+        await using (var seed = store.LightweightSession())
+        {
+            seed.Store(new IdempotencyRecord { Key = prefix + "old", Completed = true, CreatedAt = now.AddDays(-10) });
+            await seed.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var service = new IdempotencyRetentionService(
+            store, new IdempotencyOptions { KeyHours = 1 }, NullLogger<IdempotencyRetentionService>.Instance,
+            RefusingConfiguration());
+
+        AdvisoryLease.ForcePoolerSuspected = true;
+        try
+        {
+            (await service.TrySweepAsync(now, TestContext.Current.CancellationToken)).Should().BeNull();
+        }
+        finally
+        {
+            AdvisoryLease.ForcePoolerSuspected = null;
+        }
+
+        await using var check = store.QuerySession();
+        var surviving = await check.Query<IdempotencyRecord>()
+            .Where(r => r.Key.StartsWith(prefix)).Select(r => r.Key)
+            .ToListAsync(TestContext.Current.CancellationToken);
+        surviving.Should().HaveCount(1);
+        surviving.Should().BeEquivalentTo([prefix + "old"]);
+    }
+
+    /// <summary>Revert to see it red: delete the pooler refusal return in <c>RedactAllTenantsAsync</c>.</summary>
+    [Fact]
+    public async Task The_log_redaction_pass_does_nothing_behind_a_pooler_when_refusal_is_on()
+    {
+        var pass = new WorkflowExecutionLogRedactionService(
+            Store, NullLogger<WorkflowExecutionLogRedactionService>.Instance, RefusingConfiguration());
+
+        AdvisoryLease.ForcePoolerSuspected = true;
+        try
+        {
+            (await pass.RedactAllTenantsAsync(TestContext.Current.CancellationToken)).Should().BeNull();
+        }
+        finally
+        {
+            AdvisoryLease.ForcePoolerSuspected = null;
+        }
+    }
+
+    /// <summary>Revert to see it red: delete the pooler refusal return in <c>CollectionSyncService.TrySweepAsync</c>.</summary>
+    [Fact]
+    public async Task The_collection_sync_sweep_does_nothing_behind_a_pooler_when_refusal_is_on()
+    {
+        var service = new CollectionSyncService(
+            _factory.Services, Store, RefusingConfiguration(), NullLogger<CollectionSyncService>.Instance);
+
+        AdvisoryLease.ForcePoolerSuspected = true;
+        try
+        {
+            (await service.TrySweepAsync(DateTime.UtcNow, TestContext.Current.CancellationToken)).Should().BeFalse();
+        }
+        finally
+        {
+            AdvisoryLease.ForcePoolerSuspected = null;
+        }
+    }
 }
