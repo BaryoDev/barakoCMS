@@ -147,6 +147,43 @@ public class WorkflowRunnerTakeoverTests
     }
 
     [Fact]
+    public async Task A_failure_handler_that_blocks_does_not_stop_the_next_claim()
+    {
+        var contentId = await _harness.StoreContentAsync();
+        var hold = new TaskCompletionSource();
+        WorkflowRun first = null!, second = null!;
+
+        await _harness.WithHostedRunnerPausedAsync(async () =>
+        {
+            first = await _harness.SeedRunAsync(Guid.NewGuid(), contentId, [Abandoned("SendOnceRunner", attempts: 0)]);
+            second = await _harness.SeedRunAsync(Guid.NewGuid(), contentId, [Abandoned("SendOnceRunner", attempts: 0)]);
+            RecordingFailureHandler.Hold = hold.Task;
+
+            try
+            {
+                var pass = _harness.NewRunner().RunOnceAsync(WorkflowStopHarness.Ct);
+                var deadline = DateTimeOffset.UtcNow.AddSeconds(30);
+
+                while (!(RecordingFailureHandler.Told.ContainsKey(first.Id) && RecordingFailureHandler.Told.ContainsKey(second.Id))
+                    && DateTimeOffset.UtcNow < deadline)
+                {
+                    await Task.Delay(50, WorkflowStopHarness.Ct);
+                }
+
+                RecordingFailureHandler.Told.Should().ContainKey(first.Id);
+                RecordingFailureHandler.Told.Should().ContainKey(second.Id, "the second run was claimed while the first handler was still blocked");
+                hold.SetResult();
+                await pass;
+            }
+            finally
+            {
+                RecordingFailureHandler.Hold = null;
+                hold.TrySetResult();
+            }
+        });
+    }
+
+    [Fact]
     public async Task An_undo_that_lost_its_lease_is_counted_and_ends_unknown_when_it_cannot_dedupe()
     {
         var contentId = await _harness.StoreContentAsync();

@@ -233,13 +233,15 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
         }
     }
 
+    public WorkflowRunner NewRunner() => new(
+        factory.Services,
+        factory.Services.GetRequiredService<ILogger<WorkflowRunner>>(),
+        factory.Services.GetRequiredService<IConfiguration>());
+
     /// <summary>Runs a runner of the test's own until it finds nothing due.</summary>
     public async Task DrainAsync()
     {
-        var runner = new WorkflowRunner(
-            factory.Services,
-            factory.Services.GetRequiredService<ILogger<WorkflowRunner>>(),
-            factory.Services.GetRequiredService<IConfiguration>());
+        var runner = NewRunner();
 
         var polls = 0;
         while (await runner.RunOnceAsync(Ct))
