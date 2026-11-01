@@ -77,6 +77,8 @@ internal class UpdateFieldAction : IWorkflowAction
     /// <inheritdoc />
     public string Type => "UpdateField";
 
+    public bool HonoursIdempotencyKey => true;
+
     /// <inheritdoc />
     public async Task ExecuteAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct)
         => await RunAsync(parameters, content, ct);

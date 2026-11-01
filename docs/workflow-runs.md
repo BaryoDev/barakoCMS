@@ -95,6 +95,13 @@ When a node stops, the actions it has in flight are cancelled and the node waits
 the same as with one. An attempt whose outcome was not recorded stays `Running` under its lease and
 is taken again, by any node, when the lease ends five minutes after it was claimed.
 
+A takeover counts as an attempt, so an action that keeps stopping its node ends at the attempt
+limit of five, recorded as `Unknown`. Only an action that absorbs a second run with the same
+idempotency key is run again: Request, Webhook, CreateEntry, CreateContent, UpdateField, Publish
+and BuildHook. Email, SMS, CreateTask, Conditional and Transition do not, so a takeover of one
+ends it as `Unknown` without a second call, and a person can run it again by hand. A custom action
+is treated the same way unless it returns true from `HonoursIdempotencyKey`.
+
 ## Retries inside one attempt
 
 A reset socket or one 503 during a deploy should not cost a whole durable attempt and its backoff.
@@ -131,7 +138,8 @@ dropped, and a dropped pair starts again with a closed breaker.
 
 Email is retried inside the attempt only when the provider throws `EmailNotSentException`, which
 it does only when the message cannot have left. There is no idempotency key to make a second send
-safe, so every other failure is sent once and left to the durable queue, and email has no breaker.
+safe, so every other failure is sent once and recorded as `Unknown`, not retried, and email has no
+breaker. SMS is the same: a provider failure is recorded as `Unknown` and sent once.
 `Retries` sets how many more tries a send that was not taken gets, cut to fit the lease: each
 provider says how long a not-sent try can take (`MaxNotSentDuration`), and every try running that
 long, plus the waits between them, must stay within 80% of the shorter of the runner's 5 minute

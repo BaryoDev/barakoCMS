@@ -588,6 +588,9 @@ internal sealed class WorkflowRunner(
                 return null;
             }
 
+            if (claimed.Status == AttemptStatus.Running
+                && await TakeOverAsync(session, run, claimed, tenantId, ct) is { } ended) return ended ? new Claim(run, null) : null;
+
             claimed.Status = AttemptStatus.Running;
             claimed.LeasedBy = _node;
             claimed.LeaseExpiresAt = DateTimeOffset.UtcNow.Add(WorkflowRetryPolicy.LeaseDuration);
@@ -608,6 +611,63 @@ internal sealed class WorkflowRunner(
 
             return new Claim(run, claimed);
         }
+    }
+
+    /// <summary>
+    /// Counts the try a lapsed lease lost, and ends the attempt as unknown when it must not run again.
+    /// </summary>
+    /// <remarks>
+    /// The lost try may have done its work. It stops at the attempt cap, so an action that keeps
+    /// killing its node is not run for ever, and it stops when the action cannot absorb a second run
+    /// with the same key, since for a message that is a second send. A person can run it by hand.
+    /// </remarks>
+    /// <returns>Null when the attempt goes on to run, otherwise whether the ending was written.</returns>
+    private async Task<bool?> TakeOverAsync(
+        IDocumentSession session, WorkflowRun run, WorkflowActionAttempt lapsed, string tenantId, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        lapsed.Attempts++;
+        lapsed.RecordAttempt(new WorkflowAttemptEntry
+        {
+            Number = lapsed.Attempts,
+            StartedAt = (lapsed.LeaseExpiresAt ?? now) - WorkflowRetryPolicy.LeaseDuration,
+            FinishedAt = now,
+            Outcome = AttemptStatus.Unknown,
+            Error = "The node running this attempt stopped before it recorded an outcome.",
+        });
+
+        if (lapsed.Attempts < WorkflowRetryPolicy.MaxAttempts && await HonoursKeyAsync(tenantId, lapsed.ActionType))
+        {
+            return null;
+        }
+
+        lapsed.Status = AttemptStatus.Unknown;
+        lapsed.Error = "The node running this attempt stopped before it recorded an outcome, so it is not known whether it finished.";
+        lapsed.LeasedBy = null;
+        lapsed.LeaseExpiresAt = null;
+        lapsed.NextAttemptAt = null;
+        lapsed.CompletedAt = now;
+        run.Recompute();
+        session.Update(run);
+
+        try
+        {
+            await session.SaveChangesAsync(ct);
+            return true;
+        }
+        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
+            || ex.GetType().Name.Contains("Concurrency"))
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Whether the action for a type absorbs a second run with the same key. An unbuilt one is run, to be refused as usual.</summary>
+    private async Task<bool> HonoursKeyAsync(string tenantId, string actionType)
+    {
+        using var scope = services.CreateScopeForTenant(tenantId);
+        await using var handlers = WorkflowActionSet.Build(scope.ServiceProvider, logger);
+        return handlers.Find(actionType)?.HonoursIdempotencyKey ?? true;
     }
 
     /// <summary>Executes one claimed attempt and records how it went. Never throws.</summary>

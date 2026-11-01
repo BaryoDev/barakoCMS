@@ -136,8 +136,8 @@ internal class EmailAction : IWorkflowAction
 
         // Retried inside the attempt only on EmailNotSentException, which a provider throws only when
         // the message cannot have left. Any other failure may be a message the relay took, and there
-        // is no idempotency key to make a second send safe, so it is sent once. No breaker: nothing
-        // counts against it. How many tries fit is EmailRetries: with a send timeout, that timeout
+        // is no idempotency key to make a second send safe, so it is sent once and thrown on, and the
+        // runner records it as unknown. No breaker. How many tries fit is EmailRetries: with a send timeout, that timeout
         // covers every try and the waits between them; without one, the provider's own bound on a
         // not-sent try decides, and a provider with no bound is sent once.
         var sendTimeout = _resilience.Options.EmailSendTimeout;
@@ -201,7 +201,7 @@ internal class EmailAction : IWorkflowAction
             // The exception type, not its message: a provider's own message routinely names the
             // recipient it was sending to, which is personal data and does not belong in a run record.
             _logger.LogWarning("Email send failed ({Exception}).", ex.GetType().Name);
-            return WorkflowActionResult.Failure($"The email provider failed ({ex.GetType().Name}).");
+            throw new OperationCanceledException($"The email provider failed ({ex.GetType().Name}), so it is not known whether the email was sent.");
         }
 
         if (EmailProvider.IsMock(_emailService))

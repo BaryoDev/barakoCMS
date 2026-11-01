@@ -65,4 +65,16 @@ public interface IWorkflowAction
     /// </remarks>
     Task<WorkflowActionResult> RunAsync(WorkflowContext context, CancellationToken ct) =>
         RunAsync(context.Parameters, context.Content, ct);
+
+    /// <summary>
+    /// Whether a second run with the same <c>IdempotencyKey</c> is absorbed, so the action can be
+    /// run again after the node that ran it stopped responding.
+    /// </summary>
+    /// <remarks>
+    /// False by default. An attempt whose lease ran out may have done its work, and the runner
+    /// records it as unknown rather than run it again unless this is true. Return true only when the
+    /// action passes the key on, or derives its own ids from it, so a repeat is one effect and not
+    /// two.
+    /// </remarks>
+    bool HonoursIdempotencyKey => false;
 }
