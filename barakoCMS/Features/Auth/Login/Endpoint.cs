@@ -217,9 +217,7 @@ internal class Endpoint : Endpoint<Request, Response>
 
         if (user.FailedLoginAttempts > 0 || user.LockoutUntil.HasValue)
         {
-            user.FailedLoginAttempts = 0;
-            user.LockoutUntil = null;
-            _documentSession.Update(user);
+            barakoCMS.Infrastructure.Auth.AccountLockout.ClearFailures(_documentSession, user);
             await _documentSession.SaveChangesAsync(ct);
         }
 
