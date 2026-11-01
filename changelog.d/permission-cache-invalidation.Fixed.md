@@ -1,0 +1,1 @@
+- **A permission change made during a lookup could still be served from the cache.** A revoked permission or capability could stay cached for up to five minutes. The cache now registers for invalidation before it reads.
