@@ -30,9 +30,30 @@ internal sealed class DeliveryResponseCacheListener(
     public override async Task AfterCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken token)
     {
         var tenant = TenantScopes.SlugFor(session.TenantId);
+        IReadOnlyCollection<string> tags;
         try
         {
-            var tags = await TagsAsync(session, commit, tenant, token);
+            tags = await TagsAsync(session, commit, tenant, token);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Working out the delivery response cache tags failed after a commit; the whole tenant is evicted");
+            tags = [DeliveryCache.TenantTag(tenant)];
+        }
+
+        // Inside a content batch this is a flush, not a commit. A read before the commit would cache
+        // the old state again, so the eviction waits for the commit.
+        Task Evict(CancellationToken _) => EvictAsync(tags, tenant);
+        if (!BatchTransaction.TryDeferUntilCommit(Evict))
+        {
+            await Evict(token);
+        }
+    }
+
+    private async Task EvictAsync(IReadOnlyCollection<string> tags, string tenant)
+    {
+        try
+        {
             foreach (var tag in tags)
                 await store.EvictByTagAsync(tag, CancellationToken.None);
         }

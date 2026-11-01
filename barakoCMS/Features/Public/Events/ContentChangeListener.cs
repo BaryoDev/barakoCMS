@@ -56,26 +56,47 @@ internal sealed class ContentChangeListener(
         // One session, one tenant. Read from the event rather than the session so the slug is the
         // one the write was recorded under, which is also the key a subscriber registered with.
         var tenant = TenantScopes.SlugFor(events[0].TenantId);
-        var local = broadcaster.HasSubscribers(tenant);
-        var shared = bus is { Enabled: true };
-        if (!local && !shared)
+        var hasLocal = broadcaster.HasSubscribers(tenant);
+        var hasShared = bus is { Enabled: true };
+        if (!hasLocal && !hasShared)
         {
             return;
         }
 
         var outgoing = await CollectAsync(session, commit, events, token);
 
-        if (local)
-        {
-            await PublishLocalAsync(session, tenant, outgoing, token);
-        }
+        // Everything that reads is done here, while the session can still read. Only the sending is
+        // held for the commit when a batch is running, since a flush inside a batch is not a commit.
+        var local = hasLocal ? await LocalChangesAsync(session, outgoing, token) : [];
+        var shared = bus is { Enabled: true } && outgoing.Count > 0
+            ? outgoing.Select(o => new BusChange(o.Id, o.Name)).ToList()
+            : null;
 
-        if (shared && outgoing.Count > 0)
+        Task Send(CancellationToken ct) => SendAsync(tenant, local, shared, ct);
+        if (!BatchTransaction.TryDeferUntilCommit(Send))
         {
-            await bus!.PublishAsync(
-                tenant,
-                outgoing.Select(o => new BusChange(o.Id, o.Name)).ToList(),
-                token);
+            await Send(token);
+        }
+    }
+
+    private async Task SendAsync(
+        string tenant, List<ContentChange> local, List<BusChange>? shared, CancellationToken token)
+    {
+        try
+        {
+            foreach (var change in local)
+            {
+                broadcaster.Publish(tenant, change);
+            }
+
+            if (shared is not null)
+            {
+                await bus!.PublishAsync(tenant, shared, token);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Content event stream failed to broadcast a committed change; the write itself succeeded");
         }
     }
 
@@ -174,8 +195,8 @@ internal sealed class ContentChangeListener(
         return projected is null ? null : PublicFileFields.LeaveOut(projected, effective);
     }
 
-    private async Task PublishLocalAsync(
-        IDocumentSession session, string tenant, List<Outgoing> outgoing, CancellationToken token)
+    private async Task<List<ContentChange>> LocalChangesAsync(
+        IDocumentSession session, List<Outgoing> outgoing, CancellationToken token)
     {
         // References are checked for every entry in the commit together, in one read, and the
         // changes go out in the order they were found.
@@ -185,17 +206,20 @@ internal sealed class ContentChangeListener(
             .ToList();
         var checkedEntries = new Queue<PublicContentResponse>(await CheckReferencesAsync(session, entries, logger, token));
 
+        var changes = new List<ContentChange>();
         foreach (var change in outgoing)
         {
             if (change.Ready is not null)
             {
-                broadcaster.Publish(tenant, change.Ready);
+                changes.Add(change.Ready);
                 continue;
             }
 
             var entry = checkedEntries.Dequeue();
-            broadcaster.Publish(tenant, new ContentChange(change.Name, entry.Id, entry.ContentType, entry.Slug, entry));
+            changes.Add(new ContentChange(change.Name, entry.Id, entry.ContentType, entry.Slug, entry));
         }
+
+        return changes;
     }
 
     /// <summary>

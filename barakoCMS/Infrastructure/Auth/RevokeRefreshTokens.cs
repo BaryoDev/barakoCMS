@@ -1,5 +1,6 @@
 using Marten;
 using Marten.Patching;
+using Marten.Services;
 using barakoCMS.Models;
 
 namespace barakoCMS.Infrastructure.Auth;
@@ -50,6 +51,20 @@ public static class RevokeRefreshTokens
         // failed-login counter uses for the same reason.
         session.Patch<User>(userId).Set(u => u.TokensValidFrom, DateTime.UtcNow);
 
-        sessionEpoch?.Invalidate(userId);
+        // Dropped once the revoking write has committed. Dropped now, a read in between would cache
+        // the old epoch for the full cache duration on this instance.
+        if (sessionEpoch is not null)
+        {
+            session.Listeners.Add(new AfterCommit(() => sessionEpoch.Invalidate(userId)));
+        }
+    }
+
+    private sealed class AfterCommit(Action run) : DocumentSessionListenerBase
+    {
+        public override Task AfterCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken token)
+        {
+            run();
+            return Task.CompletedTask;
+        }
     }
 }
