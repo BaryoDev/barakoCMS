@@ -194,6 +194,8 @@ internal sealed class OutboundAddressGuard
             if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true;    // 172.16.0.0/12
             if (b[0] == 192 && b[1] == 168) return true;                 // 192.168.0.0/16
             if (b[0] == 100 && b[1] >= 64 && b[1] <= 127) return true;   // 100.64.0.0/10 CGNAT
+            if (b[0] == 192 && b[1] == 0 && b[2] == 0) return true;      // 192.0.0.0/24 IETF protocol assignments
+            if (b[0] == 198 && (b[1] == 18 || b[1] == 19)) return true;  // 198.18.0.0/15 benchmarking
             if (b[0] >= 224) return true;                                // 224.0.0.0/4 multicast + reserved
         }
         else if (ip.AddressFamily == AddressFamily.InterNetworkV6)
