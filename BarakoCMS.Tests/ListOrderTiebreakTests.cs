@@ -107,8 +107,46 @@ public class ListOrderTiebreakTests
         shown.Should().Equal(InIdOrder(ids));
     }
 
-    [Fact]
-    public async Task The_admin_list_breaks_a_created_at_tie_on_id()
+    [Theory]
+    [InlineData("Price")]
+    [InlineData("-Price")]
+    public async Task A_sorted_public_list_breaks_a_tie_on_value_and_creation_time_on_id(string sort)
+    {
+        var type = "tiebreak" + Guid.NewGuid().ToString("n")[..10];
+        var ids = Enumerable.Range(0, Count).Select(_ => Guid.NewGuid()).ToList();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeBuilder().Named(type).PubliclyDeliverable()
+                .WithTitleAndSlug().WithField("Price", "number").Build());
+            for (var i = 0; i < Count; i++)
+            {
+                session.Store(new ContentBuilder()
+                    .OfType(type)
+                    .WithId(ids[i])
+                    .WithTitleAndSlug($"Entry {i}", $"sorted-{i}")
+                    .With("Price", 10)
+                    .CreatedAt(Moment)
+                    .Published()
+                    .Build());
+            }
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var res = await _client.GetAsync($"/api/public/{type}?sort={sort}&pageSize=100", Ct);
+        var body = await res.Content.ReadAsStringAsync(Ct);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, body);
+
+        var shown = JsonDocument.Parse(body).RootElement.GetProperty("items").EnumerateArray()
+            .Select(i => i.GetProperty("id").GetGuid()).ToList();
+        shown.Should().HaveCount(Count);
+        shown.Should().Equal(InIdOrder(ids));
+    }
+
+    [Theory]
+    [InlineData("asc")]
+    [InlineData("desc")]
+    public async Task The_admin_list_breaks_a_created_at_tie_on_id(string sortOrder)
     {
         var (type, _, ids) = await StoreAsync();
         var userId = Guid.NewGuid();
@@ -132,7 +170,7 @@ public class ListOrderTiebreakTests
             await session.SaveChangesAsync(Ct);
         }
 
-        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/contents?contentType={type}&pageSize=50&sortOrder=asc");
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/contents?contentType={type}&pageSize=50&sortOrder={sortOrder}");
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
             "Bearer", _factory.CreateToken(roles: ["Admin", "SuperAdmin"], userId: userId.ToString()));
         var res = await _client.SendAsync(request, Ct);
