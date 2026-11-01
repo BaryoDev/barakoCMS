@@ -65,7 +65,8 @@ public class ScheduledSweepIsolationTests
         var second = await SeedDueTenantAsync();
 
         var calls = 0;
-        var service = new ScheduledContentService(Store(), logger)
+        var errors = new CapturingLogger();
+        var service = new ScheduledContentService(Store(), errors)
         {
             AfterLoad = _ =>
             {
@@ -81,14 +82,37 @@ public class ScheduledSweepIsolationTests
         swept.Should().BeTrue("a failing tenant is logged and skipped, the sweep still ran");
         calls.Should().Be(2, "both tenants had due content, so the hook ran for the failing one and the one after it");
 
-        var statuses = new[]
+        var firstStatus = await StatusOfAsync(first.Slug, first.ContentId);
+        var secondStatus = await StatusOfAsync(second.Slug, second.ContentId);
+
+        var failed = new[] { (first.Slug, firstStatus), (second.Slug, secondStatus) }
+            .Where(t => t.Item2 == ContentStatus.Scheduled).Select(t => t.Item1).ToList();
+        var other = new[] { first.Slug, second.Slug }.Except(failed).ToList();
+
+        failed.Should().ContainSingle("exactly one of the two tenants threw and was left as it was");
+        other.Should().ContainSingle();
+        (await StatusOfAsync(other[0], other[0] == first.Slug ? first.ContentId : second.ContentId))
+            .Should().Be(ContentStatus.Published, $"tenant {other[0]} was swept after {failed[0]} threw");
+        errors.Tenants.Should().Contain(failed[0], $"the failure is logged against the tenant that threw, {failed[0]}");
+        errors.Tenants.Should().NotContain(other[0], "the tenant that was swept is not the one reported as failed");
+    }
+
+    private sealed class CapturingLogger : ILogger<ScheduledContentService>
+    {
+        public List<string> Tenants { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
-            await StatusOfAsync(first.Slug, first.ContentId),
-            await StatusOfAsync(second.Slug, second.ContentId),
-        };
-        statuses.Should().HaveCount(2);
-        statuses.Should().BeEquivalentTo(new[] { ContentStatus.Scheduled, ContentStatus.Published },
-            "the tenant whose sweep threw is left as it was and the other was still published");
+            if (logLevel == LogLevel.Error && state is IReadOnlyList<KeyValuePair<string, object?>> pairs)
+            {
+                var tenant = pairs.FirstOrDefault(p => p.Key == "Tenant").Value as string;
+                if (tenant is not null) Tenants.Add(tenant);
+            }
+        }
     }
 
     [Fact]
