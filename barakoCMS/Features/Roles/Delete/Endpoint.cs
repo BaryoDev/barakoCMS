@@ -104,8 +104,10 @@ internal class Endpoint(
         }
 
         // MembershipRoles.GroupRoleIdsAsync grants a live group's roles to its members, so a role
-        // only a group holds would be left dangling for every one of them.
-        return await session.Query<UserGroup>().AnyAsync(g => g.DeletedAt == null && g.RoleIds.Contains(roleId), ct)
+        // only a group holds would be left dangling for every one of them. Groups are tenanted and
+        // roles are not, so a group in any tenant counts.
+        return await session.Query<UserGroup>()
+                .AnyAsync(g => g.AnyTenant() && g.DeletedAt == null && g.RoleIds.Contains(roleId), ct)
             ? "Cannot delete role: it is still assigned to a user group. Remove the role from the group first."
             : null;
     }
