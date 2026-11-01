@@ -29,13 +29,16 @@ internal static class FileRemoval
             .Where(v => v.ParentFileId == file.Id)
             .ToListAsync(ct);
 
+        // Resolved before anything is staged, so a file whose storage cannot be built stops the
+        // removal with the record and the bytes both still in place.
+        var byteDeletes = new List<(BarakoCMS.Files.IFileStorage Storage, string Key)>();
         foreach (var variant in variants)
         {
-            await (await storage.ForAsync(variant, ct)).DeleteAsync(variant.StorageKey, ct);
+            byteDeletes.Add((await storage.ForRemovalAsync(variant, ct), variant.StorageKey));
             session.Delete(variant);
         }
 
-        await (await storage.ForAsync(file, ct)).DeleteAsync(file.StorageKey, ct);
+        byteDeletes.Add((await storage.ForRemovalAsync(file, ct), file.StorageKey));
         session.Delete(file);
 
         await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
@@ -56,5 +59,11 @@ internal static class FileRemoval
             ct: ct);
 
         await session.SaveChangesAsync(ct);
+
+        // After the save: if it fails, the bytes are still there for the record that stayed.
+        foreach (var (target, key) in byteDeletes)
+        {
+            await target.DeleteAsync(key, ct);
+        }
     }
 }
