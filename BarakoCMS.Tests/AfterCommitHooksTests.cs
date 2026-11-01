@@ -101,9 +101,25 @@ public class AfterCommitHooksTests
         var store = Substitute.For<IOutputCacheStore>();
         var listener = new DeliveryResponseCacheListener(store, NullLogger<DeliveryResponseCacheListener>.Instance);
         var session = Substitute.For<IDocumentSession>();
+        var id = Guid.NewGuid();
+        var evicted = new List<string>();
+        await store.EvictByTagAsync(Arg.Do<string>(evicted.Add), Arg.Any<CancellationToken>());
 
-        await listener.AfterCommitAsync(session, OneInsertedEntry(), CancellationToken.None);
+        await listener.AfterCommitAsync(session, OneInsertedEntry(id), CancellationToken.None);
 
-        await store.ReceivedWithAnyArgs().EvictByTagAsync(default!, default);
+        var tenant = barakoCMS.Models.Tenant.DefaultSlug;
+        var expected = new[]
+        {
+            DeliveryCache.Tag(tenant, CacheScope.Entry(id)),
+            DeliveryCache.Tag(tenant, CacheScope.Type("post")),
+            DeliveryCache.Tag(tenant, CacheScope.Named("sitemap")),
+            DeliveryCache.Tag(tenant, CacheScope.Named(DeliveryResponseCacheListener.UntypedReferences)),
+        };
+        evicted.Should().NotBeEmpty();
+        evicted.Should().BeEquivalentTo(expected);
+
+        await new BatchTransaction().RunAfterCommitAsync(CancellationToken.None);
+
+        evicted.Should().BeEquivalentTo(expected);
     }
 }
