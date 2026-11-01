@@ -130,6 +130,7 @@ public class WorkflowRunnerTakeoverTests
         var run = await DrainSeededAsync(contentId, [email, WorkflowStopHarness.Waiting(due: true)]);
 
         run.Actions[0].Status.Should().Be(AttemptStatus.Unknown);
+        run.Actions[0].Error.Should().Contain("not known whether it finished", "the email is not rerun, so Email is built in the harness and refuses a second run");
         run.Actions[1].Status.Should().Be(AttemptStatus.Skipped);
         run.Actions[1].HaltedBy.Should().Be(0);
         WorkflowStopHarness.TimesRun(run.Actions[1]).Should().Be(0);
