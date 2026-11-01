@@ -91,10 +91,12 @@ public class BoundedLoadTests
             "Bearer", _factory.CreateToken(["SuperAdmin"], userId.ToString()));
     }
 
-    private IEnumerable<string> ContentSelects() =>
+    // The content table is mt_doc_contents. A bare "mt_doc_content" prefix would also take the
+    // content type definition select, which a filtered export legitimately sends without a filter.
+    private IEnumerable<string> SelectsFrom(string table) =>
         _logger.Commands.Select(c => c.Sql)
-            .Where(sql => sql.Contains("mt_doc_content", StringComparison.Ordinal)
-                          && sql.TrimStart().StartsWith("select", StringComparison.OrdinalIgnoreCase));
+            .Where(sql => sql.TrimStart().StartsWith("select", StringComparison.OrdinalIgnoreCase)
+                          && System.Text.RegularExpressions.Regex.IsMatch(sql, @"\b" + table + @"\b"));
 
     [Fact]
     public async Task Export_of_named_types_filters_the_entries_in_postgres()
@@ -113,10 +115,12 @@ public class BoundedLoadTests
         bundle.Contents.Should().OnlyContain(c => c.ContentType == wanted);
         bundle.Contents.Should().NotContain(c => c.ContentType == other);
 
-        var selects = ContentSelects().ToList();
-        selects.Should().NotBeEmpty();
-        selects.Should().OnlyContain(sql => sql.Contains("ContentType", StringComparison.Ordinal),
+        var selects = SelectsFrom("mt_doc_contents").ToList();
+        selects.Should().NotBeEmpty("the export has to read the entries from the content table");
+        selects.Should().OnlyContain(sql => sql.Contains("ANY(", StringComparison.Ordinal),
             "an export of named types must not read every entry of the tenant and filter in memory");
+        SelectsFrom("mt_doc_contenttypedefinition").Should().NotBeEmpty(
+            "the type definitions are read separately and are not what this test is about");
     }
 
     [Fact]
@@ -143,10 +147,14 @@ public class BoundedLoadTests
     {
         var type = await SeedTypeAsync("bl-miss", "present");
         await AuthenticateAsync();
+        _logger.Commands.Clear();
 
         var response = await _client.PostAsJsonAsync(
             "/api/preview", new { Type = type, Slug = "absent" }, TestContext.Current.CancellationToken);
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        _logger.Commands.Should().Contain(
+            c => c.Parameters.Contains("absent") && c.Sql.Contains("mt_doc_contents", StringComparison.Ordinal),
+            "a missing slug is decided by the database, not by loading every entry of the type and finding none");
     }
 }
