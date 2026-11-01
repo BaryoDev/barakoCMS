@@ -108,9 +108,8 @@ internal sealed class TenantWriteRequest
     public string? ContactUrl { get; set; }
 
     /// <summary>
-    /// Whether the tenant is served. Leaving it and <see cref="IsActive"/> out makes it Active, as
-    /// before, also on an update: a write that sends only other fields reactivates a suspended
-    /// tenant, so send the current status to keep it.
+    /// Whether the tenant is served. Leaving it and <see cref="IsActive"/> out keeps the current
+    /// status on an update, and makes a new tenant Active.
     /// </summary>
     public TenantStatus? Status { get; set; }
 
@@ -200,6 +199,8 @@ internal sealed class TenantWriteRequestValidator : Validator<TenantWriteRequest
         RuleFor(r => r.Email).Must(BeBlank).WithMessage(Moved("Email"));
         RuleFor(r => r.ContactUrl).Must(BeBlank).WithMessage(Moved("ContactUrl"));
 
+        RuleFor(r => r.Name).Must(n => !string.IsNullOrWhiteSpace(n))
+            .WithMessage("A tenant needs a name.");
         RuleFor(r => r.Status).IsInEnum();
         RuleFor(r => r.SignUp).IsInEnum();
         RuleForEach(r => r.SignIn!.Methods)
@@ -219,12 +220,15 @@ internal sealed class TenantWriteRequestValidator : Validator<TenantWriteRequest
             .WithMessage("isActive disagrees with status. Send status alone.");
     }
 
-    /// <summary>The status a write asks for: Status if sent, else the IsActive flag, else Active.</summary>
+    /// <summary>The status a write asks for: Status if sent, else the IsActive flag, else the current one.</summary>
     public static TenantStatus Requested(TenantWriteRequest r, TenantStatus current) =>
         r.Status
-        ?? (r.IsActive is false
-            ? (current == TenantStatus.Active ? TenantStatus.Suspended : current)
-            : TenantStatus.Active);
+        ?? (r.IsActive switch
+        {
+            false => current == TenantStatus.Active ? TenantStatus.Suspended : current,
+            true => TenantStatus.Active,
+            null => current,
+        });
 
     private static bool BeBlank(string? value) => string.IsNullOrWhiteSpace(value);
 
