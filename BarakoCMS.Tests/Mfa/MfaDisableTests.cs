@@ -175,5 +175,50 @@ public class MfaDisableTests
         var sent = _factory.Email.Messages.Where(m => m.To == email).ToList();
         sent.Should().HaveCount(before + 1);
         sent[^1].Subject.Should().Contain("Two-factor authentication disabled");
+        sent[^1].Body.Should().Contain("All devices have been signed out");
+    }
+
+    [Fact]
+    public async Task Disable_WrongCode_LeavesAFailedAttemptAuditRow()
+    {
+        var (id, _, _) = await EnrolledUserAsync();
+
+        await DisableAsync(Client(id), "000000");
+
+        using var scope = _factory.Services.CreateScope();
+        var rows = await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<AuditEvent>()
+            .Where(e => e.ActorUserId == id && e.Action == "auth.mfa.disable.failed")
+            .ToListAsync();
+        rows.Should().NotBeEmpty();
+        rows.Should().OnlyContain(e => e.IpAddress != null && e.IpAddress != "");
+    }
+
+    [Fact]
+    public async Task Disable_ByAUserWithoutMfa_DoesNotCountFailures()
+    {
+        var id = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            s.Store(new User
+            {
+                Id = id,
+                Username = $"nomfa-{id:N}",
+                Email = $"nomfa-{id:N}@test.com",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(MfaPolicyTests.Password),
+                RoleIds = [Guid.Parse("00000000-0000-0000-0000-000000000001")],
+            });
+            await s.SaveChangesAsync();
+        }
+
+        var client = Client(id);
+        for (var i = 0; i < 4; i++)
+        {
+            (await DisableAsync(client, "000000")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        }
+
+        var user = await LoadUserAsync(id);
+        user.FailedLoginAttempts.Should().Be(0);
+        user.LockoutUntil.Should().BeNull();
     }
 }
