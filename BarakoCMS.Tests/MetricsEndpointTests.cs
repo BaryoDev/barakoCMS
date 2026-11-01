@@ -134,7 +134,8 @@ public class MetricsEndpointTests
 
         var res = await Scrapeable().SendAsync(request, TestContext.Current.CancellationToken);
 
-        res.StatusCode.Should().NotBe(HttpStatusCode.OK);
+        res.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "a 404 from routing would mean the guard never looked at this spelling");
         (await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().NotContain("process_");
     }
 
