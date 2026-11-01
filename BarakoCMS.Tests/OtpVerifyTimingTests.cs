@@ -53,7 +53,10 @@ public class OtpVerifyTimingTests
         await TimeVerifyAsync($"nobody-{Guid.NewGuid():N}@example.com");
         var miss = await TimeVerifyAsync($"nobody-{Guid.NewGuid():N}@example.com");
 
-        miss.Should().BeGreaterThan(local.Elapsed / 2,
+        // With the hash a miss is one hash plus the request overhead, so it cannot fall under 0.9 of
+        // one hash. Without it a miss is a query or two, which a slow runner can stretch past half a
+        // hash but not past nearly a whole one.
+        miss.Should().BeGreaterThan(local.Elapsed * 0.9,
             "a miss that skips the hash is quick enough to tell apart from a real check");
     }
 }
