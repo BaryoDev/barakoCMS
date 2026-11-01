@@ -43,12 +43,12 @@ BEGIN
 
     CREATE TEMPORARY TABLE claimed_domains ON COMMIT DROP AS
     SELECT DISTINCT
-        regexp_replace(rtrim(split_part(lower(btrim(d.host)), ':', 1), '.'), '^www\.', '') AS host,
+        regexp_replace(rtrim(split_part(lower(regexp_replace(d.host, '^\s+|\s+$', '', 'g')), ':', 1), '.'), '^www\.', '') AS host,
         t.data ->> 'Slug'                                                                   AS slug
     FROM public.mt_doc_tenants t
     CROSS JOIN LATERAL jsonb_array_elements_text(
         CASE WHEN jsonb_typeof(t.data -> 'Domains') = 'array' THEN t.data -> 'Domains' ELSE '[]'::jsonb END) AS d(host)
-    WHERE rtrim(split_part(lower(btrim(d.host)), ':', 1), '.') <> '';
+    WHERE rtrim(split_part(lower(regexp_replace(d.host, '^\s+|\s+$', '', 'g')), ':', 1), '.') <> '';
 
     SELECT count(*) INTO skipped
     FROM (SELECT host FROM claimed_domains GROUP BY host HAVING count(DISTINCT slug) > 1) shared;

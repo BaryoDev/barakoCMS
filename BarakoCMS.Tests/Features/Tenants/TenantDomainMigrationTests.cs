@@ -78,7 +78,7 @@ public class TenantDomainMigrationTests
         var solo = new Tenant { Id = Guid.NewGuid(), Slug = "solo-" + suffix, Name = "Solo", Domains = [$"Www.Solo-{suffix}.example.com", $"two-{suffix}.example.com"] };
         var rival = new Tenant { Id = Guid.NewGuid(), Slug = "rival-" + suffix, Name = "Rival", Domains = [$"two-{suffix}.example.com"] };
         var none = new Tenant { Id = Guid.NewGuid(), Slug = "none-" + suffix, Name = "None" };
-        var edge = new Tenant { Id = Guid.NewGuid(), Slug = "edge-" + suffix, Name = "Edge", Domains = [$"Ported-{suffix}.example.com:8443", $"dotted-{suffix}.example.com.", $"both-{suffix}.example.com.:8080"] };
+        var edge = new Tenant { Id = Guid.NewGuid(), Slug = "edge-" + suffix, Name = "Edge", Domains = [$"Ported-{suffix}.example.com:8443", $"dotted-{suffix}.example.com.", $"both-{suffix}.example.com.:8080", $"UPPER-{suffix}.Example.COM", $"\ttabbed-{suffix}.example.com\t"] };
 
         await using var connection = await OpenAsync();
         var scratch = await NewSchemaAsync(connection);
@@ -107,14 +107,16 @@ public class TenantDomainMigrationTests
                 }
             }
 
-            rows.Should().HaveCount(4, "the shared host is skipped, the others are copied once, and the second run adds nothing");
+            rows.Should().HaveCount(6, "the shared host is skipped, the others are copied once, and the second run adds nothing");
             rows.Select(r => r.Id).Should().BeEquivalentTo(new[]
             {
                 $"solo-{suffix}.example.com",
                 $"ported-{suffix}.example.com",
                 $"dotted-{suffix}.example.com",
                 $"both-{suffix}.example.com",
-            }, "the port and a trailing dot are cut the way the request path cuts them");
+                $"upper-{suffix}.example.com",
+                $"tabbed-{suffix}.example.com",
+            }, "case, a port, a trailing dot and a tab are cut the way the request path cuts them");
             var row = rows.Single(r => r.Id == $"solo-{suffix}.example.com");
             row.Id.Should().Be($"solo-{suffix}.example.com", "the host is stored without www and in lower case");
             row.TenantSlug.Should().Be(solo.Slug);
@@ -124,6 +126,12 @@ public class TenantDomainMigrationTests
 
             var map = TenantDomainSource.Build([solo, rival, none, edge], rows, NullLogger.Instance);
             map.Find($"solo-{suffix}.example.com").Should().Be(solo.Slug, "a backfilled domain stays routed");
+            foreach (var host in edge.Domains)
+            {
+                var expected = TenantDomainMap.Normalise(host);
+                rows.Select(r => r.Id).Should().Contain(expected, $"the SQL has to agree with Normalise for '{host}'");
+            }
+
             map.Find($"two-{suffix}.example.com").Should().BeNull("two tenants listed it, so neither is given it");
         }
         finally
