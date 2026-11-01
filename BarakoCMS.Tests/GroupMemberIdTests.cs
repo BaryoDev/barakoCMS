@@ -98,6 +98,73 @@ public class GroupMemberIdTests
         groups[0].UserIds.Should().BeEquivalentTo(new[] { inA });
     }
 
+    [Theory]
+    [InlineData(MembershipStatus.Suspended)]
+    [InlineData(MembershipStatus.Removed)]
+    public async Task Creating_a_group_with_a_user_whose_membership_is_not_active_answers_404_and_stores_nothing(MembershipStatus status)
+    {
+        var tenant = $"club-{Guid.NewGuid():N}";
+        var active = await StoreUserAsync();
+        var inactive = await StoreUserAsync();
+        await StoreTenantWithMembersAsync(tenant, (active, MembershipStatus.Active), (inactive, status));
+        var client = await ClientAsync(tenant);
+        var name = "inactive" + Guid.NewGuid().ToString("n")[..8];
+
+        var control = await client.PostAsJsonAsync("/api/user-groups", new { name = "ok" + name, userIds = new[] { active } }, Ct);
+        control.StatusCode.Should().Be(HttpStatusCode.OK, "an active member is accepted, so the 404 below comes from the status");
+        var response = await client.PostAsJsonAsync("/api/user-groups", new { name, userIds = new[] { active, inactive } }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        await using var query = _factory.Services.GetRequiredService<IDocumentStore>().QuerySession(tenant);
+        var stored = await query.Query<UserGroup>().Where(g => g.Name == name).ToListAsync(Ct);
+        stored.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Creating_a_group_in_the_default_tenant_accepts_a_user_that_exists_without_a_membership()
+    {
+        var user = await StoreUserAsync();
+        var client = await ClientAsync();
+        var name = "default" + Guid.NewGuid().ToString("n")[..8];
+
+        var response = await client.PostAsJsonAsync("/api/user-groups", new { name, userIds = new[] { user } }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        var groups = await LoadGroupsByNameAsync(name);
+        groups.Should().HaveCount(1);
+        groups[0].UserIds.Should().BeEquivalentTo(new[] { user });
+    }
+
+    [Fact]
+    public async Task Creating_a_group_that_lists_one_user_twice_stores_that_user_once()
+    {
+        var user = await StoreUserAsync();
+        var client = await ClientAsync();
+        var name = "twice" + Guid.NewGuid().ToString("n")[..8];
+
+        var response = await client.PostAsJsonAsync("/api/user-groups", new { name, userIds = new[] { user, user } }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        var groups = await LoadGroupsByNameAsync(name);
+        groups.Should().HaveCount(1);
+        groups[0].UserIds.Should().HaveCount(1);
+        groups[0].UserIds.Should().Contain(user);
+    }
+
+    [Fact]
+    public async Task Creating_a_group_with_an_empty_user_list_is_accepted_and_has_no_members()
+    {
+        var client = await ClientAsync();
+        var name = "empty" + Guid.NewGuid().ToString("n")[..8];
+
+        var response = await client.PostAsJsonAsync("/api/user-groups", new { name, userIds = Array.Empty<Guid>() }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        var groups = await LoadGroupsByNameAsync(name);
+        groups.Should().HaveCount(1);
+        groups[0].UserIds.Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Removing_a_user_from_a_group_that_does_not_exist_answers_404_and_writes_no_audit_row()
     {
@@ -204,6 +271,22 @@ public class GroupMemberIdTests
             ? _factory.Services.GetRequiredService<IDocumentStore>().QuerySession()
             : _factory.Services.GetRequiredService<IDocumentStore>().QuerySession(tenant);
         return (await session.LoadAsync<UserGroup>(id, Ct))!;
+    }
+
+    private async Task StoreTenantWithMembersAsync(string slug, params (Guid UserId, MembershipStatus Status)[] members)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        s.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
+        foreach (var (userId, status) in members)
+            s.Store(new Membership { Id = Guid.NewGuid(), UserId = userId, TenantSlug = slug, Status = status });
+        await s.SaveChangesAsync(Ct);
+    }
+
+    private async Task<IReadOnlyList<UserGroup>> LoadGroupsByNameAsync(string name)
+    {
+        await using var session = _factory.Services.GetRequiredService<IDocumentStore>().QuerySession();
+        return await session.Query<UserGroup>().Where(g => g.Name == name).ToListAsync(Ct);
     }
 
     private async Task<User> LoadUserAsync(Guid id)
