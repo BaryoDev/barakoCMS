@@ -112,37 +112,43 @@ internal sealed class VerifyDomainEndpoint(
 
         if (result.Passed)
         {
-            // The DNS wait is long enough for the claim to change under this request: the tenant drops
-            // the domain, or drops it and another tenant claims it. Writing the row loaded before the
-            // wait would bring it back, or overwrite the new claim. So read it again, and write it
-            // under the row's version (UseOptimisticConcurrency on TenantDomain), which refuses the
-            // write if anything moved between this read and the save.
-            var current = await session.LoadAsync<TenantDomain>(row.Id, ct);
-            var listed = await session.Query<Tenant>().AnyAsync(x => x.Slug == tenant.Slug && x.Domains.Contains(row.Id), ct);
-            if (current is null || !listed
-                || !string.Equals(current.TenantSlug, tenant.Slug, StringComparison.Ordinal)
-                || !string.Equals(current.Token, row.Token, StringComparison.Ordinal))
-            {
-                ThrowError(ClaimChangedMessage, 409);
-            }
-
-            TenantDomainClaims.Verify(current);
-            session.Update(current);
-            try
-            {
-                await session.SaveChangesAsync(ct);
-            }
-            catch (Exception ex) when (ex is JasperFx.ConcurrencyException || ex.GetType().Name.Contains("NonExistent"))
-            {
-                session.EjectAllPendingChanges();
-                ThrowError(ClaimChangedMessage, 409);
-            }
-
-            domains.Invalidate();
-            response.Status = current.Status;
-            response.VerifiedAt = current.VerifiedAt;
+            await MarkVerifiedAsync(tenant, row, response, ct);
         }
 
         await Send.OkAsync(response, ct);
+    }
+
+    /// <summary>Writes the verified state after a passing check, or answers 409 if the claim moved meanwhile.</summary>
+    private async Task MarkVerifiedAsync(Tenant tenant, TenantDomain row, VerifyDomainResponse response, CancellationToken ct)
+    {
+        // The DNS wait is long enough for the claim to change under this request: the tenant drops
+        // the domain, or drops it and another tenant claims it. Writing the row loaded before the
+        // wait would bring it back, or overwrite the new claim. So read it again, and write it
+        // under the row's version (UseOptimisticConcurrency on TenantDomain), which refuses the
+        // write if anything moved between this read and the save.
+        var current = await session.LoadAsync<TenantDomain>(row.Id, ct);
+        var listed = await session.Query<Tenant>().AnyAsync(x => x.Slug == tenant.Slug && x.Domains.Contains(row.Id), ct);
+        if (current is null || !listed
+            || !string.Equals(current.TenantSlug, tenant.Slug, StringComparison.Ordinal)
+            || !string.Equals(current.Token, row.Token, StringComparison.Ordinal))
+        {
+            ThrowError(ClaimChangedMessage, 409);
+        }
+
+        TenantDomainClaims.Verify(current);
+        session.Update(current);
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is JasperFx.ConcurrencyException || ex.GetType().Name.Contains("NonExistent"))
+        {
+            session.EjectAllPendingChanges();
+            ThrowError(ClaimChangedMessage, 409);
+        }
+
+        domains.Invalidate();
+        response.Status = current.Status;
+        response.VerifiedAt = current.VerifiedAt;
     }
 }

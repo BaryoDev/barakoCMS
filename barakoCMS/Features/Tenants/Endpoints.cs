@@ -469,18 +469,7 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         if (req.AccountId is { } account)
             tenant.AccountId = AccountReach.Stored(account);
         TenantProfiles.ClearBlanked(tenant, req);
-        // Switching a tenant off stops it being served, tokens being issued for it and its API keys,
-        // and switching it on restores all three, so any change is recorded in that tenant's log.
-        var status = TenantWriteRequestValidator.Requested(req, tenant.Status);
-        if (tenant.Status != status)
-        {
-            Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
-            await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
-                _session, tenant.Slug, status == TenantStatus.Active ? "tenant.activated" : "tenant.deactivated", actorId,
-                User.FindFirst("Username")?.Value, targetType: "Tenant", targetId: tenant.Slug,
-                metadata: new Dictionary<string, object> { ["from"] = tenant.Status.ToString(), ["to"] = status.ToString() },
-                ct: ct);
-        }
+        var status = await RecordStatusChangeAsync(tenant, req, ct);
 
         tenant.Status = status;
         await ApplySignUpAsync(tenant, req, ct);
@@ -499,6 +488,26 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         // the map too, and waiting out the cache would keep routing to it for minutes.
         _domains.Invalidate();
         await Send.OkAsync(TenantResponse.From(tenant, (await TenantDomainClaims.ForAsync(_session, [tenant.Slug], ct))[tenant.Slug]), ct);
+    }
+
+    /// <summary>
+    /// Switching a tenant off stops it being served, tokens being issued for it and its API keys,
+    /// and switching it on restores all three, so any change is recorded in that tenant's log.
+    /// Returns the status the request asks for.
+    /// </summary>
+    private async Task<TenantStatus> RecordStatusChangeAsync(Tenant tenant, TenantWriteRequest req, CancellationToken ct)
+    {
+        var status = TenantWriteRequestValidator.Requested(req, tenant.Status);
+        if (tenant.Status != status)
+        {
+            Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+            await barakoCMS.Infrastructure.Audit.AuditLog.RecordAsync(
+                _session, tenant.Slug, status == TenantStatus.Active ? "tenant.activated" : "tenant.deactivated", actorId,
+                User.FindFirst("Username")?.Value, targetType: "Tenant", targetId: tenant.Slug,
+                metadata: new Dictionary<string, object> { ["from"] = tenant.Status.ToString(), ["to"] = status.ToString() },
+                ct: ct);
+        }
+        return status;
     }
 
     /// <summary>Applies a sent sign-up policy, recording a change in the tenant's log.</summary>
