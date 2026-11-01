@@ -49,6 +49,24 @@ public class CollectionPushTests
     }
 
     [Fact]
+    public async Task A_push_under_another_case_of_the_type_name_updates_the_same_entry()
+    {
+        var type = await ArrangeTypeAsync();
+        var client = await AdminAsync();
+        var spelled = type.ToUpperInvariant();
+        spelled.Should().NotBe(type);
+
+        await PushOkAsync(client, spelled, new { entries = new[] { Entry("a", "First") } });
+        var (status, body) = await PushAsync(client, type, new { entries = new[] { Entry("a", "First") } });
+
+        status.Should().Be(HttpStatusCode.OK, body.ToString());
+        Count(body, "created").Should().Be(0);
+        var entries = await EntriesAsync(type);
+        entries.Should().HaveCount(1);
+        entries.Should().OnlyContain(e => e.ContentType == type);
+    }
+
+    [Fact]
     public async Task A_second_push_updates_the_changed_entry_and_leaves_the_unchanged_one_alone()
     {
         var type = await ArrangeTypeAsync();

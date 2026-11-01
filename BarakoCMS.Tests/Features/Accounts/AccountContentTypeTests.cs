@@ -553,4 +553,38 @@ public class AccountContentTypeTests
         (await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct))
             .StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
+
+    [Fact]
+    public async Task An_entry_stored_in_another_case_still_blocks_the_account_type_delete()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var manager = await ManagerAsync(account.Id);
+        var name = await CreateSharedTypeAsync(manager, account);
+        var spelled = name.ToUpperInvariant();
+        spelled.Should().NotBe(name);
+        await StoreInTenantAsync(inA, new Content { Id = Guid.NewGuid(), ContentType = spelled, Data = new() { ["Title"] = "Suite" } });
+
+        (await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task The_account_cannot_take_a_name_a_tenant_type_holds_in_another_case()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var manager = await ManagerAsync(account.Id);
+        var stored = "Mixed" + Unique("t")[..8];
+        await StoreInTenantAsync(inA, LegacyTenantType(stored, SensitivityLevel.Public));
+
+        var clash = await manager.PostAsJsonAsync($"/api/accounts/{account.Slug}/content-types", new
+        {
+            name = stored.ToLowerInvariant(),
+            displayName = "Room",
+            fields = new[] { new { name = "Title", displayName = "Title", type = "string" } },
+        }, Ct);
+
+        clash.StatusCode.Should().Be(HttpStatusCode.Conflict, await clash.Content.ReadAsStringAsync(Ct));
+    }
 }
