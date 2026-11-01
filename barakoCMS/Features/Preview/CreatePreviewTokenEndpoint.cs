@@ -5,6 +5,7 @@ using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
+using Marten.Linq.MatchesSql;
 
 namespace barakoCMS.Features.Preview;
 
@@ -74,11 +75,12 @@ internal class CreatePreviewTokenEndpoint(
         if (slugField is null) { await Send.NotFoundAsync(ct); return; }
 
         /* Find the entry by slug across ALL statuses — the whole point is to preview a draft. */
-        var candidates = await session.Query<Models.Content>()
-            .Where(c => c.ContentType == req.Type)
-            .ToListAsync(ct);
-        var entry = candidates.FirstOrDefault(c =>
-            string.Equals(PublicDelivery.SlugValue(c, slugField), req.Slug, StringComparison.OrdinalIgnoreCase));
+        var (slugSql, slugParameters) = DeliveryQuery.FieldEqualsIgnoreCaseSql(slugField, req.Slug);
+        var entry = await session.Query<Models.Content>()
+            .Where(c => c.ContentType == req.Type && c.MatchesSql(slugSql, slugParameters))
+            .OrderBy(c => c.CreatedAt)
+            .ThenBy(c => c.Id)
+            .FirstOrDefaultAsync(ct);
 
         /* Only someone who can read this content type may mint a preview link. Return 404 for both
          * "no such entry" and "not allowed", so this endpoint isn't a draft-existence oracle for slugs. */

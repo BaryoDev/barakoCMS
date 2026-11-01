@@ -4,6 +4,7 @@ using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
+using Marten.Linq.MatchesSql;
 
 // The bundle types are obsolete for callers outside the module, and this is the module.
 #pragma warning disable CS0618
@@ -17,6 +18,8 @@ public class ExportEndpoint(
     IDocumentSession documentSession,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<ExportEndpoint.Req, PortabilityBundle>
 {
+    private const string ContentTypeInSql = "lower(d.data ->> 'ContentType') = ANY(?)";
+
     public class Req { public string? Types { get; set; } }
 
     public override void Configure()
@@ -44,8 +47,14 @@ public class ExportEndpoint(
         var types = (await session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
         if (filter != null) types = types.Where(t => filter.Contains(t.Name.ToLowerInvariant())).ToList();
 
-        var contents = await session.Query<barakoCMS.Models.Content>().ToListAsync(ct);
-        if (filter != null) contents = contents.Where(c => filter.Contains(c.ContentType.ToLowerInvariant())).ToList();
+        IQueryable<barakoCMS.Models.Content> contentQuery = session.Query<barakoCMS.Models.Content>();
+        if (filter != null)
+        {
+            var wanted = filter.ToArray();
+            contentQuery = contentQuery
+                .Where(c => c.MatchesSql(ContentTypeInSql, new object[] { wanted }));
+        }
+        var contents = await contentQuery.ToListAsync(ct);
 
         var (records, withheld) = await BundleEntries.ExportAsync(
             contents, types, caller, HttpContext,

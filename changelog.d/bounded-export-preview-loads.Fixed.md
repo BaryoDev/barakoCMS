@@ -1,0 +1,1 @@
+- **Export and preview read less.** A bundle export of named types and a preview token mint now filter in Postgres instead of loading every entry and filtering in memory. Responses are unchanged.
