@@ -1,0 +1,1 @@
+- **Renaming a suspended or archived tenant reactivated it.** An update that sent neither `status` nor `isActive` made the tenant Active and wrote a `tenant.activated` entry. It now keeps the current status. A blank tenant name is refused.
