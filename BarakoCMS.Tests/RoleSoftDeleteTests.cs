@@ -133,6 +133,57 @@ public class RoleSoftDeleteTests
     }
 
     [Fact]
+    public async Task Restoring_a_group_records_the_dropped_role_and_a_member_reads_the_live_role_but_not_the_deleted_one()
+    {
+        var suffix = Guid.NewGuid().ToString("n")[..8];
+        var liveSlug = "grplive" + suffix;
+        var deadSlug = "grpdead" + suffix;
+        var live = Guid.NewGuid();
+        var dead = Guid.NewGuid();
+        var groupId = Guid.NewGuid();
+        var member = new User
+        {
+            Id = Guid.NewGuid(),
+            Username = "holder" + Guid.NewGuid().ToString("n")[..10],
+            Email = $"{Guid.NewGuid():n}@example.com",
+            PasswordHash = "x",
+            GroupIds = [groupId],
+        };
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new Role
+            {
+                Id = live, Name = "live" + suffix, IsPlatform = true,
+                Permissions = [new ContentTypePermission { ContentTypeSlug = liveSlug, Read = new PermissionRule { Enabled = true } }],
+            });
+            session.Store(new Role
+            {
+                Id = dead, Name = "dead" + suffix, IsPlatform = true, DeletedAt = DateTime.UtcNow,
+                Permissions = [new ContentTypePermission { ContentTypeSlug = deadSlug, Read = new PermissionRule { Enabled = true } }],
+            });
+            session.Store(new UserGroup { Id = groupId, Name = "g" + suffix, RoleIds = [live, dead], UserIds = [member.Id], DeletedAt = DateTime.UtcNow });
+            session.Store(member);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        (await CanReadWithoutInvalidatingAsync(member, liveSlug)).Should().BeFalse("a deleted group grants nothing, and this fills the cache");
+        (await CanReadWithoutInvalidatingAsync(member, deadSlug)).Should().BeFalse();
+
+        var client = await ClientFor("SuperAdmin");
+        (await client.PostAsync($"/api/user-groups/{groupId}/restore", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await CanReadWithoutInvalidatingAsync(member, liveSlug)).Should().BeTrue("the restore must clear the cached answer from before it");
+        (await CanReadWithoutInvalidatingAsync(member, deadSlug)).Should().BeFalse("the deleted role is dropped from the group");
+        using var read = _factory.Services.CreateScope();
+        var audit = await read.ServiceProvider.GetRequiredService<IQuerySession>().Query<AuditEvent>()
+            .Where(e => e.Action == "usergroup.restored" && e.TargetId == groupId.ToString()).ToListAsync(Ct);
+        audit.Should().HaveCount(1);
+        audit[0].Metadata.Should().NotBeNull();
+        audit[0].Metadata!["droppedRoleIds"].ToString().Should().Be(dead.ToString());
+    }
+
+    [Fact]
     public async Task Erasing_a_deleted_role_is_final_and_a_live_role_cannot_be_erased()
     {
         var client = await ClientFor("SuperAdmin");
@@ -226,6 +277,14 @@ public class RoleSoftDeleteTests
         using var scope = _factory.Services.CreateScope();
         var resolver = scope.ServiceProvider.GetRequiredService<IPermissionResolver>();
         resolver.InvalidateAllPermissions();
+        var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<User>(user.Id, Ct);
+        return await resolver.CanPerformActionAsync(stored!, slug, "read", cancellationToken: Ct);
+    }
+
+    private async Task<bool> CanReadWithoutInvalidatingAsync(User user, string slug)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var resolver = scope.ServiceProvider.GetRequiredService<IPermissionResolver>();
         var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<User>(user.Id, Ct);
         return await resolver.CanPerformActionAsync(stored!, slug, "read", cancellationToken: Ct);
     }
