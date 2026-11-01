@@ -36,6 +36,7 @@ public class LinkedInStartEndpoint(IConfiguration config, IQuerySession session)
 
         HttpContext.Response.Cookies.Append("li_state", state, ExternalAuthSupport.ShortCookie());
         HttpContext.Response.Cookies.Append("li_club", club, ExternalAuthSupport.ShortCookie());
+        SocialHandoff.BindDevice(HttpContext, config);
 
         var redirect = Li.CallbackUrl(config, HttpContext);
         var url =

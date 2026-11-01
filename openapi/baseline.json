@@ -565,6 +565,65 @@
         },
         "type": "object"
       },
+      "BarakoCMSExternalAuthFacebookDeletionChoiceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "choice": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSExternalAuthFacebookDeletionRequestModel": {
+        "additionalProperties": false,
+        "properties": {
+          "signedRequest": {
+            "maxLength": 4096,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "signedRequest"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSExternalAuthFacebookDeletionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation_code": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSExternalAuthFacebookDeletionStatusResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "choiceExpiresAt": {
+            "description": "When an unanswered choice erases the account. Only while the status is awaiting_choice.",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "confirmationCode": {
+            "type": "string"
+          },
+          "requestedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSExternalAuthOidcIdTokenGrantRequest": {
         "additionalProperties": false,
         "properties": {
@@ -677,6 +736,46 @@
             "type": "string"
           },
           "value": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSExternalAuthSocialExchangeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 128,
+            "minLength": 0,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
+      "BarakoCMSExternalAuthSocialExchangeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "club": {
+            "type": "string"
+          },
+          "mfaChallengeToken": {
+            "description": "Finish at /api/auth/mfa/verify when RequiresMfa is true.",
+            "nullable": true,
+            "type": "string"
+          },
+          "refreshToken": {
+            "nullable": true,
+            "type": "string"
+          },
+          "requiresMfa": {
+            "type": "boolean"
+          },
+          "token": {
+            "nullable": true,
             "type": "string"
           }
         },
@@ -14858,6 +14957,128 @@
         ]
       }
     },
+    "/api/auth/facebook/data-deletion": {
+      "post": {
+        "operationId": "BarakoCMSExternalAuthFacebookDataDeletionEndpoint",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSExternalAuthFacebookDeletionRequestModel"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "FacebookDeletionRequestModel",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSExternalAuthFacebookDeletionResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "POST /api/auth/facebook/data-deletion. Facebook posts a form with signed_request when a\nperson removes the app. A valid one removes that person's Facebook link and answers with a\nconfirmation code and the status URL, as Facebook requires. When that link was the person's only\nlogin the request waits for them to choose whether to delete the account.",
+        "tags": [
+          "ExternalAuth"
+        ]
+      }
+    },
+    "/api/auth/facebook/data-deletion/status/{code}": {
+      "get": {
+        "operationId": "BarakoCMSExternalAuthFacebookDataDeletionStatusEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSExternalAuthFacebookDeletionStatusResponse"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "GET /api/auth/facebook/data-deletion/status/{code}. What became of one deletion request: JSON,\nor a small page with the two choices when the client asks for HTML. It changes nothing, so a\nlink preview or scanner that fetches it cannot delete an account.",
+        "tags": [
+          "ExternalAuth"
+        ]
+      },
+      "post": {
+        "operationId": "BarakoCMSExternalAuthFacebookDeletionChoiceEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSExternalAuthFacebookDeletionChoiceRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSExternalAuthFacebookDeletionChoiceRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "FacebookDeletionChoiceRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSExternalAuthFacebookDeletionStatusResponse"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "POST /api/auth/facebook/data-deletion/status/{code}. The person's choice about an account whose\nonly login was Facebook: delete_account or keep_account, as JSON or a form field.\nThe code is the capability. A choice after the request settled changes nothing and answers with\nthe status it settled on, so of two racing choices the first save wins and the other reports it.",
+        "tags": [
+          "ExternalAuth"
+        ]
+      }
+    },
     "/api/auth/facebook/start": {
       "get": {
         "operationId": "BarakoCMSExternalAuthFacebookStartEndpoint",
@@ -15775,6 +15996,50 @@
         "summary": "POST /api/auth/register/verify. Turns a pending registration into an account, once.",
         "tags": [
           "Auth"
+        ]
+      }
+    },
+    "/api/auth/social/exchange": {
+      "post": {
+        "operationId": "BarakoCMSExternalAuthSocialExchangeEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSExternalAuthSocialExchangeRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "SocialExchangeRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSExternalAuthSocialExchangeResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "POST /api/auth/social/exchange. Turns the code a callback redirected with into the token pair or\nthe MFA challenge. Works once, within 60 seconds, from the browser the sign-in started in.",
+        "tags": [
+          "ExternalAuth"
         ]
       }
     },

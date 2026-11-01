@@ -161,6 +161,46 @@ public class ExternalRoleMapTests
         tokens.Allowed.Should().BeTrue("the membership the claim made is what lets the issuer mint for the tenant");
     }
 
+    private async Task<string> AwaitingDeletionRequestAsync(Guid userId)
+    {
+        var id = Unique("fbreq");
+        await StoreAsync(new FacebookDeletionRequest
+        {
+            Id = id, Status = FacebookDeletionStatus.AwaitingChoice, UserId = userId,
+            ExpiresAt = DateTime.UtcNow.AddDays(1),
+        });
+        return id;
+    }
+
+    private async Task<FacebookDeletionRequest> DeletionRequestAsync(string id)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        return (await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<FacebookDeletionRequest>(id, Ct))!;
+    }
+
+    [Fact]
+    public async Task A_mapped_sign_in_settles_a_pending_facebook_deletion_request_as_kept()
+    {
+        // The mapped path grants the role and mints in one transaction (IssueWithGrantAsync), apart
+        // from the unmapped path, so it stages the settling on its own.
+        var (slug, _) = await TenantWithMapAsync();
+        var user = await PersonAsync();
+        var requestId = await AwaitingDeletionRequestAsync(user.Id);
+        var denied = await SignInAsync(user, slug, Groups("not-staff"));
+        denied.Allowed.Should().BeFalse();
+        (await DeletionRequestAsync(requestId)).Status.Should().Be(FacebookDeletionStatus.AwaitingChoice,
+            "a sign-in the issuer refuses does not answer the request");
+
+        var tokens = await SignInAsync(user, slug, Groups("staff"));
+
+        tokens.Allowed.Should().BeTrue();
+        var settled = await DeletionRequestAsync(requestId);
+        settled.Status.Should().Be(FacebookDeletionStatus.Kept);
+        settled.UserId.Should().BeNull();
+        settled.ExpiresAt.Should().BeNull();
+        settled.SettledAt.Should().NotBeNull();
+    }
+
     [Fact]
     public async Task A_claim_the_map_does_not_name_gives_nothing()
     {

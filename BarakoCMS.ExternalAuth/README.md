@@ -43,6 +43,10 @@ the repository.
 | `GET /api/auth/oidc/{name}/callback` | That provider's redirect target |
 | `POST /api/auth/oidc/{name}/callback` | The same, for a provider set to `ResponseMode` `form_post` (Apple) |
 | `POST /api/auth/oidc/{name}/id-token` | A native app exchanges the provider's id token for a barako token |
+| `POST /api/auth/social/exchange` | Trade a handoff code for the token pair or MFA challenge (only with `ExternalAuth:CodeHandoff`) |
+| `POST /api/auth/facebook/data-deletion` | Facebook's data deletion callback |
+| `GET /api/auth/facebook/data-deletion/status/{code}` | The result of one deletion request (a page with two buttons for browsers, JSON otherwise) |
+| `POST /api/auth/facebook/data-deletion/status/{code}` | `choice=delete_account` or `keep_account`, when Facebook was the only login |
 | `GET /api/me/profile` | Profile details captured from the provider |
 
 `{provider}` is `google`, `github`, `facebook` or `linkedin`. Only configured providers are
@@ -65,6 +69,37 @@ advertised or accepted.
 Each provider is its own section at the root of the configuration, not under `ExternalAuth`. Omit a
 provider to leave it disabled. `"Enabled": false` inside a provider's section turns that provider
 off while keeping its keys, and `ExternalAuth:Enabled` set to `false` turns every provider off.
+
+## Provider setup, code handoff and Facebook data deletion
+
+Full steps are in `docs/social-sign-in.md`. In short:
+
+- **Redirect URLs.** Register `{App:BaseUrl}/api/auth/{google|github|facebook}/callback` at each
+  provider. GitHub allows one callback URL per OAuth App, so make one app for each URL you serve.
+- **Facebook scope.** The start route asks for `email,public_profile` only, which needs no App Review.
+  `Facebook:RequestBirthdayAndLocation: true` also asks for birthday and location (default false;
+  those permissions need App Review). Live mode needs a privacy policy URL and the data deletion URL
+  `{App:BaseUrl}/api/auth/facebook/data-deletion`.
+- **Code handoff.** `ExternalAuth:CodeHandoff: true` makes every callback redirect to
+  `{App:BaseUrl}/auth/social?code=...` instead of carrying tokens in the fragment, for a frontend that
+  renders on the server. `POST /api/auth/social/exchange` with `{ "code" }` and the `social_device`
+  cookie the start route set returns the token pair or the MFA challenge. A code lasts 60 seconds,
+  works once, and works only for the browser that started the sign-in. Default false, which keeps the
+  fragment redirect.
+- **Data deletion.** `POST /api/auth/facebook/data-deletion` verifies `signed_request` with
+  `Facebook:AppSecret`, removes that person's Facebook link, and answers with the confirmation code and
+  a status URL. If the person has another login (a password or another provider), the account stays
+  and the status is `completed`. If Facebook was the only login, the status is `awaiting_choice` and
+  the person picks `delete_account` or `keep_account` on the status URL; with no choice the account
+  is erased after `Facebook:DeletionChoiceDays` (default 30). Admins are never erased automatically
+  (`needs_admin`). The deletion routes are limited per address by
+  `Social:RateLimit:PermitLimit` and `Social:RateLimit:WindowSeconds` (default 10 per 60 seconds),
+  and the exchange by `Social:RateLimit:ExchangePermitLimit` and
+  `Social:RateLimit:ExchangeWindowSeconds` (default 300 per 60 seconds).
+  Details in `docs/social-sign-in.md`.
+
+New tables: `social_handoff_codes` and `facebook_deletion_requests`, created by
+`migrations/5.5.0/1270-external-auth-social-handoff.sql`.
 
 ## OpenID Connect providers
 

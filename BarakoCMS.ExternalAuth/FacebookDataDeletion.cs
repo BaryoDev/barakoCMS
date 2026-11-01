@@ -1,0 +1,236 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using FastEndpoints;
+using FluentValidation;
+using Marten;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Builder;
+
+namespace BarakoCMS.ExternalAuth;
+
+/// <summary>
+/// One answered Facebook data deletion request. The id is the SHA-256 of the confirmation code
+/// Facebook was given, so the table never holds the code, which is what lets a person settle the
+/// request. Global, like the link it removed. It holds no Facebook user id.
+/// </summary>
+public sealed class FacebookDeletionRequest
+{
+    public string Id { get; set; } = string.Empty;
+
+    public string Status { get; set; } = FacebookDeletionStatus.Completed;
+
+    public DateTime RequestedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>The account waiting on a choice. Set only while <see cref="Status"/> is awaiting_choice.</summary>
+    public Guid? UserId { get; set; }
+
+    /// <summary>When an unanswered choice erases the account. Set only while awaiting_choice.</summary>
+    public DateTime? ExpiresAt { get; set; }
+
+    public DateTime? SettledAt { get; set; }
+}
+
+public static class FacebookDeletionStatus
+{
+    /// <summary>The link is gone, and so is the account if that was the person's only login.</summary>
+    public const string Completed = "completed";
+
+    /// <summary>The link is gone and Facebook was the only login, so the person decides about the account.</summary>
+    public const string AwaitingChoice = "awaiting_choice";
+
+    /// <summary>The person kept the account, or gained another login before it was erased.</summary>
+    public const string Kept = "kept";
+
+    /// <summary>The account is a platform or last tenant administrator and was left alone.</summary>
+    public const string NeedsAdmin = "needs_admin";
+}
+
+/// <summary>Checks the <c>signed_request</c> Facebook posts to the data deletion callback.</summary>
+internal static class FacebookSignedRequest
+{
+    public const int MaxLength = 4096;
+    private const int MaxUserIdLength = 128;
+
+    /// <summary>How old a request may be. A captured body replayed later is refused.</summary>
+    internal static readonly TimeSpan MaxAge = TimeSpan.FromHours(24);
+
+    /// <summary>How far ahead of this server's clock <c>issued_at</c> may be, for clock skew.</summary>
+    internal static readonly TimeSpan MaxSkew = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// The Facebook user id in a request signed with <paramref name="secret"/>, or null when the
+    /// request is empty, oversized, malformed, not HMAC-SHA256, not signed with the secret, or
+    /// carries an <c>issued_at</c> that is not a number, is older than <see cref="MaxAge"/> or is
+    /// more than <see cref="MaxSkew"/> ahead of <paramref name="now"/> (the clock, for tests).
+    /// </summary>
+    public static string? UserIdOf(string? signedRequest, string? secret, DateTimeOffset? now = null) =>
+        Parse(signedRequest, secret, now)?.UserId;
+
+    /// <summary>
+    /// Like <see cref="UserIdOf"/>, and also returns when Facebook issued the request (null when the
+    /// payload has no <c>issued_at</c>).
+    /// </summary>
+    public static (string UserId, DateTime? IssuedAt)? Parse(string? signedRequest, string? secret, DateTimeOffset? now = null)
+    {
+        if (string.IsNullOrEmpty(signedRequest) || signedRequest.Length > MaxLength || string.IsNullOrEmpty(secret))
+        {
+            return null;
+        }
+
+        var parts = signedRequest.Split('.');
+        if (parts.Length != 2 || !TryDecode(parts[0], out var signature) || !TryDecode(parts[1], out var payload))
+        {
+            return null;
+        }
+
+        // The signature covers the payload as sent, still encoded.
+        var expected = HMACSHA256.HashData(Encoding.UTF8.GetBytes(secret), Encoding.ASCII.GetBytes(parts[1]));
+        if (!CryptographicOperations.FixedTimeEquals(expected, signature))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(payload);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("algorithm", out var algorithm) || algorithm.ValueKind != JsonValueKind.String
+                || !string.Equals(algorithm.GetString(), "HMAC-SHA256", StringComparison.OrdinalIgnoreCase)
+                || !root.TryGetProperty("user_id", out var user) || user.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            // A body Facebook signed once stays validly signed forever, so a captured one could be
+            // replayed after the person links Facebook again. Facebook puts issued_at (seconds
+            // since the epoch) in every callback, so an old or future one is refused, the same
+            // way a bad signature is. A payload without it is still accepted: only Facebook can
+            // sign one, and refusing it would risk real callbacks if a request ever omits it.
+            DateTime? issuedAtUtc = null;
+            if (root.TryGetProperty("issued_at", out var issued))
+            {
+                var seconds = (now ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds();
+                if (issued.ValueKind != JsonValueKind.Number || !issued.TryGetInt64(out var issuedAt)
+                    || issuedAt < seconds - (long)MaxAge.TotalSeconds
+                    || issuedAt > seconds + (long)MaxSkew.TotalSeconds)
+                {
+                    return null;
+                }
+
+                issuedAtUtc = DateTimeOffset.FromUnixTimeSeconds(issuedAt).UtcDateTime;
+            }
+
+            var id = user.GetString();
+            return string.IsNullOrWhiteSpace(id) || id.Length > MaxUserIdLength ? null : (id, issuedAtUtc);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Base64url without padding, strictly: any other character is a refusal.</summary>
+    private static bool TryDecode(string value, out byte[] bytes)
+    {
+        bytes = [];
+        if (value.Length == 0 || value.Length % 4 == 1)
+        {
+            return false;
+        }
+
+        foreach (var c in value)
+        {
+            if (!(char.IsAsciiLetterOrDigit(c) || c is '-' or '_'))
+            {
+                return false;
+            }
+        }
+
+        var padded = value.Replace('-', '+').Replace('_', '/');
+        padded = padded.PadRight(padded.Length + (4 - padded.Length % 4) % 4, '=');
+        try
+        {
+            bytes = Convert.FromBase64String(padded);
+            return true;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+}
+
+internal sealed class FacebookDeletionRequestModel
+{
+    [BindFrom("signed_request")]
+    public string SignedRequest { get; set; } = string.Empty;
+}
+
+internal sealed class FacebookDeletionResponse
+{
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = string.Empty;
+
+    [JsonPropertyName("confirmation_code")]
+    public string ConfirmationCode { get; set; } = string.Empty;
+}
+
+internal sealed class FacebookDeletionValidator : Validator<FacebookDeletionRequestModel>
+{
+    public FacebookDeletionValidator()
+    {
+        RuleFor(x => x.SignedRequest).NotEmpty().MaximumLength(FacebookSignedRequest.MaxLength);
+    }
+}
+
+/// <summary>
+/// POST /api/auth/facebook/data-deletion. Facebook posts a form with <c>signed_request</c> when a
+/// person removes the app. A valid one removes that person's Facebook link and answers with a
+/// confirmation code and the status URL, as Facebook requires. When that link was the person's only
+/// login the request waits for them to choose whether to delete the account.
+/// </summary>
+internal sealed class FacebookDataDeletionEndpoint(IDocumentSession session, IConfiguration config)
+    : Endpoint<FacebookDeletionRequestModel, FacebookDeletionResponse>
+{
+    public override void Configure()
+    {
+        Post("/api/auth/facebook/data-deletion");
+        AllowAnonymous();
+        AllowFormData(urlEncoded: true);
+        Options(x => x.RequireRateLimiting(SocialRateLimit.Policy));
+    }
+
+    public override async Task HandleAsync(FacebookDeletionRequestModel req, CancellationToken ct)
+    {
+        var secret = config["Facebook:AppSecret"];
+        if (string.IsNullOrWhiteSpace(secret))
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        var parsed = FacebookSignedRequest.Parse(req.SignedRequest, secret);
+        if (parsed is not var (facebookUserId, issuedAt))
+        {
+            ThrowError("The signed request is not valid.");
+            return;
+        }
+
+        // The raw code goes to Facebook in this response and nowhere else. It can settle an account
+        // deletion, so only its hash is stored.
+        var code = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+        var request = await FacebookDeletionFlow.OpenAsync(session, config, facebookUserId, FacebookDeletionFlow.HashOf(code), issuedAt, ct);
+        session.Store(request);
+        await session.SaveChangesAsync(ct);
+
+        var baseUrl = ExternalAuthSupport.BaseUrl(config, HttpContext);
+        await Send.OkAsync(new FacebookDeletionResponse
+        {
+            Url = $"{baseUrl}/api/auth/facebook/data-deletion/status/{code}",
+            ConfirmationCode = code,
+        }, ct);
+    }
+}
