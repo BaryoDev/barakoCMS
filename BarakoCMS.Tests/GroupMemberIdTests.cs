@@ -65,6 +65,40 @@ public class GroupMemberIdTests
     }
 
     [Fact]
+    public async Task Creating_a_group_with_a_user_from_another_tenant_answers_404_and_stores_nothing_while_a_member_of_the_callers_tenant_is_accepted()
+    {
+        var tenantA = $"club-{Guid.NewGuid():N}";
+        var tenantB = $"club-{Guid.NewGuid():N}";
+        var inA = await StoreUserAsync();
+        var inB = await StoreUserAsync();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            foreach (var slug in new[] { tenantA, tenantB })
+                s.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
+            s.Store(new Membership { Id = Guid.NewGuid(), UserId = inA, TenantSlug = tenantA, Status = MembershipStatus.Active });
+            s.Store(new Membership { Id = Guid.NewGuid(), UserId = inB, TenantSlug = tenantB, Status = MembershipStatus.Active });
+            await s.SaveChangesAsync(Ct);
+        }
+        var client = await ClientAsync(tenantA);
+        var good = "good" + Guid.NewGuid().ToString("n")[..8];
+        var bad = "bad" + Guid.NewGuid().ToString("n")[..8];
+
+        var own = await client.PostAsJsonAsync("/api/user-groups", new { name = good, userIds = new[] { inA } }, Ct);
+        own.StatusCode.Should().Be(HttpStatusCode.OK, await own.Content.ReadAsStringAsync(Ct));
+        var mixed = await client.PostAsJsonAsync("/api/user-groups", new { name = bad, userIds = new[] { inA, inB } }, Ct);
+        var unknown = await client.PostAsJsonAsync("/api/user-groups", new { name = bad, userIds = new[] { Guid.NewGuid() } }, Ct);
+
+        mixed.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        unknown.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        await using var query = _factory.Services.GetRequiredService<IDocumentStore>().QuerySession(tenantA);
+        var groups = await query.Query<UserGroup>().Where(g => g.Name == good || g.Name == bad).ToListAsync(Ct);
+        groups.Should().HaveCount(1);
+        groups[0].Name.Should().Be(good);
+        groups[0].UserIds.Should().BeEquivalentTo(new[] { inA });
+    }
+
+    [Fact]
     public async Task Removing_a_user_from_a_group_that_does_not_exist_answers_404_and_writes_no_audit_row()
     {
         var groupId = Guid.NewGuid();
