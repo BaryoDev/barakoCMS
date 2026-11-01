@@ -86,7 +86,7 @@ internal sealed class Endpoint(
             await Send.NotFoundAsync(ct);
             return;
         }
-
+        req.Type = definition.Name;
         var slugField = PublicDelivery.SlugFieldForAuthoring(definition);
         if (slugField is null)
         {

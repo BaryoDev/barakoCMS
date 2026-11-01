@@ -1,0 +1,1 @@
+- **A content type name typed in another case was missed in three places.** Account type delete and rename now count entries stored in any case, an account type is refused when a tenant type has the same name in another case, bulk create stores the type name as the definition spells it, and a collection push under another case finds the same entries instead of adding copies.

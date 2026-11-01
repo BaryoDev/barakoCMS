@@ -105,11 +105,11 @@ public static class AccountContentTypes
         IDocumentStore store, IEnumerable<string> tenantIds, IReadOnlyCollection<string> typeNames, CancellationToken ct = default)
     {
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
-        var names = typeNames.ToArray();
+        var names = typeNames.Select(n => n.ToLower()).ToArray();
         foreach (var id in tenantIds.Distinct(StringComparer.Ordinal))
         {
             await using var tenantSession = store.QuerySession(id);
-            var count = await tenantSession.Query<Content>().CountAsync(c => names.Contains(c.ContentType), ct);
+            var count = await tenantSession.Query<Content>().CountAsync(c => names.Contains(c.ContentType.ToLower()), ct);
             if (count > 0) counts[id] = count;
         }
 
@@ -181,10 +181,11 @@ public static class AccountContentTypes
     public static async Task<string?> TenantWithOwnTypeAsync(
         IDocumentStore store, IEnumerable<string> tenantIds, string name, CancellationToken ct = default)
     {
+        var lowered = name.ToLower();
         foreach (var id in tenantIds.Distinct(StringComparer.Ordinal))
         {
             await using var tenantSession = store.QuerySession(id);
-            if (await tenantSession.Query<ContentTypeDefinition>().AnyAsync(d => d.Name == name, ct)) return id;
+            if (await tenantSession.Query<ContentTypeDefinition>().AnyAsync(d => d.Name.ToLower() == lowered, ct)) return id;
         }
 
         return null;

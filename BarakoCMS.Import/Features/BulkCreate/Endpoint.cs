@@ -101,7 +101,7 @@ public class Endpoint(
         }
 
         var result = await RecordBatchWriter.WriteAsync(
-            Resolve<IContentBatchRunner>(), permissions, user, definition, req.ContentType, req.Status,
+            Resolve<IContentBatchRunner>(), permissions, user, definition, definition?.Name ?? req.ContentType, req.Status,
             req.Records, rowNumbers: null, req.ContinueOnError, dryRun: false, loopLimit: null, HttpContext, ct);
         var (created, errors) = (result.Created, result.Errors);
 
