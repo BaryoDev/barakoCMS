@@ -282,4 +282,19 @@ public class TenantDomainVerifyTests
         row!.TenantSlug.Should().Be(second, "the first tenant's late write must not take the claim over");
         row.Status.Should().Be(TenantDomainStatus.Pending);
     }
+
+    [Theory]
+    [InlineData("not_a_domain")]
+    [InlineData("no-dot")]
+    public async Task A_route_domain_that_cannot_be_a_stored_host_is_a_400_and_runs_no_check(string domain)
+    {
+        var (host, dns) = HostWith();
+        var client = await SuperAdminAsync(host);
+        var handle = Handle();
+        (await CreateAsync(client, handle)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await VerifyAsync(client, handle, domain)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        dns.Calls.Should().BeEmpty();
+    }
 }

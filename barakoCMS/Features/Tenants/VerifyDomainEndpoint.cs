@@ -62,6 +62,12 @@ internal sealed class VerifyDomainEndpoint(
 
     public override async Task HandleAsync(CancellationToken ct)
     {
+        // A name that cannot be a stored domain is a bad request, answered before any lookup.
+        if (TenantDomainLookup.BareHost(Route<string>("domain")) is null)
+        {
+            ThrowError("The domain in the route is not a valid domain name.", 400);
+        }
+
         var reach = await AccountReach.ForAsync(HttpContext, session, ct);
         if (reach is null) { await Send.ForbiddenAsync(ct); return; }
 
