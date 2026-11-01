@@ -17,6 +17,8 @@ internal sealed class CountingRunnerAction : barakoCMS.Features.Workflows.IWorkf
 
     public string Type => "CountingRunner";
 
+    public bool HonoursIdempotencyKey => true;
+
     public Task ExecuteAsync(Dictionary<string, string> parameters, Content content, CancellationToken ct) =>
         RunAsync(parameters, content, ct);
 

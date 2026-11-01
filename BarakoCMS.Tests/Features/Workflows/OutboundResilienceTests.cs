@@ -267,15 +267,16 @@ public class OutboundResilienceTests
     }
 
     [Fact]
-    public async Task A_failed_email_is_sent_once_and_left_to_the_durable_queue()
+    public async Task A_failed_email_the_relay_may_have_taken_is_sent_once_and_ends_unknown()
     {
         var provider = new ScriptedEmail(_ => throw new InvalidOperationException("SMTP send failed"), _ => Task.CompletedTask);
         var action = new EmailAction(provider, NullLogger<EmailAction>.Instance, resilience: new OutboundResilience(Fast()));
 
-        var result = await action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
+        // The runner records an OperationCanceledException that is not its own as Unknown and does
+        // not retry it (WorkflowRunner, the catch after RunAsync).
+        var send = () => action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
 
-        result.Succeeded.Should().BeFalse();
-        result.Retryable.Should().BeTrue();
+        await send.Should().ThrowAsync<OperationCanceledException>();
         provider.Calls.Should().Be(1, "nothing tells a send that never left from one the relay may have taken");
     }
 
@@ -316,9 +317,9 @@ public class OutboundResilienceTests
             _ => Task.CompletedTask);
         var action = new EmailAction(provider, NullLogger<EmailAction>.Instance, resilience: new OutboundResilience(Fast()));
 
-        var result = await action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
+        var send = () => action.RunAsync(Email(), new Content { Id = Guid.NewGuid() }, Ct);
 
-        result.Succeeded.Should().BeFalse();
+        await send.Should().ThrowAsync<OperationCanceledException>();
         provider.Calls.Should().Be(2, "the second failure may be a message the relay took");
     }
 
