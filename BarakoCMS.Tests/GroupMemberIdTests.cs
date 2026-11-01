@@ -41,7 +41,7 @@ public class GroupMemberIdTests
         var tenantB = $"club-{Guid.NewGuid():N}";
         var inA = await StoreUserAsync();
         var inB = await StoreUserAsync();
-        var groupId = await StoreGroupAsync();
+        var groupId = await StoreGroupAsync(tenant: tenantA);
         using (var scope = _factory.Services.CreateScope())
         {
             var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -53,12 +53,12 @@ public class GroupMemberIdTests
         }
         var client = await ClientAsync(tenantA);
 
-        var other = await client.PostAsJsonAsync($"/api/user-groups/{groupId}/users", new { userId = inB }, Ct);
         var own = await client.PostAsJsonAsync($"/api/user-groups/{groupId}/users", new { userId = inA }, Ct);
+        own.StatusCode.Should().Be(HttpStatusCode.OK, "the group is visible in the caller's tenant, so a 404 below can only come from the user check");
+        var other = await client.PostAsJsonAsync($"/api/user-groups/{groupId}/users", new { userId = inB }, Ct);
 
         other.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        own.StatusCode.Should().Be(HttpStatusCode.OK, await own.Content.ReadAsStringAsync(Ct));
-        var members = (await LoadGroupAsync(groupId)).UserIds;
+        var members = (await LoadGroupAsync(groupId, tenantA)).UserIds;
         members.Should().HaveCount(1);
         members.Should().Contain(inA);
         members.Should().NotContain(inB);
@@ -82,7 +82,7 @@ public class GroupMemberIdTests
     public async Task Removing_a_user_from_a_deleted_group_answers_404_and_writes_no_audit_row()
     {
         var userId = await StoreUserAsync();
-        var groupId = await StoreGroupAsync(deleted: true, userId);
+        var groupId = await StoreGroupAsync(deleted: true, [userId]);
         await LinkUserAsync(userId, groupId);
         var client = await ClientAsync();
 
@@ -98,7 +98,7 @@ public class GroupMemberIdTests
     public async Task Removing_a_user_from_a_live_group_still_removes_both_sides_and_writes_one_audit_row()
     {
         var userId = await StoreUserAsync();
-        var groupId = await StoreGroupAsync(deleted: false, userId);
+        var groupId = await StoreGroupAsync(deleted: false, [userId]);
         await LinkUserAsync(userId, groupId);
         var client = await ClientAsync();
 
@@ -136,10 +136,12 @@ public class GroupMemberIdTests
         return user.Id;
     }
 
-    private async Task<Guid> StoreGroupAsync(bool deleted = false, params Guid[] userIds)
+    private async Task<Guid> StoreGroupAsync(bool deleted = false, Guid[]? userIds = null, string? tenant = null)
     {
-        using var scope = _factory.Services.CreateScope();
-        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        userIds ??= [];
+        await using var session = tenant is null
+            ? _factory.Services.GetRequiredService<IDocumentStore>().LightweightSession()
+            : _factory.Services.GetRequiredService<IDocumentStore>().LightweightSession(tenant);
         var group = new UserGroup
         {
             Id = Guid.NewGuid(),
@@ -162,10 +164,12 @@ public class GroupMemberIdTests
         await session.SaveChangesAsync(Ct);
     }
 
-    private async Task<UserGroup> LoadGroupAsync(Guid id)
+    private async Task<UserGroup> LoadGroupAsync(Guid id, string? tenant = null)
     {
-        using var scope = _factory.Services.CreateScope();
-        return (await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<UserGroup>(id, Ct))!;
+        await using var session = tenant is null
+            ? _factory.Services.GetRequiredService<IDocumentStore>().QuerySession()
+            : _factory.Services.GetRequiredService<IDocumentStore>().QuerySession(tenant);
+        return (await session.LoadAsync<UserGroup>(id, Ct))!;
     }
 
     private async Task<User> LoadUserAsync(Guid id)
