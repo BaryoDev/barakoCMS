@@ -1,6 +1,7 @@
 using FastEndpoints;
 using barakoCMS.Infrastructure.Auth;
 using Marten;
+using barakoCMS.Features.Users;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.UserGroups.AddUser;
@@ -8,6 +9,7 @@ namespace barakoCMS.Features.UserGroups.AddUser;
 internal class Endpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
     IConfiguration configuration) : Endpoint<Request, Response>
 {
     public override void Configure()
@@ -21,6 +23,13 @@ internal class Endpoint(
         var group = await session.LoadAsync<UserGroup>(req.GroupId, ct);
 
         if (group == null || group.DeletedAt is not null)
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        var user = await session.LoadAsync<User>(req.UserId, ct);
+        if (user is null || !await PlatformRoles.InTenantAsync(session, tenant, user, ct))
         {
             await Send.NotFoundAsync(ct);
             return;

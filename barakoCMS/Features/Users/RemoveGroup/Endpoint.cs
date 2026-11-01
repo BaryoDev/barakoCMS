@@ -29,7 +29,13 @@ internal class Endpoint(
         }
 
         var group = await session.LoadAsync<UserGroup>(req.GroupId, ct);
-        if (group is { RoleIds.Count: > 0 }
+        if (group == null || group.DeletedAt is not null)
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        if (group.RoleIds.Count > 0
             && await barakoCMS.Features.UserGroups.GroupRoleGuard.CheckAsync(session, User, configuration, group.RoleIds, [], ct) is { } refused)
         {
             await Send.ResponseAsync(new Response { Message = refused.Message }, refused.Status, ct);
@@ -40,7 +46,7 @@ internal class Endpoint(
         session.Store(user);
 
         // Membership is read from either side, so leaving only one would keep the group's roles.
-        if (group is not null && group.UserIds.Remove(req.UserId))
+        if (group.UserIds.Remove(req.UserId))
             session.Store(group);
 
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
