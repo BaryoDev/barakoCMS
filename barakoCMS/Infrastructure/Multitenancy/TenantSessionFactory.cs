@@ -105,7 +105,8 @@ public sealed class BatchTransaction(ILogger<BatchTransaction>? logger = null)
         {
             try
             {
-                await work(ct);
+                // The batch is already committed, so a request that disconnects now must not drop the notice.
+                await work(CancellationToken.None);
             }
             catch (Exception ex)
             {
