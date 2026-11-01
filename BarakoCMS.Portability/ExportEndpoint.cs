@@ -4,6 +4,7 @@ using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
+using Microsoft.Extensions.Configuration;
 
 // The bundle types are obsolete for callers outside the module, and this is the module.
 #pragma warning disable CS0618
@@ -26,6 +27,22 @@ public class ExportEndpoint(
             PortabilityCapabilities.ExportContent, PortabilityCapabilities.Defaults.LegacyRoles);
     }
 
+    private async Task<List<barakoCMS.Models.Content>> ReadContentsAsync(HashSet<string>? filter, int take, CancellationToken ct)
+    {
+        var contents = new List<barakoCMS.Models.Content>();
+        await foreach (var content in session.Query<barakoCMS.Models.Content>().ToAsyncEnumerable(ct))
+        {
+            if (filter != null && !filter.Contains(content.ContentType.ToLowerInvariant()))
+                continue;
+
+            contents.Add(content);
+            if (contents.Count >= take)
+                break;
+        }
+
+        return contents;
+    }
+
     public override async Task HandleAsync(Req req, CancellationToken ct)
     {
         // The same identity check as the content List endpoint.
@@ -44,8 +61,14 @@ public class ExportEndpoint(
         var types = (await session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
         if (filter != null) types = types.Where(t => filter.Contains(t.Name.ToLowerInvariant())).ToList();
 
-        var contents = await session.Query<barakoCMS.Models.Content>().ToListAsync(ct);
-        if (filter != null) contents = contents.Where(c => filter.Contains(c.ContentType.ToLowerInvariant())).ToList();
+        var maxRecords = PortabilityLimits.MaxImportRecords(Resolve<IConfiguration>());
+        var contents = await ReadContentsAsync(filter, maxRecords + 1, ct);
+        if (contents.Count > maxRecords)
+        {
+            AddError($"An export may hold at most {maxRecords} records. "
+                     + "Export fewer types per bundle, or raise Portability:MaxImportRecords.");
+            ThrowIfAnyErrors();
+        }
 
         var (records, withheld) = await BundleEntries.ExportAsync(
             contents, types, caller, HttpContext,

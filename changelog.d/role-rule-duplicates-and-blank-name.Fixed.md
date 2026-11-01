@@ -1,0 +1,1 @@
+- **A role could be saved with a blank name, or with two rules for one content type.** An update now refuses a blank name, and a create or update refuses two rules that name the same content type (case and surrounding spaces ignored). The config engine also plans and applies over a role that already holds two such rules, where it used to fail.

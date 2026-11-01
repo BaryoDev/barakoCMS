@@ -13,6 +13,9 @@ internal class Validator : Validator<Request>
     {
         RuleFor(x => x.Permissions).Custom((permissions, context) =>
         {
+            foreach (var error in FieldSetRules.DuplicateTypeErrors(permissions))
+                context.AddFailure(error);
+
             foreach (var error in ReferenceConditionRules.ShapeErrors(permissions))
                 context.AddFailure(error);
 

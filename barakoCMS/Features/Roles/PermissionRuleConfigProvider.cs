@@ -72,7 +72,9 @@ internal sealed class PermissionRuleConfigProvider(
 
         foreach (var role in roles)
         {
-            var held = Managed(role, types).ToDictionary(p => barakoCMS.Core.ContentTypeName.Normalize(p.ContentTypeSlug), StringComparer.Ordinal);
+            var held = Managed(role, types)
+                .GroupBy(p => barakoCMS.Core.ContentTypeName.Normalize(p.ContentTypeSlug), StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
             var mine = wanted.GetValueOrDefault(role.Name) ?? [];
             var before = changes.Count;
 
@@ -156,6 +158,10 @@ internal sealed class PermissionRuleConfigProvider(
         var (roles, types) = await ReadAsync(ct);
         var desired = plan.Changes.Where(c => c.Desired is not null).ToDictionary(c => c.Key, c => c.Desired!.Value, StringComparer.Ordinal);
         var removed = plan.Changes.Where(c => c.Desired is null).Select(c => c.Key).ToHashSet(StringComparer.Ordinal);
+        var removedTypes = removed
+            .Select(SplitKey)
+            .Select(k => Key(k.Role, barakoCMS.Core.ContentTypeName.Normalize(k.Slug)))
+            .ToHashSet(StringComparer.Ordinal);
         var wanted = Wanted(desired, roles, types, errors);
 
         foreach (var role in roles)
@@ -167,8 +173,9 @@ internal sealed class PermissionRuleConfigProvider(
             }
 
             var mine = Managed(role, types)
-                .Where(p => !removed.Contains(Key(role.Name, p.ContentTypeSlug)))
-                .ToDictionary(p => barakoCMS.Core.ContentTypeName.Normalize(p.ContentTypeSlug), p => (Key(role.Name, p.ContentTypeSlug), p, default(JsonElement)), StringComparer.Ordinal);
+                .Where(p => !removedTypes.Contains(Key(role.Name, barakoCMS.Core.ContentTypeName.Normalize(p.ContentTypeSlug))))
+                .GroupBy(p => barakoCMS.Core.ContentTypeName.Normalize(p.ContentTypeSlug), StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => (Key(role.Name, g.First().ContentTypeSlug), g.First(), default(JsonElement)), StringComparer.Ordinal);
             foreach (var (slug, entry) in wanted.GetValueOrDefault(role.Name) ?? [])
             {
                 mine[slug] = entry;

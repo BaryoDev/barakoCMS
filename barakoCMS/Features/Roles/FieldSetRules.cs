@@ -109,6 +109,19 @@ internal static class FieldSetRules
         }
     }
 
+    /// <summary>A role holds one rule per content type, however the slug is spelled.</summary>
+    public static List<string> DuplicateTypeErrors(List<ContentTypePermission>? permissions)
+    {
+        var slugs = (permissions ?? [])
+            .Where(p => p is not null)
+            .Select(p => barakoCMS.Core.ContentTypeName.Normalize(p.ContentTypeSlug ?? string.Empty))
+            .ToList();
+
+        return slugs.Count == slugs.Distinct(StringComparer.Ordinal).Count()
+            ? []
+            : ["A role holds one rule per content type. Two rules name the same content type."];
+    }
+
     public static List<string> ShapeErrors(List<ContentTypePermission>? permissions)
     {
         var errors = new List<string>();
