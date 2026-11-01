@@ -134,7 +134,7 @@ public class BoundedLoadTests
         doc.RootElement.GetProperty("token").GetString().Should().NotBeNullOrEmpty();
 
         _logger.Commands.Should().Contain(
-            c => c.Parameters.Contains("target") && c.Sql.Contains("mt_doc_content", StringComparison.Ordinal),
+            c => c.Parameters.Contains("TARGET") && c.Sql.Contains("mt_doc_content", StringComparison.Ordinal),
             "the slug has to reach the database, or every entry of the type is loaded to match one");
     }
 
