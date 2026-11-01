@@ -1,4 +1,5 @@
 using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Infrastructure.Tracing;
 using barakoCMS.Models;
 using Marten;
@@ -106,43 +107,39 @@ internal sealed class CollectionSyncService(
     }
 
     /// <summary>Runs the due syncs in every partition, if this instance can take the lock.</summary>
-    /// <returns>True if this instance swept, false if another one was already sweeping.</returns>
+    /// <returns>True if this instance swept every partition, false if another one was already sweeping or this one lost the lock partway.</returns>
     public async Task<bool> TrySweepAsync(DateTime nowUtc, CancellationToken ct)
     {
-        // The connection object, not a new one built from its ConnectionString: Npgsql redacts the
-        // password out of ConnectionString unless Persist Security Info is set.
         using var span = BarakoTracing.StartSweep(BarakoTracing.CollectionSyncSweepSpan);
-        await using var lockConnection = store.Storage.Database.CreateConnection();
-        await lockConnection.OpenAsync(ct);
-
-        await using (var acquire = lockConnection.CreateCommand())
+        await using var lease = await AdvisoryLease.AcquireAsync(store, SweepLockKey, ct);
+        span?.SetTag(BarakoTracing.SweepHeldTag, lease is not null);
+        if (lease is null)
         {
-            acquire.CommandText = "select pg_try_advisory_lock(@key)";
-            acquire.Parameters.AddWithValue("key", SweepLockKey);
-            var acquired = (bool?)await acquire.ExecuteScalarAsync(ct) ?? false;
-            span?.SetTag(BarakoTracing.SweepHeldTag, acquired);
-            if (!acquired)
+            logger.LogDebug("Another instance is running collection syncs; skipping this tick.");
+            return false;
+        }
+
+        if (lease.PoolerSuspected)
+        {
+            AdvisoryLease.ReportPooler(logger, SweepLockKey);
+            if (AdvisoryLease.RefuseBehindPooler(configuration))
             {
-                logger.LogDebug("Another instance is running collection syncs; skipping this tick.");
                 return false;
             }
         }
 
-        try
+        if (AfterLockHeld is { } hook)
         {
-            await SweepHeldAsync(nowUtc, ct);
-            return true;
+            await hook(ct);
         }
-        finally
-        {
-            await using var release = lockConnection.CreateCommand();
-            release.CommandText = "select pg_advisory_unlock(@key)";
-            release.Parameters.AddWithValue("key", SweepLockKey);
-            await release.ExecuteScalarAsync(CancellationToken.None);
-        }
+
+        return await SweepHeldAsync(nowUtc, lease, ct);
     }
 
-    private async Task SweepHeldAsync(DateTime nowUtc, CancellationToken ct)
+    /// <summary>Runs once the lock is held and before the first tenant. Tests only.</summary>
+    internal Func<CancellationToken, Task>? AfterLockHeld { get; set; }
+
+    private async Task<bool> SweepHeldAsync(DateTime nowUtc, AdvisoryLease lease, CancellationToken ct)
     {
         // null is the default partition, where a single-deployment site keeps its content; named
         // slugs are the path-based tenants. In Multi the default partition belongs to no tenant and
@@ -163,8 +160,17 @@ internal sealed class CollectionSyncService(
         {
             if (budget <= 0) break;
 
+            if (!await lease.IsHeldAsync(ct))
+            {
+                logger.LogWarning("The collection sync sweep lost its advisory lock; stopping before tenant {Tenant}",
+                    slug ?? "(default)");
+                return false;
+            }
+
             budget -= await SweepTenantAsync(slug, nowUtc, budget, ct);
         }
+
+        return true;
     }
 
     /// <summary>Runs up to <paramref name="budget"/> due syncs in one partition.</summary>
