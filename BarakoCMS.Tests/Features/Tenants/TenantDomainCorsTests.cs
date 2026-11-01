@@ -110,7 +110,7 @@ public class TenantDomainCorsTests
         using (var scope = _fixture.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            VerifiedDomains.Stage(session, handle, [domain]);
+            await VerifiedDomains.PromoteAsync(session, handle, [domain], Ct);
             await session.SaveChangesAsync(Ct);
         }
 
