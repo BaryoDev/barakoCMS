@@ -1,0 +1,1 @@
+- **A locked account could still refresh its session.** Refresh now answers 401 while the account is locked. The token is not used up, so it works again once the lock ends.

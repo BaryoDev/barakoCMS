@@ -129,6 +129,13 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
+        if (barakoCMS.Infrastructure.Auth.AccountLockout.LockedMessage(user) is not null)
+        {
+            _logger.LogWarning("Refresh refused for locked account. UserId: {UserId}", user.Id);
+            ThrowError("Invalid refresh token", 401);
+            return;
+        }
+
         // The client sends X-Tenant on refresh, so without a membership check a refresh is a free
         // tenant hop: present a legitimately-issued refresh token with a different X-Tenant and walk
         // out with a token scoped to a tenant you never belonged to. The issuer re-checks every time,
