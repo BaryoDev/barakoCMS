@@ -669,6 +669,13 @@ public static class ServiceCollectionExtensions
             // UpdateExpectedVersion, so GET's ETag and PUT's If-Match round-trip through it.
             .UseOptimisticConcurrency(true)
             .Index(x => x.ContentType)  // Frequently filtered
+            // The uniqueness checks compare the type ignoring case, which the index above cannot
+            // serve. An existing database needs migrations/5.5.0/content-type-lower-index.sql.
+            .Index(x => x.ContentType, idx =>
+            {
+                idx.Casing = Marten.Schema.ComputedIndex.Casings.Lower;
+                idx.Name = "content_type_lower";
+            })
             .Index(x => x.CreatedAt)    // Frequently sorted
             .Index(x => x.UpdatedAt)
             .Index(x => x.Status)
@@ -930,7 +937,10 @@ public static class ServiceCollectionExtensions
         options.Schema.For<IdempotencyRecord>()
             .SingleTenanted()
             .DocumentAlias("idempotency_records")
-            .Index(x => x.Key, idx => idx.IsUnique = true);  // Unique constraint prevents race condition
+            .Index(x => x.Key, idx => idx.IsUnique = true)  // Unique constraint prevents race condition
+            // The retention sweep and its count filter and order on CreatedAt. An existing database
+            // needs migrations/5.5.0/idempotency-created-at-index.sql.
+            .Index(x => x.CreatedAt);
 
         options.Schema.For<OtpCode>()
             .SingleTenanted() // sign-in codes are keyed by global email, not by club
