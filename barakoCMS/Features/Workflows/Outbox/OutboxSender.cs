@@ -100,7 +100,7 @@ internal sealed class OutboxSender(
 
         foreach (var message in due)
         {
-            message.LeasedUntil = now.Add(LeaseDuration);
+            message.LeasedUntil = (now > DateTimeOffset.UtcNow ? now : DateTimeOffset.UtcNow).Add(LeaseDuration);
             session.Update(message);
 
             try
@@ -124,7 +124,6 @@ internal sealed class OutboxSender(
                 message.Status = OutboxStatus.Delivered;
                 message.DeliveredAt = DateTimeOffset.UtcNow;
                 message.LastError = null;
-                delivered++;
             }
             else
             {
@@ -142,7 +141,18 @@ internal sealed class OutboxSender(
             }
 
             session.Update(message);
-            await session.SaveChangesAsync(ct);
+
+            try
+            {
+                await session.SaveChangesAsync(ct);
+            }
+            catch (Exception ex) when (ex is JasperFx.ConcurrencyException || ex.GetType().Name.Contains("Concurrency"))
+            {
+                logger.LogWarning("Outbox message {MessageId} changed while it was being sent, the result was not saved", message.Id);
+                continue;
+            }
+
+            if (result.Delivered) delivered++;
         }
 
         return delivered;
