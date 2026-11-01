@@ -17,7 +17,8 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// events and then queue a row for the one under test.
 /// </summary>
 /// <remarks>
-/// The workflow is stored after the events. The host's own projection queues a run for an event
+/// The entry is stored from the events by hand, because nothing in the test host projects it. The
+/// workflow is stored after the events. The host's own projection queues a run for an event
 /// the moment it is appended when a workflow already listens, which would leave nothing for the
 /// sweep to do and nothing for the test to prove.
 /// </remarks>
@@ -240,6 +241,11 @@ public class WorkflowMissedTriggerReplayTests
 
         var stored = await session.Events.FetchStreamAsync(id, token: Ct);
         stored.Should().HaveCount(events.Length);
+
+        // No projection builds the entry from its events: the endpoints store the document next to
+        // them. Stored here the same way, folded from the events, so the sweep has an entry to read.
+        session.Store(barakoCMS.Infrastructure.Services.ContentProjection.Fold(stored)!);
+        await session.SaveChangesAsync(Ct);
         return stored;
     }
 

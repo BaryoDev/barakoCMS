@@ -89,6 +89,21 @@ public class WorkflowMissedTriggerTests
         var tenant = $"wf-missed-{Guid.NewGuid():N}"[..20];
         var contentId = await SeedAsync(tenant);
 
+        // The projection reads the entry through the operations, which here are the default
+        // partition's, so the entry has to be readable there or it never reaches the queue and
+        // nothing fails. The queue's own scope is the event's tenant, where the workflow is.
+        await using (var seed = Store.LightweightSession())
+        {
+            seed.Store(new Content
+            {
+                Id = contentId,
+                ContentType = "default-partition-copy",
+                Status = ContentStatus.Published,
+                Data = new Dictionary<string, object>(),
+            });
+            await seed.SaveChangesAsync(Ct);
+        }
+
         await ProjectPublishedAsync(tenant, contentId, opsTenant: null);
 
         await using var named = Store.QuerySession(tenant);
@@ -123,7 +138,8 @@ public class WorkflowMissedTriggerTests
             row.LastError.Should().Be(nameof(InvalidOperationException), "the type name only");
         }
 
-        await queue.Received(MissedTriggerSweep.MaxAttempts).EnqueueAsync(default!, default!, default, default);
+        await queue.Received(MissedTriggerSweep.MaxAttempts)
+            .EnqueueAsync(Arg.Any<Content>(), Arg.Any<string>(), Arg.Any<long>(), Arg.Any<CancellationToken>());
         logger.Entries.Where(e => e.Level == LogLevel.Warning).Should().HaveCount(MissedTriggerSweep.MaxAttempts - 1);
         var stopped = logger.Entries.Where(e => e.Level == LogLevel.Error).ToList();
         stopped.Should().HaveCount(1, "the last attempt says the row is stopped");
@@ -131,7 +147,8 @@ public class WorkflowMissedTriggerTests
         logger.Entries.Should().OnlyContain(e => !e.Message.Contains("a database error"), "the exception message is not logged");
 
         (await MissedTriggerSweep.RunAsync(session, queue, logger, Ct)).Should().Be(0);
-        await queue.Received(MissedTriggerSweep.MaxAttempts).EnqueueAsync(default!, default!, default, default);
+        await queue.Received(MissedTriggerSweep.MaxAttempts)
+            .EnqueueAsync(Arg.Any<Content>(), Arg.Any<string>(), Arg.Any<long>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
