@@ -25,7 +25,7 @@ internal class Endpoint(
             return;
         }
 
-        group.UserIds.Remove(req.UserId);
+        group.UserIds.RemoveAll(id => id == req.UserId);
         session.Store(group);
 
         // Membership is read from either side, so leaving only one would keep the group's roles.

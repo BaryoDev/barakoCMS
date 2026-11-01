@@ -110,6 +110,28 @@ public class GroupMemberIdTests
         (await LoadGroupAsync(groupId)).UserIds.Should().NotContain(userId);
     }
 
+    [Fact]
+    public async Task Removing_a_user_whose_id_is_listed_twice_in_a_group_removes_every_copy()
+    {
+        var userId = await StoreUserAsync();
+        var groupId = await StoreGroupAsync(deleted: false, [userId, userId]);
+        await LinkUserAsync(userId, groupId);
+        var client = await ClientAsync();
+        (await LoadGroupAsync(groupId)).UserIds.Should().HaveCount(2);
+
+        var viaUser = await client.DeleteAsync($"/api/users/{userId}/groups/{groupId}", Ct);
+
+        viaUser.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await LoadGroupAsync(groupId)).UserIds.Should().NotContain(userId);
+
+        var again = await StoreGroupAsync(deleted: false, [userId, userId]);
+        (await LoadGroupAsync(again)).UserIds.Should().HaveCount(2);
+        var viaGroup = await client.DeleteAsync($"/api/user-groups/{again}/users/{userId}", Ct);
+
+        viaGroup.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await LoadGroupAsync(again)).UserIds.Should().NotContain(userId);
+    }
+
     private async Task<HttpClient> ClientAsync(string? tenant = null)
     {
         var client = _factory.CreateClient();

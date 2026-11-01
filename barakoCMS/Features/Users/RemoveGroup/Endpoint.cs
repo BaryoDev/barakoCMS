@@ -38,7 +38,7 @@ internal class Endpoint(
         session.Store(user);
 
         // Membership is read from either side, so leaving only one would keep the group's roles.
-        if (group.UserIds.Remove(req.UserId))
+        if (group.UserIds.RemoveAll(id => id == req.UserId) > 0)
             session.Store(group);
 
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
