@@ -27,13 +27,23 @@ internal class Endpoint(
             return;
         }
 
+        // Roles/Delete counts only live groups, so a deleted group can still name a role that has
+        // since gone. Drop those ids rather than refuse, which would be a new status code.
+        var liveRoles = group.RoleIds.Count == 0 ? [] : (await session.Query<Role>()
+            .Where(r => group.RoleIds.Contains(r.Id) && r.DeletedAt == null)
+            .Select(r => r.Id).ToListAsync(ct)).ToHashSet();
+        var dropped = group.RoleIds.Where(id => !liveRoles.Contains(id)).ToList();
+        group.RoleIds = group.RoleIds.Where(liveRoles.Contains).ToList();
+
         group.DeletedAt = null;
         session.Store(group);
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
         await AuditLog.RecordAsync(session, tenant.Slug, "usergroup.restored", actorId, User.FindFirst("Username")?.Value,
-            targetType: "UserGroup", targetId: group.Id.ToString(), metadata: new() { ["name"] = group.Name }, ct: ct);
+            targetType: "UserGroup", targetId: group.Id.ToString(), metadata: dropped.Count == 0
+                ? new() { ["name"] = group.Name }
+                : new() { ["name"] = group.Name, ["droppedRoleIds"] = string.Join(",", dropped) }, ct: ct);
         await session.SaveChangesAsync(ct);
-        if (group.RoleIds is { Count: > 0 })
+        if (group.RoleIds is { Count: > 0 } || dropped.Count > 0)
         {
             permissions.InvalidateAllPermissions();
         }
