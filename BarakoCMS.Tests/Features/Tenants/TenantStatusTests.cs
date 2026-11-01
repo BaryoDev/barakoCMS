@@ -187,8 +187,74 @@ public class TenantStatusTests
         conflict.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         var neither = await SetStatusAsync(slug, new { name = slug });
-        (await neither.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("status").GetString().Should().Be("Active",
-            "leaving both out activates the tenant, which is what leaving isActive out always did");
+        (await neither.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("status").GetString().Should().Be("Archived",
+            "leaving both out keeps the status the tenant has");
+
+        var explicitActive = await SetStatusAsync(slug, new { name = slug, status = "Active" });
+        (await explicitActive.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("status").GetString().Should().Be("Active");
+    }
+
+    private async Task<int> ActivatedRowsAsync(string slug)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var rows = await session.Query<AuditEvent>()
+            .Where(e => e.TenantSlug == slug && e.Action == "tenant.activated")
+            .ToListAsync(Ct);
+        return rows.Count;
+    }
+
+    [Theory]
+    [InlineData("Suspended")]
+    [InlineData("Archived")]
+    public async Task Renaming_a_tenant_that_is_not_active_keeps_its_status_and_writes_no_activation(string status)
+    {
+        var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct);
+        await SetStatusOkAsync(slug, status);
+
+        var renamed = await SetStatusAsync(slug, new { name = "Renamed " + slug });
+
+        renamed.StatusCode.Should().Be(HttpStatusCode.OK, await renamed.Content.ReadAsStringAsync(Ct));
+        var body = await renamed.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        body.GetProperty("name").GetString().Should().Be("Renamed " + slug);
+        body.GetProperty("status").GetString().Should().Be(status);
+        (await ActivatedRowsAsync(slug)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task An_explicit_Active_still_activates_a_suspended_tenant_and_records_it()
+    {
+        var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct);
+        await SetStatusOkAsync(slug, "Suspended");
+
+        var response = await SetStatusAsync(slug, new { name = slug, status = "Active" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        (await response.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("status").GetString().Should().Be("Active");
+        (await ActivatedRowsAsync(slug)).Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task A_blank_name_is_refused_on_update(string name)
+    {
+        var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct);
+
+        var response = await SetStatusAsync(slug, new { name });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_blank_name_is_refused_on_create()
+    {
+        var admin = await PlatformAdminAsync();
+        var handle = ("blank-" + Guid.NewGuid().ToString("N"))[..16];
+
+        var response = await admin.PostAsJsonAsync("/api/tenants", new { handle, name = " " }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync(Ct));
     }
 
     /// <summary>The raw document, as the migration file and an earlier release read it.</summary>
