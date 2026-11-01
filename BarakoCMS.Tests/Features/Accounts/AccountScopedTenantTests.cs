@@ -316,6 +316,22 @@ public class AccountScopedTenantTests
     }
 
     [Fact]
+    public async Task Granting_one_user_from_many_requests_at_once_answers_each_and_stores_one_grant()
+    {
+        var admin = await PlatformManagerAsync();
+        var account = await StoreAccountAsync();
+        var (_, userId) = await ManagerOfAsync();
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ =>
+            admin.PostAsJsonAsync($"/api/accounts/{account.Slug}/managers", new { userId }, Ct)));
+
+        responses.Should().HaveCount(8);
+        responses.Should().OnlyContain(r => r.StatusCode == HttpStatusCode.OK);
+        var listed = await admin.GetFromJsonAsync<JsonElement>($"/api/accounts/{account.Slug}/managers", Ct);
+        listed.GetProperty("items").GetArrayLength().Should().Be(1);
+    }
+
+    [Fact]
     public async Task A_grant_and_a_revoke_each_leave_an_audit_entry_naming_the_account_the_user_and_the_actor()
     {
         var admin = await PlatformManagerAsync();

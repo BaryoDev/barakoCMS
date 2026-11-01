@@ -105,6 +105,13 @@ internal class GrantEndpoint(IDocumentSession session) : Endpoint<GrantRequest, 
         var user = await session.LoadAsync<User>(req.UserId, ct);
         if (user is null) { AddError(r => r.UserId, "No such user."); ThrowIfAnyErrors(); }
 
+        // The unique index refuses a second row, which a racing grant would see as a 500. Under a
+        // lock on the pair the loser finds the winner's row and answers the same as a repeat grant.
+        await session.BeginTransactionAsync(ct);
+        await session.QueryAsync<int>(
+            "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct,
+            $"barakocms:account-manager:{account.Id}:{req.UserId}");
+
         var grant = await session.Query<TenantAccountManager>()
             .FirstOrDefaultAsync(m => m.AccountId == account.Id && m.UserId == req.UserId, ct);
         if (grant is null)

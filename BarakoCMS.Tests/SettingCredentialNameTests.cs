@@ -164,6 +164,25 @@ public class SettingCredentialNameTests
             .Should().Contain("empty value");
     }
 
+    [Fact]
+    public async Task Saving_one_new_key_from_many_requests_at_once_stores_it_once()
+    {
+        var key = Key("Enabled");
+        var clients = new List<HttpClient>();
+        for (var i = 0; i < 8; i++) clients.Add(await SuperAdminAsync());
+
+        var responses = await Task.WhenAll(clients.Select(c => c.PostAsJsonAsync(
+            "/api/settings", new { key, value = "true" }, TestContext.Current.CancellationToken)));
+
+        responses.Should().HaveCount(8);
+        responses.Should().OnlyContain(r => r.StatusCode == HttpStatusCode.OK);
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentStore>().QuerySession();
+        var rows = await session.Query<SystemSetting>()
+            .Where(s => s.Key == key).ToListAsync(TestContext.Current.CancellationToken);
+        rows.Should().HaveCount(1, "a key is one row however many saves race");
+    }
+
     private async Task<HttpClient> SuperAdminAsync()
     {
         var client = _factory.CreateClient();
