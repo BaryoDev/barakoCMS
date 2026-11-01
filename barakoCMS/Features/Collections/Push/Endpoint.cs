@@ -196,7 +196,7 @@ internal sealed class Endpoint(
         {
             var (sql, parameters) = DeliveryQuery.FieldNotInIgnoreCaseSql(slugField, seen);
             missing = [.. await session.Query<ContentDoc>()
-                .Where(c => c.ContentType == req.Type
+                .Where(c => c.ContentType.ToLower() == req.Type.ToLower()
                             && c.Status == ContentStatus.Published
                             && c.MatchesSql(sql, parameters))
                 .OrderBy(c => c.CreatedAt)
@@ -330,8 +330,9 @@ internal sealed class Endpoint(
     {
         var (sql, parameters) = DeliveryQuery.FieldInIgnoreCaseSql(slugField, slugs);
 
+        var lowered = type.ToLower();
         var holders = await session.Query<ContentDoc>()
-            .Where(c => c.ContentType == type && c.MatchesSql(sql, parameters))
+            .Where(c => c.ContentType.ToLower() == lowered && c.MatchesSql(sql, parameters))
             .OrderBy(c => c.CreatedAt)
             .ThenBy(c => c.Id)
             .Take(Limits.MaxEntries * 2)
