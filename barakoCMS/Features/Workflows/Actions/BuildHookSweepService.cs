@@ -116,9 +116,10 @@ internal sealed class BuildHookSweepService(
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                session.EjectAllPendingChanges();
                 _logger.LogError(
                     "A pending build {ActionKey} failed and stays claimed until its claim times out ({Exception})",
-                    pending.ActionKey, ex.GetType().Name);
+                    barakoCMS.Infrastructure.Logging.LogSafe.Value(pending.ActionKey), ex.GetType().Name);
             }
         }
 

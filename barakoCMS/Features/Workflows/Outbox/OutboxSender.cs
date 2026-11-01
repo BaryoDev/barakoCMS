@@ -109,38 +109,14 @@ internal sealed class OutboxSender(
             }
             catch (Exception ex) when (ex is JasperFx.ConcurrencyException || ex.GetType().Name.Contains("Concurrency"))
             {
-                // Another node took it.
+                // Another node took it. Nothing of this message's stays staged for the next save.
+                session.EjectAllPendingChanges();
                 continue;
             }
 
             var result = await transport.SendAsync(message, ct);
 
-            message.Attempts++;
-            message.LeasedUntil = null;
-            session.Store(NewDeliveryRow(message, result, now));
-
-            if (result.Delivered)
-            {
-                message.Status = OutboxStatus.Delivered;
-                message.DeliveredAt = DateTimeOffset.UtcNow;
-                message.LastError = null;
-            }
-            else
-            {
-                message.LastError = result.Error;
-                if (result.Permanent || message.Attempts >= MaxAttempts)
-                {
-                    message.Status = OutboxStatus.DeadLettered;
-                    logger.LogWarning(
-                        "Outbox message {MessageId} was dead-lettered after {Attempts} attempt(s)", message.Id, message.Attempts);
-                }
-                else
-                {
-                    message.NextAttemptAt = now.Add(Backoff(message.Attempts));
-                }
-            }
-
-            session.Update(message);
+            RecordResult(session, message, result, now);
 
             try
             {
@@ -148,6 +124,7 @@ internal sealed class OutboxSender(
             }
             catch (Exception ex) when (ex is JasperFx.ConcurrencyException || ex.GetType().Name.Contains("Concurrency"))
             {
+                session.EjectAllPendingChanges();
                 logger.LogWarning("Outbox message {MessageId} changed while it was being sent, the result was not saved", message.Id);
                 continue;
             }
@@ -156,6 +133,36 @@ internal sealed class OutboxSender(
         }
 
         return delivered;
+    }
+
+    private void RecordResult(IDocumentSession session, OutboxMessage message, OutboxSendResult result, DateTimeOffset now)
+    {
+        message.Attempts++;
+        message.LeasedUntil = null;
+        session.Store(NewDeliveryRow(message, result, now));
+
+        if (result.Delivered)
+        {
+            message.Status = OutboxStatus.Delivered;
+            message.DeliveredAt = DateTimeOffset.UtcNow;
+            message.LastError = null;
+        }
+        else
+        {
+            message.LastError = result.Error;
+            if (result.Permanent || message.Attempts >= MaxAttempts)
+            {
+                message.Status = OutboxStatus.DeadLettered;
+                logger.LogWarning(
+                    "Outbox message {MessageId} was dead-lettered after {Attempts} attempt(s)", message.Id, message.Attempts);
+            }
+            else
+            {
+                message.NextAttemptAt = now.Add(Backoff(message.Attempts));
+            }
+        }
+
+        session.Update(message);
     }
 
     private static WebhookDelivery NewDeliveryRow(OutboxMessage message, OutboxSendResult result, DateTimeOffset now) => new()
