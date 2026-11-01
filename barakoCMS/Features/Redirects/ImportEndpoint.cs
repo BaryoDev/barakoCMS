@@ -112,9 +112,8 @@ internal sealed class ImportRedirectsEndpoint(
             if (!ReadFrom(parts[0], seen, $"Line {number}: ", rejected, out var from)) continue;
 
             var to = UrlRedirect.Normalize(parts[1]);
-            var permanent = ReadPermanent(parts);
+            if (!ReadPermanent(parts, $"Line {number}: ", rejected, out var permanent)) continue;
             var note = parts.Count > 3 ? parts[3].Trim() : null;
-
             var without = new Dictionary<string, string>(chain, StringComparer.Ordinal);
             without.Remove(from);
 
@@ -124,6 +123,7 @@ internal sealed class ImportRedirectsEndpoint(
                 continue;
             }
 
+            seen.Add(from);
             if (byPath.TryGetValue(from, out var existing))
             {
                 existing.ToPath = to;
@@ -191,7 +191,7 @@ internal sealed class ImportRedirectsEndpoint(
 
         if (raw.AsSpan().IndexOfAny('?', '#') >= 0 || raw.Contains("://", StringComparison.Ordinal))
             rejected.Add(prefix + "the from side must be a path, with no query, fragment or host.");
-        else if (!seen.Add(from))
+        else if (seen.Contains(from))
             rejected.Add($"{prefix}{from} already appears earlier in this file.");
         else
             return true;
@@ -199,13 +199,25 @@ internal sealed class ImportRedirectsEndpoint(
         return false;
     }
 
-    /// <summary>Null when the column is absent or empty, so the stored value is kept.</summary>
-    private static bool? ReadPermanent(List<string> parts)
+    /// <summary>
+    /// Reads the third column. Null when it is absent or empty, so the stored value is kept; text it
+    /// does not recognise is rejected rather than guessed, for the same reason.
+    /// </summary>
+    private static bool ReadPermanent(List<string> parts, string prefix, List<string> rejected, out bool? permanent)
     {
-        if (parts.Count < 3 || parts[2].Trim().Length == 0) return null;
+        permanent = null;
+        var value = parts.Count < 3 ? "" : parts[2].Trim();
 
-        var value = parts[2].Trim();
-        return value.Equals("true", StringComparison.OrdinalIgnoreCase) || value == "301";
+        if (value.Length == 0) return true;
+        if (value.Equals("true", StringComparison.OrdinalIgnoreCase) || value == "301") permanent = true;
+        else if (value.Equals("false", StringComparison.OrdinalIgnoreCase) || value == "302") permanent = false;
+        else
+        {
+            rejected.Add(prefix + "the third column must be true, false, 301 or 302.");
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>
