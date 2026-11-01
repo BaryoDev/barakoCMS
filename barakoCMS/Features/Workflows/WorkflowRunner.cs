@@ -262,7 +262,8 @@ internal sealed class WorkflowRunner(
     /// <param name="Run">The run as the claim saved it.</param>
     /// <param name="Attempt">The attempt claimed, or null when the run was cancelled instead.</param>
     /// <param name="Undo">Whether what was claimed is the attempt's compensation and not the action itself.</param>
-    private sealed record Claim(WorkflowRun Run, WorkflowActionAttempt? Attempt, bool Undo = false);
+    /// <param name="Notify">Whether the failure handlers are still to be told, off the claiming path.</param>
+    private sealed record Claim(WorkflowRun Run, WorkflowActionAttempt? Attempt, bool Undo = false, bool Notify = false);
 
     /// <summary>
     /// Fills the slots of one pass, a round of the tenants at a time, then waits for what it started.
@@ -381,6 +382,7 @@ internal sealed class WorkflowRunner(
             else
             {
                 Metrics.Finished(claim.Run.Status);
+                if (claim.Notify) pass.Running.Add(Task.Run(() => NotifyEndedAsync(store, claim.Run, tenantId, ct), CancellationToken.None));
             }
 
             return true;
@@ -573,7 +575,7 @@ internal sealed class WorkflowRunner(
             }
 
             if (claimed.Status == AttemptStatus.Running
-                && await TakeOverAsync(session, run, claimed, tenantId, ct) is { } ended) return ended ? new Claim(run, null) : null;
+                && await TakeOverAsync(session, run, claimed, tenantId, ct) is { } ended) return ended ? new Claim(run, null, Notify: true) : null;
 
             claimed.Status = AttemptStatus.Running;
             claimed.LeasedBy = _node;
@@ -695,8 +697,21 @@ internal sealed class WorkflowRunner(
 
         Metrics.Recorded(lapsed.ActionType, true, lapsed.Status, 0);
         if (WorkflowMetrics.HaltedTheRun(run, lapsed)) Metrics.Halted();
-        await NotifyOnFailureAsync(session, run, tenantId, ct);
         return true;
+    }
+
+    /// <summary>Tells the failure handlers of a run a takeover ended. Never throws: it is awaited at the end of the pass.</summary>
+    private async Task NotifyEndedAsync(IDocumentStore store, WorkflowRun run, string tenantId, CancellationToken ct)
+    {
+        try
+        {
+            await using var session = store.LightweightSession(tenantId);
+            await NotifyOnFailureAsync(session, run, tenantId, ct);
+        }
+        catch (Exception ex)
+        {
+            if (ex is not OperationCanceledException) logger.LogError(ex, "Could not report the failure of run {RunId}", run.Id);
+        }
     }
 
     /// <summary>Whether the action for a type absorbs a second run with the same key. An unbuilt one is run, to be refused as usual.</summary>

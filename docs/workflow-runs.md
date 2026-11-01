@@ -107,7 +107,9 @@ again by hand. A custom action is treated the same way unless it returns true fr
 The attempt number an action is given does not move on a takeover, so UpdateField still finds the
 marker its lost try wrote and applies the change once. A run ended this way halts the actions
 behind it when the action is set to halt, and tells the failure handlers, as any other ending does.
-An undo whose lease ran out is counted and ended the same way.
+An undo whose lease ran out is counted and ended the same way. The `attempts` value the API serves
+for an action or an undo now counts a lost try, so it can be higher than the number of tries that
+finished. The takeover count itself is stored on the run and is not served.
 
 ## Retries inside one attempt
 
