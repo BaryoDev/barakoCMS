@@ -1,0 +1,1 @@
+- **A user group created with a repeated or null user list kept a member after removal or failed to delete.** The list is now de-duplicated on create, and removing a user clears every copy.
