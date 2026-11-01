@@ -15,7 +15,7 @@ namespace barakoCMS.Infrastructure.Multitenancy;
 /// <item>Global identity endpoints under <c>/api/me/</c> operate on global (non-tenant) documents and
 /// let a user list and switch between their clubs, so they must be reachable while holding a token
 /// scoped to a different club (e.g. from the site root).</item>
-/// <item>Public endpoints (routes ending in <c>/public</c>, such as a club's public landing page) are
+/// <item>The public profile route, <c>/api/tenants/{handle}/public</c>, is
 /// viewable by anyone — including a user authenticated against a different club — because they expose
 /// only public information. The tenant-replay guard must not turn these into 403s.</item>
 /// </list>
@@ -23,7 +23,6 @@ namespace barakoCMS.Infrastructure.Multitenancy;
 public class TenantAccessMiddleware(RequestDelegate next, ILogger<TenantAccessMiddleware> logger)
 {
     private const string GlobalIdentityPrefix = "/api/me";
-    private const string PublicSuffix = "/public";
 
     public async Task InvokeAsync(HttpContext context, TenantContext tenant)
     {
@@ -38,8 +37,7 @@ public class TenantAccessMiddleware(RequestDelegate next, ILogger<TenantAccessMi
         var isGlobalIdentity = path.StartsWithSegments(
             GlobalIdentityPrefix, StringComparison.OrdinalIgnoreCase);
 
-        var isPublic = path.HasValue &&
-            path.Value!.EndsWith(PublicSuffix, StringComparison.OrdinalIgnoreCase);
+        var isPublic = TenantlessRoutes.IsTenantPublicProfile(path);
 
         // In Multi, on every route including the two exempt kinds below: a token minted for the
         // default partition or for a slug with no active tenant, before the switch to Multi or
