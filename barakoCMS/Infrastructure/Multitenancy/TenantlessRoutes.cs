@@ -76,4 +76,19 @@ internal static class TenantlessRoutes
         return !RouteLiterals.Contains(segments[3])
             && string.Equals(segments[4], "public", StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// True for exactly <c>/api/tenants/{handle}/public</c>. Any other route ending in
+    /// <c>/public</c> is an ordinary route whose last segment is a slug.
+    /// </summary>
+    public static bool IsTenantPublicProfile(PathString path)
+    {
+        var segments = (path.Value ?? string.Empty).Split('/');
+        return segments.Length == 5
+            && string.Equals(segments[1], "api", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(segments[2], "tenants", StringComparison.OrdinalIgnoreCase)
+            && segments[3].Length > 0
+            && !RouteLiterals.Contains(segments[3])
+            && string.Equals(segments[4], "public", StringComparison.OrdinalIgnoreCase);
+    }
 }
