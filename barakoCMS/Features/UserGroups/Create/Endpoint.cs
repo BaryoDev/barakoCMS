@@ -30,7 +30,7 @@ internal class Endpoint(
             Id = Guid.NewGuid(),
             Name = req.Name,
             Description = req.Description,
-            UserIds = req.UserIds,
+            UserIds = (req.UserIds ?? []).Distinct().ToList(),
             RoleIds = roleIds
         };
 
