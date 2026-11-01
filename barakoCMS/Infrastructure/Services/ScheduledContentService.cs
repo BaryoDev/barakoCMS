@@ -168,6 +168,7 @@ public class ScheduledContentService : BackgroundService
                 session, nowUtc, _logger, DefaultBatchSize, DefaultMaxBatchesPerSweep,
                 beforeSave: null, afterLoad: AfterLoad, ct);
             await SweepScheduleWorkflowsAsync(session, nowUtc, _logger, _configuration, ct);
+            await SweepMissedTriggersAsync(session, BeforeMissedTriggers, _logger, ct);
             span?.SetTag(Tracing.BarakoTracing.ScheduledTransitionsTag, changed);
             if (changed > 0)
                 _logger.LogInformation("Scheduled sweep applied {Count} transition(s) for tenant {Tenant}",
@@ -317,6 +318,33 @@ public class ScheduledContentService : BackgroundService
         {
             session.EjectAllPendingChanges();
             logger?.LogError(ex, "Sweeping the schedule workflows failed; the next sweep tries again");
+        }
+    }
+
+    /// <summary>Runs before a tenant's missed workflow triggers are replayed. Tests only.</summary>
+    internal Func<IDocumentSession, CancellationToken, Task>? BeforeMissedTriggers { get; set; }
+
+    /// <summary>
+    /// Replays the workflow triggers the projection could not queue, inside the same sweep lock.
+    /// </summary>
+    /// <remarks>
+    /// A failure here is logged and not thrown, so the tenants after this one are still replayed.
+    /// The rows stay, and the next sweep a minute later reads them again.
+    /// </remarks>
+    private static async Task SweepMissedTriggersAsync(
+        IDocumentSession session, Func<IDocumentSession, CancellationToken, Task>? before, ILogger? logger, CancellationToken ct)
+    {
+        try
+        {
+            if (before is not null) await before(session, ct);
+            var queue = new barakoCMS.Features.Workflows.WorkflowRunQueue(
+                session, Microsoft.Extensions.Logging.Abstractions.NullLogger<barakoCMS.Features.Workflows.WorkflowRunQueue>.Instance);
+            await barakoCMS.Features.Workflows.MissedTriggerSweep.RunAsync(session, queue, logger, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            session.EjectAllPendingChanges();
+            logger?.LogError(ex, "Replaying the missed workflow triggers failed for tenant {Tenant}; the next sweep tries again", session.TenantId);
         }
     }
 

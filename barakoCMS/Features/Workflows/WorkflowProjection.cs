@@ -47,7 +47,7 @@ internal partial class WorkflowProjection : EventProjection
     /// workflow twice. ContentUpdated and ContentCreated carry the whole data bag (Apply replaces
     /// it), so the event is what that write said. A copy, so the loaded document is never changed.
     /// </remarks>
-    private static barakoCMS.Models.Content AsWritten(
+    internal static barakoCMS.Models.Content AsWritten(
         barakoCMS.Models.Content stored, System.Collections.Generic.Dictionary<string, object>? data, barakoCMS.Models.ContentStatus status) => new()
     {
         Id = stored.Id,
@@ -132,6 +132,7 @@ internal partial class WorkflowProjection : EventProjection
         {
             var logger = _serviceProvider.GetService<ILogger<WorkflowProjection>>();
             logger?.LogError(ex, "WorkflowProjection failed to process {EventType} for content {ContentId} in tenant {TenantId}", barakoCMS.Models.WorkflowEvents.Unpublished, e.Data.Id, e.TenantId);
+            await RecordMissedAsync(barakoCMS.Models.WorkflowEvents.Unpublished, e.Data.Id, e.TenantId, e.Sequence, ex);
         }
     }
 
@@ -142,7 +143,7 @@ internal partial class WorkflowProjection : EventProjection
     /// An entry stored straight through a session, or seeded, has no ContentCreated in its stream,
     /// so its first status change has nothing before it that records a status.
     /// </remarks>
-    private static async Task<bool?> WasPublishedBeforeAsync(
+    internal static async Task<bool?> WasPublishedBeforeAsync(
         IEvent<barakoCMS.Events.ContentStatusChanged> e, IQuerySession query, CancellationToken ct)
     {
         if (e.Version <= 1)
@@ -186,7 +187,7 @@ internal partial class WorkflowProjection : EventProjection
     /// request and never to a span of the daemon. An event stored before the two were kept, or
     /// written by work no request caused, has neither, and the run is queued with neither.
     /// </remarks>
-    private static IDisposable OriginOf(IEvent e) =>
+    internal static IDisposable OriginOf(IEvent e) =>
         barakoCMS.Infrastructure.Tracing.Correlation.BeginFrom(e.CorrelationId, e.CausationId);
 
     private async Task ProcessEventAsync(
@@ -195,7 +196,8 @@ internal partial class WorkflowProjection : EventProjection
     {
         // This runs inside Marten's async projection daemon. Any unhandled exception here stops the
         // projection shard, and every workflow stops firing with no further signal in the logs, so
-        // nothing may escape. There is no cheap remedy for that state: restarting resumes at the
+        // nothing may escape. A failed enqueue is recorded as a MissedWorkflowTrigger and replayed
+        // by MissedTriggerSweep. There is no cheap remedy for that state: restarting resumes at the
         // same event, and a rebuild re-runs every action for every event ever stored, so it re-sends
         // every email and re-fires every webhook. The Workflow Projection health check is what makes
         // the state visible. See docs/operating-workflows.md.
@@ -222,6 +224,33 @@ internal partial class WorkflowProjection : EventProjection
         {
             var logger = _serviceProvider.GetService<ILogger<WorkflowProjection>>();
             logger?.LogError(ex, "WorkflowProjection failed to process {EventType} for content {ContentId} in tenant {TenantId}", eventType, contentId, tenantId);
+            await RecordMissedAsync(eventType, contentId, tenantId, sequence, ex);
+        }
+    }
+
+    /// <summary>
+    /// Writes a row saying this event's runs were not queued, for <see cref="MissedTriggerSweep"/>
+    /// to replay.
+    /// </summary>
+    /// <remarks>
+    /// The daemon commits an event's progress in a batch of its own, which this method has no way to
+    /// join, so the run cannot be made to commit with it. The row is written in a fresh scope,
+    /// since the one that failed may hold a broken session. Failing to write it is logged and
+    /// swallowed, for the reason given in ProcessEventAsync: nothing may stop the shard.
+    /// </remarks>
+    private async Task RecordMissedAsync(string eventType, Guid contentId, string tenantId, long sequence, Exception cause)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScopeForTenant(tenantId);
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(MissedWorkflowTrigger.For(eventType, contentId, tenantId, sequence, cause));
+            await session.SaveChangesAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            var logger = _serviceProvider.GetService<ILogger<WorkflowProjection>>();
+            logger?.LogError(ex, "WorkflowProjection could not record the missed {EventType} trigger for content {ContentId} in tenant {TenantId}, so no run will be made for it", eventType, contentId, tenantId);
         }
     }
 }

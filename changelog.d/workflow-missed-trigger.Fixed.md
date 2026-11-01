@@ -1,0 +1,1 @@
+- **A workflow run could be lost for good when the database failed while it was being queued.** The failure was logged and the event was never tried again. It is now kept as a missed trigger and replayed by the scheduled sweep, once per event. Run `migrations/5.5.0/workflow-missed-triggers.sql` before deploying, or let `CreateOnly` create the table on first boot.

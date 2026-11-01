@@ -1153,7 +1153,7 @@ public static class ServiceCollectionExtensions
             MapContentDocuments(options);
 
             MapIdentityAndSettingsDocuments(options);
-            MapTenantScopedDocuments(options);
+            MapTenantScopedDocuments(options); MapMissedWorkflowTriggers(options);
             options.Schema.For<barakoCMS.Data.SeedMarker>().SingleTenanted().DocumentAlias("seed_markers");
 
             MapGlobalDocuments(options);
@@ -1398,6 +1398,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(sp => barakoCMS.Features.Public.Events.ContentEventsOptions.FromConfiguration(
             sp.GetRequiredService<IConfiguration>()));
     }
+
+    private static void MapMissedWorkflowTriggers(StoreOptions options) =>
+        options.Schema.For<barakoCMS.Features.Workflows.MissedWorkflowTrigger>()
+            .MultiTenanted()
+            .DocumentAlias("workflow_missed_triggers");
 
     private static void MapPendingBuilds(StoreOptions options) =>
         options.Schema.For<PendingBuild>()
