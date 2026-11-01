@@ -1328,6 +1328,7 @@ public static class ServiceCollectionExtensions
         }
         services.AddSingleton(erasure);
         services.AddScoped<barakoCMS.Infrastructure.Erasure.IContentEraser, barakoCMS.Infrastructure.Erasure.ContentEraser>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IContentErasureCascade, barakoCMS.Infrastructure.Erasure.WorkflowErasureCascade>();
     }
 
     private static void AddOtpAndEmailVerification(IServiceCollection services, IConfiguration configuration)
