@@ -8,6 +8,7 @@ using JasperFx.Events;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.Workflows;
@@ -106,14 +107,18 @@ public class WorkflowMissedTriggerReplayTests
             Created(id, type, "A", ContentStatus.Draft),
             new ContentTransitioned(id, "approve", "Draft", "Approved", Guid.NewGuid(), DateTime.UtcNow));
         var name = WorkflowEvents.ForTransition("approve");
-        await StoreWorkflowAsync(tenant, type, name);
+        var wanted = await StoreWorkflowAsync(tenant, type, name);
+        await StoreWorkflowAsync(tenant, type, WorkflowEvents.ForTransition("reject"));
+        await StoreWorkflowAsync(tenant, type, WorkflowEvents.Updated);
 
         await QueueRowAsync(tenant, name, id, events[1].Sequence);
         (await SweepAsync(tenant)).Should().Be(1);
 
         var runs = await RunsAsync(tenant, id);
-        runs.Should().HaveCount(1);
+        runs.Should().HaveCount(1, "the other transition's workflow and the Updated workflow stay quiet");
         runs[0].TriggerEvent.Should().Be(name);
+        runs[0].WorkflowDefinitionId.Should().Be(wanted.Id);
+        runs[0].TriggeringEventSequence.Should().Be(events[1].Sequence);
     }
 
     [Fact]
@@ -141,11 +146,32 @@ public class WorkflowMissedTriggerReplayTests
         var events = await AppendAsync(tenant, id, type,
             Created(id, type, "A", ContentStatus.Draft), Status(id, ContentStatus.Published), Status(id, ContentStatus.Archived));
         await StoreWorkflowAsync(tenant, type, WorkflowEvents.Published);
+        await StoreWorkflowAsync(tenant, $"{type}-other", WorkflowEvents.Unpublished);
 
         await QueueRowAsync(tenant, WorkflowEvents.Unpublished, id, events[2].Sequence);
         (await SweepAsync(tenant)).Should().Be(1, "the row is handled and removed");
 
         (await RunsAsync(tenant, id)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task An_unpublished_trigger_is_not_enqueued_when_the_queue_says_nothing_listens()
+    {
+        var tenant = await TenantProfileSeed.TenantAsync(_fixture, Ct);
+        var (id, type) = NewEntry();
+        var events = await AppendAsync(tenant, id, type,
+            Created(id, type, "A", ContentStatus.Draft), Status(id, ContentStatus.Published), Status(id, ContentStatus.Archived));
+        await QueueRowAsync(tenant, WorkflowEvents.Unpublished, id, events[2].Sequence);
+
+        var queue = Substitute.For<IWorkflowRunQueue>();
+        queue.ListensAsync(type, WorkflowEvents.Unpublished, Arg.Any<CancellationToken>()).Returns(false);
+        await using (var session = Store.LightweightSession(tenant))
+        {
+            (await MissedTriggerSweep.RunAsync(session, queue, null, Ct)).Should().Be(1);
+        }
+
+        await queue.Received(1).ListensAsync(type, WorkflowEvents.Unpublished, Arg.Any<CancellationToken>());
+        await queue.DidNotReceiveWithAnyArgs().EnqueueAsync(default!, default!, default, default);
     }
 
     [Fact]
