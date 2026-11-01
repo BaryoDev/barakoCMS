@@ -1258,6 +1258,10 @@ compile-time contract only; or discover by an assembly attribute the contract de
 the dependency graph. `MODULES.md` documents the current rule in prose, so whichever is chosen, that
 section moves with it.
 
+**Resolved:** the first way out. A library that depends on the contract package is a discovery
+candidate, and the core and the contract package themselves are not, so the core is still not
+scanned as a module host. `MODULES.md` is updated.
+
 ## D36. No configured origins outside Development means no cross-origin access
 
 **Decided:** 20 Sept 2026. **Status:** accepted. **Breaking for a deployment that relied on the

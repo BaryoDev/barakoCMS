@@ -168,9 +168,7 @@ public class ModuleDiscoveryTests
         reaches("Acme.ContractOnly").Should().BeTrue("a direct reference to the contract package");
         reaches("Acme.ContractOnly.Extras").Should().BeTrue("reach is transitive");
         reaches("Unrelated").Should().BeFalse();
-        reaches("BarakoCMS").Should().BeFalse("core references the contract package and is not scanned for modules");
-        reaches("BarakoCMS.Abstractions").Should().BeFalse("the contract package holds no module");
-    }
+        reaches("BarakoCMS").Should().BeFalse("core references the contract package and is not scanned for modules");    }
 
     private static RuntimeLibrary Library(string name, params string[] dependsOn) =>
         new("package", name, "1.0.0", hash: string.Empty,

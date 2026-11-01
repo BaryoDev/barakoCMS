@@ -110,10 +110,10 @@ public sealed class BarakoModuleBuilder
     /// assemblies load lazily: a referenced module nothing has touched yet is simply absent from
     /// the loaded set, and this is meant to run before anything has touched a module.
     ///
-    /// Only libraries that reach BarakoCMS through their dependencies are loaded, so an unrelated
+    /// Only libraries that reach BarakoCMS or BarakoCMS.Abstractions through their dependencies are loaded, so an unrelated
     /// package is never loaded on the chance it holds a module. Reach, not a direct reference:
     /// <c>BarakoCMS.Files.S3</c> references <c>BarakoCMS.Files</c> and nothing else, and a module
-    /// built on another module is a shape worth keeping. A library that reaches core and then
+    /// built on another module is a shape worth keeping. A library that reaches either and then
     /// fails to load is reported by name rather than skipped: skipping it would look like "my
     /// module does nothing", which is the failure this whole mechanism exists to avoid.
     ///
@@ -143,7 +143,7 @@ public sealed class BarakoModuleBuilder
                 {
                     throw new InvalidOperationException(
                         $"Module discovery could not load assembly '{name}' from '{library.Name}' "
-                        + $"{library.Version}, which depends on BarakoCMS and so may hold a module. "
+                        + $"{library.Version}, which depends on BarakoCMS or BarakoCMS.Abstractions and so may hold a module. "
                         + "Fix the reference, or set BarakoCMS:Modules:Discover to false and add "
                         + "modules explicitly.", ex);
                 }
