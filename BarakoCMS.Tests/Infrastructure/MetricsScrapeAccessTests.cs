@@ -71,4 +71,22 @@ public class MetricsScrapeAccessTests
         MetricsScrapeAccess.IsMetricsPath("/metrics").Should().BeTrue();
         MetricsScrapeAccess.IsMetricsPath("/api/contents").Should().BeFalse();
     }
+
+    [Theory]
+    [InlineData("/metrics/")]
+    [InlineData("/Metrics/")]
+    [InlineData("/METRICS/")]
+    public void Every_spelling_that_routes_to_the_endpoint_is_the_metrics_path(string path)
+    {
+        MetricsScrapeAccess.IsMetricsPath(path).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("/metrics/more")]
+    [InlineData("/metricsx")]
+    [InlineData("/api/metrics")]
+    public void A_path_that_does_not_route_to_the_endpoint_is_not_the_metrics_path(string path)
+    {
+        MetricsScrapeAccess.IsMetricsPath(path).Should().BeFalse();
+    }
 }
