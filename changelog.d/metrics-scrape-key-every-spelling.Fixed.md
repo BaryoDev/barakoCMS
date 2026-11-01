@@ -1,0 +1,1 @@
+- **The scrape key check covers every spelling of the metrics route.** A trailing slash or different casing no longer skips the check.

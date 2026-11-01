@@ -37,8 +37,14 @@ public static class MetricsScrapeAccess
 
     private const string BearerPrefix = "Bearer ";
 
+    /// <summary>
+    /// True for every path that endpoint routing sends to the metrics endpoint: the route in any
+    /// casing, with or without trailing slashes. A path below it, such as <c>/metrics/more</c>,
+    /// routes to nothing and is not the metrics path.
+    /// </summary>
     public static bool IsMetricsPath(string? path) =>
-        string.Equals(path, Path, StringComparison.OrdinalIgnoreCase);
+        path is not null &&
+        string.Equals(path.TrimEnd('/'), Path, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// An unset key means refuse, not allow. An operator who upgrades without setting one loses
