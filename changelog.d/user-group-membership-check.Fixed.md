@@ -1,0 +1,1 @@
+- **Adding or removing a user from a group now stays inside the caller's tenant, and removal keeps the role limits that adding has.** A user outside the tenant answers 404 and is left unchanged. Removing a user from a group that holds roles the caller may not grant answers 403.

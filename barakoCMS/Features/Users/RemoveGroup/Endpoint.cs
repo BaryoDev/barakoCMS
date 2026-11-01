@@ -9,7 +9,8 @@ namespace barakoCMS.Features.Users.RemoveGroup;
 internal class Endpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    IConfiguration configuration) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
@@ -21,9 +22,17 @@ internal class Endpoint(
     {
         var user = await session.LoadAsync<User>(req.UserId, ct);
 
-        if (user == null)
+        if (user == null || !await PlatformRoles.InTenantAsync(session, tenant, user, ct))
         {
             await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        var group = await session.LoadAsync<UserGroup>(req.GroupId, ct);
+        if (group is { RoleIds.Count: > 0 }
+            && await barakoCMS.Features.UserGroups.GroupRoleGuard.CheckAsync(session, User, configuration, group.RoleIds, [], ct) is { } refused)
+        {
+            await Send.ResponseAsync(new Response { Message = refused.Message }, refused.Status, ct);
             return;
         }
 
@@ -31,7 +40,6 @@ internal class Endpoint(
         session.Store(user);
 
         // Membership is read from either side, so leaving only one would keep the group's roles.
-        var group = await session.LoadAsync<UserGroup>(req.GroupId, ct);
         if (group is not null && group.UserIds.Remove(req.UserId))
             session.Store(group);
 
