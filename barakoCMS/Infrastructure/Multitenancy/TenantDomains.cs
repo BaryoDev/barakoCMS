@@ -62,8 +62,13 @@ public static class TenantDomains
     private const string CanonicalHostKey = "App:BaseUrl";
 
     /// <summary>Normalises each requested domain, dropping duplicates, and reports every value that is not a domain.</summary>
+    /// <remarks>
+    /// This overload checks the shape of a stored domain (up to the 253 characters DNS allows), which
+    /// is what a lookup of an existing row needs. A new claim is held to <see cref="MaxHostLength"/>
+    /// by the overloads that take a deployment host.
+    /// </remarks>
     public static IReadOnlyList<string> Normalise(IEnumerable<string?> requested, out IReadOnlyList<string> errors) =>
-        Normalise(requested, null, out errors);
+        Normalise(requested, null, DnsMaxLength, null, out errors);
 
     /// <summary>
     /// As <see cref="Normalise(IEnumerable{string?}, out IReadOnlyList{string})"/>, and refuses the
@@ -73,7 +78,24 @@ public static class TenantDomains
     /// <c>x.com</c> are one domain.
     /// </summary>
     public static IReadOnlyList<string> Normalise(
-        IEnumerable<string?> requested, string? deploymentHost, out IReadOnlyList<string> errors)
+        IEnumerable<string?> requested, string? deploymentHost, out IReadOnlyList<string> errors) =>
+        Normalise(requested, deploymentHost, MaxHostLength, null, out errors);
+
+    /// <summary>
+    /// As above, for a tenant that already lists some domains. A host in <paramref name="existing"/>
+    /// keeps the 253 character shape limit, so saving a tenant whose stored host is longer than a new
+    /// claim may be does not turn into a refusal. A host the tenant does not list yet is held to
+    /// <see cref="MaxHostLength"/>.
+    /// </summary>
+    public static IReadOnlyList<string> Normalise(
+        IEnumerable<string?> requested, string? deploymentHost, IReadOnlyCollection<string>? existing, out IReadOnlyList<string> errors) =>
+        Normalise(requested, deploymentHost, MaxHostLength, existing, out errors);
+
+    private const int DnsMaxLength = 253;
+
+    private static IReadOnlyList<string> Normalise(
+        IEnumerable<string?> requested, string? deploymentHost, int claimLimit, IReadOnlyCollection<string>? existing,
+        out IReadOnlyList<string> errors)
     {
         var problems = new List<string>();
         var result = new List<string>();
@@ -98,7 +120,7 @@ public static class TenantDomains
                 host = ToAscii(host);
 
             if (host is null
-                || host.Length > MaxHostLength
+                || host.Length > (existing is not null && existing.Contains(host) ? DnsMaxLength : claimLimit)
                 || IPAddress.TryParse(host, out _)
                 || !host.Contains('.')
                 || !host.Split('.').All(label => Label.IsMatch(label)))

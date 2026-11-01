@@ -109,22 +109,6 @@ public class TenantDomainNormalisationTests
     [Fact]
     public void A_claim_is_capped_so_the_challenge_name_still_fits_a_DNS_name()
     {
-        // Labels of 50 letters, then a last label sized to land on the length, then "com".
-        static string Host(int length)
-        {
-            var body = length - 3;
-            var groups = body / 51;
-            var rest = body - groups * 51;
-            if (rest == 1)
-            {
-                groups--;
-                rest += 51;
-            }
-
-            return string.Concat(Enumerable.Repeat(new string('a', 50) + ".", groups))
-                + (rest > 0 ? new string('a', rest - 1) + "." : string.Empty) + "com";
-        }
-
         var fits = Host(TenantDomains.MaxHostLength);
         var tooLong = Host(TenantDomains.MaxHostLength + 1);
 
@@ -133,5 +117,45 @@ public class TenantDomainNormalisationTests
         TenantDomains.Normalise([tooLong], null, out var errors).Should().BeEmpty();
         errors.Should().ContainSingle();
         ("_barako-challenge." + fits).Length.Should().BeLessThanOrEqualTo(253);
+    }
+
+    // Labels of 50 letters, then a last label sized to land on the length, then "com".
+    private static string Host(int length)
+    {
+        var body = length - 3;
+        var groups = body / 51;
+        var rest = body - groups * 51;
+        if (rest == 1)
+        {
+            groups--;
+            rest += 51;
+        }
+
+        return string.Concat(Enumerable.Repeat(new string('a', 50) + ".", groups))
+            + (rest > 0 ? new string('a', rest - 1) + "." : string.Empty) + "com";
+    }
+
+    [Fact]
+    public void A_stored_host_over_the_claim_cap_is_still_a_domain_shape_but_a_new_claim_of_it_is_refused()
+    {
+        var stored = Host(TenantDomains.MaxHostLength + 10);
+
+        TenantDomains.Normalise([stored], out var shapeErrors).Should().ContainSingle("the shape check allows what DNS allows, so a lookup still recognises a stored host");
+        shapeErrors.Should().BeEmpty();
+        TenantDomains.Normalise([stored], null, out var claimErrors).Should().BeEmpty("a new claim has to leave room for the challenge label");
+        claimErrors.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Saving_a_tenant_that_already_lists_a_long_host_keeps_it_and_still_refuses_a_new_one()
+    {
+        var stored = Host(TenantDomains.MaxHostLength + 10);
+        var another = "b" + Host(TenantDomains.MaxHostLength + 12)[1..];
+
+        TenantDomains.Normalise([stored, "shop.example.com"], null, [stored], out var kept).Should().Contain(stored);
+        kept.Should().BeEmpty("a host the tenant already lists is not re-judged against the claim cap");
+
+        TenantDomains.Normalise([stored, another], null, [stored], out var added).Should().Equal(stored);
+        added.Should().ContainSingle("a long host that is not already listed is a new claim");
     }
 }

@@ -451,7 +451,7 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         IReadOnlyList<string>? domains = null;
         if (req.Domains is not null)
         {
-            domains = TenantDomains.Normalise(req.Domains, TenantDomains.DeploymentHost(_configuration), out var domainErrors);
+            domains = TenantDomains.Normalise(req.Domains, TenantDomains.DeploymentHost(_configuration), tenant.Domains, out var domainErrors);
             foreach (var error in domainErrors)
             { AddError(r => r.Domains, error); }
         }
