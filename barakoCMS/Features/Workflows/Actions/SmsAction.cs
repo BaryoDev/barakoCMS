@@ -63,11 +63,10 @@ internal class SmsAction : IWorkflowAction
             // The exception type, not its message: a provider's own message routinely names the
             // number it was sending to, which is personal data and does not belong in a run record.
             _logger.LogWarning("SMS send failed ({Exception}).", ex.GetType().Name);
-            // Thrown on, not returned as a failure: the provider may have taken the message, there
-            // is no key that makes a second send safe, and the runner records this as unknown and
-            // does not retry it.
-            throw new OperationCanceledException(
-                $"The SMS provider failed ({ex.GetType().Name}), so it is not known whether the message was sent.");
+            // Thrown on, not returned as a failure: ISmsService has no way to say a message never
+            // left, the provider may have taken it, and no key makes a second send safe. The runner
+            // records this as unknown and does not retry it.
+            throw SendOutcomeUnknownException.After("SMS", ex.GetType().Name);
         }
 
         if (_smsService is MockSmsService)

@@ -531,6 +531,9 @@ public class CompensationState
 
     public int Attempts { get; set; }
 
+    /// <summary>How many of <see cref="Attempts"/> were a lapsed lease taken over, not a try that ended.</summary>
+    public int Takeovers { get; set; }
+
     public DateTimeOffset? NextAttemptAt { get; set; }
 
     /// <summary>Stable across retries of this compensation, and different from the action's own key.</summary>
@@ -575,6 +578,9 @@ public class WorkflowActionAttempt
     public AttemptStatus Status { get; set; } = AttemptStatus.Pending;
 
     public int Attempts { get; set; }
+
+    /// <summary>How many of <see cref="Attempts"/> were a lapsed lease taken over, not a try that ended.</summary>
+    public int Takeovers { get; set; }
 
     /// <summary>The most entries <see cref="History"/> keeps.</summary>
     public const int HistoryCap = 20;

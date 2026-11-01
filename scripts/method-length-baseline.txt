@@ -75,7 +75,7 @@
 86 barakoCMS/Features/Workflows/Outbox/SignedHttpOutboxTransport.cs::SignedHttpOutboxTransport.SendAsync
 75 barakoCMS/Features/Workflows/WorkflowEndpoints.cs::DeleteWorkflowEndpoint.HandleAsync
 105 barakoCMS/Features/Workflows/WorkflowEngine.cs::WorkflowEngine.ExecuteActionsAsync
-110 barakoCMS/Features/Workflows/WorkflowRunner.cs::WorkflowRunner.ExecuteAttemptAsync
+107 barakoCMS/Features/Workflows/WorkflowRunner.cs::WorkflowRunner.ExecuteAttemptAsync
 77 barakoCMS/Infrastructure/Auth/ApiKeyAuthenticationHandler.cs::ApiKeyAuthenticationHandler.HandleAuthenticateAsync
 77 barakoCMS/Infrastructure/Auth/TokenIssuer.cs::TokenIssuer.IssueAccessTokenAsync
 91 barakoCMS/Infrastructure/Connectors/ConnectorSender.cs::ConnectorSender.FetchAsync

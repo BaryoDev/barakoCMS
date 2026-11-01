@@ -561,25 +561,9 @@ internal sealed class WorkflowRunner(
             }
 
             var claimed = NextDue(run);
-            if (claimed is null && run.NextCompensation(DateTimeOffset.UtcNow) is { Compensation: { } undo } undoing)
+            if (claimed is null && run.NextCompensation(DateTimeOffset.UtcNow) is { Compensation: not null } undoing)
             {
-                undo.Status = CompensationStatus.Running;
-                undo.LeasedBy = _node;
-                undo.LeaseExpiresAt = DateTimeOffset.UtcNow.Add(WorkflowRetryPolicy.LeaseDuration);
-                run.Recompute();
-                session.Update(run);
-
-                try
-                {
-                    await session.SaveChangesAsync(ct);
-                }
-                catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-                    || ex.GetType().Name.Contains("Concurrency"))
-                {
-                    return null;
-                }
-
-                return new Claim(run, undoing, Undo: true);
+                return await ClaimUndoAsync(session, run, undoing, tenantId, ct);
             }
 
             if (claimed is null)
@@ -613,6 +597,53 @@ internal sealed class WorkflowRunner(
         }
     }
 
+    /// <summary>Claims the undo of one action. A lapsed undo is counted and ended the way a lapsed attempt is.</summary>
+    private async Task<Claim?> ClaimUndoAsync(
+        IDocumentSession session, WorkflowRun run, WorkflowActionAttempt undoing, string tenantId, CancellationToken ct)
+    {
+        var undo = undoing.Compensation!;
+        var now = DateTimeOffset.UtcNow;
+        var ended = false;
+
+        if (undo.Status == CompensationStatus.Running)
+        {
+            undo.Attempts++;
+            undo.Takeovers++;
+            ended = undo.Attempts >= WorkflowRetryPolicy.MaxAttempts || !await HonoursKeyAsync(tenantId, undoing.Compensate?.Type ?? string.Empty);
+        }
+
+        if (ended)
+        {
+            undo.Status = CompensationStatus.Unknown;
+            undo.Error = "The node running this undo stopped before it recorded an outcome, so it is not known whether it finished.";
+            undo.LeasedBy = null;
+            undo.LeaseExpiresAt = null;
+            undo.NextAttemptAt = null;
+            undo.CompletedAt = now;
+        }
+        else
+        {
+            undo.Status = CompensationStatus.Running;
+            undo.LeasedBy = _node;
+            undo.LeaseExpiresAt = now.Add(WorkflowRetryPolicy.LeaseDuration);
+        }
+
+        run.Recompute();
+        session.Update(run);
+
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
+            || ex.GetType().Name.Contains("Concurrency"))
+        {
+            return null;
+        }
+
+        return ended ? new Claim(run, null) : new Claim(run, undoing, Undo: true);
+    }
+
     /// <summary>
     /// Counts the try a lapsed lease lost, and ends the attempt as unknown when it must not run again.
     /// </summary>
@@ -627,6 +658,7 @@ internal sealed class WorkflowRunner(
     {
         var now = DateTimeOffset.UtcNow;
         lapsed.Attempts++;
+        lapsed.Takeovers++;
         lapsed.RecordAttempt(new WorkflowAttemptEntry
         {
             Number = lapsed.Attempts,
@@ -647,27 +679,40 @@ internal sealed class WorkflowRunner(
         lapsed.LeaseExpiresAt = null;
         lapsed.NextAttemptAt = null;
         lapsed.CompletedAt = now;
+        run.HaltAfter(lapsed, now);
         run.Recompute();
         session.Update(run);
 
         try
         {
             await session.SaveChangesAsync(ct);
-            return true;
         }
         catch (Exception ex) when (ex is JasperFx.ConcurrencyException
             || ex.GetType().Name.Contains("Concurrency"))
         {
             return false;
         }
+
+        Metrics.Recorded(lapsed.ActionType, true, lapsed.Status, 0);
+        if (WorkflowMetrics.HaltedTheRun(run, lapsed)) Metrics.Halted();
+        await NotifyOnFailureAsync(session, run, tenantId, ct);
+        return true;
     }
 
     /// <summary>Whether the action for a type absorbs a second run with the same key. An unbuilt one is run, to be refused as usual.</summary>
     private async Task<bool> HonoursKeyAsync(string tenantId, string actionType)
     {
-        using var scope = services.CreateScopeForTenant(tenantId);
-        await using var handlers = WorkflowActionSet.Build(scope.ServiceProvider, logger);
-        return handlers.Find(actionType)?.HonoursIdempotencyKey ?? true;
+        try
+        {
+            using var scope = services.CreateScopeForTenant(tenantId);
+            await using var handlers = WorkflowActionSet.Build(scope.ServiceProvider, logger);
+            return handlers.Find(actionType)?.HonoursIdempotencyKey ?? true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Could not read whether action {ActionType} honours its key, so it is not rerun.", actionType);
+            return false;
+        }
     }
 
     /// <summary>Executes one claimed attempt and records how it went. Never throws.</summary>
@@ -1048,7 +1093,7 @@ internal sealed class WorkflowRunner(
         var actionType = undo ? attempt.Compensate?.Type ?? string.Empty : attempt.ActionType;
         var stored = undo ? attempt.Compensate?.Parameters ?? [] : attempt.Parameters;
         var idempotencyKey = undo ? attempt.Compensation!.IdempotencyKey : attempt.IdempotencyKey;
-        var attemptsSoFar = undo ? attempt.Compensation!.Attempts : attempt.Attempts;
+        var attemptsSoFar = undo ? attempt.Compensation!.Attempts - attempt.Compensation.Takeovers : attempt.Attempts - attempt.Takeovers;
 
         using var scope = services.CreateScopeForTenant(tenantId);
         await using var handlers = WorkflowActionSet.Build(scope.ServiceProvider, logger);
@@ -1131,13 +1176,10 @@ internal sealed class WorkflowRunner(
 
             return new Outcome(AttemptStatus.Failed, result.Error, timer.ElapsedMilliseconds, result.Retryable, ResponseStatus: result.ResponseStatus);
         }
-        catch (OperationCanceledException ex) when (ex is TaskCanceledException || !ct.IsCancellationRequested)
+        catch (Exception ex) when (UnknownOutcome(ex, ct) is { } unknown)
         {
             timer.Stop();
-
-            // A timeout is not a failure, it is an unknown: the request may have arrived and the
-            // response been lost. Retrying it automatically is how a customer gets two invoices.
-            return new Outcome(AttemptStatus.Unknown, "The request timed out, so it is not known whether it arrived.", timer.ElapsedMilliseconds);
+            return new Outcome(AttemptStatus.Unknown, unknown, timer.ElapsedMilliseconds);
         }
         catch (Exception ex)
         {
@@ -1150,6 +1192,20 @@ internal sealed class WorkflowRunner(
             return new Outcome(AttemptStatus.Failed, ex.GetType().Name, timer.ElapsedMilliseconds);
         }
     }
+
+    /// <summary>The error to record when an action ended with an unknown outcome, or null when it did not.</summary>
+    /// <remarks>
+    /// A timeout is not a failure, it is an unknown: the request may have arrived and the response
+    /// been lost. Retrying it automatically is how a customer gets two invoices. A send that failed
+    /// in a way that may be a message the provider took is the same, and says so itself.
+    /// </remarks>
+    private static string? UnknownOutcome(Exception ex, CancellationToken ct) => ex switch
+    {
+        SendOutcomeUnknownException sent => sent.Message,
+        OperationCanceledException when ex is TaskCanceledException || !ct.IsCancellationRequested =>
+            "The request timed out, so it is not known whether it arrived.",
+        _ => null,
+    };
 
     /// <summary>A success, with the outputs the workflow captured and why any were left out.</summary>
     /// <remarks>A compensation passes no capture and keeps nothing: no action after it reads it.</remarks>

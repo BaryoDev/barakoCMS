@@ -96,11 +96,18 @@ the same as with one. An attempt whose outcome was not recorded stays `Running` 
 is taken again, by any node, when the lease ends five minutes after it was claimed.
 
 A takeover counts as an attempt, so an action that keeps stopping its node ends at the attempt
-limit of five, recorded as `Unknown`. Only an action that absorbs a second run with the same
-idempotency key is run again: Request, Webhook, CreateEntry, CreateContent, UpdateField, Publish
-and BuildHook. Email, SMS, CreateTask, Conditional and Transition do not, so a takeover of one
-ends it as `Unknown` without a second call, and a person can run it again by hand. A custom action
-is treated the same way unless it returns true from `HonoursIdempotencyKey`.
+limit of five, recorded as `Unknown`. Only an action that passes the idempotency key on, or derives
+its own ids from it, is run again: Request, Webhook, CreateEntry, CreateContent, UpdateField,
+Publish and BuildHook. That does not make the repeat harmless: a receiver that ignores the key, or a
+build provider, may still act twice. Email, SMS, CreateTask, Conditional and Transition do not pass
+it on, so a takeover of one ends it as `Unknown` without a second call, and a person can run it
+again by hand. A custom action is treated the same way unless it returns true from
+`HonoursIdempotencyKey`.
+
+The attempt number an action is given does not move on a takeover, so UpdateField still finds the
+marker its lost try wrote and applies the change once. A run ended this way halts the actions
+behind it when the action is set to halt, and tells the failure handlers, as any other ending does.
+An undo whose lease ran out is counted and ended the same way.
 
 ## Retries inside one attempt
 
@@ -139,7 +146,10 @@ dropped, and a dropped pair starts again with a closed breaker.
 Email is retried inside the attempt only when the provider throws `EmailNotSentException`, which
 it does only when the message cannot have left. There is no idempotency key to make a second send
 safe, so every other failure is sent once and recorded as `Unknown`, not retried, and email has no
-breaker. SMS is the same: a provider failure is recorded as `Unknown` and sent once.
+breaker. A not-sent failure that outlasts its tries is a `Failed` attempt and is retried later, as
+before. SMS cannot tell not-sent from sent, so a provider failure is always recorded as `Unknown`
+and sent once. A failed Halt-policy email ends `Unknown`, so it no longer starts compensation, which
+only a `Failed` action does.
 `Retries` sets how many more tries a send that was not taken gets, cut to fit the lease: each
 provider says how long a not-sent try can take (`MaxNotSentDuration`), and every try running that
 long, plus the waits between them, must stay within 80% of the shorter of the runner's 5 minute

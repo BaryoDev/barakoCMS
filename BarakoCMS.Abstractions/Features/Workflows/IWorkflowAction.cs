@@ -67,14 +67,14 @@ public interface IWorkflowAction
         RunAsync(context.Parameters, context.Content, ct);
 
     /// <summary>
-    /// Whether a second run with the same <c>IdempotencyKey</c> is absorbed, so the action can be
-    /// run again after the node that ran it stopped responding.
+    /// Whether the action passes the <c>IdempotencyKey</c> on or derives its own ids from it, so it
+    /// can be run again after the node that ran it stopped responding.
     /// </summary>
     /// <remarks>
     /// False by default. An attempt whose lease ran out may have done its work, and the runner
     /// records it as unknown rather than run it again unless this is true. Return true only when the
-    /// action passes the key on, or derives its own ids from it, so a repeat is one effect and not
-    /// two.
+    /// action does one of those two things. It does not promise the repeat is harmless: a receiver
+    /// that ignores the key may still act twice.
     /// </remarks>
     bool HonoursIdempotencyKey => false;
 }
