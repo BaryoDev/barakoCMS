@@ -119,23 +119,49 @@ public class TenancyOptionsTests
         TenantlessRoutes.Allows(method, new PathString(path)).Should().BeFalse();
     }
 
+    private static TenantDomain Row(string host, string slug, TenantDomainStatus status) =>
+        new() { Id = host, TenantSlug = slug, Status = status, Token = "t" };
+
+    private static readonly Microsoft.Extensions.Logging.ILogger NoLog =
+        Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+
     /// <summary>
-    /// Two tenants claiming one domain switch custom domains off until an operator fixes it. They
-    /// must not switch the tenants off: in Multi a map with no active slugs answers 404 for
-    /// every tenant, the one whose administrator has to fix the domain included.
+    /// Two tenants listing one domain (a document written before the claim rows existed): the
+    /// verified row names the owner, and the other tenant gets nothing. Both stay active tenants.
     /// </summary>
     [Fact]
-    public void A_domain_claimed_twice_drops_the_domains_and_keeps_the_active_tenants()
+    public void A_domain_listed_twice_routes_to_the_tenant_its_verified_row_names()
     {
         var first = new Tenant { Id = Guid.NewGuid(), Slug = "first", Name = "First", Domains = ["shared.example.com"] };
         var second = new Tenant { Id = Guid.NewGuid(), Slug = "second", Name = "Second", Domains = ["shared.example.com"] };
 
-        var map = TenantDomainSource.Build([first, second], Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        var map = TenantDomainSource.Build([first, second], [Row("shared.example.com", "second", TenantDomainStatus.Verified)], NoLog);
 
-        map.Count.Should().Be(0, "a domain two tenants claim routes to neither");
-        map.Find("shared.example.com").Should().BeNull();
+        map.Find("shared.example.com").Should().Be("second");
         map.IsActiveTenant("first").Should().BeTrue();
         map.IsActiveTenant("second").Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_pending_row_and_a_listed_domain_with_no_row_route_nowhere()
+    {
+        var tenant = new Tenant { Id = Guid.NewGuid(), Slug = "first", Name = "First", Domains = ["pending.example.com", "norow.example.com"] };
+
+        var map = TenantDomainSource.Build([tenant], [Row("pending.example.com", "first", TenantDomainStatus.Pending)], NoLog);
+
+        map.Find("pending.example.com").Should().BeNull();
+        map.Find("norow.example.com").Should().BeNull();
+        map.IsActiveTenant("first").Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_verified_row_owned_by_another_tenant_does_not_route_for_the_tenant_that_lists_it()
+    {
+        var tenant = new Tenant { Id = Guid.NewGuid(), Slug = "first", Name = "First", Domains = ["x.example.com"] };
+
+        var map = TenantDomainSource.Build([tenant], [Row("x.example.com", "other", TenantDomainStatus.Verified)], NoLog);
+
+        map.Find("x.example.com").Should().BeNull();
     }
 
     [Fact]
@@ -144,7 +170,7 @@ public class TenancyOptionsTests
         var withDomain = new Tenant { Id = Guid.NewGuid(), Slug = "first", Name = "First", Domains = ["first.example.com"] };
         var without = new Tenant { Id = Guid.NewGuid(), Slug = "second", Name = "Second" };
 
-        var map = TenantDomainSource.Build([withDomain, without], Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        var map = TenantDomainSource.Build([withDomain, without], [Row("first.example.com", "first", TenantDomainStatus.Verified)], NoLog);
 
         map.Find("first.example.com").Should().Be("first");
         map.IsActiveTenant("first").Should().BeTrue();

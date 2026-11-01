@@ -1013,6 +1013,15 @@ public static class ServiceCollectionExtensions
             .SingleTenanted() // the tenant registry itself is global
             .DocumentAlias("tenants")
             .Index(x => x.Slug, idx => idx.IsUnique = true);
+        // One row per claimed domain, keyed by the host, so the database refuses a second claim.
+        // migrations/5.5.0/1280-tenant-domains.sql adds it to an existing database and backfills it.
+        options.Schema.For<barakoCMS.Infrastructure.Multitenancy.TenantDomain>()
+            .SingleTenanted() // a domain is claimed across tenants, so it is global
+            .DocumentAlias("tenant_domains")
+            // The lock for verify's read-then-write: the route reads a row, waits on DNS, then writes
+            // it back, and the row version refuses the write if a claim change got in between.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.TenantSlug);
         options.Schema.For<Models.Membership>()
             .SingleTenanted() // maps global users to tenants — necessarily cross-tenant
             .DocumentAlias("memberships")
@@ -1461,6 +1470,10 @@ public static class ServiceCollectionExtensions
         // would rebuild the cache lookup per request for no benefit.
         services.AddSingleton<barakoCMS.Infrastructure.Multitenancy.ITenantDomainSource,
                               barakoCMS.Infrastructure.Multitenancy.TenantDomainSource>();
+        // The real DNS check, replaceable: a test or a host that resolves some other way registers
+        // its own before this runs.
+        services.TryAddSingleton<barakoCMS.Infrastructure.Multitenancy.IDomainDnsChecker>(
+            _ => new barakoCMS.Infrastructure.Multitenancy.DnsClientDomainChecker());
         services.Configure<barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions>(
             configuration.GetSection(barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions.SectionName));
 

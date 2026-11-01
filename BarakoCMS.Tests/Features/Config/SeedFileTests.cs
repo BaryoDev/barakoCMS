@@ -46,11 +46,12 @@ public class SeedFileTests
     }
 
     /// <summary>A start of the host with the file named, and the demo content left out.</summary>
-    private Task StartAsync(string path) =>
+    private Task StartAsync(string path, string? deploymentHost = null) =>
         DataSeeder.SeedAsync(new HostShim(_fixture.WithSettings(new Dictionary<string, string?>
         {
             ["Seed:File"] = path,
             ["Seed:DemoContent"] = "false",
+            ["Tenancy:DeploymentHost"] = deploymentHost,
         }).Services));
 
     private static object Document(string slug, string domain, string email, string role, string type) => new
@@ -141,6 +142,29 @@ public class SeedFileTests
 
         (await seeding.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain(slug);
         (await _callers.InTenantAsync(null, s => s.Query<Tenant>().AnyAsync(t => t.Slug == slug, Ct))).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_domain_at_the_deployment_host_is_refused_before_any_tenant_is_written()
+    {
+        var first = Unique("seed-");
+        var second = Unique("seed-");
+        var host = $"{Unique("edge")}.example.net";
+        var path = await FileAsync(new
+        {
+            version = 1,
+            tenants = new Dictionary<string, object>
+            {
+                [first] = new { name = first, domains = new[] { $"{first}.example.com" } },
+                [second] = new { name = second, domains = new[] { host } },
+            },
+        });
+
+        var seeding = () => StartAsync(path, host);
+
+        (await seeding.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain(second);
+        (await _callers.InTenantAsync(null, s => s.Query<Tenant>().AnyAsync(t => t.Slug == first, Ct))).Should().BeFalse(
+            "the refusal comes from the check before anything is applied");
     }
 
     private static object WorkflowFile(string slug, string type, Dictionary<string, object> workflows, Dictionary<string, object>? extraTypes = null)

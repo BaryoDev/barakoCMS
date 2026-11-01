@@ -80,9 +80,10 @@ internal class ListTenantsEndpoint(IQuerySession session) : Endpoint<ListRequest
             .OrderBy(t => t.Name)
             .ToPagedResponseAsync(req, ct);
 
+        var claims = await TenantDomainClaims.ForAsync(session, page.Items.Select(t => t.Slug).ToList(), ct);
         await Send.OkAsync(new PaginatedResponse<TenantResponse>
         {
-            Items = page.Items.Select(TenantResponse.From).ToList(),
+            Items = page.Items.Select(t => TenantResponse.From(t, claims[t.Slug])).ToList(),
             Page = page.Page,
             PageSize = page.PageSize,
             TotalItems = page.TotalItems,
@@ -283,6 +284,9 @@ internal static class TenantDomainClash
             ? $"'{clash.Domain}' is already a domain of tenant '{clash.Slug}'. A domain belongs to one tenant."
             : $"'{clash.Domain}' is already a domain of another tenant. A domain belongs to one tenant.";
 
+    /// <summary>The 409 text when the database, not the read before the write, found the clash.</summary>
+    public const string RaceMessage = "A domain belongs to one tenant, and another tenant has just claimed one of these.";
+
     public static async Task<(string Domain, string Slug)?> FindAsync(
         IQuerySession session, IReadOnlyCollection<string> domains, string? exceptSlug, CancellationToken ct)
     {
@@ -312,11 +316,13 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
 {
     private readonly IDocumentSession _session;
     private readonly ITenantDomainSource _domains;
+    private readonly IConfiguration _configuration;
 
-    public CreateTenantEndpoint(IDocumentSession session, ITenantDomainSource domains)
+    public CreateTenantEndpoint(IDocumentSession session, ITenantDomainSource domains, IConfiguration configuration)
     {
         _session = session;
         _domains = domains;
+        _configuration = configuration;
     }
 
     public override void Configure()
@@ -344,7 +350,7 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         var handle = req.Handle?.Trim().ToLowerInvariant() ?? string.Empty;
         if (!TenantHandles.IsValidHandle(handle))
         { AddError(r => r.Handle, "Invalid or reserved handle (3-40 chars, a-z, 0-9, hyphens)."); }
-        var domains = TenantDomains.Normalise(req.Domains ?? new List<string>(), out var domainErrors);
+        var domains = TenantDomains.Normalise(req.Domains ?? new List<string>(), TenantDomains.DeploymentHost(_configuration), out var domainErrors);
         foreach (var error in domainErrors)
         { AddError(r => r.Domains, error); }
         ThrowIfAnyErrors();
@@ -374,6 +380,7 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
             AccountId = accountId is { } id ? AccountReach.Stored(id) : null,
         };
         _session.Store(tenant);
+        await TenantDomainClaims.StageAsync(_session, handle, domains, trusted: false, ct);
 
         // Provision the creator as an Active admin member in the same transaction. Without this, a
         // freshly-registered tenant has zero memberships — and the cross-tenant token guard (H.1)
@@ -389,9 +396,10 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
                 new Dictionary<string, object> { ["invited"] = false, ["tenantCreated"] = true }, ct);
         }
 
-        await _session.SaveChangesAsync(ct);
+        if (!await TenantDomainClaims.TrySaveAsync(_session, ct))
+        { ThrowError(TenantDomainClash.RaceMessage, 409); }
         _domains.Invalidate();
-        await Send.OkAsync(TenantResponse.From(tenant), ct);
+        await Send.OkAsync(TenantResponse.From(tenant, (await TenantDomainClaims.ForAsync(_session, [handle], ct))[handle]), ct);
     }
 }
 
@@ -406,12 +414,14 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
     private readonly IDocumentSession _session;
     private readonly ITenantDomainSource _domains;
     private readonly IDocumentStore _store;
+    private readonly IConfiguration _configuration;
 
-    public UpdateTenantEndpoint(IDocumentSession session, ITenantDomainSource domains, IDocumentStore store)
+    public UpdateTenantEndpoint(IDocumentSession session, ITenantDomainSource domains, IDocumentStore store, IConfiguration configuration)
     {
         _session = session;
         _domains = domains;
         _store = store;
+        _configuration = configuration;
     }
 
     public override void Configure()
@@ -445,7 +455,7 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         IReadOnlyList<string>? domains = null;
         if (req.Domains is not null)
         {
-            domains = TenantDomains.Normalise(req.Domains, out var domainErrors);
+            domains = TenantDomains.Normalise(req.Domains, TenantDomains.DeploymentHost(_configuration), tenant.Domains, out var domainErrors);
             foreach (var error in domainErrors)
             { AddError(r => r.Domains, error); }
         }
@@ -463,8 +473,34 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         if (req.AccountId is { } account)
             tenant.AccountId = AccountReach.Stored(account);
         TenantProfiles.ClearBlanked(tenant, req);
-        // Switching a tenant off stops it being served, tokens being issued for it and its API keys,
-        // and switching it on restores all three, so any change is recorded in that tenant's log.
+        var status = await RecordStatusChangeAsync(tenant, req, ct);
+
+        tenant.Status = status;
+        await ApplySignUpAsync(tenant, req, ct);
+        await ApplySignInAsync(tenant, req, ct);
+
+        if (domains is not null)
+        {
+            tenant.Domains = domains.ToList();
+            await TenantDomainClaims.StageAsync(_session, tenant.Slug, domains, trusted: false, ct);
+        }
+        _session.Store(tenant);
+        if (!await TenantDomainClaims.TrySaveAsync(_session, ct))
+        { ThrowError(TenantDomainClash.RaceMessage, 409); }
+
+        // Every update, not only a change of domains: switching a tenant off takes its domains out of
+        // the map too, and waiting out the cache would keep routing to it for minutes.
+        _domains.Invalidate();
+        await Send.OkAsync(TenantResponse.From(tenant, (await TenantDomainClaims.ForAsync(_session, [tenant.Slug], ct))[tenant.Slug]), ct);
+    }
+
+    /// <summary>
+    /// Switching a tenant off stops it being served, tokens being issued for it and its API keys,
+    /// and switching it on restores all three, so any change is recorded in that tenant's log.
+    /// Returns the status the request asks for.
+    /// </summary>
+    private async Task<TenantStatus> RecordStatusChangeAsync(Tenant tenant, TenantWriteRequest req, CancellationToken ct)
+    {
         var status = TenantWriteRequestValidator.Requested(req, tenant.Status);
         if (tenant.Status != status)
         {
@@ -475,20 +511,7 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
                 metadata: new Dictionary<string, object> { ["from"] = tenant.Status.ToString(), ["to"] = status.ToString() },
                 ct: ct);
         }
-
-        tenant.Status = status;
-        await ApplySignUpAsync(tenant, req, ct);
-        await ApplySignInAsync(tenant, req, ct);
-
-        if (domains is not null)
-            tenant.Domains = domains.ToList();
-        _session.Store(tenant);
-        await _session.SaveChangesAsync(ct);
-
-        // Every update, not only a change of domains: switching a tenant off takes its domains out of
-        // the map too, and waiting out the cache would keep routing to it for minutes.
-        _domains.Invalidate();
-        await Send.OkAsync(TenantResponse.From(tenant), ct);
+        return status;
     }
 
     /// <summary>Applies a sent sign-up policy, recording a change in the tenant's log.</summary>

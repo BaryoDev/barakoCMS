@@ -101,6 +101,7 @@ public class TenantStatusTests
         var admin = await PlatformAdminAsync();
         (await admin.PutAsJsonAsync($"/api/tenants/{slug}", new { name = slug, domains = new[] { domain } }, Ct))
             .StatusCode.Should().Be(HttpStatusCode.OK);
+        await VerifyClaimAsync(slug, domain);
 
         var client = TenantProfileSeed.Anonymous(_fixture);
         await ShouldServeTheSiteAsync(await client.GetAsync($"http://{domain}/api/public/site", Ct), "the domain is the active tenant's");
@@ -110,6 +111,19 @@ public class TenantStatusTests
         var refused = await client.GetAsync($"http://{domain}/api/public/site", Ct);
         refused.StatusCode.Should().Be(HttpStatusCode.NotFound,
             "the domain still names the suspended tenant, rather than dropping out of the map and serving the default tenant's site");
+    }
+
+    /// <summary>Stands in for the DNS check: a domain added through the API starts pending and routes nothing.</summary>
+    private async Task VerifyClaimAsync(string slug, string domain)
+    {
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            await VerifiedDomains.PromoteAsync(session, slug, [domain], Ct);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        _fixture.Services.GetRequiredService<ITenantDomainSource>().Invalidate();
     }
 
     [Fact]
