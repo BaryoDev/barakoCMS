@@ -45,6 +45,8 @@ internal class VerifyEndpoint(
 {
     private const int MaxAttempts = 5;
 
+    // Made the way the request endpoint hashes a code, so a miss costs what a real check costs.
+    private static readonly string DummyCodeHash = BCrypt.Net.BCrypt.HashPassword("000000");
 
     public override void Configure()
     {
@@ -137,6 +139,7 @@ internal class VerifyEndpoint(
 
         if (otp == null || otp.ExpiresAt < DateTime.UtcNow)
         {
+            BCrypt.Net.BCrypt.Verify(code, DummyCodeHash);
             ThrowError("Invalid or expired code.");
             return;
         }
