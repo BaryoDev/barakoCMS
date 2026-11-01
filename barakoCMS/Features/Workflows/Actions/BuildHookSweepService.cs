@@ -106,11 +106,21 @@ internal sealed class BuildHookSweepService(
         {
             if (!await TryClaimAsync(session, pending, now, ct)) continue;
 
-            await FireAsync(session, pending, ct);
+            try
+            {
+                await FireAsync(session, pending, ct);
 
-            session.Delete<PendingBuild>(pending.Id);
-            await session.SaveChangesAsync(ct);
-            fired++;
+                session.Delete<PendingBuild>(pending.Id);
+                await session.SaveChangesAsync(ct);
+                fired++;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                session.EjectAllPendingChanges();
+                _logger.LogError(
+                    "A pending build {ActionKey} failed and stays claimed until its claim times out ({Exception})",
+                    barakoCMS.Infrastructure.Logging.LogSafe.Value(pending.ActionKey), ex.GetType().Name);
+            }
         }
 
         return fired;

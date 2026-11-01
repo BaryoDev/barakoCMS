@@ -1,0 +1,1 @@
+- **One failing item could stop a sweep, and the outbox lease could already be over.** The outbox, scheduled content and build hook sweeps now skip the item or tenant that failed and carry on, and the outbox lease starts from the current time.

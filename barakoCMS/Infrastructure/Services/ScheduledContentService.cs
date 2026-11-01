@@ -174,9 +174,19 @@ public class ScheduledContentService : BackgroundService
 
             using var span = Tracing.BarakoTracing.StartTenantWork(Tracing.BarakoTracing.ScheduledTenantSpan, slug);
             await using var session = slug is null ? _store.LightweightSession() : _store.LightweightSession(slug);
-            var changed = await SweepTenantAsync(
-                session, nowUtc, _logger, DefaultBatchSize, DefaultMaxBatchesPerSweep,
-                beforeSave: null, afterLoad: AfterLoad, ct);
+            int changed;
+            try
+            {
+                changed = await SweepTenantAsync(
+                    session, nowUtc, _logger, DefaultBatchSize, DefaultMaxBatchesPerSweep,
+                    beforeSave: null, afterLoad: AfterLoad, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogError(ex, "Scheduled content sweep failed for tenant {Tenant}", slug ?? "(default)");
+                continue;
+            }
+
             await SweepScheduleWorkflowsAsync(session, nowUtc, _logger, _configuration, ct);
             span?.SetTag(Tracing.BarakoTracing.ScheduledTransitionsTag, changed);
             if (changed > 0)
