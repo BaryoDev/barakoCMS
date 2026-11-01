@@ -174,7 +174,8 @@ public class ScheduledContentService : BackgroundService
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogError(ex, "Scheduled content sweep failed for tenant {Tenant}", slug ?? "(default)");
-                continue;
+                session.EjectAllPendingChanges();
+                changed = 0;
             }
 
             await SweepScheduleWorkflowsAsync(session, nowUtc, _logger, _configuration, ct);
