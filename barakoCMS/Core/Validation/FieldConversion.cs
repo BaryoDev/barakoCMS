@@ -64,6 +64,7 @@ internal static class FieldConversion
         field.Scale = null;
         field.TokenLength = null;
         field.ValidationRules = new Dictionary<string, object>();
+        field.DefaultValue = null;
     }
 
     /// <summary>A scalar value as text, or null for a list or an object, which no convert takes.</summary>
