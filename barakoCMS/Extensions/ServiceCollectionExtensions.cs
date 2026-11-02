@@ -674,7 +674,7 @@ public static class ServiceCollectionExtensions
             .Index(x => x.ContentType, idx =>
             {
                 idx.Casing = Marten.Schema.ComputedIndex.Casings.Lower;
-                idx.Name = "content_type_lower";
+                idx.Name = "mt_doc_contents_idx_content_type_lower";
             })
             .Index(x => x.CreatedAt)    // Frequently sorted
             .Index(x => x.UpdatedAt)
