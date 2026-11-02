@@ -85,6 +85,7 @@ internal sealed class ResolveRedirectEndpoint(IQuerySession session) : EndpointW
             HttpContext,
             barakoCMS.Infrastructure.Caching.DeliveryCacheClass.Short,
             [barakoCMS.Infrastructure.Caching.CacheScope.Named("redirects")]);
+        TagOutputCache();
 
         // Normalised on the way out as well as on save. A rule can be older than the save path's
         // handling of backslashes and control characters and still hold "/\evil.com", and serving
@@ -95,5 +96,18 @@ internal sealed class ResolveRedirectEndpoint(IQuerySession session) : EndpointW
             ToPath = UrlRedirect.Normalize(redirect.ToPath),
             Status = redirect.Permanent ? 301 : 302,
         }, ct);
+    }
+
+    // The route keeps its own output cache policy, which stores the answer with no tags, so the
+    // listener's eviction by the "redirects" tag would find nothing. Tag the stored entry with the
+    // tags the response already sends.
+    private void TagOutputCache()
+    {
+        if (HttpContext.Features.Get<Microsoft.AspNetCore.OutputCaching.IOutputCacheFeature>() is not { } cache)
+            return;
+
+        var tags = HttpContext.Response.Headers[barakoCMS.Infrastructure.Caching.DeliveryCache.SurrogateKeyHeader].ToString();
+        foreach (var tag in tags.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            cache.Context.Tags.Add(tag);
     }
 }
