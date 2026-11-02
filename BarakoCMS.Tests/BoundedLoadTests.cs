@@ -110,7 +110,7 @@ public class BoundedLoadTests
             "/api/portability/export?types=" + wanted, TestContext.Current.CancellationToken);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
-        var bundle = (await response.Content.ReadFromJsonAsync<PortabilityBundle>(TestContext.Current.CancellationToken))!;
+        var bundle = (await response.Content.ReadFromJsonAsync<PortabilityBundle>(ApiJson.Options, TestContext.Current.CancellationToken))!;
         bundle.Contents.Should().HaveCount(2);
         bundle.Contents.Should().OnlyContain(c => c.ContentType == wanted);
         bundle.Contents.Should().NotContain(c => c.ContentType == other);
