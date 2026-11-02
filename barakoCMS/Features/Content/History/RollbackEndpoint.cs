@@ -60,6 +60,8 @@ internal class RollbackEndpoint(
             return;
         }
 
+        var loadedVersion = (await session.MetadataForAsync(content, ct))?.CurrentVersion;
+
         // 2. PERMISSION: the role gate on the route says who may reach it at all. This says whether
         // this caller may update this content type, which is the permission a rollback actually
         // exercises, since the write it performs is indistinguishable from PUT /api/contents/{id}.
@@ -174,7 +176,7 @@ internal class RollbackEndpoint(
         var rollbackEvent = new ContentUpdated(req.Id, data, userId, searchText, DateTime.UtcNow);
 
         // 6. Append the new event and update the document together
-        await CommitRollbackAsync(content, rollbackEvent, ct);
+        await CommitRollbackAsync(content, rollbackEvent, loadedVersion, ct);
 
         // 8. Return the new state, through the read rules a GET applies: the caller is shown what
         // they may read of it and nothing more. Rollback asks for update, not read, so a caller no
@@ -203,11 +205,19 @@ internal class RollbackEndpoint(
     /// document loaded earlier in the request, so a plain append would overwrite an edit that landed
     /// in between. 409, as change-status answers.
     /// </summary>
-    private async Task CommitRollbackAsync(barakoCMS.Models.Content content, ContentUpdated rollbackEvent, CancellationToken ct)
+    private async Task CommitRollbackAsync(barakoCMS.Models.Content content, ContentUpdated rollbackEvent, Guid? loadedVersion, CancellationToken ct)
     {
         try
         {
             await contentWriter.AppendOptimisticAsync(content, new object[] { rollbackEvent }, ct);
+
+            // Bound to the version read at load, and registered after the append: the writer
+            // reloads the committed document inside it, which would otherwise replace this.
+            if (loadedVersion is { } expected)
+            {
+                session.UpdateExpectedVersion(content, expected);
+            }
+
             await session.SaveChangesAsync(ct);
         }
         catch (Exception ex) when (ex is JasperFx.ConcurrencyException
