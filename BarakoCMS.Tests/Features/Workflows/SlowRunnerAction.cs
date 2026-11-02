@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Globalization;
 using barakoCMS.Models;
 
@@ -64,6 +65,8 @@ internal sealed class SlowRunnerAction : barakoCMS.Features.Workflows.IWorkflowA
         private readonly object _gate = new();
         private readonly List<string> _events = [];
         private readonly Dictionary<string, int> _runs = new();
+        private readonly Dictionary<string, long> _startedAt = new();
+        private readonly List<(long Start, long End)> _spans = [];
 
         /// <summary>When set, an action that is cancelled stays in flight until this ends.</summary>
         public Task? HoldAfterStop { get; init; }
@@ -97,6 +100,7 @@ internal sealed class SlowRunnerAction : barakoCMS.Features.Workflows.IWorkflowA
                 MostAtOnce = Math.Max(MostAtOnce, InFlight);
                 _runs[key] = _runs.GetValueOrDefault(key) + 1;
                 _events.Add($"start {key}");
+                _startedAt[key] = Stopwatch.GetTimestamp();
             }
 
             OnEnter?.Invoke();
@@ -108,7 +112,29 @@ internal sealed class SlowRunnerAction : barakoCMS.Features.Workflows.IWorkflowA
             {
                 InFlight--;
                 _events.Add($"end {key}");
+                if (_startedAt.Remove(key, out var start)) _spans.Add((start, Stopwatch.GetTimestamp()));
             }
+        }
+
+        /// <summary>
+        /// The time the actions ran added up, and the time at least one was running. The two are
+        /// equal when they ran one at a time, and the second is smaller by the overlap. Neither
+        /// counts the gaps between actions, which is where a loaded machine or a slow database spends its time.
+        /// </summary>
+        public (TimeSpan Busy, TimeSpan Covered) Time()
+        {
+            List<(long Start, long End)> spans;
+            lock (_gate) spans = _spans.OrderBy(x => x.Start).ToList();
+
+            long busy = 0, covered = 0, reached = long.MinValue;
+            foreach (var (start, end) in spans)
+            {
+                busy += end - start;
+                covered += Math.Max(0, end - Math.Max(start, reached));
+                reached = Math.Max(reached, end);
+            }
+
+            return (Stopwatch.GetElapsedTime(0, busy), Stopwatch.GetElapsedTime(0, covered));
         }
     }
 }

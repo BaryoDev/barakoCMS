@@ -162,7 +162,9 @@ public class WorkflowRunnerTakeoverTests
 
             try
             {
-                var pass = _harness.NewRunner().RunOnceAsync(WorkflowStopHarness.Ct);
+                // A run ended by a takeover takes a slot until its handlers return, so a bound of one
+                // could not claim the second before the first handler came back.
+                var pass = _harness.NewRunner(bound: 2).RunOnceAsync(WorkflowStopHarness.Ct);
                 var deadline = DateTimeOffset.UtcNow.AddSeconds(30);
 
                 while (!(RecordingFailureHandler.Told.ContainsKey(first.Id) && RecordingFailureHandler.Told.ContainsKey(second.Id))
