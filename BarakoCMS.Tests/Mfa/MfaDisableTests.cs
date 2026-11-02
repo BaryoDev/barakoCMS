@@ -27,12 +27,15 @@ public class MfaDisableTests
         _ip = $"203.0.113.{n % 250 + 1}";
     }
 
-    private HttpClient Client(Guid userId)
+    private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Host() =>
+        _factory.WithWebHostBuilder(b => b.ConfigureServices(s =>
+            s.AddSingleton<Microsoft.AspNetCore.Hosting.IStartupFilter, TestRemoteIpFilter>()));
+
+    private HttpClient Client(Guid userId) => Client(Host(), userId);
+
+    private HttpClient Client(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> host, Guid userId)
     {
-        var c = _factory
-            .WithWebHostBuilder(b => b.ConfigureServices(s =>
-                s.AddSingleton<Microsoft.AspNetCore.Hosting.IStartupFilter, TestRemoteIpFilter>()))
-            .CreateClient();
+        var c = host.CreateClient();
         c.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, _ip);
         c.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", _factory.CreateToken(new[] { "SuperAdmin" }, userId.ToString()));
@@ -167,13 +170,14 @@ public class MfaDisableTests
     public async Task Disable_Success_NotifiesTheOwner()
     {
         var (id, email, recovery) = await EnrolledUserAsync();
-        var before = _factory.Email.Messages.Count(m => m.To == email);
+        var host = Host();
 
-        var response = await DisableAsync(Client(id), recovery[0]);
+        var response = await DisableAsync(Client(host, id), recovery[0]);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var sent = _factory.Email.Messages.Where(m => m.To == email).ToList();
-        sent.Should().HaveCount(before + 1);
+        var sent = host.Services.GetRequiredService<RecordingEmailService>().Messages
+            .Where(m => m.To == email).ToList();
+        sent.Should().HaveCount(1);
         sent[^1].Subject.Should().Contain("Two-factor authentication disabled");
         sent[^1].Body.Should().Contain("All devices have been signed out");
     }
@@ -212,7 +216,7 @@ public class MfaDisableTests
         }
 
         var client = Client(id);
-        for (var i = 0; i < 8; i++)
+        for (var i = 0; i < barakoCMS.Infrastructure.Auth.AccountLockout.MaxFailedAttempts; i++)
         {
             (await DisableAsync(client, "000000")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
         }
