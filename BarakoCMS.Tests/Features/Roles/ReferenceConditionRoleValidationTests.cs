@@ -492,7 +492,11 @@ public class ReferenceConditionRoleValidationTests
         onAnother.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         var kept = await ReadAsync();
-        kept.Permissions.Should().HaveCount(3, "the three refused writes stored nothing");
+        kept.Permissions.Should().HaveCount(2, "the refused writes stored nothing");
+        var held = kept.Permissions.Single(p => p.ContentTypeSlug == enrollments);
+        held.Update!.Conditions.Should().ContainKey("Class.InstructorUser", "the refused writes left the added condition as it was");
+        held.Update.Conditions.Should().NotContainKey("Student.InstructorUser");
+        held.Read!.Conditions.Should().ContainKey("a.b.c");
     }
 
     [Fact]
