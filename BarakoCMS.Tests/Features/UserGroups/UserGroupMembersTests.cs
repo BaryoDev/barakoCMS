@@ -26,6 +26,21 @@ public class UserGroupMembersTests
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
     }
 
+    private async Task<Guid> StoreUserAsync()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var id = Guid.NewGuid();
+        session.Store(new barakoCMS.Models.User
+        {
+            Id = id,
+            Username = $"member_{id:n}",
+            Email = $"m_{id:n}@example.com"
+        });
+        await session.SaveChangesAsync();
+        return id;
+    }
+
     private async Task<Guid> CreateGroupAsync(object body)
     {
         var response = await _client.PostAsJsonAsync("/api/user-groups", body);
@@ -45,7 +60,7 @@ public class UserGroupMembersTests
     public async Task A_user_listed_twice_on_create_is_removed_with_one_remove()
     {
         await SignInAsync();
-        var userId = Guid.NewGuid();
+        var userId = await StoreUserAsync();
         var groupId = await CreateGroupAsync(new
         {
             name = "Listed twice " + Guid.NewGuid(),

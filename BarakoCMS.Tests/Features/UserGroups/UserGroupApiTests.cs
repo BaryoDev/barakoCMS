@@ -217,7 +217,7 @@ public class UserGroupApiTests
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
         // Create group with user
-        var userId = Guid.NewGuid();
+        var userId = await StoreUserAsync();
         var createGroupResponse = await _client.PostAsJsonAsync("/api/user-groups", new
         {
             name = "Test Group",
