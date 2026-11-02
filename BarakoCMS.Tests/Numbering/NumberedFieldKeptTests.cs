@@ -76,7 +76,7 @@ public class NumberedFieldKeptTests(IntegrationTestFixture factory)
                 {
                     States = ["Draft", "Submitted"],
                     InitialState = "Draft",
-                    Transitions = [new StateTransition { Name = "Submit", From = "Draft", To = "Submitted" }],
+                    Transitions = [new StateTransition { Name = "Submit", From = "Draft", To = "Submitted", OptionalFields = ["InvoiceNo"] }],
                 }
                 : null,
             Numbering = numbered ? new NumberingRule { Field = "InvoiceNo", Prefix = "INV-", Padding = 4 } : null,
