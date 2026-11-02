@@ -672,21 +672,23 @@ public class EmailActionAttachmentTests
 
     /// <summary>
     /// Only the default members' own refusal means "cannot send attachments". A provider that does
-    /// send them and throws the same exception type for its own reason is an ordinary failure.
+    /// send them and throws the same exception type for its own reason is an ordinary failure, and
+    /// like any failure that is not a "not sent" one it may be a message the relay took, so the
+    /// outcome is unknown and is not retried.
     /// </summary>
     [Fact]
-    public async Task A_providers_own_not_supported_exception_is_an_ordinary_retryable_failure()
+    public async Task A_providers_own_not_supported_exception_is_an_unknown_send_outcome()
     {
         var files = new FakeFiles();
         var id = files.Add("receipt.pdf", Receipt);
+        var action = Build(new PickyProvider(), files);
 
-        var result = await RunAsync(Build(new PickyProvider(), files), Mail(id.ToString()), Entry(("Receipt", id.ToString())));
+        var send = () => RunAsync(action, Mail(id.ToString()), Entry(("Receipt", id.ToString())));
 
-        result.Succeeded.Should().BeFalse();
-        result.Retryable.Should().BeTrue();
-        result.Error.Should().Contain("NotSupportedException");
-        result.Error.Should().NotContain("does not send attachments");
-        result.Error.Should().NotContain("PDF files today", "a provider's message does not go on the run");
+        var thrown = await send.Should().ThrowAsync<barakoCMS.Features.Workflows.SendOutcomeUnknownException>();
+        thrown.Which.Message.Should().Contain("NotSupportedException");
+        thrown.Which.Message.Should().NotContain("does not send attachments");
+        thrown.Which.Message.Should().NotContain("PDF files today", "a provider's message does not go on the run");
     }
 
     [Fact]
