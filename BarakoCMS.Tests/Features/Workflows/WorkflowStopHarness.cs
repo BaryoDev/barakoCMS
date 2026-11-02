@@ -233,10 +233,18 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
         }
     }
 
-    public WorkflowRunner NewRunner() => new(
+    public WorkflowRunner NewRunner(int? bound = null) => new(
         factory.Services,
         factory.Services.GetRequiredService<ILogger<WorkflowRunner>>(),
-        factory.Services.GetRequiredService<IConfiguration>());
+        bound is null
+            ? factory.Services.GetRequiredService<IConfiguration>()
+            : new ConfigurationBuilder()
+                .AddConfiguration(factory.Services.GetRequiredService<IConfiguration>())
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    [WorkflowRunner.ConcurrencyKey] = bound.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                })
+                .Build());
 
     /// <summary>Runs a runner of the test's own until it finds nothing due.</summary>
     public async Task DrainAsync()

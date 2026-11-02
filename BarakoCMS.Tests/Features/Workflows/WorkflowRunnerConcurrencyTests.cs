@@ -85,10 +85,11 @@ public class WorkflowRunnerConcurrencyTests
     /// Eight runs of one slow action with a bound of four take about two delays, not eight.
     /// </summary>
     /// <remarks>
-    /// The delay is a floor on each action, so one at a time cannot finish under eight delays. The
-    /// limit asserted is one delay under that, which leaves five delays of room over the best case
-    /// of two for a loaded machine or a slow database. The count of actions in flight is what shows
-    /// the overlap; the time shows that the overlap bought something.
+    /// The time is read from the actions, not from the clock around the drain, so the claiming a
+    /// loaded machine or a slow database holds up between actions is not in it. Run one at a time,
+    /// the time at least one action was running equals the actions' own time added up. The limit
+    /// asserted is one delay under that, against a best case of a quarter. The count of actions in
+    /// flight is what shows the overlap; the time shows that the overlap bought something.
     /// </remarks>
     [Fact]
     public async Task Runs_of_a_slow_action_finish_well_under_the_serial_time_with_a_bound_of_four()
@@ -109,9 +110,7 @@ public class WorkflowRunnerConcurrencyTests
                 seeded.Add(await SeedAsync(tenant, contentId, Slow(group, delayMs)));
             }
 
-            var timer = Stopwatch.StartNew();
             await DrainAsync(NewRunner(bound));
-            timer.Stop();
 
             var gauge = SlowRunnerAction.Groups[group];
 
@@ -123,12 +122,12 @@ public class WorkflowRunnerConcurrencyTests
                 gauge.TimesRun(run.Actions[0].IdempotencyKey).Should().Be(1, "a run executed twice is a message sent twice");
             }
 
-            var serial = TimeSpan.FromMilliseconds(delayMs * runs);
-            var best = TimeSpan.FromMilliseconds(delayMs * (runs / bound));
-            var limit = serial - TimeSpan.FromMilliseconds(delayMs);
+            var (busy, covered) = gauge.Time();
+            var limit = busy - TimeSpan.FromMilliseconds(delayMs);
 
-            timer.Elapsed.Should().BeLessThan(limit,
-                $"one at a time takes at least {serial.TotalSeconds:0.0}s and four at a time about {best.TotalSeconds:0.0}s");
+            busy.Should().BeGreaterThanOrEqualTo(TimeSpan.FromMilliseconds(delayMs * runs * 0.9));
+            covered.Should().BeLessThan(limit,
+                $"one at a time covers all {busy.TotalSeconds:0.0}s of running, and four at a time about a quarter of it");
             gauge.MostAtOnce.Should().BeInRange(2, bound);
         });
     }
