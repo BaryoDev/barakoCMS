@@ -74,8 +74,8 @@ public class PagesBlockSchemaTests
 
         var fields = Block(served, "note").GetProperty("fields").EnumerateArray().ToList();
         fields.Should().HaveCount(4);
-        fields.Select(f => f.GetProperty("name").GetString()).Should().Equal("anything", "never", "title", "count");
-        fields.Select(f => f.GetProperty("kind").GetString()).Should().Equal("text", "text", "text", "number");
+        fields.Select(f => f.GetProperty("name").GetString()).Should().Equal("anything", "count", "never", "title");
+        fields.Select(f => f.GetProperty("kind").GetString()).Should().Equal("text", "number", "text", "text");
     }
 
     [Fact]
