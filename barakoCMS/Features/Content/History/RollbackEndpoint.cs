@@ -31,18 +31,9 @@ internal class RollbackEndpoint(
     public override async Task HandleAsync(RollbackRequest req, CancellationToken ct)
     {
         // Extract userId from claims for audit trail
-        var userIdClaim = User.FindFirst("UserId");
-        if (userIdClaim == null)
+        var callerId = await ReadUserIdAsync(ct);
+        if (callerId is not { } userId)
         {
-            AddError("User ID claim not found");
-            await Send.ErrorsAsync(400, ct);
-            return;
-        }
-
-        if (!Guid.TryParse(userIdClaim.Value, out var userId))
-        {
-            AddError("Invalid User ID format");
-            await Send.ErrorsAsync(400, ct);
             return;
         }
 
@@ -91,17 +82,14 @@ internal class RollbackEndpoint(
         }
 
         // 5. Extract data from the event
-        Dictionary<string, object> data = new();
+        var data = targetEvent.Data switch
+        {
+            ContentCreated created => created.Data,
+            ContentUpdated updated => updated.Data,
+            _ => null,
+        };
 
-        if (targetEvent.Data is ContentCreated created)
-        {
-            data = created.Data;
-        }
-        else if (targetEvent.Data is ContentUpdated updated)
-        {
-            data = updated.Data;
-        }
-        else
+        if (data == null)
         {
             AddError("Cannot rollback to this version type.");
             await Send.ErrorsAsync(cancellation: ct);
@@ -121,43 +109,8 @@ internal class RollbackEndpoint(
         // the correct answer: the alternative is a write path that launders rejected data back in,
         // and it is reachable by anyone who can press Restore.
 
-        // WRITE-PATH SENSITIVITY: a caller who may not see a field may not change it, and restoring
-        // an old value is a change. Reverts any such field to what is stored, and refuses a restore
-        // that changes a field the Update rule does not let the caller set.
-        await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
-            .ApplyWriteAsync(content, data, HttpContext, ct);
-
-        // The update rule has to hold for the entry as restored too, or restoring an old version
-        // moves the entry out of the rows the rule limits this caller to.
-        if (!await permissionResolver.AllowsWrittenEntryAsync(actor, content, "update", data, ct))
+        if (!await PassesUpdateGatesAsync(actor, content, data, userId, ct))
         {
-            await Send.ForbiddenAsync(ct);
-            return;
-        }
-
-        var validationResult = await Resolve<barakoCMS.Infrastructure.Services.IContentValidatorService>()
-            .ValidateAsync(content.ContentType, data, existing: content, caller: User);
-        if (!validationResult.IsValid)
-        {
-            foreach (var error in validationResult.Errors)
-            {
-                AddError($"This version cannot be restored: {error}");
-            }
-
-            await Send.ErrorsAsync(400, ct);
-            return;
-        }
-
-        var hookErrors = await Resolve<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
-            .RunBeforeSaveAsync(content.ContentType, content.Id, data, content.Data, userId, ct);
-        if (hookErrors.Count > 0)
-        {
-            foreach (var error in hookErrors)
-            {
-                AddError($"This version cannot be restored: {error}");
-            }
-
-            await Send.ErrorsAsync(400, ct);
             return;
         }
 
@@ -165,13 +118,7 @@ internal class RollbackEndpoint(
         // cannot reintroduce values that are no longer Public into the searchable text.
         var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, content.ContentType, ct);
 
-        var publicFields = definition?.Fields
-            .Where(barakoCMS.Core.Validation.PublicFields.InSearchText)
-            .Select(f => f.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase)
-            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        var searchText = barakoCMS.Core.Validation.SearchTextBuilder.Build(data, publicFields);
+        var searchText = BuildSearchText(definition, data);
 
         // 5. Create a new update event with the old data and rebuilt SearchText
         var rollbackEvent = new ContentUpdated(req.Id, data, userId, searchText, DateTime.UtcNow);
@@ -185,6 +132,84 @@ internal class RollbackEndpoint(
         var response = await ReadBackAsync(actor, content, definition, ct);
 
         await Send.ResponseAsync(response, cancellation: ct);
+    }
+
+    private async Task<Guid?> ReadUserIdAsync(CancellationToken ct)
+    {
+        var userIdClaim = User.FindFirst("UserId");
+        if (userIdClaim == null)
+        {
+            AddError("User ID claim not found");
+            await Send.ErrorsAsync(400, ct);
+            return null;
+        }
+
+        if (!Guid.TryParse(userIdClaim.Value, out var userId))
+        {
+            AddError("Invalid User ID format");
+            await Send.ErrorsAsync(400, ct);
+            return null;
+        }
+
+        return userId;
+    }
+
+    /// <summary>Runs the gates an update runs on the restored data. Answers the refusal itself and returns false when one fails.</summary>
+    private async Task<bool> PassesUpdateGatesAsync(
+        barakoCMS.Models.User actor, barakoCMS.Models.Content content, Dictionary<string, object> data, Guid userId, CancellationToken ct)
+    {
+        // WRITE-PATH SENSITIVITY: a caller who may not see a field may not change it, and restoring
+        // an old value is a change. Reverts any such field to what is stored, and refuses a restore
+        // that changes a field the Update rule does not let the caller set.
+        await Resolve<barakoCMS.Core.Interfaces.ISensitivityService>()
+            .ApplyWriteAsync(content, data, HttpContext, ct);
+
+        // The update rule has to hold for the entry as restored too, or restoring an old version
+        // moves the entry out of the rows the rule limits this caller to.
+        if (!await permissionResolver.AllowsWrittenEntryAsync(actor, content, "update", data, ct))
+        {
+            await Send.ForbiddenAsync(ct);
+            return false;
+        }
+
+        var validationResult = await Resolve<barakoCMS.Infrastructure.Services.IContentValidatorService>()
+            .ValidateAsync(content.ContentType, data, existing: content, caller: User);
+        if (!validationResult.IsValid)
+        {
+            await RefuseRestoreAsync(validationResult.Errors, ct);
+            return false;
+        }
+
+        var hookErrors = await Resolve<barakoCMS.Infrastructure.Services.IContentLifecycleRunner>()
+            .RunBeforeSaveAsync(content.ContentType, content.Id, data, content.Data, userId, ct);
+        if (hookErrors.Count > 0)
+        {
+            await RefuseRestoreAsync(hookErrors, ct);
+            return false;
+        }
+
+        return true;
+    }
+
+    private async Task RefuseRestoreAsync(IEnumerable<string> errors, CancellationToken ct)
+    {
+        foreach (var error in errors)
+        {
+            AddError($"This version cannot be restored: {error}");
+        }
+
+        await Send.ErrorsAsync(400, ct);
+    }
+
+    private static string BuildSearchText(ContentTypeDefinition? definition, Dictionary<string, object> data)
+    {
+        var publicFields = definition?.Fields
+            .Where(barakoCMS.Core.Validation.PublicFields.InSearchText)
+            .Select(f => f.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        return barakoCMS.Core.Validation.SearchTextBuilder.Build(data, publicFields);
     }
 
     /// <summary>
