@@ -36,10 +36,16 @@ public class XmlTextTests
     [InlineData("a\u0000b", "ab")]
     [InlineData("a\u0008b", "ab")]
     [InlineData("a\u001Fb", "ab")]
-    [InlineData("a\uD83Db", "ab")]
-    [InlineData("a\uDE00b", "ab")]
     public void A_character_xml_cannot_carry_is_dropped(string input, string expected)
     {
         XmlText.Escape(input).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(0xD83D)]
+    [InlineData(0xDE00)]
+    public void A_lone_surrogate_is_dropped(int code)
+    {
+        XmlText.Escape("a" + (char)code + "b").Should().Be("ab");
     }
 }
