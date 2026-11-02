@@ -393,6 +393,13 @@ public class ReferenceConditionRoleValidationTests
         };
     }
 
+    private static object ReadAndUpdate(string slug, string readKey, object readOperators, string updateKey, object updateOperators) => new
+    {
+        contentTypeSlug = slug,
+        read = new { enabled = true, conditions = new Dictionary<string, object> { [readKey] = readOperators } },
+        update = new { enabled = true, conditions = new Dictionary<string, object> { [updateKey] = updateOperators } },
+    };
+
     [Fact]
     public async Task An_update_passes_over_a_stored_condition_it_leaves_as_it_is_and_checks_one_it_adds_or_edits()
     {
@@ -459,9 +466,11 @@ public class ReferenceConditionRoleValidationTests
         (await ReadAsync()).Name.Should().Be(renamed);
 
         // Untouched, with a new condition that resolves beside them.
-        var added = await PutAsync(renamed, legacy, foreign, Permission(enrollments, "Class.InstructorUser", Operators(), "update"));
+        var added = await PutAsync(renamed, ReadAndUpdate(enrollments, "a.b.c", TwoOperators(), "Class.InstructorUser", Operators()), foreign);
         added.Status.Should().Be(HttpStatusCode.OK, added.Text);
-        (await ReadAsync()).Permissions.Should().HaveCount(3);
+        var afterAdd = (await ReadAsync()).Permissions;
+        afterAdd.Should().HaveCount(2);
+        afterAdd.Single(p => p.ContentTypeSlug == enrollments).Update!.Conditions.Should().ContainKey("Class.InstructorUser");
 
         // Edited: the same key with another value is a condition this write makes.
         var edited = await PutAsync(renamed, Permission(enrollments, "a.b.c", Operators("_eq", "y")), foreign);
@@ -473,7 +482,7 @@ public class ReferenceConditionRoleValidationTests
         moved.Status.Should().Be(HttpStatusCode.BadRequest, moved.Text);
 
         // Added: a new condition that does not resolve, beside the untouched ones.
-        var unresolved = await PutAsync(renamed, legacy, foreign, Permission(enrollments, "Student.InstructorUser", Operators(), "update"));
+        var unresolved = await PutAsync(renamed, ReadAndUpdate(enrollments, "a.b.c", TwoOperators(), "Student.InstructorUser", Operators()), foreign);
         unresolved.Status.Should().Be(HttpStatusCode.BadRequest, unresolved.Text);
         unresolved.Text.Should().Contain("is not a reference field");
 
