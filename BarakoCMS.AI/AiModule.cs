@@ -41,6 +41,8 @@ public sealed class AiModule : IBarakoModule
             .Bind(configuration)
             .Validate(o => o.SemanticSearchPermitLimit >= 1 && o.SemanticSearchWindowSeconds >= 1,
                 "Modules:AI semantic search rate limit values must be at least 1.")
+            .Validate(o => o.Completion.TimeoutSeconds >= 1 && o.Completion.MaxInputChars >= 1 && o.Completion.MaxOutputChars >= 1,
+                "Modules:AI:Completion timeout and size caps must be at least 1.")
             .ValidateOnStart();
 
         services.AddOptions<RateLimiterOptions>().Configure<IConfiguration, IOptions<AiOptions>>((options, root, ai) =>
@@ -53,6 +55,8 @@ public sealed class AiModule : IBarakoModule
                     context, AiOptions.SemanticSearchRateLimitPolicy, window, rendererKeyHash));
         });
         services.AddHttpClient<IEmbeddingClient, OllamaEmbeddingClient>();
+        // Nothing calls this yet. It is an extension point, off until Modules:AI:Completion:Enabled is true.
+        services.AddHttpClient<ICompletionClient, CompletionClient>(c => c.MaxResponseContentBufferSize = 1_000_000);
     }
 
     public void ConfigureSchema(IModuleSchema schema)
