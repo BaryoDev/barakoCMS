@@ -21,6 +21,22 @@ public sealed class SmtpEmailModule : IBarakoModule
 {
     public string Name => "Email.Smtp";
 
+    internal const string SettingsSectionName = "Email.Smtp";
+
+    public ModuleConfigurationView? ConfigurationView { get; } =
+        new([new ShowableConfigurationKey("From", ConfigurationScope.Tenant)]);
+
+    public IReadOnlyList<ModuleSettingsSection> SettingsSections { get; } =
+    [
+        new(SettingsSectionName, "Sender used for the mail a tenant sends through the SMTP relay",
+        [
+            new ModuleSettingsKey("From", "Sender address for this tenant's business mail (workflow emails). "
+                + "Account mail such as sign-in codes keeps the host sender.",
+                Category: "Sender", HostDefaultKey: $"{SmtpOptions.SectionName}:From",
+                Kind: ModuleSettingsKind.Mailbox),
+        ]),
+    ];
+
     public string? PackageId => "BarakoCMS.Email.Smtp";
 
     public string? PackageVersion => ModuleMetadata.VersionOf(GetType());

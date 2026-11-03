@@ -914,6 +914,12 @@ public static class ServiceCollectionExtensions
             .SingleTenanted() // one mail provider for the deployment, not one per tenant
             .DocumentAlias("email_settings");
 
+        // One row per tenant, found by an id derived from the slug (like the per-tenant mail row), so
+        // the resolver can read any tenant outside a request.
+        options.Schema.For<TenantSettings>()
+            .SingleTenanted()
+            .DocumentAlias("tenant_settings");
+
         // Stored in one table for the deployment, with the owning tenant kept as data. A name is
         // unique within a tenant, and among platform roles: NULLS NOT DISTINCT makes the platform
         // roles, which have no tenant, one group. migrations/5.0.0/role-tenancy.sql replaces the
@@ -1378,6 +1384,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Auth.Mfa.IMfaSecretProtector, barakoCMS.Infrastructure.Auth.Mfa.MfaSecretProtector>();
         services.AddSingleton<barakoCMS.Infrastructure.Security.ISecretProtector, barakoCMS.Infrastructure.Security.SecretProtector>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
+        services.TryAddScoped<barakoCMS.Core.Interfaces.ITenantSettings, barakoCMS.Infrastructure.Services.TenantSettingsResolver>();
     }
 
     private static void AddConnectorServices(IServiceCollection services)

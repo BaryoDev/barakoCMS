@@ -38,6 +38,24 @@ public sealed class SmtpOptions
     public string? From { get; set; }
 
     /// <summary>
+    /// Domains each tenant may use in its own From (the <c>Email.Smtp</c> tenant setting), keyed by
+    /// tenant slug. SMTP has no tenant credential, so a tenant sender goes out over the host's login
+    /// and the host decides which domains it will vouch for, per tenant: a domain listed for one tenant
+    /// is not open to another. Slug and domain match case-insensitively, with no subdomain wildcard.
+    /// Empty (the default) means every send uses the host sender.
+    /// </summary>
+    public Dictionary<string, List<string>> TenantFromDomains { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>True when <paramref name="domain"/> is listed for <paramref name="tenant"/>.</summary>
+    public bool TenantMayUseDomain(string tenant, string domain) =>
+        TenantFromDomains is not null
+        && TenantFromDomains.Any(entry =>
+            string.Equals(entry.Key?.Trim(), tenant, StringComparison.OrdinalIgnoreCase)
+            && entry.Value is not null
+            && entry.Value.Any(d => !string.IsNullOrWhiteSpace(d)
+                && string.Equals(d.Trim(), domain, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>
     /// How the connection is secured. Unset picks by port: implicit TLS on 465, STARTTLS everywhere
     /// else.
     /// </summary>

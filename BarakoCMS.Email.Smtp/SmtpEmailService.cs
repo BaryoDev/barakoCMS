@@ -26,16 +26,27 @@ public sealed class SmtpEmailService : IEmailService
     private readonly IEmailSettingsProvider _settings;
     private readonly ILogger<SmtpEmailService>? _logger;
     private readonly Func<SmtpClient> _newClient;
+    private readonly ITenantSettings? _tenantSettings;
 
     public SmtpEmailService(IOptionsSnapshot<SmtpOptions> options, IEmailSettingsProvider settings)
         : this(options, settings, null)
     {
     }
 
-    [ActivatorUtilitiesConstructor]
     public SmtpEmailService(IOptionsSnapshot<SmtpOptions> options, IEmailSettingsProvider settings, ILogger<SmtpEmailService>? logger)
+        : this(options, settings, logger, (ITenantSettings?)null)
+    {
+    }
+
+    [ActivatorUtilitiesConstructor]
+    public SmtpEmailService(
+        IOptionsSnapshot<SmtpOptions> options,
+        IEmailSettingsProvider settings,
+        ILogger<SmtpEmailService>? logger,
+        ITenantSettings? tenantSettings)
         : this(options, settings, logger, () => new SmtpClient())
     {
+        _tenantSettings = tenantSettings;
     }
 
     /// <summary>For tests that need a client which fails at a chosen step.</summary>
@@ -60,7 +71,21 @@ public sealed class SmtpEmailService : IEmailService
     public Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default) =>
         SendEmailAsync(to, subject, body, Array.Empty<EmailAttachment>(), cancellationToken);
 
-    public async Task SendEmailAsync(string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken = default)
+    public Task SendEmailAsync(string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken = default) =>
+        SendCoreAsync(null, to, subject, body, attachments, cancellationToken);
+
+    public Task SendForTenantAsync(string tenant, string to, string subject, string body, CancellationToken cancellationToken = default) =>
+        SendCoreAsync(tenant, to, subject, body, Array.Empty<EmailAttachment>(), cancellationToken);
+
+    public Task SendForTenantAsync(string tenant, string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken = default) =>
+        SendCoreAsync(tenant, to, subject, body, attachments, cancellationToken);
+
+    /// <summary>
+    /// A tenant send takes the tenant's own sender when it has stored one in the Email.Smtp settings
+    /// section. Account mail (a sign-in code, a verification link) passes no tenant and always goes
+    /// from the host's sender.
+    /// </summary>
+    private async Task SendCoreAsync(string? tenant, string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken)
     {
         var options = _options.Value;
 
@@ -68,21 +93,10 @@ public sealed class SmtpEmailService : IEmailService
             throw new InvalidOperationException(
                 $"No SMTP host is set. Set {SmtpOptions.SectionName}:Host.");
 
-        var from = await ResolveFromAsync(options, cancellationToken);
+        var from = await TenantFromAsync(tenant, options, cancellationToken)
+            ?? await ResolveFromAsync(options, cancellationToken);
 
-        var message = new MimeMessage();
-        message.From.Add(MailboxAddress.Parse(from));
-        message.To.Add(MailboxAddress.Parse(to));
-        message.Subject = subject;
-
-        var builder = new BodyBuilder { HtmlBody = body };
-        foreach (var attachment in attachments)
-        {
-            // MimeKit writes the name as an encoded parameter, so it cannot break out of its header.
-            builder.Attachments.Add(attachment.FileName, attachment.Content, MimeTypeOf(attachment));
-        }
-
-        message.Body = builder.ToMessageBody();
+        var message = BuildMessage(from, to, subject, body, attachments);
 
         using var client = _newClient();
         client.Timeout = (int)options.Timeout.TotalMilliseconds;
@@ -90,23 +104,7 @@ public sealed class SmtpEmailService : IEmailService
 
         try
         {
-            // One limit over the connect and the login together, since each is several reads and
-            // MailKit's timeout is per read. Nothing has been sent when it fires.
-            using (var handshake = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
-            {
-                handshake.CancelAfter(options.Timeout);
-                try
-                {
-                    await client.ConnectAsync(options.Host, options.Port, SecurityFor(options), handshake.Token);
-
-                    if (!string.IsNullOrWhiteSpace(options.User))
-                        await client.AuthenticateAsync(options.User, options.Password ?? string.Empty, handshake.Token);
-                }
-                catch (OperationCanceledException) when (handshake.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-                {
-                    throw new TimeoutException($"No answer within {options.Timeout.TotalSeconds:0.#} s.");
-                }
-            }
+            await ConnectAndAuthenticateAsync(client, options, cancellationToken);
 
             sending = true;
             await client.SendAsync(message, cancellationToken);
@@ -130,6 +128,48 @@ public sealed class SmtpEmailService : IEmailService
             throw NothingSent(ex, sending) ? new EmailNotSentException(text) : new InvalidOperationException(text);
         }
 
+        await DisconnectQuietlyAsync(client, cancellationToken);
+    }
+
+    private static MimeMessage BuildMessage(string from, string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments)
+    {
+        var message = new MimeMessage();
+        message.From.Add(MailboxAddress.Parse(from));
+        message.To.Add(MailboxAddress.Parse(to));
+        message.Subject = subject;
+
+        var builder = new BodyBuilder { HtmlBody = body };
+        foreach (var attachment in attachments)
+        {
+            // MimeKit writes the name as an encoded parameter, so it cannot break out of its header.
+            builder.Attachments.Add(attachment.FileName, attachment.Content, MimeTypeOf(attachment));
+        }
+
+        message.Body = builder.ToMessageBody();
+        return message;
+    }
+
+    private static async Task ConnectAndAuthenticateAsync(SmtpClient client, SmtpOptions options, CancellationToken cancellationToken)
+    {
+        // One limit over the connect and the login together, since each is several reads and
+        // MailKit's timeout is per read. Nothing has been sent when it fires.
+        using var handshake = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        handshake.CancelAfter(options.Timeout);
+        try
+        {
+            await client.ConnectAsync(options.Host, options.Port, SecurityFor(options), handshake.Token);
+
+            if (!string.IsNullOrWhiteSpace(options.User))
+                await client.AuthenticateAsync(options.User, options.Password ?? string.Empty, handshake.Token);
+        }
+        catch (OperationCanceledException) when (handshake.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException($"No answer within {options.Timeout.TotalSeconds:0.#} s.");
+        }
+    }
+
+    private async Task DisconnectQuietlyAsync(SmtpClient client, CancellationToken cancellationToken)
+    {
         try
         {
             await client.DisconnectAsync(true, cancellationToken);
@@ -168,6 +208,46 @@ public sealed class SmtpEmailService : IEmailService
             ? parsed
             : new ContentType("application", "octet-stream");
 
+    /// <summary>The tenant's own From, or null when it has none and the host sender applies.</summary>
+    /// <remarks>
+    /// SMTP has no tenant credential, so a tenant sender goes out over the host's login. The tenant's
+    /// From is therefore honoured only when its domain is listed for that tenant in
+    /// <see cref="SmtpOptions.TenantFromDomains"/> (exact match, no subdomains). A domain listed for
+    /// another tenant does not count. An empty list means the host sender always. A stored value that
+    /// is not a mailbox, or whose domain is not listed, is skipped with a warning rather than failing
+    /// the send.
+    /// </remarks>
+    private async Task<string?> TenantFromAsync(string? tenant, SmtpOptions options, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(tenant) || _tenantSettings is null)
+        {
+            return null;
+        }
+
+        var value = await _tenantSettings.GetOverrideAsync(tenant, SmtpEmailModule.SettingsSectionName, "From", ct);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (!MailboxAddress.TryParse(value, out var mailbox))
+        {
+            _logger?.LogWarning("A tenant's {Section} From is not a valid mailbox, so the host sender is used.", SmtpEmailModule.SettingsSectionName);
+            return null;
+        }
+
+        var domain = mailbox.Domain;
+        if (!options.TenantMayUseDomain(tenant, domain))
+        {
+            _logger?.LogWarning(
+                "Tenant {Tenant} set an {Section} From on domain {Domain}, which is not listed for it in {Option}, so the host sender is used.",
+                tenant, SmtpEmailModule.SettingsSectionName, domain, $"{SmtpOptions.SectionName}:TenantFromDomains");
+            return null;
+        }
+
+        return value;
+    }
+
     /// <summary>
     /// The admin's from address if somebody set one, else the module's own.
     /// </summary>
@@ -175,8 +255,9 @@ public sealed class SmtpEmailService : IEmailService
     /// The stored from address is the one part of the email settings surface that is not about
     /// an API-key provider, so it carries across: an operator who types a sender at Settings, Email gets that
     /// sender, whichever provider is registered. The API key beside it does not carry across,
-    /// because SMTP has no use for one. Always the host's: SMTP has no tenant credential, so a tenant
-    /// sender would go out over the host's login.
+    /// because SMTP has no use for one. This is always the host's sender. A tenant's own From is chosen
+    /// earlier, in <c>TenantFromAsync</c>, and only for a domain the host listed for that tenant in
+    /// <see cref="SmtpOptions.TenantFromDomains"/>.
     /// </remarks>
     private async Task<string> ResolveFromAsync(SmtpOptions options, CancellationToken ct)
     {

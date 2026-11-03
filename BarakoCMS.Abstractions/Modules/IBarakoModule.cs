@@ -147,6 +147,18 @@ public interface IBarakoModule
     ModuleConfigurationView? ConfigurationView => null;
 
     /// <summary>
+    /// Settings a tenant administrator may override for their own tenant, in named sections. Optional.
+    /// </summary>
+    /// <remarks>
+    /// Each key says what it is (description, category), whether it is a secret, whether a tenant
+    /// may override it, and which configuration key holds the host default. The host serves the
+    /// declared sections at <c>/api/tenant-settings/{section}</c> and rejects anything not declared.
+    /// A module reads the effective value through <c>ITenantSettings</c>. The default declares
+    /// nothing. See <see cref="ModuleSettingsSection"/>.
+    /// </remarks>
+    IReadOnlyList<ModuleSettingsSection> SettingsSections => [];
+
+    /// <summary>
     /// Which seeded roles start with which rights on the content types this module seeds. Optional.
     /// </summary>
     /// <remarks>

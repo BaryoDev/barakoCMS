@@ -3,7 +3,6 @@
 # raising one, or adding a line, is a reviewed decision the pull request explains.
 99 BarakoCMS.AI/Features/SemanticSearchEndpoint.cs::SemanticSearchEndpoint.HandleAsync
 75 BarakoCMS.Accounting/AccountingMigration.cs::AccountingMigration.RunAsync
-81 BarakoCMS.Email.Smtp/SmtpEmailService.cs::SmtpEmailService.SendEmailAsync
 74 BarakoCMS.ExternalAuth/FacebookAuthEndpoints.cs::FacebookCallbackEndpoint.HandleAsync
 85 BarakoCMS.ExternalAuth/GitHubAuthEndpoints.cs::GitHubCallbackEndpoint.HandleAsync
 72 BarakoCMS.ExternalAuth/GoogleAuthEndpoints.cs::GoogleCallbackEndpoint.HandleAsync
@@ -24,7 +23,7 @@
 79 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddJwtAndApiKeyAuth
 132 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddMartenStore
 80 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddModules
-133 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapGlobalDocuments
+139 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapGlobalDocuments
 133 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapTenantScopedDocuments
 86 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.ResolveConnectionString
 72 barakoCMS/Features/ApiKeys/Endpoints.cs::CreateApiKeyEndpoint.HandleAsync
