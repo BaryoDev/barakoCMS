@@ -437,6 +437,30 @@ public class CrossTenantTokenTests
     }
 
     [Fact]
+    public async Task a_locked_account_cannot_switch_club_with_a_token_it_already_holds()
+    {
+        var (userId, username) = await CreateUserAsync();
+        var home = await CreateTenantAsync();
+        var away = await CreateTenantAsync();
+        await GrantMembershipAsync(userId, home);
+        await GrantMembershipAsync(userId, away);
+        var login = await LoginAsync(username, home);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var user = (await session.LoadAsync<barakoCMS.Models.User>(userId))!;
+            user.LockoutUntil = DateTime.UtcNow.AddMinutes(30);
+            session.Store(user);
+            await session.SaveChangesAsync();
+        }
+
+        var resp = await SwitchAsync(login.Token, home, away);
+
+        resp.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "refresh refuses a locked account, so a switch must too");
+    }
+
+    [Fact]
     public async Task after_a_switch_the_existing_refresh_token_refreshes_into_the_new_club()
     {
         var (userId, username) = await CreateUserAsync();

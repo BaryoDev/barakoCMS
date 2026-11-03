@@ -137,6 +137,14 @@ internal class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenant
             return;
         }
 
+        // A locked account gets no new token from a token it already holds, the same refusal the
+        // refresh endpoint makes.
+        if (barakoCMS.Infrastructure.Auth.AccountLockout.LockedMessage(user) is not null)
+        {
+            await Send.UnauthorizedAsync(ct);
+            return;
+        }
+
         // Carry the device binding forward so DeviceTrust enforcement keeps working after a switch.
         var did = User.FindFirst("did")?.Value;
         var extraClaims = new List<Claim>();
