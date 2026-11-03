@@ -161,7 +161,7 @@ public class PreviewTests
     [Fact]
     public async Task Mint_WithTheTypeInAnotherCase_FindsTheEntry()
     {
-        var type = "prev_i"; await SeedAsync(type);
+        var type = "prev_j"; await SeedAsync(type);
 
         Guid userId;
         using (var scope = _factory.Services.CreateScope())

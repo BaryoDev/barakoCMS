@@ -191,8 +191,18 @@ public class WorkflowRunnerTakeoverTests
     {
         var contentId = await _harness.StoreContentAsync();
 
-        var run = await DrainSeededAsync(contentId, [LapsedUndo()]);
+        var failed = new WorkflowActionAttempt
+        {
+            ActionType = WorkflowStopHarness.Counting,
+            Status = AttemptStatus.Failed,
+            Attempts = 1,
+            CompletedAt = DateTimeOffset.UtcNow,
+            Error = "the failure that started the undo",
+        };
 
+        var run = await DrainSeededAsync(contentId, [LapsedUndo(), failed]);
+
+        run.Actions[0].Compensation!.Status.Should().Be(CompensationStatus.Unknown);
         run.Status.Should().BeOneOf(RunStatus.Failed, RunStatus.PartiallyFailed);
         RecordingFailureHandler.Told.GetValueOrDefault(run.Id).Should().Be(1);
     }
