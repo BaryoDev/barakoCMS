@@ -66,6 +66,9 @@ public class ApiKeyServiceTests
     [InlineData(new[] { "monitor:read" }, "content:read", false)]
     [InlineData(new[] { "*" }, "services:heartbeat", false)]
     [InlineData(new[] { "services:heartbeat" }, "services:heartbeat", true)]
+    [InlineData(new[] { "cap:view_jobs" }, "cap:view_jobs", true)]
+    [InlineData(new[] { "*" }, "cap:view_jobs", false)]      // the wildcard never implies a capability
+    [InlineData(new[] { "cap:view_jobs" }, "content:read", false)]
     public void Satisfies_EnforcesScopes(string[] granted, string required, bool expected)
     {
         ApiKeyScopes.Satisfies(granted, required).Should().Be(expected);
@@ -79,8 +82,26 @@ public class ApiKeyServiceTests
     [InlineData("services:heartbeat", true)]
     [InlineData("admin", false)]        // platform admin is deliberately not a key scope
     [InlineData("users:delete", false)]
+    [InlineData("cap:view_jobs", true)]
+    [InlineData("CAP:view_jobs", true)]
     public void IsKnown_RejectsUnknownScopes(string scope, bool expected)
     {
         ApiKeyScopes.IsKnown(scope).Should().Be(expected);
+    }
+
+    [Fact]
+    public void A_read_only_key_has_the_bcms_ro_prefix_and_is_still_recognised()
+    {
+        var generated = new ApiKeyService().Generate(readOnly: true);
+
+        generated.Secret.Should().StartWith("bcms_ro_");
+        ApiKeyService.LooksLikeApiKey(generated.Secret).Should().BeTrue();
+        ApiKeyService.Hash(generated.Secret).Should().Be(generated.Hash);
+    }
+
+    [Fact]
+    public void A_normal_key_does_not_carry_the_read_only_prefix()
+    {
+        new ApiKeyService().Generate().Secret.Should().NotStartWith("bcms_ro_");
     }
 }

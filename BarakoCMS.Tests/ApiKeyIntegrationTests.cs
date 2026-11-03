@@ -965,5 +965,216 @@ public class ApiKeyIntegrationTests
         after!.Revoked.Should().BeTrue();
     }
 
+    // ---- cap: scopes -----------------------------------------------------------
+
+    // GET /api/jobs sits outside the content API and is gated on view_jobs.
+    [Fact]
+    public async Task A_cap_key_reaches_a_gated_endpoint_outside_the_content_api()
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "cap:view_jobs" });
+
+        var res = await _client.SendAsync(Get("/api/jobs", secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+    }
+
+    [Theory]
+    [InlineData("content:read")]
+    [InlineData("*")]
+    [InlineData("cap:view_modules")]
+    public async Task A_key_without_cap_view_jobs_is_refused_jobs_and_a_wildcard_does_not_imply_it(string scope)
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { scope });
+
+        var res = await _client.SendAsync(Get("/api/jobs", secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task A_cap_key_does_not_reach_a_route_that_has_no_capability_gate()
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "cap:view_jobs" });
+
+        var res = await _client.SendAsync(Get("/api/users", secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Theory]
+    [InlineData("cap:manage_api_keys")]
+    [InlineData("cap:manage_roles")]
+    [InlineData("cap:manage_platform_roles")]
+    [InlineData("cap:manage_tenants")]
+    [InlineData("cap:manage_users")]
+    [InlineData("cap:*")]
+    [InlineData("cap:no_such_capability")]
+    [InlineData("cap:")]
+    public async Task Create_refuses_a_denied_or_unknown_cap_scope(string scope)
+    {
+        var (_, token) = await SuperAdminAsync();
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var res = await _client.PostAsJsonAsync("/api/api-keys", new { name = "bad", scopes = new[] { scope } });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, await res.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Create_accepts_a_cap_scope_for_a_known_capability()
+    {
+        var (_, token) = await SuperAdminAsync();
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var res = await _client.PostAsJsonAsync("/api/api-keys", new { name = "jobs", scopes = new[] { "cap:view_jobs" } });
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_stored_key_with_a_denied_cap_scope_reaches_nothing()
+    {
+        var (userId, _) = await SuperAdminAsync();
+        var secret = await StoreKeyAsync(userId, new[] { "cap:manage_api_keys" });
+
+        var res = await _client.SendAsync(Get("/api/api-keys", secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "the deny list is checked on every request, not only at creation");
+    }
+
+    [Fact]
+    public async Task Create_refuses_a_service_principal_that_does_not_exist()
+    {
+        var (_, token) = await SuperAdminAsync();
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var res = await _client.PostAsJsonAsync("/api/api-keys",
+            new { name = "x", scopes = new[] { "content:read" }, servicePrincipalId = Guid.NewGuid() });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    // ---- read-only keys (bcms_ro_) ---------------------------------------------
+
+    private async Task<(Guid Id, string Secret)> CreateReadOnlyKeyAsync(string jwt, params string[] scopes)
+    {
+        var req = WithKey(HttpMethod.Post, "/api/api-keys", jwt);
+        req.Content = JsonContent.Create(new { name = "ro", scopes, readOnly = true });
+        var res = await _client.SendAsync(req);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        var body = await res.Content.ReadFromJsonAsync<CreatedKey>();
+        return (body!.Id, body.Key);
+    }
+
+    private static int _roIp;
+
+    private static string RoIp()
+    {
+        var n = Interlocked.Increment(ref _roIp);
+        return $"198.18.{n / 250 % 250}.{n % 250 + 1}"; // benchmark range, never a real caller
+    }
+
+    [Fact]
+    public async Task A_read_only_key_has_the_bcms_ro_prefix()
+    {
+        var (_, jwt) = await SuperAdminAsync();
+
+        var (_, secret) = await CreateReadOnlyKeyAsync(jwt, "content:read");
+
+        secret.Should().StartWith("bcms_ro_");
+        ApiKeyService.LooksLikeApiKey(secret).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Rotating_a_read_only_key_yields_a_read_only_key()
+    {
+        var (_, jwt) = await SuperAdminAsync();
+        var (id, _) = await CreateReadOnlyKeyAsync(jwt, "content:read");
+
+        var (newId, secret) = await RotateAsync(jwt, id, 0);
+
+        secret.Should().StartWith("bcms_ro_");
+        using var scope = _factory.Services.CreateScope();
+        var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<ApiKey>(newId);
+        stored!.ReadOnly.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_read_only_key_answers_every_allowlisted_read_with_200()
+    {
+        var (_, jwt) = await SuperAdminAsync();
+        var (_, secret) = await CreateReadOnlyKeyAsync(jwt,
+            "content:read", "monitor:read", "cap:view_workflow_runs", "cap:view_modules");
+
+        foreach (var path in new[]
+                 {
+                     "/api/contents", "/api/workflows/health", "/api/workflow-runs", "/api/modules", "/api/overview",
+                 })
+        {
+            var req = Get(path, secret);
+            req.Headers.Add(TestRemoteIpFilter.Header, RoIp());
+            var res = await _client.SendAsync(req);
+            res.StatusCode.Should().Be(HttpStatusCode.OK, $"GET {path}: {await res.Content.ReadAsStringAsync()}");
+        }
+    }
+
+    [Theory]
+    [InlineData("/api/jobs")]
+    [InlineData("/api/content-types")]
+    [InlineData("/api/files")]
+    public async Task A_read_only_key_is_refused_reads_outside_the_allowlist(string path)
+    {
+        var (_, jwt) = await SuperAdminAsync();
+        var (_, secret) = await CreateReadOnlyKeyAsync(jwt,
+            "*", "contenttype:read", "files:read", "cap:view_jobs");
+
+        var res = await _client.SendAsync(Get(path, secret));
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    // Walks every route the host registered, so a mutating route added later is covered without
+    // anyone remembering to list it. The key holds every scope a key can hold, so the refusal can only
+    // be the read-only rule.
+    [Fact]
+    public async Task A_read_only_key_is_refused_on_every_registered_mutating_route()
+    {
+        var (_, jwt) = await SuperAdminAsync();
+        var (_, secret) = await CreateReadOnlyKeyAsync(jwt,
+            "*", "contenttype:write", "files:write", "content:destructive", "services:heartbeat",
+            "cap:view_jobs", "cap:view_modules", "cap:view_workflow_runs");
+
+        var mutating = new[] { "POST", "PUT", "PATCH", "DELETE" };
+        var routes = _factory.Services.GetRequiredService<Microsoft.AspNetCore.Routing.EndpointDataSource>().Endpoints
+            .OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>()
+            .Select(e => (Pattern: e.RoutePattern.RawText ?? string.Empty,
+                          Methods: e.Metadata.GetMetadata<Microsoft.AspNetCore.Routing.HttpMethodMetadata>()?.HttpMethods ?? []))
+            .Where(r => r.Pattern.StartsWith("/api", StringComparison.OrdinalIgnoreCase))
+            .SelectMany(r => r.Methods.Where(m => mutating.Contains(m, StringComparer.OrdinalIgnoreCase)).Select(m => (m, r.Pattern)))
+            .Distinct()
+            .ToList();
+
+        routes.Should().HaveCountGreaterThan(50, "the walk must find the registered routes, or it proves nothing");
+
+        var notRefused = new List<string>();
+        foreach (var (method, pattern) in routes)
+        {
+            var path = System.Text.RegularExpressions.Regex.Replace(pattern, @"\{[^}]+\}", Guid.NewGuid().ToString());
+            var req = WithKey(new HttpMethod(method), path, secret);
+            req.Headers.Add(TestRemoteIpFilter.Header, RoIp());
+            if (method != "DELETE")
+                req.Content = JsonContent.Create(new { });
+            var res = await _client.SendAsync(req);
+            var body = await res.Content.ReadAsStringAsync();
+            if (res.StatusCode != HttpStatusCode.Forbidden || !body.Contains("read-only", StringComparison.OrdinalIgnoreCase))
+                notRefused.Add($"{method} {pattern} answered {(int)res.StatusCode}");
+        }
+
+        notRefused.Should().BeEmpty("a read-only key refuses every POST, PUT, PATCH and DELETE with a reason");
+    }
+
     private sealed record CreatedKey(Guid Id, string Key, string Prefix, string Name);
 }
