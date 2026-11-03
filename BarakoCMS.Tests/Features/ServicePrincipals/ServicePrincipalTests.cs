@@ -400,15 +400,16 @@ public class ServicePrincipalTests
     }
 
     [Fact]
-    public async Task A_cap_scope_cannot_name_manage_stations_or_manage_config()
+    public async Task A_cap_scope_cannot_name_manage_stations_config_or_connectors()
     {
         var tenant = await TenantAsync();
         var creator = await StewardAsync(tenant);
 
-        foreach (var scope in new[] { "cap:manage_stations", "cap:manage_config" })
+        foreach (var scope in new[] { "cap:manage_stations", "cap:manage_config", "cap:manage_connectors" })
         {
             var res = await creator.Client.PostAsJsonAsync("/api/api-keys", new { name = "x", scopes = new[] { scope } }, Ct);
             res.StatusCode.Should().Be(HttpStatusCode.BadRequest, scope);
+            (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("is not allowed on an API key", scope);
         }
     }
 

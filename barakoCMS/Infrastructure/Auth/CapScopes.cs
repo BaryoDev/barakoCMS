@@ -10,7 +10,7 @@ internal static class CapScopes
 {
     /// <summary>
     /// Capabilities a <c>cap:</c> scope can never name. A leaked key must not escalate into
-    /// administration, so the platform capabilities, managing API keys and service principals, and
+    /// administration, so the platform capabilities, managing API keys, service principals and connectors (which hold outbound credentials), and
     /// managing users, roles, memberships and tenants stay behind a person's login. This list is
     /// checked when a key is created and again on every request, so a key stored before the list
     /// grew, or edited by hand, reaches nothing new.
@@ -31,6 +31,7 @@ internal static class CapScopes
         SystemCapabilities.ViewHidden,
         SystemCapabilities.ManageStations,
         SystemCapabilities.ManageConfig,
+        SystemCapabilities.ManageConnectors,
     };
 
     public static bool IsDenied(string capability) =>

@@ -74,7 +74,7 @@ disabling use optimistic concurrency and answer 409 when another admin changed t
 `cap:<capability>` lets a key reach a route gated on that capability, outside the content API. The
 role gate still checks the roles the key acts with. `*` does not imply `cap:`. Names are checked against
 the capability vocabulary at creation. A deny list in `CapScopes` refuses the capabilities that manage
-keys, roles, tenants, users, membership, email settings, stations, config and hidden fields, plus every platform capability,
+keys, roles, tenants, users, membership, email settings, stations, config, connectors and hidden fields, plus every platform capability,
 because a leaked key must not be able to mint more access. It is checked at creation and on every request.
 
 ## Read-only keys

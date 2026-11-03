@@ -26,7 +26,6 @@ public class CapScopeClassificationTests
         SystemCapabilities.ManageQueries,
         SystemCapabilities.ManageRequests,
         SystemCapabilities.ViewConnectors,
-        SystemCapabilities.ManageConnectors,
         SystemCapabilities.ManageWorkflows,
         SystemCapabilities.RunWorkflows,
         SystemCapabilities.ViewWorkflowRuns,
@@ -60,9 +59,10 @@ public class CapScopeClassificationTests
     }
 
     [Fact]
-    public void Stations_and_config_management_are_denied()
+    public void Stations_config_and_connector_management_are_denied()
     {
         CapScopes.IsDenied(SystemCapabilities.ManageStations).Should().BeTrue();
         CapScopes.IsDenied(SystemCapabilities.ManageConfig).Should().BeTrue();
+        CapScopes.IsDenied(SystemCapabilities.ManageConnectors).Should().BeTrue();
     }
 }
