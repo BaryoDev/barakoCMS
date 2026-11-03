@@ -509,6 +509,61 @@ public class ServicePrincipalTests
         }
     }
 
+    // A role with one read rule on a type, with optional conditions and readable fields.
+    private async Task<Role> ReadRoleAsync(string tenant, string type, Dictionary<string, object>? conditions, List<string>? fields)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var role = new Role
+        {
+            Id = Guid.NewGuid(), Name = $"sp-read-{Guid.NewGuid():N}"[..20], TenantSlug = tenant,
+            Permissions = [new ContentTypePermission
+            {
+                ContentTypeSlug = type,
+                Read = new PermissionRule { Enabled = true, Conditions = conditions, ReadableFields = fields },
+            }],
+        };
+        session.Store(role);
+        await session.SaveChangesAsync(Ct);
+        return role;
+    }
+
+    [Fact]
+    public async Task A_caller_with_a_conditional_read_cannot_grant_an_unconditional_one()
+    {
+        var tenant = await TenantAsync();
+        var type = $"Sp{Guid.NewGuid():N}"[..12];
+        var conditional = await ReadRoleAsync(tenant, type, new() { ["Status"] = "Published" }, null);
+        var open = await ReadRoleAsync(tenant, type, null, null);
+        var sameConditions = await ReadRoleAsync(tenant, type, new() { ["Status"] = "Published" }, null);
+        var caller = await StewardWithRolesAsync(tenant, conditional.Id);
+
+        var refused = await CreatePrincipalRawAsync(caller, open.Id);
+        refused.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain($"'read' on '{type}' because you do not hold it");
+
+        var allowed = await CreatePrincipalRawAsync(caller, sameConditions.Id);
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK, await allowed.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_caller_limited_to_some_fields_cannot_grant_all_fields()
+    {
+        var tenant = await TenantAsync();
+        var type = $"Sp{Guid.NewGuid():N}"[..12];
+        var limited = await ReadRoleAsync(tenant, type, null, ["Title", "Body"]);
+        var all = await ReadRoleAsync(tenant, type, null, null);
+        var wider = await ReadRoleAsync(tenant, type, null, ["Title", "Secret"]);
+        var subset = await ReadRoleAsync(tenant, type, null, ["Title"]);
+        var caller = await StewardWithRolesAsync(tenant, limited.Id);
+
+        (await CreatePrincipalRawAsync(caller, all.Id)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await CreatePrincipalRawAsync(caller, wider.Id)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var allowed = await CreatePrincipalRawAsync(caller, subset.Id);
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK, await allowed.Content.ReadAsStringAsync(Ct));
+    }
+
     private async Task<(string Type, Role Role)> ContentRoleAsync(string tenant, string? existingType = null, bool write = true)
     {
         var type = existingType ?? $"Sp{Guid.NewGuid():N}"[..12];
