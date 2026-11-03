@@ -189,9 +189,33 @@ internal sealed class UpdateTenantSettingsEndpoint(
             return;
         }
 
+        var keys = ValidateKeys(section, req.Values);
+
+        // The row holds every section of the tenant, so the read and the write share one transaction
+        // under a lock on the tenant, and two saves cannot overwrite each other's keys.
+        var id = TenantSettings.IdForTenant(tenant.Slug);
+        await session.BeginTransactionAsync(ct);
+        await session.QueryAsync<int>(
+            "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct, $"barakocms:tenant-settings:{tenant.Slug.ToLowerInvariant()}");
+
+        var row = await session.LoadAsync<TenantSettings>(id, ct)
+            ?? new TenantSettings { Id = id, TenantSlug = tenant.Slug };
+
+        var changed = ApplyValues(row, section, keys);
+
+        if (changed.Count > 0)
+        {
+            await StoreChangesAsync(row, id, section, changed, ct);
+        }
+
+        await Send.ResponseAsync(TenantSettingsMap.ToResponse(tenant.Slug, section, row), cancellation: ct);
+    }
+
+    private List<(ModuleSettingsKey Key, string? Value)> ValidateKeys(ModuleSettingsSection section, Dictionary<string, string?> values)
+    {
         // Check every key before anything is written, so a bad key rejects the whole request.
         var keys = new List<(ModuleSettingsKey Key, string? Value)>();
-        foreach (var (name, value) in req.Values)
+        foreach (var (name, value) in values)
         {
             var key = TenantSettingsResolver.FindKey(section, name);
             if (key is null)
@@ -208,17 +232,11 @@ internal sealed class UpdateTenantSettingsEndpoint(
             }
             keys.Add((key, value));
         }
+        return keys;
+    }
 
-        // The row holds every section of the tenant, so the read and the write share one transaction
-        // under a lock on the tenant, and two saves cannot overwrite each other's keys.
-        var id = TenantSettings.IdForTenant(tenant.Slug);
-        await session.BeginTransactionAsync(ct);
-        await session.QueryAsync<int>(
-            "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct, $"barakocms:tenant-settings:{tenant.Slug.ToLowerInvariant()}");
-
-        var row = await session.LoadAsync<TenantSettings>(id, ct)
-            ?? new TenantSettings { Id = id, TenantSlug = tenant.Slug };
-
+    private List<string> ApplyValues(TenantSettings row, ModuleSettingsSection section, List<(ModuleSettingsKey Key, string? Value)> keys)
+    {
         var changed = new List<string>();
         foreach (var (key, value) in keys)
         {
@@ -257,23 +275,22 @@ internal sealed class UpdateTenantSettingsEndpoint(
                 changed.Add(key.Key);
             }
         }
+        return changed;
+    }
 
-        if (changed.Count > 0)
-        {
-            row.UpdatedAt = DateTime.UtcNow;
-            row.UpdatedBy = User.FindFirst("Username")?.Value ?? User.Identity?.Name;
-            session.Store(row);
+    private async Task StoreChangesAsync(TenantSettings row, Guid id, ModuleSettingsSection section, List<string> changed, CancellationToken ct)
+    {
+        row.UpdatedAt = DateTime.UtcNow;
+        row.UpdatedBy = User.FindFirst("Username")?.Value ?? User.Identity?.Name;
+        session.Store(row);
 
-            Guid? actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var uid) ? uid : null;
-            await AuditLog.RecordAsync(session, tenant.Slug, "settings.tenant.changed",
-                actorId, row.UpdatedBy,
-                targetType: nameof(TenantSettings), targetId: id.ToString(),
-                metadata: new() { ["section"] = section.Name, ["fields"] = string.Join(", ", changed) },
-                ct: ct);
+        Guid? actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var uid) ? uid : null;
+        await AuditLog.RecordAsync(session, tenant.Slug, "settings.tenant.changed",
+            actorId, row.UpdatedBy,
+            targetType: nameof(TenantSettings), targetId: id.ToString(),
+            metadata: new() { ["section"] = section.Name, ["fields"] = string.Join(", ", changed) },
+            ct: ct);
 
-            await session.SaveChangesAsync(ct);
-        }
-
-        await Send.ResponseAsync(TenantSettingsMap.ToResponse(tenant.Slug, section, row), cancellation: ct);
+        await session.SaveChangesAsync(ct);
     }
 }

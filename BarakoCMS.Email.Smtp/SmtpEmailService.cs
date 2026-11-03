@@ -96,19 +96,7 @@ public sealed class SmtpEmailService : IEmailService
         var from = await TenantFromAsync(tenant, options, cancellationToken)
             ?? await ResolveFromAsync(options, cancellationToken);
 
-        var message = new MimeMessage();
-        message.From.Add(MailboxAddress.Parse(from));
-        message.To.Add(MailboxAddress.Parse(to));
-        message.Subject = subject;
-
-        var builder = new BodyBuilder { HtmlBody = body };
-        foreach (var attachment in attachments)
-        {
-            // MimeKit writes the name as an encoded parameter, so it cannot break out of its header.
-            builder.Attachments.Add(attachment.FileName, attachment.Content, MimeTypeOf(attachment));
-        }
-
-        message.Body = builder.ToMessageBody();
+        var message = BuildMessage(from, to, subject, body, attachments);
 
         using var client = _newClient();
         client.Timeout = (int)options.Timeout.TotalMilliseconds;
@@ -116,23 +104,7 @@ public sealed class SmtpEmailService : IEmailService
 
         try
         {
-            // One limit over the connect and the login together, since each is several reads and
-            // MailKit's timeout is per read. Nothing has been sent when it fires.
-            using (var handshake = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
-            {
-                handshake.CancelAfter(options.Timeout);
-                try
-                {
-                    await client.ConnectAsync(options.Host, options.Port, SecurityFor(options), handshake.Token);
-
-                    if (!string.IsNullOrWhiteSpace(options.User))
-                        await client.AuthenticateAsync(options.User, options.Password ?? string.Empty, handshake.Token);
-                }
-                catch (OperationCanceledException) when (handshake.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-                {
-                    throw new TimeoutException($"No answer within {options.Timeout.TotalSeconds:0.#} s.");
-                }
-            }
+            await ConnectAndAuthenticateAsync(client, options, cancellationToken);
 
             sending = true;
             await client.SendAsync(message, cancellationToken);
@@ -156,6 +128,48 @@ public sealed class SmtpEmailService : IEmailService
             throw NothingSent(ex, sending) ? new EmailNotSentException(text) : new InvalidOperationException(text);
         }
 
+        await DisconnectQuietlyAsync(client, cancellationToken);
+    }
+
+    private static MimeMessage BuildMessage(string from, string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments)
+    {
+        var message = new MimeMessage();
+        message.From.Add(MailboxAddress.Parse(from));
+        message.To.Add(MailboxAddress.Parse(to));
+        message.Subject = subject;
+
+        var builder = new BodyBuilder { HtmlBody = body };
+        foreach (var attachment in attachments)
+        {
+            // MimeKit writes the name as an encoded parameter, so it cannot break out of its header.
+            builder.Attachments.Add(attachment.FileName, attachment.Content, MimeTypeOf(attachment));
+        }
+
+        message.Body = builder.ToMessageBody();
+        return message;
+    }
+
+    private static async Task ConnectAndAuthenticateAsync(SmtpClient client, SmtpOptions options, CancellationToken cancellationToken)
+    {
+        // One limit over the connect and the login together, since each is several reads and
+        // MailKit's timeout is per read. Nothing has been sent when it fires.
+        using var handshake = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        handshake.CancelAfter(options.Timeout);
+        try
+        {
+            await client.ConnectAsync(options.Host, options.Port, SecurityFor(options), handshake.Token);
+
+            if (!string.IsNullOrWhiteSpace(options.User))
+                await client.AuthenticateAsync(options.User, options.Password ?? string.Empty, handshake.Token);
+        }
+        catch (OperationCanceledException) when (handshake.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException($"No answer within {options.Timeout.TotalSeconds:0.#} s.");
+        }
+    }
+
+    private async Task DisconnectQuietlyAsync(SmtpClient client, CancellationToken cancellationToken)
+    {
         try
         {
             await client.DisconnectAsync(true, cancellationToken);
