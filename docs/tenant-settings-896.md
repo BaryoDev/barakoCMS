@@ -50,9 +50,11 @@ Production runs `CreateOnly`, so apply `migrations/5.5.0/896-tenant-settings.sql
 
 - The Files.S3 and AI sections are declarations only. Their services still read host configuration.
 - ExternalAuth has no tenant override.
-- A tenant SMTP From applies to business mail sent for a tenant, and only when its domain is in the
-  host setting `Modules:Email.Smtp:TenantFromDomains` (exact match, case-insensitive, no subdomain
-  wildcard). The list is empty by default, so the host sender is used until an operator adds a domain.
+- A tenant SMTP From applies to business mail sent for a tenant, and only when its domain is listed
+  for that tenant in the host setting `Modules:Email.Smtp:TenantFromDomains`, keyed by tenant slug
+  (for example `Modules__Email.Smtp__TenantFromDomains__acme__0=acme.example`). Slug and domain match
+  case-insensitively, with no subdomain wildcard. A domain listed for one tenant is not open to
+  another. The map is empty by default, so the host sender is used until an operator adds a domain.
   A From on any other domain falls back to the host sender and the send logs a warning with the tenant
   and the domain. The check runs at send time, whatever `PUT` accepted. Account mail always uses the
   host sender.

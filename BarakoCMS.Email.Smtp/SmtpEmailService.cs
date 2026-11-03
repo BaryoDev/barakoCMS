@@ -197,8 +197,9 @@ public sealed class SmtpEmailService : IEmailService
     /// <summary>The tenant's own From, or null when it has none and the host sender applies.</summary>
     /// <remarks>
     /// SMTP has no tenant credential, so a tenant sender goes out over the host's login. The tenant's
-    /// From is therefore honoured only when its domain is in <see cref="SmtpOptions.TenantFromDomains"/>
-    /// (exact match, no subdomains). An empty list means the host sender always. A stored value that
+    /// From is therefore honoured only when its domain is listed for that tenant in
+    /// <see cref="SmtpOptions.TenantFromDomains"/> (exact match, no subdomains). A domain listed for
+    /// another tenant does not count. An empty list means the host sender always. A stored value that
     /// is not a mailbox, or whose domain is not listed, is skipped with a warning rather than failing
     /// the send.
     /// </remarks>
@@ -222,12 +223,10 @@ public sealed class SmtpEmailService : IEmailService
         }
 
         var domain = mailbox.Domain;
-        var allowed = options.TenantFromDomains?.Any(d =>
-            !string.IsNullOrWhiteSpace(d) && string.Equals(d.Trim(), domain, StringComparison.OrdinalIgnoreCase)) == true;
-        if (!allowed)
+        if (!options.TenantMayUseDomain(tenant, domain))
         {
             _logger?.LogWarning(
-                "Tenant {Tenant} set an {Section} From on domain {Domain}, which is not in {Option}, so the host sender is used.",
+                "Tenant {Tenant} set an {Section} From on domain {Domain}, which is not listed for it in {Option}, so the host sender is used.",
                 tenant, SmtpEmailModule.SettingsSectionName, domain, $"{SmtpOptions.SectionName}:TenantFromDomains");
             return null;
         }
@@ -243,7 +242,7 @@ public sealed class SmtpEmailService : IEmailService
     /// an API-key provider, so it carries across: an operator who types a sender at Settings, Email gets that
     /// sender, whichever provider is registered. The API key beside it does not carry across,
     /// because SMTP has no use for one. This is always the host's sender. A tenant's own From is chosen
-    /// earlier, in <c>TenantFromAsync</c>, and only for a domain the host listed in
+    /// earlier, in <c>TenantFromAsync</c>, and only for a domain the host listed for that tenant in
     /// <see cref="SmtpOptions.TenantFromDomains"/>.
     /// </remarks>
     private async Task<string> ResolveFromAsync(SmtpOptions options, CancellationToken ct)

@@ -76,8 +76,9 @@ public class TenantSettingsTests
             await put.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
 
         using var relay = new FakeSmtpServer();
-        await SendForTenantAsync(host, relay.Port, tenantA, "tenant-a.example");
-        await SendForTenantAsync(host, relay.Port, tenantB, "tenant-a.example");
+        var domains = new Dictionary<string, List<string>> { [tenantA] = ["tenant-a.example"] };
+        await SendForTenantAsync(host, relay.Port, tenantA, domains);
+        await SendForTenantAsync(host, relay.Port, tenantB, domains);
 
         var messages = relay.Messages;
         messages.Should().HaveCount(2);
@@ -106,6 +107,27 @@ public class TenantSettingsTests
         messages.Should().HaveCount(3);
         messages.Should().OnlyContain(m => m.Contains(HostFrom) && !m.Contains("bigbank.example"),
             "an empty list, another domain and a parent domain of the listed one all fall back to the host sender");
+    }
+
+    [Fact]
+    public async Task A_domain_listed_for_another_tenant_sends_from_the_host_sender()
+    {
+        var host = HostWithModules();
+        var tenantA = await TenantAsync();
+        var tenantB = await TenantAsync();
+        var adminA = await MemberClientAsync(host, tenantA, SystemRoles.AdminRoleId, "Admin");
+        (await adminA.PutAsJsonAsync("/api/tenant-settings/Email.Smtp",
+            new { values = new Dictionary<string, string?> { ["From"] = "billing@tenant-b.example" } },
+            TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
+
+        using var relay = new FakeSmtpServer();
+        await SendForTenantAsync(host, relay.Port, tenantA,
+            new Dictionary<string, List<string>> { [tenantB] = ["tenant-b.example"], [tenantA] = ["tenant-a.example"] });
+
+        var messages = relay.Messages;
+        messages.Should().HaveCount(1);
+        messages[0].Should().Contain(HostFrom).And.NotContain("tenant-b.example",
+            "tenant-b.example is listed for tenant B only, so tenant A cannot send from it");
     }
 
     [Fact]
@@ -141,7 +163,7 @@ public class TenantSettingsTests
         using var relay = new FakeSmtpServer();
         using var scope = host.Services.CreateScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Slug = tenant;
-        await Smtp(scope, relay.Port, "bigbank.example").SendEmailAsync("someone@example.com", "Your sign-in code", "<p>1</p>",
+        await Smtp(scope, relay.Port, new() { [tenant] = ["bigbank.example"] }).SendEmailAsync("someone@example.com", "Your sign-in code", "<p>1</p>",
             TestContext.Current.CancellationToken);
 
         var messages = relay.Messages;
@@ -417,9 +439,23 @@ public class TenantSettingsTests
     public async Task The_default_tenant_has_no_overrides_so_get_and_put_are_400()
     {
         var host = HostWithModules();
+        var userId = Guid.NewGuid();
+        using (var scope = host.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new User
+            {
+                Id = userId,
+                Username = $"ts-super-{userId}",
+                Email = $"ts-super-{userId}@example.com",
+                RoleIds = [SystemRoles.SuperAdminRoleId],
+            });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
         var client = host.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
-            _factory.CreateToken(roles: ["SuperAdmin"]));
+            _factory.CreateToken(roles: ["SuperAdmin"], userId: userId.ToString()));
         client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
 
         (await client.GetAsync("/api/tenant-settings/Email.Smtp", TestContext.Current.CancellationToken))
@@ -460,17 +496,20 @@ public class TenantSettingsTests
         return entries[0];
     }
 
-    private static SmtpEmailService Smtp(IServiceScope scope, int port, params string[] fromDomains) =>
+    private static SmtpEmailService Smtp(IServiceScope scope, int port, Dictionary<string, List<string>> fromDomains) =>
         new(Options.Create(new SmtpOptions
             {
                 Host = "127.0.0.1", Port = port, From = HostFrom, Security = SmtpSecurity.None,
-                TenantFromDomains = [.. fromDomains],
+                TenantFromDomains = new(fromDomains, StringComparer.OrdinalIgnoreCase),
             }).AsSnapshot(),
             scope.ServiceProvider.GetRequiredService<IEmailSettingsProvider>(),
             null,
             scope.ServiceProvider.GetRequiredService<ITenantSettings>());
 
-    private async Task SendForTenantAsync(WebApplicationFactory<Program> host, int port, string tenant, params string[] fromDomains)
+    private Task SendForTenantAsync(WebApplicationFactory<Program> host, int port, string tenant, params string[] fromDomains) =>
+        SendForTenantAsync(host, port, tenant, new Dictionary<string, List<string>> { [tenant] = [.. fromDomains] });
+
+    private async Task SendForTenantAsync(WebApplicationFactory<Program> host, int port, string tenant, Dictionary<string, List<string>> fromDomains)
     {
         using var scope = host.Services.CreateScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Slug = tenant;
