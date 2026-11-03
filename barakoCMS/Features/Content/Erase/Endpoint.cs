@@ -40,7 +40,7 @@ internal class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId);
+        var userId = barakoCMS.Infrastructure.Auth.ActingCaller.IdOf(User) ?? Guid.Empty;
 
         // Read for the content type alone. The Deleted workflows are told which entry went and what
         // type it was, never what it held.

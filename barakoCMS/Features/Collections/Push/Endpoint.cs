@@ -40,7 +40,6 @@ internal sealed class Endpoint(
     public override void Configure()
     {
         Post("/api/collections/{type}/push");
-        Claims("UserId");
 
         // Lower than the server-wide limit, never higher: metadata replaces the server's value
         // for this route, so a deployment that set a smaller one keeps it.
@@ -72,8 +71,7 @@ internal sealed class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId)
-            || await session.LoadAsync<User>(userId, ct) is not { } user)
+        if (await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct) is not { } user)
         {
             await Send.UnauthorizedAsync(ct);
             return;
@@ -149,7 +147,7 @@ internal sealed class Endpoint(
             var (valid, messages) = await validator.ValidateAsync(req.Type, data, existing, User);
             if (valid)
             {
-                messages = [.. await hooks.RunBeforeSaveAsync(req.Type, existing?.Id, data, existing?.Data, userId, ct)];
+                messages = [.. await hooks.RunBeforeSaveAsync(req.Type, existing?.Id, data, existing?.Data, user.Id, ct)];
             }
 
             if (messages.Count > 0)
@@ -238,7 +236,7 @@ internal sealed class Endpoint(
                 if (plan.Existing is not { } existing)
                 {
                     var created = await writer.CreateAsync(
-                        new ContentCreated(Guid.NewGuid(), req.Type, plan.Data, req.Status, userId,
+                        new ContentCreated(Guid.NewGuid(), req.Type, plan.Data, req.Status, user.Id,
                             SearchText(plan.Data, searchable), SensitivityLevel.Public, DateTime.UtcNow),
                         ct);
 
@@ -255,13 +253,13 @@ internal sealed class Endpoint(
                 var events = new List<object>();
                 if (!SameData(existing.Data, plan.Data))
                 {
-                    events.Add(new ContentUpdated(existing.Id, plan.Data, userId, SearchText(plan.Data, searchable), DateTime.UtcNow));
+                    events.Add(new ContentUpdated(existing.Id, plan.Data, user.Id, SearchText(plan.Data, searchable), DateTime.UtcNow));
                 }
 
                 if (existing.Status != req.Status)
                 {
                     events.AddRange(barakoCMS.Features.Content.ChangeStatus.ScheduleClearing.With(
-                        existing, new ContentStatusChanged(existing.Id, req.Status, userId, DateTime.UtcNow), req.Status, userId));
+                        existing, new ContentStatusChanged(existing.Id, req.Status, user.Id, DateTime.UtcNow), req.Status, user.Id));
                 }
 
                 if (events.Count == 0)
@@ -289,15 +287,15 @@ internal sealed class Endpoint(
             foreach (var entry in missing)
             {
                 await writer.AppendOptimisticAsync(
-                    entry, [new ContentStatusChanged(entry.Id, ContentStatus.Archived, userId, DateTime.UtcNow)], ct);
-                await AuditLog.RecordAsync(session, tenant.Slug, "content.archived", userId, user.Username,
+                    entry, [new ContentStatusChanged(entry.Id, ContentStatus.Archived, user.Id, DateTime.UtcNow)], ct);
+                await AuditLog.RecordAsync(session, tenant.Slug, "content.archived", user.Id, user.Username,
                     targetType: entry.ContentType, targetId: entry.Id.ToString(), ct: ct);
                 response.Archived++;
             }
 
             if (response.Created + response.Updated + response.Archived > 0)
             {
-                await AuditLog.RecordAsync(session, tenant.Slug, "collection.pushed", userId, user.Username,
+                await AuditLog.RecordAsync(session, tenant.Slug, "collection.pushed", user.Id, user.Username,
                     targetType: nameof(ContentTypeDefinition), targetId: req.Type,
                     metadata: new Dictionary<string, object>
                     {

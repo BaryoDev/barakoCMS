@@ -75,8 +75,7 @@ internal sealed partial class AggregateQuery(
     public async Task<AggregateResult> RunAsync(
         QueryDefinition definition, ClaimsPrincipal caller, string? from, string? to, bool execute, CancellationToken ct)
     {
-        if (!Guid.TryParse(caller.FindFirst("UserId")?.Value, out var userId)
-            || await session.LoadAsync<User>(userId, ct) is not { } user)
+        if (await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, caller, ct) is not { } user)
         {
             return AggregateResult.Refused("Sign in to run this query.");
         }

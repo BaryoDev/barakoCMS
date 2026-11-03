@@ -19,23 +19,18 @@ internal class Endpoint(
     public override void Configure()
     {
         Put("/api/contents/{id}/schedule");
-        Claims("UserId");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var userIdClaim = User.FindFirst("UserId");
-        if (userIdClaim == null)
+        var user = await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct);
+        if (user == null)
         {
-            ThrowError("Invalid or missing User ID claim");
+            await Send.UnauthorizedAsync(ct);
+            return;
         }
 
-        if (!Guid.TryParse(userIdClaim.Value, out var userId))
-        {
-            ThrowError("Invalid or missing User ID claim");
-        }
-
-        var user = await session.LoadAsync<barakoCMS.Models.User>(userId, ct);
+        var userId = user.Id;
         var content = await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
         if (content == null || !await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().MayAccessAsync(User, content, ct))
         {

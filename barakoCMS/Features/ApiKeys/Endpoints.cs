@@ -22,6 +22,15 @@ internal sealed class CreateApiKeyRequest
 
     /// <summary>Limits the key to pushing to these content types. Empty for no limit.</summary>
     public List<string>? ContentTypes { get; set; }
+
+    /// <summary>
+    /// A service principal of the caller's tenant for the key to act as, so it takes its roles from
+    /// the principal and outlives its creator. Null for a key that acts as its creator.
+    /// </summary>
+    public Guid? ServicePrincipalId { get; set; }
+
+    /// <summary>Makes a read-only key (secret prefix bcms_ro_) that refuses every write.</summary>
+    public bool ReadOnly { get; set; }
 }
 
 internal sealed record CreateApiKeyResponse(
@@ -32,7 +41,9 @@ internal sealed record CreateApiKeyResponse(
 [barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal class CreateApiKeyEndpoint(
     IDocumentSession session,
-    ApiKeyService keys) : Endpoint<CreateApiKeyRequest, CreateApiKeyResponse>
+    ApiKeyService keys,
+    CapabilityVocabulary vocabulary,
+    barakoCMS.Core.Interfaces.ICallerCapabilities callers) : Endpoint<CreateApiKeyRequest, CreateApiKeyResponse>
 {
     public override void Configure()
     {
@@ -51,29 +62,19 @@ internal class CreateApiKeyEndpoint(
             .Distinct()
             .ToList();
 
-        if (scopes.Count == 0)
-            AddError(r => r.Scopes, "At least one scope is required.");
-        foreach (var s in scopes.Where(s => !ApiKeyScopes.IsKnown(s)))
-            AddError(r => r.Scopes, $"Unknown scope '{s}'.");
+        ValidateScopes(scopes);
         if (req.ExpiresAt is { } exp && exp <= DateTime.UtcNow)
             AddError(r => r.ExpiresAt, "Expiry must be in the future.");
 
-        var contentTypes = (req.ContentTypes ?? new())
-            .Select(t => t.Trim())
-            .Where(t => t.Length > 0)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        foreach (var type in contentTypes)
-        {
-            if (!await session.Query<ContentTypeDefinition>().AnyAsync(barakoCMS.Core.ContentTypeName.Named(type), ct))
-                AddError(r => r.ContentTypes, $"There is no content type called '{type}'.");
-        }
-        ThrowIfAnyErrors();
+        var contentTypes = await ValidContentTypesAsync(req, ct);
 
         var creatorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var id) ? id : Guid.Empty;
         var tenant = (User.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
 
-        var generated = keys.Generate();
+        await ValidatePrincipalAsync(req.ServicePrincipalId, tenant, ct);
+        ThrowIfAnyErrors();
+
+        var generated = keys.Generate(req.ReadOnly);
         var apiKey = new ApiKey
         {
             Id = Guid.NewGuid(),
@@ -81,6 +82,8 @@ internal class CreateApiKeyEndpoint(
             KeyHash = generated.Hash,
             Prefix = generated.DisplayPrefix,
             UserId = creatorId,
+            ServicePrincipalId = req.ServicePrincipalId,
+            ReadOnly = req.ReadOnly,
             TenantSlug = tenant,
             Scopes = scopes,
             ContentTypes = contentTypes,
@@ -92,15 +95,7 @@ internal class CreateApiKeyEndpoint(
 
         // Names and ids only. The secret, its hash and its display prefix stay out of the row: the
         // prefix is the first characters of the secret, and the key's id already identifies it.
-        var metadata = new Dictionary<string, object>
-        {
-            ["name"] = apiKey.Name,
-            ["scopes"] = apiKey.Scopes,
-            ["contentTypes"] = apiKey.ContentTypes,
-            ["actsAsUserId"] = apiKey.UserId.ToString(),
-        };
-        if (apiKey.ExpiresAt is { } expiresAt)
-            metadata["expiresAt"] = expiresAt;
+        var metadata = CreatedMetadata(apiKey);
 
         await AuditLog.RecordAsync(session, tenant, "apikey.created",
             creatorId == Guid.Empty ? null : creatorId, User.FindFirst("Username")?.Value,
@@ -112,11 +107,79 @@ internal class CreateApiKeyEndpoint(
             apiKey.Id, generated.Secret, apiKey.Prefix, apiKey.Name, apiKey.Scopes,
             apiKey.TenantSlug, apiKey.ExpiresAt, apiKey.CreatedAt, apiKey.ContentTypes), ct);
     }
+
+    private void ValidateScopes(List<string> scopes)
+    {
+        if (scopes.Count == 0)
+            AddError(r => r.Scopes, "At least one scope is required.");
+        foreach (var s in scopes.Where(s => !ApiKeyScopes.IsKnown(s)))
+            AddError(r => r.Scopes, $"Unknown scope '{s}'.");
+        foreach (var s in scopes.Where(ApiKeyScopes.IsCapability))
+        {
+            if (CapScopes.Refusal(s, vocabulary) is { } refusal)
+                AddError(r => r.Scopes, refusal);
+        }
+    }
+
+    private async Task<List<string>> ValidContentTypesAsync(CreateApiKeyRequest req, CancellationToken ct)
+    {
+        var contentTypes = (req.ContentTypes ?? new())
+            .Select(t => t.Trim())
+            .Where(t => t.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        foreach (var type in contentTypes)
+        {
+            if (!await session.Query<ContentTypeDefinition>().AnyAsync(barakoCMS.Core.ContentTypeName.Named(type), ct))
+                AddError(r => r.ContentTypes, $"There is no content type called '{type}'.");
+        }
+        return contentTypes;
+    }
+
+    private async Task ValidatePrincipalAsync(Guid? principalId, string tenant, CancellationToken ct)
+    {
+        if (principalId is not { } id)
+            return;
+        var principal = await session.Query<ServicePrincipal>()
+            .FirstOrDefaultAsync(p => p.Id == id && p.TenantSlug == tenant, ct);
+        if (principal is null || principal.Disabled)
+        {
+            AddError(r => r.ServicePrincipalId!, "That service principal does not exist in this tenant or is disabled.");
+            return;
+        }
+
+        if (await Features.ServicePrincipals.PrincipalRules.NotHeldByPrincipalAsync(session, callers, User, principal, ct) is { } notHeld)
+        {
+            AddError(r => r.ServicePrincipalId!, notHeld);
+            ThrowIfAnyErrors(403);
+        }
+    }
+
+    // Names and ids only. The secret, its hash and its display prefix stay out of the row: the
+    // prefix is the first characters of the secret, and the key's id already identifies it.
+    private static Dictionary<string, object> CreatedMetadata(ApiKey apiKey)
+    {
+        var metadata = new Dictionary<string, object>
+        {
+            ["name"] = apiKey.Name,
+            ["scopes"] = apiKey.Scopes,
+            ["contentTypes"] = apiKey.ContentTypes,
+            ["actsAsUserId"] = apiKey.UserId.ToString(),
+        };
+        if (apiKey.ExpiresAt is { } expiresAt)
+            metadata["expiresAt"] = expiresAt;
+        if (apiKey.ServicePrincipalId is { } actsAs)
+            metadata["servicePrincipalId"] = actsAs.ToString();
+        if (apiKey.ReadOnly)
+            metadata["readOnly"] = true;
+        return metadata;
+    }
 }
 
 internal sealed record ApiKeyListItem(
     Guid Id, string Name, string Prefix, List<string> Scopes, string TenantSlug,
-    DateTime? ExpiresAt, DateTime? LastUsedAt, bool Revoked, DateTime CreatedAt, List<string> ContentTypes);
+    DateTime? ExpiresAt, DateTime? LastUsedAt, bool Revoked, DateTime CreatedAt, List<string> ContentTypes,
+    Guid? ServicePrincipalId = null, bool ReadOnly = false);
 
 /// <summary>GET /api/api-keys — list the current tenant's keys (never the secret or hash).</summary>
 internal class ListApiKeysEndpoint(IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<ApiKeyListItem>>
@@ -146,7 +209,8 @@ internal class ListApiKeysEndpoint(IQuerySession session) : Endpoint<ListRequest
             Items = page.Items
                 .Select(k => new ApiKeyListItem(
                     k.Id, k.Name, k.Prefix, k.Scopes, k.TenantSlug,
-                    k.ExpiresAt, k.LastUsedAt, k.Revoked, k.CreatedAt, k.ContentTypes ?? new()))
+                    k.ExpiresAt, k.LastUsedAt, k.Revoked, k.CreatedAt, k.ContentTypes ?? new(),
+                    k.ServicePrincipalId, k.ReadOnly))
                 .ToList(),
             Page = page.Page,
             PageSize = page.PageSize,
@@ -248,14 +312,14 @@ internal class RotateApiKeyEndpoint(
             return;
         }
 
-        if (await session.LoadAsync<User>(old.UserId, ct) is null)
+        if (old.ServicePrincipalId is null && await session.LoadAsync<User>(old.UserId, ct) is null)
         {
             AddError("The user who owns this key no longer exists.");
             await Send.ErrorsAsync(400, ct);
             return;
         }
 
-        var generated = keys.Generate();
+        var generated = keys.Generate(old.ReadOnly);
         var fresh = NewKeyFrom(old, generated, now);
 
         var cutoff = now.AddMinutes(req.OverlapMinutes);
@@ -314,6 +378,8 @@ internal class RotateApiKeyEndpoint(
         KeyHash = generated.Hash,
         Prefix = generated.DisplayPrefix,
         UserId = old.UserId,
+        ServicePrincipalId = old.ServicePrincipalId,
+        ReadOnly = old.ReadOnly,
         TenantSlug = old.TenantSlug,
         Scopes = [.. old.Scopes],
         ContentTypes = [.. old.ContentTypes ?? []],

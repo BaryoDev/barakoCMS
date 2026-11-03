@@ -24,21 +24,10 @@ internal class Endpoint(
         // "UserId" is the only identity claim the token carries. This used to look first for the
         // literal string System.Security.Claims.ClaimTypes.NameIdentifier, which is the name of a
         // constant and not its value, so it never matched and the fallback was always what ran.
-        var userIdClaim = User.FindFirst("UserId");
-
-        Models.User? user = null;
-        if (userIdClaim != null && Guid.TryParse(userIdClaim.Value, out var userId))
+        // A person or a service principal. Neither claim present answers 401.
+        Models.User? user = await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct);
+        if (barakoCMS.Infrastructure.Auth.ActingCaller.IdOf(User) is null)
         {
-            // We need full user for roles.
-            // Using IQuerySession to load user is fine.
-            user = await session.LoadAsync<Models.User>(userId, ct);
-        }
-        else
-        {
-            // Anonymous Access Handling
-            // If we want to support public read, we need a separate mechanism or a "Guest" user.
-            // Current strict requirement: Enforce Permissions.
-            // If no user -> 401 Unauthorized
             await Send.UnauthorizedAsync(ct);
             return;
         }

@@ -37,8 +37,7 @@ internal sealed class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId)
-            || await session.LoadAsync<User>(userId, ct) is not { } user)
+        if (await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct) is not { } user)
         {
             await Send.UnauthorizedAsync(ct);
             return;

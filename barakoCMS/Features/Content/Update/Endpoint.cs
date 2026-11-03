@@ -19,7 +19,6 @@ internal class Endpoint(
     public override void Configure()
     {
         Put("/api/contents/{id}");
-        Claims("UserId");
     }
 
     /// <summary>
@@ -87,21 +86,15 @@ internal class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        // Configure() calls Claims("UserId"), so a request with no claim never reaches here, and the
-        // token issuer only ever writes a Guid. Parsing defensively anyway matches Create and turns
-        // a token this server did not mint into a 400 rather than an unhandled FormatException.
-        var userIdClaim = User.FindFirst("UserId");
-        if (userIdClaim == null)
+        // A person or a service principal. Neither claim present answers 401, never a 400.
+        var user = await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct);
+        if (user == null)
         {
-            ThrowError("User ID claim not found");
+            await Send.UnauthorizedAsync(ct);
+            return;
         }
 
-        if (!Guid.TryParse(userIdClaim.Value, out var userId))
-        {
-            ThrowError("Invalid User ID format");
-        }
-
-        var user = await session.LoadAsync<User>(userId, ct);
+        var userId = user.Id;
 
         var existingContent = await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
         if (existingContent == null || !await Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>().MayAccessAsync(User, existingContent, ct))

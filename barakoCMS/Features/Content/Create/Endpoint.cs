@@ -16,7 +16,6 @@ internal class Endpoint(
     public override void Configure()
     {
         Post("/api/contents");
-        Claims("UserId");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -229,23 +228,14 @@ internal class Endpoint(
     /// <summary>The signed-in user the write is made for.</summary>
     private async Task<(Guid Id, User User)> CallerAsync(CancellationToken ct)
     {
-        var userIdClaim = User.FindFirst("UserId");
-        if (userIdClaim == null)
-        {
-            ThrowError("User ID claim not found");
-        }
-
-        if (!Guid.TryParse(userIdClaim.Value, out var userId))
-        {
-            ThrowError("Invalid User ID format");
-        }
-
-        var user = await session.LoadAsync<User>(userId, ct);
+        // A person or a service principal. Anything else answers 401.
+        var user = await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct);
         if (user == null)
         {
-            ThrowError("User not found", 401);
+            ThrowError("Caller not found", 401);
         }
 
+        var userId = user.Id;
         return (userId, user);
     }
 }

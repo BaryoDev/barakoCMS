@@ -751,6 +751,14 @@ expiry is set to the end of the overlap window, so both work until then and only
 A key that already expires sooner keeps the earlier expiry. A revoked or expired key cannot be rotated.
 See [api-key-service-principals.md](api-key-service-principals.md) for the design and what is left.
 
+### Capability scopes, read-only keys and service principals
+
+A `cap:<capability>` scope reaches routes gated on that capability (`*` does not imply it, and a deny
+list refuses the ones that manage keys, roles, tenants and users). A `bcms_ro_` key is read-only and
+reaches a short allowlist of reads. A key made with a `servicePrincipalId` acts as a service principal
+with its own roles and survives its creator losing membership. Principals can never hold platform roles.
+Details in [api-key-service-principals.md](api-key-service-principals.md).
+
 ## Administrative endpoints: system capabilities
 
 Everything above is about content. Administrative endpoints (roles, tenants, users,

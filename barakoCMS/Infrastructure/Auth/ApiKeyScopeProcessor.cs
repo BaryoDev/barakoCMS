@@ -11,7 +11,11 @@ namespace barakoCMS.Infrastructure.Auth;
 /// content counts, the overview and the per-check health read. A key that names content types
 /// reaches only the push route for those types. Everything else (managing users,
 /// roles, tenants, or keys themselves) stays behind human JWTs, so a leaked key can never escalate
-/// into platform administration. Human JWT callers are untouched: they carry no scope claims and use
+/// into platform administration. A <c>cap:&lt;capability&gt;</c> scope also reaches an endpoint outside
+/// the content API that is gated on that one capability (never an administrative one, see
+/// <c>CapScopes</c>). A read-only key (<c>bcms_ro_</c>) refuses every write and reads only entries,
+/// workflow health and runs, modules, analytics and the overview. A key acting as a service principal
+/// passes through the same checks. Human JWT callers are untouched: they carry no scope claims and use
 /// the role gate + permission resolver as before.
 /// </summary>
 public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
@@ -23,11 +27,11 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         if (user.Identity?.IsAuthenticated != true) return;
         if (!user.HasClaim("auth_method", "apikey")) return;
 
+        if (await RefuseReadOnlyAsync(http, ct))
+            return;
+
         var path = http.Request.Path.Value ?? string.Empty;
-        var isWrite = HttpMethods.IsPost(http.Request.Method)
-                      || HttpMethods.IsPut(http.Request.Method)
-                      || HttpMethods.IsPatch(http.Request.Method)
-                      || HttpMethods.IsDelete(http.Request.Method);
+        var isWrite = IsWrite(http.Request.Method);
 
         var contentTypes = user.FindAll(ApiKeyAuthenticationHandler.ContentTypeClaim).Select(c => c.Value).ToList();
         if (contentTypes.Count > 0 && !IsPushTo(path, contentTypes))
@@ -36,18 +40,61 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
             return;
         }
 
+        var granted = user.FindAll("scope").Select(c => c.Value).ToList();
         var required = RequiredScopes(path, isWrite);
         if (required is null)
         {
-            await Deny(http, ApiKeyRefusalReason.Scope, "API keys are limited to the content API.", ct);
+            // Not a content route. A cap: scope reaches an endpoint gated on that one capability, and
+            // the capability gate still checks the roles the key acts with.
+            if (!GrantsByCapability(http, granted))
+                await Deny(http, ApiKeyRefusalReason.Scope, "API keys are limited to the content API.", ct);
             return;
         }
 
-        var scopes = user.FindAll("scope").Select(c => c.Value);
-        var granted = scopes.ToList();
         if (!required.Any(r => ApiKeyScopes.Satisfies(granted, r)))
             await Deny(http, ApiKeyRefusalReason.Scope, $"This API key is missing the '{string.Join("' or '", required)}' scope.", ct);
     }
+
+    private static bool IsWrite(string method) =>
+        HttpMethods.IsPost(method) || HttpMethods.IsPut(method)
+        || HttpMethods.IsPatch(method) || HttpMethods.IsDelete(method);
+
+    /// <summary>
+    /// Refuses a read-only key's write, or read outside the allowlist, with 403. Returns true when it
+    /// answered. <c>ReadOnlyKeyMiddleware</c> calls it before endpoint binding so a form or multipart
+    /// route answers 403 and not 415; the processor calls it again as a second line.
+    /// </summary>
+    internal static async Task<bool> RefuseReadOnlyAsync(HttpContext http, CancellationToken ct)
+    {
+        var user = http.User;
+        if (user.Identity?.IsAuthenticated != true || !user.HasClaim("auth_method", "apikey"))
+            return false;
+        if (!user.HasClaim(ApiKeyAuthenticationHandler.ReadOnlyClaim, "true"))
+            return false;
+
+        var isWrite = IsWrite(http.Request.Method);
+        if (!isWrite && IsReadOnlyReadable(http.Request.Path.Value ?? string.Empty))
+            return false;
+        await Deny(http, ApiKeyRefusalReason.Scope,
+            isWrite ? "This API key is read-only." : "A read-only API key reaches only the entry reads, workflow health and runs, modules, analytics and the overview.", ct);
+        return true;
+    }
+
+    private static bool GrantsByCapability(HttpContext http, List<string> granted) =>
+        http.GetEndpoint()?.Metadata.GetMetadata<RequiredCapability>() is { } gate
+        && CapScopes.Grants(granted, gate.Capability);
+
+    /// <summary>
+    /// The reads a read-only key may make: entries, workflow health, workflow runs, modules,
+    /// analytics and the overview. Every other path is refused whatever the key's scopes say.
+    /// </summary>
+    internal static bool IsReadOnlyReadable(string path) =>
+        Match(path, "/api/contents")
+        || Match(path, "/api/workflow-runs")
+        || Match(path, "/api/modules")
+        || Match(path, "/api/analytics")
+        || path.TrimEnd('/').Equals("/api/workflows/health", StringComparison.OrdinalIgnoreCase)
+        || path.TrimEnd('/').Equals("/api/overview", StringComparison.OrdinalIgnoreCase);
 
     // The scopes a request needs (any one of them), or null if API keys may not touch this path at all.
     internal static string[]? RequiredScopes(string path, bool isWrite)

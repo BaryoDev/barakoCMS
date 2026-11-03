@@ -24,6 +24,19 @@ public class ApiKey
     /// <summary>The user this key authenticates as; its effective roles decide what the key can touch.</summary>
     public Guid UserId { get; set; }
 
+    /// <summary>
+    /// The service principal this key acts as, or null for a key that acts as <see cref="UserId"/>.
+    /// With it set the key takes its roles from the principal and no longer depends on its creator's
+    /// membership. <see cref="UserId"/> then only records who made the key.
+    /// </summary>
+    public Guid? ServicePrincipalId { get; set; }
+
+    /// <summary>
+    /// A read-only key (secret prefix <c>bcms_ro_</c>). It refuses every POST, PUT, PATCH and DELETE
+    /// whatever its scopes say, and reads only the routes <c>ApiKeyScopeProcessor</c> allows it.
+    /// </summary>
+    public bool ReadOnly { get; set; }
+
     /// <summary>The single tenant this key operates in.</summary>
     public string TenantSlug { get; set; } = Tenant.DefaultSlug;
 
@@ -95,21 +108,40 @@ public static class ApiKeyScopes
     /// </summary>
     public const string ServicesHeartbeat = "services:heartbeat";
 
+    /// <summary>
+    /// Prefix of a capability scope, <c>cap:read_content</c>. It lets a key reach any endpoint gated on
+    /// that one capability, and the capability gate still checks the roles the key acts with. Not
+    /// implied by <see cref="All"/>.
+    /// </summary>
+    public const string CapPrefix = "cap:";
+
+    public static bool IsCapability(string scope) =>
+        scope.StartsWith(CapPrefix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The capability a <c>cap:</c> scope names, or null for any other scope.</summary>
+    public static string? CapabilityOf(string scope) =>
+        IsCapability(scope) ? scope[CapPrefix.Length..].Trim() : null;
+
     public static readonly IReadOnlySet<string> Known = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         All, ContentRead, ContentWrite, ContentDestructive, ContentTypeRead, ContentTypeWrite,
         FilesRead, FilesWrite, MonitorRead, ServicesHeartbeat,
     };
 
-    public static bool IsKnown(string scope) => !string.IsNullOrWhiteSpace(scope) && Known.Contains(scope);
+    /// <summary>A fixed scope, or a <c>cap:</c> scope. Whether the capability exists is checked at creation.</summary>
+    public static bool IsKnown(string scope) =>
+        !string.IsNullOrWhiteSpace(scope) && (Known.Contains(scope) || IsCapability(scope));
 
     /// <summary>
     /// Does a key's granted scope set satisfy a required scope? <c>*</c> satisfies everything except
-    /// the files, monitor and heartbeat scopes, which a key has to name.
+    /// the files, monitor, heartbeat and <c>cap:</c> scopes, which a key has to name.
     /// </summary>
     public static bool Satisfies(IEnumerable<string> granted, string required)
     {
-        var explicitOnly = required is FilesRead or FilesWrite or MonitorRead or ServicesHeartbeat;
+        // A cap: scope is never implied by "*": a wildcard key made before capability scopes existed
+        // must gain nothing from them.
+        var explicitOnly = required is FilesRead or FilesWrite or MonitorRead or ServicesHeartbeat
+                           || IsCapability(required);
         return granted.Any(s => (s == All && !explicitOnly)
                                 || string.Equals(s, required, StringComparison.OrdinalIgnoreCase));
     }
