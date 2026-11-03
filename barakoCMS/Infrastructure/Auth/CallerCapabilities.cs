@@ -27,6 +27,14 @@ internal sealed class CallerCapabilities(IPermissionResolver resolver) : ICaller
                           && !Features.Users.PlatformRoles.PlatformCapabilities.Contains(c.Value)
                           && string.Equals(c.Value, capability, StringComparison.OrdinalIgnoreCase));
 
+        // A service principal holds the capabilities its roles carry, resolved when the key was
+        // checked this request. Platform capabilities and "*" are never honoured, as for a station,
+        // so a role edited into carrying one still gives a key nothing beyond its tenant.
+        if (caller.HasClaim(c => c.Type == ApiKeyAuthenticationHandler.PrincipalClaim))
+            return caller.FindAll(ApiKeyAuthenticationHandler.PrincipalCapabilityClaim)
+                .Any(c => !Features.Users.PlatformRoles.PlatformCapabilities.Contains(c.Value)
+                          && SystemCapabilities.Satisfies([c.Value], capability));
+
         if (!Guid.TryParse(caller.FindFirst("UserId")?.Value, out var userId)) return false;
 
         return await resolver.HasCapabilityAsync(userId, capability, ct);

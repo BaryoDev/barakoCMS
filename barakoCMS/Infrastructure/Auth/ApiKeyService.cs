@@ -14,15 +14,19 @@ public sealed class ApiKeyService
 {
     public const string Prefix = "bcms_";
 
+    /// <summary>Prefix of a read-only key. It starts with <see cref="Prefix"/>, so the same sniff routes it.</summary>
+    public const string ReadOnlyPrefix = "bcms_ro_";
+
     /// <summary>The generated secret, its display prefix, and the hash to store.</summary>
     public readonly record struct GeneratedKey(string Secret, string DisplayPrefix, string Hash);
 
-    public GeneratedKey Generate()
+    public GeneratedKey Generate(bool readOnly = false)
     {
         var random = Base64UrlNoPadding(RandomNumberGenerator.GetBytes(32));
-        var secret = Prefix + random;
+        var prefix = readOnly ? ReadOnlyPrefix : Prefix;
+        var secret = prefix + random;
         // Enough of the front to identify the key in a list, never enough to use it.
-        var displayPrefix = Prefix + random[..8];
+        var displayPrefix = prefix + random[..8];
         return new GeneratedKey(secret, displayPrefix, Hash(secret));
     }
 

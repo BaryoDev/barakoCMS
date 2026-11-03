@@ -1071,6 +1071,12 @@ public static class ServiceCollectionExtensions
     {
         MapAccounts(options);
         MapApiKeyDocument(options);
+        // A machine identity that API keys can act as. migrations/5.5.0/906-service-principals.sql
+        // adds the table to an existing database.
+        options.Schema.For<ServicePrincipal>()
+            .SingleTenanted() // like the keys that point at it
+            .DocumentAlias("service_principals")
+            .Index(x => x.TenantSlug);
     }
 
     private static void MapApiKeyDocument(StoreOptions options) =>
@@ -2136,7 +2142,10 @@ public static class ServiceCollectionExtensions
         app.UseCors(barakoCMS.Infrastructure.Security.TenantDomainCorsPolicyProvider.PolicyName);
 
         app.UseAuthentication();
-        
+
+        // A read-only key's writes are refused before any endpoint binds a body (else 415 on forms).
+        app.UseMiddleware<barakoCMS.Infrastructure.Auth.ReadOnlyKeyMiddleware>();
+
         // Token Revocation Check (Must be after Authentication)
         app.UseMiddleware<barakoCMS.Infrastructure.Middleware.TokenValidationMiddleware>();
 
