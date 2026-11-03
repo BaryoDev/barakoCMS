@@ -1076,6 +1076,7 @@ public static class ServiceCollectionExtensions
         options.Schema.For<ServicePrincipal>()
             .SingleTenanted() // like the keys that point at it
             .DocumentAlias("service_principals")
+            .UseOptimisticConcurrency(true) // two admins editing roles or disabling cannot overwrite each other
             .Index(x => x.TenantSlug);
     }
 

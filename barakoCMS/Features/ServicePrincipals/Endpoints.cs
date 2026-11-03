@@ -1,3 +1,4 @@
+using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Features.Roles;
 using barakoCMS.Features.Tenants.Members;
@@ -39,6 +40,71 @@ internal static class PrincipalRules
         return roles.Any(r => r.IsPlatform || PlatformRoles.CarriesPlatformCapability(r)) ? PlatformRoleMessage : null;
     }
 
+    /// <summary>
+    /// The first reason the caller cannot hand these roles to a principal, or null. A person may
+    /// only grant what they hold, as for stations: otherwise a key steward could mint a principal
+    /// with a capability they lack and use it through a key. A SuperAdmin holds every capability
+    /// the roles can carry, since platform capabilities are already refused above.
+    /// </summary>
+    public static async Task<string?> NotHeldAsync(
+        IQuerySession session, ICallerCapabilities callers, System.Security.Claims.ClaimsPrincipal user,
+        IEnumerable<Guid> roleIds, CancellationToken ct)
+    {
+        var ids = roleIds.ToList();
+        if (ids.Count == 0 || await PlatformRoles.IsSuperAdminAsync(session, user, ct))
+            return null;
+
+        var roles = await session.Query<Role>().Where(r => r.DeletedAt == null && ids.Contains(r.Id)).ToListAsync(ct);
+        foreach (var capability in roles.SelectMany(r => r.SystemCapabilities).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!await callers.HoldsAsync(user, capability, ct))
+                return $"You cannot grant '{capability}' because you do not hold it.";
+        }
+
+        return null;
+    }
+
+    /// <summary>Whether these roles may go on a principal, then whether the caller holds what they carry.</summary>
+    public static async Task<string?> CheckAsync(
+        IQuerySession session, ICallerCapabilities callers, System.Security.Claims.ClaimsPrincipal user,
+        List<Guid> roleIds, string tenant, CancellationToken ct) =>
+        await RefusalAsync(session, roleIds, tenant, ct) ?? await NotHeldAsync(session, callers, user, roleIds, ct);
+
+    /// <summary>The trimmed name, or the reason it is refused.</summary>
+    public static string? NameProblem(string? raw, out string name)
+    {
+        name = (raw ?? string.Empty).Trim();
+        if (name.Length is 0 or > 100)
+            return "Name is required, up to 100 characters.";
+        return name.Any(char.IsControl) ? "Name cannot contain control characters." : null;
+    }
+
+    /// <summary>
+    /// Saves, and answers 409 when the principal changed since it was read (another admin edited or
+    /// disabled it at the same time). Returns false when it answered.
+    /// </summary>
+    public static async Task<bool> SaveAsync(IDocumentSession session, IEndpoint endpoint, CancellationToken ct)
+    {
+        try
+        {
+            await session.SaveChangesAsync(ct);
+            return true;
+        }
+        catch (JasperFx.ConcurrencyException)
+        {
+            endpoint.HttpContext.Response.StatusCode = 409;
+            await endpoint.HttpContext.Response.WriteAsJsonAsync(
+                new { message = "The service principal changed while it was being updated. Try again." }, ct);
+            return false;
+        }
+    }
+
+    /// <summary>The principal's roles, loaded for the hold check on bind and move.</summary>
+    public static Task<string?> NotHeldByPrincipalAsync(
+        IQuerySession session, ICallerCapabilities callers, System.Security.Claims.ClaimsPrincipal user,
+        ServicePrincipal principal, CancellationToken ct) =>
+        NotHeldAsync(session, callers, user, principal.RoleIds, ct);
+
     public static string TenantOf(System.Security.Claims.ClaimsPrincipal user) =>
         (user.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
 
@@ -65,7 +131,7 @@ internal sealed class CreateServicePrincipalRequest
 }
 
 /// <summary>POST /api/service-principals</summary>
-internal class CreateServicePrincipalEndpoint(IDocumentSession session)
+internal class CreateServicePrincipalEndpoint(IDocumentSession session, ICallerCapabilities callers)
     : Endpoint<CreateServicePrincipalRequest, ServicePrincipalResponse>
 {
     public override void Configure()
@@ -77,17 +143,17 @@ internal class CreateServicePrincipalEndpoint(IDocumentSession session)
     public override async Task HandleAsync(CreateServicePrincipalRequest req, CancellationToken ct)
     {
         var tenant = PrincipalRules.TenantOf(User);
-        if (string.IsNullOrWhiteSpace(req.Name))
-            ThrowError(r => r.Name, "A name is required.");
+        if (PrincipalRules.NameProblem(req.Name, out var name) is { } nameProblem)
+            ThrowError(r => r.Name, nameProblem);
 
         var roleIds = (req.RoleIds ?? []).Distinct().ToList();
-        if (await PrincipalRules.RefusalAsync(session, roleIds, tenant, ct) is { } why)
+        if (await PrincipalRules.CheckAsync(session, callers, User, roleIds, tenant, ct) is { } why)
             ThrowError(r => r.RoleIds!, why, 403);
 
         var actor = PrincipalRules.ActorOf(User);
         var principal = new ServicePrincipal
         {
-            Name = req.Name.Trim(),
+            Name = name,
             TenantSlug = tenant,
             RoleIds = roleIds,
             CreatedAt = DateTime.UtcNow,
@@ -155,7 +221,7 @@ internal sealed class SetPrincipalRolesRequest
 }
 
 /// <summary>PUT /api/service-principals/{id}/roles replaces the principal's roles.</summary>
-internal class SetServicePrincipalRolesEndpoint(IDocumentSession session)
+internal class SetServicePrincipalRolesEndpoint(IDocumentSession session, ICallerCapabilities callers)
     : Endpoint<SetPrincipalRolesRequest, ServicePrincipalResponse>
 {
     public override void Configure()
@@ -171,7 +237,7 @@ internal class SetServicePrincipalRolesEndpoint(IDocumentSession session)
         if (principal is null) { await Send.NotFoundAsync(ct); return; }
 
         var roleIds = (req.RoleIds ?? []).Distinct().ToList();
-        if (await PrincipalRules.RefusalAsync(session, roleIds, tenant, ct) is { } why)
+        if (await PrincipalRules.CheckAsync(session, callers, User, roleIds, tenant, ct) is { } why)
             ThrowError(r => r.RoleIds!, why, 403);
 
         var before = principal.RoleIds.Select(r => r.ToString()).ToList();
@@ -180,7 +246,7 @@ internal class SetServicePrincipalRolesEndpoint(IDocumentSession session)
         await AuditLog.RecordAsync(session, tenant, "service_principal.roles_changed", PrincipalRules.ActorOf(User),
             User.FindFirst("Username")?.Value, targetType: "ServicePrincipal", targetId: principal.Id.ToString(),
             metadata: new() { ["name"] = principal.Name, ["from"] = before, ["to"] = roleIds.Select(r => r.ToString()).ToList() }, ct: ct);
-        await session.SaveChangesAsync(ct);
+        if (!await PrincipalRules.SaveAsync(session, this, ct)) return;
 
         await Send.OkAsync(ServicePrincipalResponse.Of(principal), ct);
     }
@@ -209,7 +275,7 @@ internal class DisableServicePrincipalEndpoint(IDocumentSession session) : Endpo
             await AuditLog.RecordAsync(session, tenant, "service_principal.disabled", PrincipalRules.ActorOf(User),
                 User.FindFirst("Username")?.Value, targetType: "ServicePrincipal", targetId: principal.Id.ToString(),
                 metadata: new() { ["name"] = principal.Name }, ct: ct);
-            await session.SaveChangesAsync(ct);
+            if (!await PrincipalRules.SaveAsync(session, this, ct)) return;
         }
 
         await Send.OkAsync(ServicePrincipalResponse.Of(principal), ct);
@@ -237,7 +303,7 @@ internal sealed record MoveKeysResponse(int Moved, List<Guid> KeyIds);
 /// keeps its secret, scopes and expiry and from then on acts as the principal, so it no longer
 /// depends on the person who made it.
 /// </summary>
-internal class MoveKeysToPrincipalEndpoint(IDocumentSession session) : Endpoint<MoveKeysRequest, MoveKeysResponse>
+internal class MoveKeysToPrincipalEndpoint(IDocumentSession session, ICallerCapabilities callers) : Endpoint<MoveKeysRequest, MoveKeysResponse>
 {
     public override void Configure()
     {
@@ -254,6 +320,8 @@ internal class MoveKeysToPrincipalEndpoint(IDocumentSession session) : Endpoint<
         var principal = await PrincipalRules.InTenantAsync(session, req.ServicePrincipalId, tenant, ct);
         if (principal is null || principal.Disabled)
             ThrowError(r => r.ServicePrincipalId, "That service principal does not exist in this tenant or is disabled.");
+        if (await PrincipalRules.NotHeldByPrincipalAsync(session, callers, User, principal!, ct) is { } notHeld)
+            ThrowError(r => r.ServicePrincipalId, notHeld, 403);
 
         var actor = PrincipalRules.ActorOf(User);
         var superAdmin = await PlatformRoles.IsSuperAdminAsync(session, User, ct);
@@ -283,7 +351,7 @@ internal class MoveKeysToPrincipalEndpoint(IDocumentSession session) : Endpoint<
             await AuditLog.RecordAsync(session, tenant, "apikey.moved_to_principal", actor, User.FindFirst("Username")?.Value,
                 targetType: "ServicePrincipal", targetId: principal!.Id.ToString(),
                 metadata: new() { ["name"] = principal.Name, ["keyIds"] = moving.Select(k => k.Id.ToString()).ToList() }, ct: ct);
-        await session.SaveChangesAsync(ct);
+        if (!await PrincipalRules.SaveAsync(session, this, ct)) return;
 
         await Send.OkAsync(new MoveKeysResponse(moving.Count, moving.Select(k => k.Id).ToList()), ct);
     }

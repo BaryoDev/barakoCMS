@@ -55,12 +55,17 @@ role is never assignable, and another tenant's role answers "does not exist". Th
 stricter. Platform roles and roles carrying a platform capability are refused for everyone, SuperAdmin
 included. Roles are checked again on every request, so a hand-edited document grants nothing extra.
 
+A caller who is not a SuperAdmin must hold every capability of the roles they put on a principal, bind
+a key to, or move keys to, as for stations. Otherwise the answer is 403 ("you do not hold it").
+Principal names are trimmed, up to 100 characters, with no control characters. Setting roles and
+disabling use optimistic concurrency and answer 409 when another admin changed the principal first.
+
 ## Capability scopes
 
 `cap:<capability>` lets a key reach a route gated on that capability, outside the content API. The
 role gate still checks the roles the key acts with. `*` does not imply `cap:`. Names are checked against
 the capability vocabulary at creation. A deny list in `CapScopes` refuses the capabilities that manage
-keys, roles, tenants, users, membership, email settings and hidden fields, plus every platform capability,
+keys, roles, tenants, users, membership, email settings, stations, config and hidden fields, plus every platform capability,
 because a leaked key must not be able to mint more access. It is checked at creation and on every request.
 
 ## Read-only keys
@@ -69,6 +74,12 @@ because a leaked key must not be able to mint more access. It is checked at crea
 DELETE with 403 ("This API key is read-only.") whatever its scopes. It reads only entries,
 `GET /api/workflows/health`, `GET /api/workflow-runs`, `GET /api/modules`, `GET /api/analytics/**` and
 `GET /api/overview`, each still needing its usual scope. Rotating one yields another `bcms_ro_` key.
+
+## Rolling back
+
+`migrations/5.5.0/rollback-906-service-principals.sql` revokes every read-only key and every key that
+acts as a principal before it drops the principals table. An earlier release ignores both fields, so
+without the revoke a read-only key would gain write access as its creator. Issue new keys afterwards.
 
 ## Remaining
 

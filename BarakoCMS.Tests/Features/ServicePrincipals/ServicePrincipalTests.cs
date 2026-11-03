@@ -151,7 +151,7 @@ public class ServicePrincipalTests
     {
         var tenant = await TenantAsync();
         var viewer = await RoleAsync(tenant, [SystemCapabilities.ViewJobs]);
-        var creator = await StewardAsync(tenant);
+        var creator = await StewardAsync(tenant, SystemCapabilities.ViewJobs);
         var principal = await CreatePrincipalAsync(creator, viewer.Id);
         var key = await CreateKeyAsync(creator, principal.Id, "content:read");
 
@@ -163,7 +163,7 @@ public class ServicePrincipalTests
     {
         var tenant = await TenantAsync();
         var other = await RoleAsync(tenant, [SystemCapabilities.ViewAuditLog]);
-        var creator = await StewardAsync(tenant);
+        var creator = await StewardAsync(tenant, SystemCapabilities.ViewAuditLog);
         var principal = await CreatePrincipalAsync(creator, other.Id);
         var key = await CreateKeyAsync(creator, principal.Id, "cap:view_jobs");
 
@@ -175,7 +175,7 @@ public class ServicePrincipalTests
     {
         var tenant = await TenantAsync();
         var viewer = await RoleAsync(tenant, [SystemCapabilities.ViewJobs]);
-        var creator = await StewardAsync(tenant);
+        var creator = await StewardAsync(tenant, SystemCapabilities.ViewJobs);
         var principal = await CreatePrincipalAsync(creator, viewer.Id);
         var key = await CreateKeyAsync(creator, principal.Id, "cap:view_jobs");
         (await JobsWithAsync(key.Key, tenant)).Should().Be(HttpStatusCode.OK);
@@ -192,7 +192,7 @@ public class ServicePrincipalTests
         var tenantA = await TenantAsync();
         var tenantB = await TenantAsync();
         var viewerB = await RoleAsync(tenantB, [SystemCapabilities.ViewJobs]);
-        var stewardB = await StewardAsync(tenantB);
+        var stewardB = await StewardAsync(tenantB, SystemCapabilities.ViewJobs);
         var principalB = await CreatePrincipalAsync(stewardB, viewerB.Id);
         var stewardA = await StewardAsync(tenantA);
 
@@ -232,7 +232,7 @@ public class ServicePrincipalTests
         var tenant = await TenantAsync();
         var viewer = await RoleAsync(tenant, [SystemCapabilities.ViewJobs]);
         var platform = await RoleAsync(tenant, [SystemCapabilities.ViewJobs], platform: true);
-        var creator = await StewardAsync(tenant);
+        var creator = await StewardAsync(tenant, SystemCapabilities.ViewJobs);
         var principal = await CreatePrincipalAsync(creator, viewer.Id);
 
         var res = await creator.Client.PutAsJsonAsync($"/api/service-principals/{principal.Id}/roles",
@@ -262,7 +262,7 @@ public class ServicePrincipalTests
     {
         var tenant = await TenantAsync();
         var viewer = await RoleAsync(tenant, [SystemCapabilities.ViewJobs]);
-        var creator = await StewardAsync(tenant);
+        var creator = await StewardAsync(tenant, SystemCapabilities.ViewJobs);
         var principal = await CreatePrincipalAsync(creator, viewer.Id);
         var key = await CreateKeyAsync(creator, principal.Id, "cap:view_jobs");
 
@@ -336,6 +336,79 @@ public class ServicePrincipalTests
 
         (await client.GetAsync("/api/service-principals", Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await client.PostAsJsonAsync("/api/service-principals", new { name = "x" }, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task A_caller_cannot_give_a_principal_a_capability_they_do_not_hold()
+    {
+        var tenant = await TenantAsync();
+        var viewer = await RoleAsync(tenant, [SystemCapabilities.ViewJobs]);
+        var holder = await StewardAsync(tenant, SystemCapabilities.ViewJobs);
+        var lacking = await StewardAsync(tenant);
+        var principal = await CreatePrincipalAsync(holder, viewer.Id);
+        var empty = await CreatePrincipalAsync(holder);
+        var own = await CreateKeyAsync(lacking, null, "content:read");
+
+        (await CreatePrincipalRawAsync(lacking, viewer.Id)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var setRoles = await lacking.Client.PutAsJsonAsync($"/api/service-principals/{empty.Id}/roles",
+            new { roleIds = new[] { viewer.Id } }, Ct);
+        setRoles.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var bind = await lacking.Client.PostAsJsonAsync("/api/api-keys",
+            new { name = "x", scopes = new[] { "cap:view_jobs" }, servicePrincipalId = principal.Id }, Ct);
+        bind.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var move = await lacking.Client.PostAsJsonAsync("/api/api-keys/move-to-principal",
+            new { servicePrincipalId = principal.Id, keyId = own.Id }, Ct);
+        move.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        await StoredAsync(own.Id, k => k.ServicePrincipalId.Should().BeNull());
+
+        using var scope = _factory.Services.CreateScope();
+        var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<ServicePrincipal>(empty.Id, Ct);
+        stored!.RoleIds.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("bad\u0007name")]
+    [InlineData("bad\nname")]
+    public async Task A_principal_name_that_is_blank_or_has_control_characters_is_refused(string name)
+    {
+        var tenant = await TenantAsync();
+        var creator = await StewardAsync(tenant);
+
+        var res = await creator.Client.PostAsJsonAsync("/api/service-principals", new { name }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task A_principal_name_is_trimmed_and_capped_at_100_characters()
+    {
+        var tenant = await TenantAsync();
+        var creator = await StewardAsync(tenant);
+
+        var tooLong = await creator.Client.PostAsJsonAsync("/api/service-principals", new { name = new string('n', 101) }, Ct);
+        tooLong.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var ok = await creator.Client.PostAsJsonAsync("/api/service-principals", new { name = "  ci runner  " }, Ct);
+        ok.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ok.Content.ReadFromJsonAsync<Principal>(Ct))!.Name.Should().Be("ci runner");
+    }
+
+    [Fact]
+    public async Task A_cap_scope_cannot_name_manage_stations_or_manage_config()
+    {
+        var tenant = await TenantAsync();
+        var creator = await StewardAsync(tenant);
+
+        foreach (var scope in new[] { "cap:manage_stations", "cap:manage_config" })
+        {
+            var res = await creator.Client.PostAsJsonAsync("/api/api-keys", new { name = "x", scopes = new[] { scope } }, Ct);
+            res.StatusCode.Should().Be(HttpStatusCode.BadRequest, scope);
+        }
     }
 
     private async Task StoredAsync(Guid keyId, Action<ApiKey> check)

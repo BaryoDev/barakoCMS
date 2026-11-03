@@ -42,7 +42,8 @@ internal sealed record CreateApiKeyResponse(
 internal class CreateApiKeyEndpoint(
     IDocumentSession session,
     ApiKeyService keys,
-    CapabilityVocabulary vocabulary) : Endpoint<CreateApiKeyRequest, CreateApiKeyResponse>
+    CapabilityVocabulary vocabulary,
+    barakoCMS.Core.Interfaces.ICallerCapabilities callers) : Endpoint<CreateApiKeyRequest, CreateApiKeyResponse>
 {
     public override void Configure()
     {
@@ -142,7 +143,16 @@ internal class CreateApiKeyEndpoint(
         var principal = await session.Query<ServicePrincipal>()
             .FirstOrDefaultAsync(p => p.Id == id && p.TenantSlug == tenant, ct);
         if (principal is null || principal.Disabled)
+        {
             AddError(r => r.ServicePrincipalId!, "That service principal does not exist in this tenant or is disabled.");
+            return;
+        }
+
+        if (await Features.ServicePrincipals.PrincipalRules.NotHeldByPrincipalAsync(session, callers, User, principal, ct) is { } notHeld)
+        {
+            AddError(r => r.ServicePrincipalId!, notHeld);
+            ThrowIfAnyErrors(403);
+        }
     }
 
     // Names and ids only. The secret, its hash and its display prefix stay out of the row: the

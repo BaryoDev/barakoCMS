@@ -29,6 +29,8 @@ internal static class CapScopes
         SystemCapabilities.ManageUserGroups,
         SystemCapabilities.ManageEmailSettings,
         SystemCapabilities.ViewHidden,
+        SystemCapabilities.ManageStations,
+        SystemCapabilities.ManageConfig,
     };
 
     public static bool IsDenied(string capability) =>
