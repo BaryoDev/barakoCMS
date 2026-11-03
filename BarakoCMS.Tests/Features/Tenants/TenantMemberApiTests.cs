@@ -316,6 +316,8 @@ public class TenantMemberApiTests
     {
         var slug = await TenantAsync();
         var client = await AdminOfAsync(slug);
+        // A tenant-owned role: the seeded HR role is global and carries view_sensitive, which a tenant Admin cannot hand out.
+        var role = await StoreRoleAsync(slug, [], null);
         var email = $"promoted-{Guid.NewGuid():n}@example.com";
 
         var added = await client.PostAsJsonAsync("/api/tenants/members",
@@ -324,14 +326,14 @@ public class TenantMemberApiTests
             .RootElement.GetProperty("userId").GetGuid();
 
         var updated = await client.PutAsJsonAsync($"/api/tenants/members/{userId}",
-            new { roleIds = new[] { barakoCMS.Data.DataSeeder.DemoHrRoleId }, status = "Suspended" });
+            new { roleIds = new[] { role.Id }, status = "Suspended" });
 
         NotRateLimited(updated);
         updated.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var row = (await MembershipsAsync(userId, slug)).Single();
         row.Status.Should().Be(MembershipStatus.Suspended);
-        row.RoleIds.Should().Equal(barakoCMS.Data.DataSeeder.DemoHrRoleId);
+        row.RoleIds.Should().Equal(role.Id);
     }
 
     [Fact]
