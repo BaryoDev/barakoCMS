@@ -86,6 +86,7 @@ internal sealed class GetTenantSettingsRequest
     public string Section { get; set; } = string.Empty;
 }
 
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal sealed class GetTenantSettingsEndpoint(IQuerySession session, TenantContext tenant, ModuleCatalogue catalogue)
     : Endpoint<GetTenantSettingsRequest, TenantSettingsSectionResponse>
 {
@@ -163,6 +164,7 @@ internal sealed class UpdateTenantSettingsValidator : Validator<UpdateTenantSett
     }
 }
 
+[barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal sealed class UpdateTenantSettingsEndpoint(
     IDocumentSession session,
     ISecretProtector protector,
