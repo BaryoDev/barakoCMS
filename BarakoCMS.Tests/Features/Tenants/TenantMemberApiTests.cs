@@ -76,14 +76,11 @@ public class TenantMemberApiTests
     }
 
     /// <summary>An administrator of <paramref name="slug"/>, holding the roles named.</summary>
-    private Task<HttpClient> AdminOfAsync(string slug, params string[] roles) => AdminHoldingAsync(slug, [], roles);
-
-    /// <summary>An administrator of <paramref name="slug"/> who also holds these roles, so what they hand out is something they hold.</summary>
-    private async Task<HttpClient> AdminHoldingAsync(string slug, Guid[] alsoHolds, params string[] roles)
+    private async Task<HttpClient> AdminOfAsync(string slug, params string[] roles)
     {
         var actual = roles.Length == 0 ? new[] { "Admin" } : roles;
         var userId = await UserAsync($"admin-{Guid.NewGuid():n}@example.com");
-        await MembershipAsync(userId, slug, MembershipStatus.Active, [SystemRoles.AdminRoleId, .. alsoHolds]);
+        await MembershipAsync(userId, slug, MembershipStatus.Active, SystemRoles.AdminRoleId);
 
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
@@ -318,7 +315,7 @@ public class TenantMemberApiTests
     public async Task A_members_roles_and_status_can_be_changed_within_the_tenant()
     {
         var slug = await TenantAsync();
-        var client = await AdminHoldingAsync(slug, [barakoCMS.Data.DataSeeder.DemoHrRoleId]);
+        var client = await AdminOfAsync(slug);
         var email = $"promoted-{Guid.NewGuid():n}@example.com";
 
         var added = await client.PostAsJsonAsync("/api/tenants/members",
@@ -481,5 +478,18 @@ public class TenantMemberApiTests
         var updated = await manager.PutAsJsonAsync($"/api/tenants/members/{userId}",
             new { roleIds = new[] { content.Id }, status = "Suspended" });
         updated.StatusCode.Should().Be(HttpStatusCode.OK, await updated.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_plain_tenant_Admin_can_add_a_member_with_a_content_role()
+    {
+        var slug = await TenantAsync();
+        var type = $"Mem{Guid.NewGuid():N}"[..12];
+        var content = await StoreRoleAsync(slug, [], type);
+        var client = await AdminOfAsync(slug);
+
+        var added = await client.PostAsJsonAsync("/api/tenants/members",
+            new { email = $"admin-adds-{Guid.NewGuid():n}@example.com", roleIds = new[] { content.Id } });
+        added.StatusCode.Should().Be(HttpStatusCode.OK, await added.Content.ReadAsStringAsync());
     }
 }

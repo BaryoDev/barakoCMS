@@ -49,8 +49,13 @@ internal static class RoleGrantRules
                 : await session.Query<Role>().Where(r => r.DeletedAt == null && callerRoleIds.Contains(r.Id)).ToListAsync(ct);
         }
 
+        // The seeded Admin system role (matched by id, as the resolver matches SuperAdmin) counts as
+        // holding every content right and field list in its tenant. Capabilities above are still exact.
+        var tenantAdmin = callerRoles.Any(r => r.Id == SystemRoles.AdminRoleId);
         foreach (var (type, action, rule) in roles.SelectMany(ContentRights).Distinct())
         {
+            if (tenantAdmin)
+                break;
             var held = caller is not null
                 && await permissions.CanPerformActionAsync(caller, type, action, null, ct)
                 && callerRoles.Any(r => r.Id == SystemRoles.SuperAdminRoleId || HoldsRule(r, type, action, rule));
