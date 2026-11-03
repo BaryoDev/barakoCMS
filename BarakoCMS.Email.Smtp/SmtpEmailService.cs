@@ -26,16 +26,27 @@ public sealed class SmtpEmailService : IEmailService
     private readonly IEmailSettingsProvider _settings;
     private readonly ILogger<SmtpEmailService>? _logger;
     private readonly Func<SmtpClient> _newClient;
+    private readonly ITenantSettings? _tenantSettings;
 
     public SmtpEmailService(IOptionsSnapshot<SmtpOptions> options, IEmailSettingsProvider settings)
         : this(options, settings, null)
     {
     }
 
-    [ActivatorUtilitiesConstructor]
     public SmtpEmailService(IOptionsSnapshot<SmtpOptions> options, IEmailSettingsProvider settings, ILogger<SmtpEmailService>? logger)
+        : this(options, settings, logger, (ITenantSettings?)null)
+    {
+    }
+
+    [ActivatorUtilitiesConstructor]
+    public SmtpEmailService(
+        IOptionsSnapshot<SmtpOptions> options,
+        IEmailSettingsProvider settings,
+        ILogger<SmtpEmailService>? logger,
+        ITenantSettings? tenantSettings)
         : this(options, settings, logger, () => new SmtpClient())
     {
+        _tenantSettings = tenantSettings;
     }
 
     /// <summary>For tests that need a client which fails at a chosen step.</summary>
@@ -60,7 +71,21 @@ public sealed class SmtpEmailService : IEmailService
     public Task SendEmailAsync(string to, string subject, string body, CancellationToken cancellationToken = default) =>
         SendEmailAsync(to, subject, body, Array.Empty<EmailAttachment>(), cancellationToken);
 
-    public async Task SendEmailAsync(string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken = default)
+    public Task SendEmailAsync(string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken = default) =>
+        SendCoreAsync(null, to, subject, body, attachments, cancellationToken);
+
+    public Task SendForTenantAsync(string tenant, string to, string subject, string body, CancellationToken cancellationToken = default) =>
+        SendCoreAsync(tenant, to, subject, body, Array.Empty<EmailAttachment>(), cancellationToken);
+
+    public Task SendForTenantAsync(string tenant, string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken = default) =>
+        SendCoreAsync(tenant, to, subject, body, attachments, cancellationToken);
+
+    /// <summary>
+    /// A tenant send takes the tenant's own sender when it has stored one in the Email.Smtp settings
+    /// section. Account mail (a sign-in code, a verification link) passes no tenant and always goes
+    /// from the host's sender.
+    /// </summary>
+    private async Task SendCoreAsync(string? tenant, string to, string subject, string body, IReadOnlyList<EmailAttachment> attachments, CancellationToken cancellationToken)
     {
         var options = _options.Value;
 
@@ -68,7 +93,8 @@ public sealed class SmtpEmailService : IEmailService
             throw new InvalidOperationException(
                 $"No SMTP host is set. Set {SmtpOptions.SectionName}:Host.");
 
-        var from = await ResolveFromAsync(options, cancellationToken);
+        var from = await TenantFromAsync(tenant, cancellationToken)
+            ?? await ResolveFromAsync(options, cancellationToken);
 
         var message = new MimeMessage();
         message.From.Add(MailboxAddress.Parse(from));
@@ -167,6 +193,32 @@ public sealed class SmtpEmailService : IEmailService
         ContentType.TryParse(attachment.ContentType, out var parsed)
             ? parsed
             : new ContentType("application", "octet-stream");
+
+    /// <summary>The tenant's own From, or null when it has none and the host sender applies.</summary>
+    /// <remarks>
+    /// A stored value that is not a mailbox is skipped with a warning rather than failing the send.
+    /// </remarks>
+    private async Task<string?> TenantFromAsync(string? tenant, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(tenant) || _tenantSettings is null)
+        {
+            return null;
+        }
+
+        var value = await _tenantSettings.GetOverrideAsync(tenant, SmtpEmailModule.SettingsSectionName, "From", ct);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (!MailboxAddress.TryParse(value, out _))
+        {
+            _logger?.LogWarning("A tenant's {Section} From is not a valid mailbox, so the host sender is used.", SmtpEmailModule.SettingsSectionName);
+            return null;
+        }
+
+        return value;
+    }
 
     /// <summary>
     /// The admin's from address if somebody set one, else the module's own.

@@ -22,7 +22,7 @@ internal sealed record ModuleConfigurationResponse(
 /// <param name="Redacted">True when a value exists and is withheld.</param>
 /// <param name="Scope"><c>deployment</c> or <c>tenant</c>.</param>
 /// <param name="Source">
-/// <c>appsettings</c>, <c>environment</c>, <c>default</c> (no provider holds the key, so the code
+/// <c>tenant</c> (the calling tenant's own stored override), <c>appsettings</c>, <c>environment</c>, <c>default</c> (no provider holds the key, so the code
 /// default applies) or <c>unknown</c> (a provider this view cannot name).
 /// </param>
 internal sealed record ModuleConfigurationEntry(
@@ -37,5 +37,6 @@ internal static class ConfigurationSources
     public const string AppSettings = "appsettings";
     public const string Environment = "environment";
     public const string Default = "default";
+    public const string Tenant = "tenant";
     public const string Unknown = "unknown";
 }

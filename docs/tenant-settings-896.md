@@ -25,10 +25,20 @@ empty string clears it so the host default applies again. The default tenant has
 gets a 400 pointing at `/api/settings/email`. The existing `/api/settings/email` routes are
 unchanged.
 
+## Module-declared sections
+
+A module lists `SettingsSections` (section name, keys, category, description, secret flag, tenant or
+host scope). `GET` and `PUT /api/tenant-settings/{section}` work for any declared section. An
+unknown section answers 404 and an unknown key 400. Secret keys are write-only. Resolution is
+tenant override, then the stored host default, then configuration.
+
+Declared today: Email.Smtp (From), Files.S3 (Bucket, PublicBaseUrl, AccessKey, SecretKey) and AI
+(EmbeddingModel, EmbeddingBaseUrl).
+
 ## Not in this tranche
 
-- Module-declared sections, keys, categories and descriptions (#890), and a generic tenant
-  settings document over them.
-- Tenant overrides for Files.S3 and ExternalAuth.
+- The Files.S3 and AI sections are declarations only. Their services still read host configuration.
+- ExternalAuth has no tenant override.
+- A tenant SMTP From applies to business mail sent for a tenant. Account mail keeps the host sender.
 - Sender and key overrides apply to mail sent inside a request for that tenant. Background work that
   runs with no tenant uses the host default.

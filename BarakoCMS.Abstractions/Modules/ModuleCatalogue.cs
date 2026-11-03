@@ -29,6 +29,7 @@ internal sealed class ModuleCatalogue
             {
                 HttpContractVersion = m.HttpContractVersion,
                 ConfigurationView = m.ConfigurationView,
+                SettingsSections = m.SettingsSections,
                 PackageId = m.PackageId,
                 PackageVersion = m.PackageVersion,
                 Category = ModuleCategory.Normalise(m.Category),
@@ -49,6 +50,9 @@ internal sealed record ModuleCatalogueEntry(string Name, int ContractVersion, bo
 
     /// <summary><see cref="IBarakoModule.ConfigurationView"/>, null when the module declares nothing.</summary>
     public ModuleConfigurationView? ConfigurationView { get; init; }
+
+    /// <summary><see cref="IBarakoModule.SettingsSections"/>, empty when the module declares nothing.</summary>
+    public IReadOnlyList<ModuleSettingsSection> SettingsSections { get; init; } = [];
 
     /// <summary><see cref="IBarakoModule.PackageId"/>, null when unstated.</summary>
     public string? PackageId { get; init; }

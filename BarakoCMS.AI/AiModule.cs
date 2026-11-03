@@ -18,6 +18,17 @@ public sealed class AiModule : IBarakoModule
 {
     public string Name => "AI";
 
+    /// <remarks>Declared so a tenant's values can be stored and shown. The AI services do not read them yet.</remarks>
+    public IReadOnlyList<ModuleSettingsSection> SettingsSections { get; } =
+    [
+        new("AI", "Embedding model used for a tenant's semantic search",
+        [
+            new ModuleSettingsKey("EmbeddingModel", "Embedding model the tenant's search uses", "Model", HostDefaultKey: "Modules:AI:EmbeddingModel"),
+            new ModuleSettingsKey("EmbeddingBaseUrl", "Base URL of the embedding service", "Model", HostDefaultKey: "Modules:AI:EmbeddingBaseUrl"),
+            new ModuleSettingsKey("Enabled", "Turns the AI module on, set for the whole host", "Model", TenantOverridable: false, HostDefaultKey: "Modules:AI:Enabled"),
+        ]),
+    ];
+
     public string? PackageId => "BarakoCMS.AI";
 
     public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
