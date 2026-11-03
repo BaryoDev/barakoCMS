@@ -36,7 +36,16 @@ internal static class ForwardedHeadersSetup
         // The host is read the same way as the address: only from a hop named below. A tenant's custom
         // domain is chosen by the host, and a proxy that rewrites Host on its way in (a platform edge
         // that forwards to an internal name) would otherwise route every site to the default tenant.
-        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
+        // ForwardHost false keeps the raw Host, for a proxy that passes Host through unchanged.
+        // AllowedHosts limits which forwarded hosts are taken; an empty list takes any.
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        if (section.GetValue<bool?>("ForwardHost") ?? true)
+            options.ForwardedHeaders |= ForwardedHeaders.XForwardedHost;
+
+        options.AllowedHosts.Clear();
+        foreach (var host in Values(section, "AllowedHosts"))
+            options.AllowedHosts.Add(host);
+
         options.KnownProxies.Clear();
         options.KnownIPNetworks.Clear();
 

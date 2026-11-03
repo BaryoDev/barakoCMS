@@ -108,7 +108,10 @@ the tenant. This applies with forwarded headers off, where the raw `Host` select
 
 With `ForwardedHeaders:Enabled`, `X-Forwarded-Host` is read along with `X-Forwarded-For` and
 `X-Forwarded-Proto`, and only from a peer in `KnownProxies` or `KnownNetworks`. A request from any
-other address cannot set the host that way.
+other address cannot set the host that way. Set `ForwardedHeaders:ForwardHost` to false to keep the
+raw `Host` (the default is true). Set `ForwardedHeaders:AllowedHosts` to a list such as
+`["example.com", "*.example.com"]` to take only those forwarded hosts. A forwarded host not on the
+list is ignored and the raw `Host` is kept. An empty list takes any host.
 
 ### Domain claims
 

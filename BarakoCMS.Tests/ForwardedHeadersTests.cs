@@ -303,4 +303,34 @@ public class ForwardedHeadersTests
         observed.Should().Be("internal.local",
             "a caller could otherwise pick any tenant's domain, and with it the tenant its request runs as");
     }
+
+    [Fact]
+    public async Task ForwardHost_false_keeps_the_raw_host()
+    {
+        var config = Config(
+            ("ForwardedHeaders:Enabled", "true"),
+            ("ForwardedHeaders:KnownProxies:0", Proxy),
+            ("ForwardedHeaders:ForwardHost", "false"));
+
+        var observed = await ObservedHost(config, peer: Proxy, forwardedHost: "shop.client.example");
+
+        observed.Should().Be("internal.local");
+    }
+
+    [Theory]
+    [InlineData("shop.client.example", "shop.client.example")]
+    [InlineData("a.client.example", "a.client.example")]
+    [InlineData("evil.example", "internal.local")]
+    public async Task AllowedHosts_limits_which_forwarded_hosts_are_taken(string sent, string expected)
+    {
+        var config = Config(
+            ("ForwardedHeaders:Enabled", "true"),
+            ("ForwardedHeaders:KnownProxies:0", Proxy),
+            ("ForwardedHeaders:AllowedHosts:0", "shop.client.example"),
+            ("ForwardedHeaders:AllowedHosts:1", "*.client.example"));
+
+        var observed = await ObservedHost(config, peer: Proxy, forwardedHost: sent);
+
+        observed.Should().Be(expected);
+    }
 }
