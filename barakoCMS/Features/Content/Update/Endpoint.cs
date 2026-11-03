@@ -68,20 +68,21 @@ internal class Endpoint(
     }
 
     /// <summary>
-    /// The events for a status field that differs from the stored status. A type with a lifecycle
-    /// changes status through a named transition, the rule change-status applies, and the status
-    /// field here would otherwise step around it. A pending publish time is dropped with the move.
+    /// The events for a status field that differs from the stored status. A pending publish time is
+    /// dropped with the move.
     /// </summary>
-    private async Task<List<object>> StatusEventsAsync(barakoCMS.Models.Content existing, ContentStatus newStatus, Guid userId, CancellationToken ct)
+    private static List<object> StatusEvents(barakoCMS.Models.Content existing, ContentStatus newStatus, Guid userId) =>
+        barakoCMS.Features.Content.ChangeStatus.ScheduleClearing.With(
+            existing, new barakoCMS.Events.ContentStatusChanged(existing.Id, newStatus, userId, DateTime.UtcNow), newStatus, userId);
+
+    /// <summary>Refuses a status field on a type with a lifecycle. It runs before a dry run returns, so a dry run answers as the real call does.</summary>
+    private async Task RefuseStatusOnLifecycleAsync(barakoCMS.Models.Content existing, CancellationToken ct)
     {
         var definition = await session.Query<ContentTypeDefinition>().FirstNamedAsync(existing.ContentType, ct);
         if (definition?.Lifecycle is not null)
         {
-            ThrowError($"Content type '{existing.ContentType}' declares a lifecycle, so it changes status through a Transition, not Status.", 400);
+            ThrowError(barakoCMS.Features.Content.ChangeStatus.LifecycleGuard.StatusRefusal(existing.ContentType), 400);
         }
-
-        return barakoCMS.Features.Content.ChangeStatus.ScheduleClearing.With(
-            existing, new barakoCMS.Events.ContentStatusChanged(existing.Id, newStatus, userId, DateTime.UtcNow), newStatus, userId);
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -149,6 +150,14 @@ internal class Endpoint(
 
         await RefuseOnHooksAsync(existingContent, req, userId, ct);
 
+        // An omitted Status means "leave it alone". Comparing against a defaulted enum instead made
+        // a data-only edit look like a move to Draft and un-published the item.
+        bool statusChanged = req.Status.HasValue && existingContent.Status != req.Status.Value;
+        if (statusChanged)
+        {
+            await RefuseStatusOnLifecycleAsync(existingContent, ct);
+        }
+
         if (req.DryRun)
         {
             await Send.ResponseAsync(new Response
@@ -166,14 +175,10 @@ internal class Endpoint(
         var updateEvent = new barakoCMS.Events.ContentUpdated(req.Id, req.Data, userId, searchText, DateTime.UtcNow);
         events.Add(updateEvent);
 
-        // An omitted Status means "leave it alone". Comparing against a defaulted enum instead made
-        // a data-only edit look like a move to Draft and un-published the item.
-        bool statusChanged = req.Status.HasValue && existingContent.Status != req.Status.Value;
-
         // 2. Status Change Event (if changed)
         if (statusChanged)
         {
-            events.AddRange(await StatusEventsAsync(existingContent, req.Status!.Value, userId, ct));
+            events.AddRange(StatusEvents(existingContent, req.Status!.Value, userId));
         }
 
         // Which contract this request is answered under. The persistence decision is the writer's

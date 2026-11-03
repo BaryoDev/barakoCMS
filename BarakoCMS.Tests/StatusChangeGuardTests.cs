@@ -196,6 +196,47 @@ public class StatusChangeGuardTests
         (await LoadAsync(id)).Status.Should().Be(before, "the status field must not step around the named transitions");
     }
 
+    private static async Task<string> LifecycleTypeAsync(HttpClient client)
+    {
+        var name = "sgt" + Guid.NewGuid().ToString("n")[..8];
+        var typeRes = await client.PostAsJsonAsync("/api/content-types", new
+        {
+            name,
+            displayName = "Invoice",
+            fields = new[] { new { name = "Title", type = "string" } },
+            lifecycle = new LifecycleDefinition
+            {
+                States = ["Draft", "Submitted"],
+                InitialState = "Draft",
+                Transitions = [new StateTransition { Name = "Submit", From = "Draft", To = "Submitted" }],
+            },
+        }, TestContext.Current.CancellationToken);
+        typeRes.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}",
+            typeRes.StatusCode, await typeRes.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        return name;
+    }
+
+    [Fact]
+    public async Task A_dry_run_status_change_on_a_type_with_a_lifecycle_is_refused_as_the_real_one_is()
+    {
+        var client = await AdminClientAsync();
+        var id = await CreateEntryAsync(client, await LifecycleTypeAsync(client));
+        var before = (await LoadAsync(id)).Status;
+
+        var res = await client.PutAsJsonAsync($"/api/contents/{id}", new
+        {
+            id,
+            dryRun = true,
+            data = new Dictionary<string, object> { ["Title"] = "second" },
+            status = "Published",
+        }, TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+            .Should().Contain("declares a lifecycle");
+        (await LoadAsync(id)).Status.Should().Be(before);
+    }
+
     [Fact]
     public async Task Updating_with_the_stored_status_on_a_type_with_a_lifecycle_still_succeeds()
     {
