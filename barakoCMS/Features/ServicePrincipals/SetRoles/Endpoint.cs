@@ -5,6 +5,7 @@ using barakoCMS.Features.Tenants.Members;
 using barakoCMS.Features.Users;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
+using barakoCMS.Infrastructure.Services;
 using FastEndpoints;
 using Marten;
 using barakoCMS.Features.ServicePrincipals;
@@ -18,7 +19,7 @@ internal sealed class SetPrincipalRolesRequest
 }
 
 /// <summary>PUT /api/service-principals/{id}/roles replaces the principal's roles.</summary>
-internal class SetServicePrincipalRolesEndpoint(IDocumentSession session, ICallerCapabilities callers)
+internal class SetServicePrincipalRolesEndpoint(IDocumentSession session, ICallerCapabilities callers, IPermissionResolver permissions)
     : Endpoint<SetPrincipalRolesRequest, ServicePrincipalResponse>
 {
     public override void Configure()
@@ -33,8 +34,12 @@ internal class SetServicePrincipalRolesEndpoint(IDocumentSession session, ICalle
         var principal = await PrincipalRules.InTenantAsync(session, req.Id, tenant, ct);
         if (principal is null) { await Send.NotFoundAsync(ct); return; }
 
+        // Replacing roles can strip what the principal holds, so the caller must hold those too.
+        if (await PrincipalRules.NotHeldByPrincipalAsync(session, callers, permissions, User, principal, ct) is { } current)
+            ThrowError(r => r.RoleIds!, current, 403);
+
         var roleIds = (req.RoleIds ?? []).Distinct().ToList();
-        if (await PrincipalRules.CheckAsync(session, callers, User, roleIds, tenant, ct) is { } why)
+        if (await PrincipalRules.CheckAsync(session, callers, permissions, User, roleIds, tenant, ct) is { } why)
             ThrowError(r => r.RoleIds!, why, 403);
 
         var before = principal.RoleIds.Select(r => r.ToString()).ToList();

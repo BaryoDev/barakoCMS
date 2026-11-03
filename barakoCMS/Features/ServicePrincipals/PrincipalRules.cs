@@ -4,6 +4,7 @@ using barakoCMS.Features.Roles;
 using barakoCMS.Features.Tenants.Members;
 using barakoCMS.Features.Users;
 using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -47,7 +48,7 @@ internal static class PrincipalRules
     /// the roles can carry, since platform capabilities are already refused above.
     /// </summary>
     public static async Task<string?> NotHeldAsync(
-        IQuerySession session, ICallerCapabilities callers, System.Security.Claims.ClaimsPrincipal user,
+        IQuerySession session, ICallerCapabilities callers, IPermissionResolver permissions, System.Security.Claims.ClaimsPrincipal user,
         IEnumerable<Guid> roleIds, CancellationToken ct)
     {
         var ids = roleIds.ToList();
@@ -61,14 +62,41 @@ internal static class PrincipalRules
                 return $"You cannot grant '{capability}' because you do not hold it.";
         }
 
+        // Content rights too. A key acts through the principal's roles on the content routes, so a
+        // role with wider rights than the caller's own would widen the caller. Judged by the
+        // resolver those routes use, with no entry, so a rule's conditions are not compared.
+        Guid.TryParse(user.FindFirst("UserId")?.Value, out var callerId);
+        var caller = callerId == Guid.Empty ? null : await session.LoadAsync<User>(callerId, ct);
+        foreach (var (type, action) in roles.SelectMany(ContentRights).Distinct())
+        {
+            if (caller is null || !await permissions.CanPerformActionAsync(caller, type, action, null, ct))
+                return $"You cannot grant '{action}' on '{type}' because you do not hold it.";
+        }
+
         return null;
+    }
+
+    /// <summary>Every enabled content right a role carries: each type with create, read, update, delete and named transitions.</summary>
+    private static IEnumerable<(string Type, string Action)> ContentRights(Role role)
+    {
+        foreach (var permission in role.Permissions ?? [])
+        {
+            if (permission is null || string.IsNullOrWhiteSpace(permission.ContentTypeSlug)) continue;
+            var type = permission.ContentTypeSlug;
+            if (permission.Create?.Enabled == true) yield return (type, "create");
+            if (permission.Read?.Enabled == true) yield return (type, "read");
+            if (permission.Update?.Enabled == true) yield return (type, "update");
+            if (permission.Delete?.Enabled == true) yield return (type, "delete");
+            foreach (var (name, rule) in permission.Transitions ?? [])
+                if (rule?.Enabled == true) yield return (type, PermissionResolver.TransitionActionPrefix + name);
+        }
     }
 
     /// <summary>Whether these roles may go on a principal, then whether the caller holds what they carry.</summary>
     public static async Task<string?> CheckAsync(
-        IQuerySession session, ICallerCapabilities callers, System.Security.Claims.ClaimsPrincipal user,
+        IQuerySession session, ICallerCapabilities callers, IPermissionResolver permissions, System.Security.Claims.ClaimsPrincipal user,
         List<Guid> roleIds, string tenant, CancellationToken ct) =>
-        await RefusalAsync(session, roleIds, tenant, ct) ?? await NotHeldAsync(session, callers, user, roleIds, ct);
+        await RefusalAsync(session, roleIds, tenant, ct) ?? await NotHeldAsync(session, callers, permissions, user, roleIds, ct);
 
     /// <summary>The trimmed name, or the reason it is refused.</summary>
     public static string? NameProblem(string? raw, out string name)
@@ -101,9 +129,9 @@ internal static class PrincipalRules
 
     /// <summary>The principal's roles, loaded for the hold check on bind and move.</summary>
     public static Task<string?> NotHeldByPrincipalAsync(
-        IQuerySession session, ICallerCapabilities callers, System.Security.Claims.ClaimsPrincipal user,
+        IQuerySession session, ICallerCapabilities callers, IPermissionResolver permissions, System.Security.Claims.ClaimsPrincipal user,
         ServicePrincipal principal, CancellationToken ct) =>
-        NotHeldAsync(session, callers, user, principal.RoleIds, ct);
+        NotHeldAsync(session, callers, permissions, user, principal.RoleIds, ct);
 
     public static string TenantOf(System.Security.Claims.ClaimsPrincipal user) =>
         (user.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
