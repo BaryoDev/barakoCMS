@@ -74,6 +74,10 @@ internal class CreatePreviewTokenEndpoint(
         var slugField = def is null ? null : PublicDelivery.SlugField(def);
         if (slugField is null) { await Send.NotFoundAsync(ct); return; }
 
+        /* The lookup above ignores case; the entry query below and the permission check do not, and
+         * entries are stored under the definition's own spelling. */
+        req.Type = def!.Name;
+
         /* Find the entry by slug across ALL statuses — the whole point is to preview a draft. */
         var (sql, parameters) = DeliveryQuery.FieldEqualsIgnoreCaseSql(slugField, req.Slug);
         var entry = await session.Query<Models.Content>()

@@ -159,6 +159,27 @@ public class PreviewTests
     }
 
     [Fact]
+    public async Task Mint_WithTheTypeInAnotherCase_FindsTheEntry()
+    {
+        var type = "prev_i"; await SeedAsync(type);
+
+        Guid userId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            userId = Guid.NewGuid();
+            s.Store(new User { Id = userId, Username = $"admin-{userId}", Email = $"admin-{userId}@example.com", RoleIds = new() { barakoCMS.Data.DataSeeder.SuperAdminRoleId } });
+            await s.SaveChangesAsync();
+        }
+        _client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", _factory.CreateToken(new[] { "SuperAdmin" }, userId.ToString()));
+
+        var mint = await _client.PostAsJsonAsync("/api/preview", new { Type = type.ToUpperInvariant(), Slug = "wip" });
+
+        mint.StatusCode.Should().Be(HttpStatusCode.OK, because: await mint.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task PreviewToken_IsRejected_ByTheMainBearerScheme()
     {
         // A preview token must NOT be usable as an API access token (distinct audience).
