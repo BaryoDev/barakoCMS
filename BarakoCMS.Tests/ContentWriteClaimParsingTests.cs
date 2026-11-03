@@ -17,7 +17,9 @@ namespace BarakoCMS.Tests;
 /// exception handler turned into a 500.
 ///
 /// A 500 is not a vulnerability here, it is a lie: the request was malformed, and answering "server
-/// error" sends an operator looking at the server. Both endpoints are asserted together, so the next
+/// error" sends an operator looking at the server. Since #906 both endpoints resolve the caller as a
+/// person or a service principal, and a caller that cannot be read answers 401, as Batch and Counts
+/// already did. Both endpoints are asserted together, so the next
 /// person to add a third write endpoint has the pair to copy rather than the odd one out.
 /// </remarks>
 [Collection("Integration1")]
@@ -42,8 +44,8 @@ public class ContentWriteClaimParsingTests
             $"/api/contents/{Guid.NewGuid()}",
             new { Data = new Dictionary<string, object> { ["Title"] = "x" }, Version = 0 });
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest,
-            "the claim is malformed, so this is the caller's error. Guid.Parse threw a "
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "a claim that names no caller is an authentication failure. Guid.Parse threw a "
           + "FormatException here and the request came back as a 500");
     }
 
@@ -54,8 +56,8 @@ public class ContentWriteClaimParsingTests
             "/api/contents",
             new { ContentType = "Article", Data = new Dictionary<string, object> { ["Title"] = "x" } });
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest,
-            "Create already parsed defensively, and this pins the answer Update was aligned to");
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "Create and Update give the same answer to a caller that cannot be read");
     }
 
     /// <summary>
