@@ -10,6 +10,7 @@ internal class Endpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    barakoCMS.Core.Interfaces.ICallerCapabilities callers,
     IConfiguration configuration) : Endpoint<Request, Response>
 {
     private static readonly IReadOnlyList<string> LegacyRoles = CapabilityGate.AdminLegacyRoles;
@@ -61,6 +62,14 @@ internal class Endpoint(
         if (PlatformRoles.CarriesPlatformCapability(role) && !await PlatformRoles.IsSuperAdminAsync(session, User, ct))
         {
             await Send.ResponseAsync(new Response { Message = PlatformRoles.PlatformRoleRefusedMessage }, 403, ct);
+            return;
+        }
+
+        var notHeld = await barakoCMS.Features.Roles.RoleGrantRules.NotHeldAsync(
+            session, callers, permissionResolver, User, [req.RoleId], tenant.Slug, ct);
+        if (notHeld is not null)
+        {
+            await Send.ResponseAsync(new Response { Message = notHeld }, 403, ct);
             return;
         }
 

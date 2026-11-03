@@ -458,7 +458,8 @@ internal sealed class AddMemberRequest
 internal sealed class AddMemberEndpoint(
     IDocumentSession session,
     TenantContext tenant,
-    barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<AddMemberRequest, MemberResponse>
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions,
+    barakoCMS.Core.Interfaces.ICallerCapabilities callers) : Endpoint<AddMemberRequest, MemberResponse>
 {
     public override void Configure()
     {
@@ -496,6 +497,14 @@ internal sealed class AddMemberEndpoint(
 
         if (await Members.RefusesPlatformRolesAsync(session, User, roleIds, membership, ct))
             ThrowError(barakoCMS.Features.Users.PlatformRoles.PlatformRoleRefusedMessage, 403);
+
+        // The caller must hold what they hand out, and what the member holds now (that is replaced).
+        var notHeld = await barakoCMS.Features.Roles.RoleGrantRules.NotHeldAsync(
+            session, callers, permissions, User,
+            roleIds.Concat(membership is { Status: not MembershipStatus.Removed } ? membership.RoleIds ?? [] : []),
+            slug, ct);
+        if (notHeld is not null)
+            ThrowError(notHeld, 403);
 
         var details = new Dictionary<string, object> { ["invited"] = invited };
 
@@ -559,7 +568,8 @@ internal sealed class UpdateMemberRequest
 internal sealed class UpdateMemberEndpoint(
     IDocumentSession session,
     TenantContext tenant,
-    barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<UpdateMemberRequest, MemberResponse>
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions,
+    barakoCMS.Core.Interfaces.ICallerCapabilities callers) : Endpoint<UpdateMemberRequest, MemberResponse>
 {
     public override void Configure()
     {
@@ -599,6 +609,14 @@ internal sealed class UpdateMemberEndpoint(
 
         if (await Members.RefusesPlatformRolesAsync(session, User, roleIds, membership, ct))
             ThrowError(barakoCMS.Features.Users.PlatformRoles.PlatformRoleRefusedMessage, 403);
+
+        // The caller must hold what they hand out, and what the member holds now (that is replaced).
+        var notHeld = await barakoCMS.Features.Roles.RoleGrantRules.NotHeldAsync(
+            session, callers, permissions, User,
+            roleIds.Concat(membership is { Status: not MembershipStatus.Removed } ? membership.RoleIds ?? [] : []),
+            slug, ct);
+        if (notHeld is not null)
+            ThrowError(notHeld, 403);
 
         await Members.ChangeAsync(session, User, "tenant.member.updated", membership, roleIds, req.Status,
             req.Profile is null ? null : Members.CopyOf(req.Profile),
