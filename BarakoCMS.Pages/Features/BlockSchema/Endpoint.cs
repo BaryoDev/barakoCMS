@@ -98,6 +98,11 @@ internal static class BlockSchemaTranslation
 
     private static BlockFieldItem Field(string name, JsonElement schema, bool required)
     {
+        if (schema.ValueKind != JsonValueKind.Object)
+        {
+            return new BlockFieldItem(name, "text", Humanize(name), required, null, null, null);
+        }
+
         var kind = Hint(schema, BlockSchemaHints.Kind) ?? KindOf(schema);
         IReadOnlyList<string>? options = null;
         if (kind == "select" && schema.TryGetProperty("enum", out var values) && values.ValueKind == JsonValueKind.Array)
@@ -155,7 +160,7 @@ internal static class BlockSchemaTranslation
 
     /// <summary>The field's <c>x-order</c>, or null when it has none or it is not a whole number.</summary>
     private static int? Order(JsonElement schema) =>
-        schema.TryGetProperty(BlockSchemaHints.Order, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n)
+        schema.ValueKind == JsonValueKind.Object && schema.TryGetProperty(BlockSchemaHints.Order, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n)
             ? n : null;
 
     private static double? Number(JsonElement schema, string keyword) =>

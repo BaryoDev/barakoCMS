@@ -79,7 +79,7 @@ internal static class SeedFile
 
         var root = Parse(bytes);
         var tenants = ReadTenants(root);
-        Validate(tenants);
+        Validate(tenants, TenantDomains.DeploymentHost(configuration));
 
         await ApplyConfigAsync(services, null, Without(root, ConfigDocument.TenantsSection), ct);
         foreach (var (slug, tenant) in tenants)
@@ -127,7 +127,7 @@ internal static class SeedFile
     }
 
     /// <summary>What can be refused before anything is written, so a bad handle does not leave half an instance.</summary>
-    private static void Validate(Dictionary<string, SeedTenant> tenants)
+    private static void Validate(Dictionary<string, SeedTenant> tenants, string? deploymentHost)
     {
         var problems = new List<string>();
         foreach (var (slug, tenant) in tenants)
@@ -137,7 +137,7 @@ internal static class SeedFile
                 problems.Add($"'{slug}' is not a tenant handle (3-40 characters of a-z, 0-9 and hyphens, not reserved).");
             }
 
-            TenantDomains.Normalise(tenant.Domains ?? [], out var errors);
+            TenantDomains.Normalise(tenant.Domains ?? [], deploymentHost, out var errors);
             problems.AddRange(errors.Select(e => $"tenant '{slug}': {e}"));
             problems.AddRange((tenant.Members ?? [])
                 .Where(m => !(m.Email ?? string.Empty).Contains('@'))
@@ -224,7 +224,8 @@ internal static class SeedFile
             throw new InvalidOperationException($"{Key}: '{slug}' is not a tenant handle (3-40 characters of a-z, 0-9 and hyphens, not reserved).");
         }
 
-        var domains = TenantDomains.Normalise(declared.Domains ?? [], out var errors);
+        var domains = TenantDomains.Normalise(
+            declared.Domains ?? [], TenantDomains.DeploymentHost(services.GetRequiredService<IConfiguration>()), out var errors);
         if (errors.Count > 0)
         {
             throw new InvalidOperationException($"{Key}: tenant '{slug}': {string.Join(" ", errors)}");
@@ -242,12 +243,18 @@ internal static class SeedFile
         // isActive false suspends an active tenant and leaves an archived one archived.
         var status = declared.IsActive ? TenantStatus.Active
             : tenant.Status == TenantStatus.Active ? TenantStatus.Suspended : tenant.Status;
-        if (tenant.Name != name || tenant.Status != status || !tenant.Domains.SequenceEqual(domains))
+        var changed = tenant.Name != name || tenant.Status != status || !tenant.Domains.SequenceEqual(domains);
+        if (changed)
         {
             tenant.Name = name;
             tenant.Status = status;
             tenant.Domains = domains.ToList();
             session.Store(tenant);
+        }
+
+        // A domain in the deployment's own seed file is the operator's word, so it is verified, not pending.
+        if (await TenantDomainClaims.StageAsync(session, slug, domains, trusted: true, ct) || changed)
+        {
             await session.SaveChangesAsync(ct);
             services.GetRequiredService<ITenantDomainSource>().Invalidate();
         }

@@ -83,6 +83,94 @@ public class MetricsEndpointTests
         body.Should().NotContain("process_");
     }
 
+    [Theory]
+    [InlineData("/metrics/")]
+    [InlineData("/Metrics/")]
+    [InlineData("/METRICS/")]
+    [InlineData("/Metrics")]
+    public async Task The_scrape_key_is_required_on_every_spelling_of_the_route(string path)
+    {
+        var res = await Scrapeable().GetAsync(path, TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var body = await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        body.Should().NotContain("process_");
+    }
+
+    [Theory]
+    [InlineData("/metrics/")]
+    [InlineData("/Metrics/")]
+    [InlineData("/METRICS/")]
+    public async Task Every_spelling_of_the_route_serves_the_metrics_to_a_scraper_with_the_key(string path)
+    {
+        var client = Scrapeable();
+        client.DefaultRequestHeaders.Add(MetricsScrapeAccess.HeaderName, ScrapeKey);
+
+        var res = await client.GetAsync(path, TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().Contain("process_");
+    }
+
+    [Theory]
+    [InlineData("/metrics/")]
+    [InlineData("/Metrics/")]
+    [InlineData("/METRICS/")]
+    public async Task With_no_key_configured_no_spelling_of_the_route_serves_anything(string path)
+    {
+        var res = await _factory.CreateClient().GetAsync(path, TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().NotContain("process_");
+    }
+
+    [Theory]
+    [InlineData("//metrics")]
+    [InlineData("///metrics")]
+    [InlineData("/metrics//")]
+    public async Task A_doubled_slash_does_not_get_past_the_scrape_key(string path)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost" + path);
+
+        var res = await Scrapeable().SendAsync(request, TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "a 404 from routing would mean the guard never looked at this spelling");
+        (await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().NotContain("process_");
+    }
+
+    [Theory]
+    [InlineData("//metrics")]
+    [InlineData("///metrics")]
+    [InlineData("/metrics//")]
+    public async Task A_doubled_slash_with_the_key_is_let_past_the_guard(string path)
+    {
+        var client = Scrapeable();
+        client.DefaultRequestHeaders.Add(MetricsScrapeAccess.HeaderName, ScrapeKey);
+        var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost" + path);
+
+        var res = await client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized,
+            "the guard treats this spelling as the metrics route, so a scraper holding the key is not refused by it");
+    }
+
+    [Theory]
+    [InlineData("//metrics")]
+    [InlineData("///metrics")]
+    [InlineData("/metrics//")]
+    public async Task A_doubled_slash_with_the_wrong_key_is_refused(string path)
+    {
+        var client = Scrapeable();
+        client.DefaultRequestHeaders.Add(MetricsScrapeAccess.HeaderName, ScrapeKey + "-wrong");
+        var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost" + path);
+
+        var res = await client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "with the guard gone this path is an unmatched route and answers 404");
+    }
+
     [Fact]
     public async Task The_guard_does_not_touch_the_rest_of_the_api()
     {

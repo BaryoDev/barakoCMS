@@ -169,8 +169,8 @@ internal class Endpoint(
 
         // 3. Apply Sorting
         query = req.SortOrder.ToLower() == "asc"
-            ? query.OrderBy(c => c.CreatedAt)
-            : query.OrderByDescending(c => c.CreatedAt);
+            ? query.OrderBy(c => c.CreatedAt).ThenBy(c => c.Id)
+            : query.OrderByDescending(c => c.CreatedAt).ThenBy(c => c.Id);
 
         // 4. Ask whether the read rules can be a WHERE clause. When they can, the database pages and
         // counts; when they cannot, everything below is exactly what it was.

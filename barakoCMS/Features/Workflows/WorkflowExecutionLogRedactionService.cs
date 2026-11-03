@@ -22,7 +22,8 @@ namespace barakoCMS.Features.Workflows;
 /// </remarks>
 internal sealed class WorkflowExecutionLogRedactionService(
     IDocumentStore store,
-    ILogger<WorkflowExecutionLogRedactionService> logger) : BackgroundService
+    ILogger<WorkflowExecutionLogRedactionService> logger,
+    IConfiguration? configuration = null) : BackgroundService
 {
     private const int BatchSize = 200;
 
@@ -57,45 +58,50 @@ internal sealed class WorkflowExecutionLogRedactionService(
     {
         await store.Storage.Database.EnsureStorageExistsAsync(typeof(WorkflowExecutionLog), ct);
 
-        await using var lockConnection = store.Storage.Database.CreateConnection();
-        await lockConnection.OpenAsync(ct);
-
-        await using (var acquire = lockConnection.CreateCommand())
+        await using var lease = await AdvisoryLease.AcquireAsync(store, PassLockKey, ct);
+        if (lease is null)
         {
-            acquire.CommandText = "select pg_try_advisory_lock(@key)";
-            acquire.Parameters.AddWithValue("key", PassLockKey);
+            logger.LogDebug("Another instance is redacting stored workflow execution logs; skipping.");
+            return null;
+        }
 
-            if ((bool?)await acquire.ExecuteScalarAsync(ct) is not true)
+        if (lease.PoolerSuspected)
+        {
+            AdvisoryLease.ReportPooler(logger, PassLockKey);
+            if (AdvisoryLease.RefuseBehindPooler(configuration))
             {
-                logger.LogDebug("Another instance is redacting stored workflow execution logs; skipping.");
                 return null;
             }
         }
 
-        try
+        if (AfterLockHeld is { } hook)
         {
-            var redacted = 0;
-            foreach (var tenantId in await PartitionsAsync(ct))
+            await hook(ct);
+        }
+
+        var redacted = 0;
+        foreach (var tenantId in await PartitionsAsync(ct))
+        {
+            if (!await lease.IsHeldAsync(ct))
             {
-                await using var session = store.LightweightSession(tenantId);
-                redacted += await RedactStoredAsync(session, ct);
+                logger.LogWarning("The workflow execution log redaction lost its advisory lock; stopping");
+                break;
             }
 
-            if (redacted > 0)
-            {
-                logger.LogInformation("Redacted {Count} stored workflow execution log(s)", redacted);
-            }
+            await using var session = store.LightweightSession(tenantId);
+            redacted += await RedactStoredAsync(session, ct);
+        }
 
-            return redacted;
-        }
-        finally
+        if (redacted > 0)
         {
-            await using var release = lockConnection.CreateCommand();
-            release.CommandText = "select pg_advisory_unlock(@key)";
-            release.Parameters.AddWithValue("key", PassLockKey);
-            await release.ExecuteScalarAsync(CancellationToken.None);
+            logger.LogInformation("Redacted {Count} stored workflow execution log(s)", redacted);
         }
+
+        return redacted;
     }
+
+    /// <summary>Runs once the lock is held and before the first partition. Tests only.</summary>
+    internal Func<CancellationToken, Task>? AfterLockHeld { get; set; }
 
     /// <summary>Every partition a log can be in: each tenant in the registry, and both names the default partition goes by.</summary>
     /// <remarks>

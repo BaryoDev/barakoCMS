@@ -78,7 +78,7 @@ configuration site says so, and it is the reason this is settled rather than adj
 
 `TenantResolutionMiddleware` resolves, in order:
 
-1. the **`X-Tenant` header**,
+1. the **`X-Tenant` header**, unless the request host is a verified custom domain of another tenant (below),
 2. a **registered custom domain** (`Tenant.Domains`, looked up through `ITenantDomainSource`),
 3. the host's **leading subdomain**, ignoring the infra labels `www`, `app`, `api` and `admin`,
 4. the **`default` tenant**.
@@ -96,6 +96,76 @@ belongs to, anonymously and with the handle only, for a renderer serving several
 process. It resolves the host the same way requests are routed: a registered domain first, then the
 leading subdomain, so `acme.example.com` answers `acme` when an active tenant has that handle and no
 domain row claims the host. An unknown or inactive handle is a 404 either way.
+
+### A verified domain beats the header
+
+Before the header is read, the host is checked against the verified domains. When the host is one and
+`X-Tenant` names a different tenant, the request ends with 403 and "This session is not valid for this
+tenant.", the same answer a token for another tenant gets. An equal header, or none, goes on as the
+domain's tenant. So a token for tenant A sent to B's domain, with or without `X-Tenant: A`, is refused.
+On any other host (the shared API host, a subdomain with no registered domain) the header still names
+the tenant. This applies with forwarded headers off, where the raw `Host` selects the tenant.
+
+With `ForwardedHeaders:Enabled`, `X-Forwarded-Host` is read along with `X-Forwarded-For` and
+`X-Forwarded-Proto`, and only from a peer in `KnownProxies` or `KnownNetworks`. A request from any
+other address cannot set the host that way. Set `ForwardedHeaders:ForwardHost` to false to keep the
+raw `Host` (the default is true). Set `ForwardedHeaders:AllowedHosts` to a list such as
+`["example.com", "*.example.com"]` to take only those forwarded hosts. A forwarded host not on the
+list is ignored and the raw `Host` is kept. An empty list takes any host.
+
+### Domain claims
+
+Each domain a tenant lists is also a `TenantDomain` row, keyed by the normalised host
+(`mt_doc_tenant_domains`). The key is the host, so two tenants cannot hold one domain: the second
+insert fails in the database and the write answers 409, even when two requests race past the check
+of `Tenant.Domains`. `Tenant.Domains` stays as the list of every claimed domain, pending or verified,
+and is written in the same transaction as the rows. The row decides routing: a listed domain with no
+verified row owned by that tenant routes nowhere.
+
+A row is `Pending` or `Verified`. A domain added through `POST /api/tenants` or `PUT
+/api/tenants/{handle}` is pending, with a token generated for that claim. A pending domain routes
+nowhere: `by-host`, `tls-ask` and CORS answer for it as for an unknown host. The tenant response lists
+each claim in `domainStates` with its status and the TXT record to publish. Domains from a seed file
+(`Seed:File`) are trusted and written as verified.
+
+### Verifying a domain
+
+`POST /api/tenants/{handle}/domains/{domain}/verify` (SuperAdmin or `ManageTenants`, limited by the
+`domain-verify` policy, 10 a minute per address) checks DNS and, when it passes, moves the claim to
+`Verified`. The check wants two records:
+
+- a `CNAME` on the domain pointing at the deployment host;
+- a `TXT` record at `_barako-challenge.{domain}` with the value `barako-verify={token}`, as listed in
+  `domainStates`.
+
+The deployment host is `Tenancy:DeploymentHost`, else the host of `App:BaseUrl`. If neither is set the
+route answers 409. A tenant or domain the caller cannot reach answers 404. A check that misses a
+record answers 200 with the claim still `Pending` and `cnameFound` and `txtFound` saying which record
+is missing; one that takes longer than 8 seconds answers `timedOut`. A domain on the apex behind
+CNAME flattening hides its CNAME and does not pass. There is no periodic recheck, so a verified
+domain stays verified.
+
+The check compares the record at the domain itself. A chained CNAME (the domain points at a name that
+in turn points at the deployment host) does not verify; point the domain straight at the deployment
+host. Because `www.` is dropped, `www.shop.example` and `shop.example` are one claim and the check
+looks at `shop.example`, so a setup that only has a `www` record needs the record on the bare name
+too. If the claim changes while the check runs (the tenant drops the domain, or another tenant
+claims it), the route answers 409 and writes nothing. A claimed domain can be at most 235 characters,
+so the `_barako-challenge.` name stays inside the 253 characters DNS allows.
+
+A host the 5.5.0 migration skipped, because two tenants both listed it, has no row. `/verify` answers
+404 for it until one tenant claims it again through `PUT /api/tenants/{handle}`.
+
+The deployment host and any name under it cannot be claimed. Names with non-ASCII letters are stored
+in their ASCII (`xn--`) form. `www.` is dropped, so `www.shop.example` and `shop.example` are one
+domain.
+
+Production runs `AutoCreate.CreateOnly`, so apply `migrations/5.5.0/1280-tenant-domains.sql` before
+upgrading. It creates the table and copies every domain already on a tenant as verified, so a domain
+that routed before keeps routing. A host two tenants both listed is skipped, because the map already
+routed it to neither; an operator decides which tenant keeps it. The map is cached for five minutes
+per instance and cleared at once only on the instance that took the write, so another instance can
+serve the old answer for up to 5 minutes.
 
 The same map can drive CORS and TLS, so adding a client's domain needs no config edit or restart.
 `CORS:AllowTenantDomains` (off by default) allows a browser on `https://` plus a registered domain,

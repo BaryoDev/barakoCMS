@@ -264,6 +264,72 @@ public class RoleApiTests
         (await _client.GetAsync($"/api/roles/{roleId}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task A_role_held_only_by_a_user_group_cannot_be_deleted()
+    {
+        var roleId = await CreateRoleAsync("group-held");
+        await StoreGroupAsync(roleId, deleted: false);
+
+        var response = await _client.DeleteAsync($"/api/roles/{roleId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("group");
+        (await _client.GetAsync($"/api/roles/{roleId}")).StatusCode.Should().Be(HttpStatusCode.OK,
+            "the role must still be there after a refused delete");
+    }
+
+    [Fact]
+    public async Task A_role_held_only_by_a_deleted_user_group_is_still_deletable()
+    {
+        var roleId = await CreateRoleAsync("deleted-group-held");
+        await StoreGroupAsync(roleId, deleted: true);
+
+        var response = await _client.DeleteAsync($"/api/roles/{roleId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_platform_role_held_only_by_another_tenants_group_cannot_be_deleted()
+    {
+        _client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", await CreateAdminToken());
+        var created = await _client.PostAsJsonAsync("/api/roles", new
+        {
+            name = $"platform-group-held-{Guid.NewGuid():N}",
+            description = "platform",
+            isPlatform = true,
+            permissions = new object[] { },
+        });
+        created.StatusCode.Should().Be(HttpStatusCode.OK);
+        var roleId = (await created.Content.ReadFromJsonAsync<barakoCMS.Features.Roles.Create.Response>())!.Id;
+
+        await StoreGroupAsync(roleId, deleted: false, tenant: "othertenant-" + Guid.NewGuid().ToString("n")[..8]);
+
+        var response = await _client.DeleteAsync($"/api/roles/{roleId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await _client.GetAsync($"/api/roles/{roleId}")).StatusCode.Should().Be(HttpStatusCode.OK,
+            "the role must still be there after a refused delete");
+    }
+
+    private async Task StoreGroupAsync(Guid roleId, bool deleted, string? tenant = null)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<Marten.IDocumentStore>();
+        await using var session = tenant is null ? store.LightweightSession() : store.LightweightSession(tenant);
+
+        session.Store(new barakoCMS.Models.UserGroup
+        {
+            Id = Guid.NewGuid(),
+            Name = $"g_{Guid.NewGuid():n}",
+            RoleIds = new List<Guid> { roleId },
+            DeletedAt = deleted ? DateTime.UtcNow : null,
+        });
+
+        await session.SaveChangesAsync();
+    }
+
     private async Task<Guid> CreateRoleAsync(string label)
     {
         _client.DefaultRequestHeaders.Authorization =

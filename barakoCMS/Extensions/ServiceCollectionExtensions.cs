@@ -669,6 +669,13 @@ public static class ServiceCollectionExtensions
             // UpdateExpectedVersion, so GET's ETag and PUT's If-Match round-trip through it.
             .UseOptimisticConcurrency(true)
             .Index(x => x.ContentType)  // Frequently filtered
+            // The uniqueness checks compare the type ignoring case, which the index above cannot
+            // serve. An existing database needs migrations/5.5.0/content-type-lower-index.sql.
+            .Index(x => x.ContentType, idx =>
+            {
+                idx.Casing = Marten.Schema.ComputedIndex.Casings.Lower;
+                idx.Name = "mt_doc_contents_idx_content_type_lower";
+            })
             .Index(x => x.CreatedAt)    // Frequently sorted
             .Index(x => x.UpdatedAt)
             .Index(x => x.Status)
@@ -890,6 +897,17 @@ public static class ServiceCollectionExtensions
             .Index(x => x.ExecuteAfter);
     }
 
+    private static void MapIdempotencyRecords(StoreOptions options)
+    {
+        options.Schema.For<IdempotencyRecord>()
+            .SingleTenanted()
+            .DocumentAlias("idempotency_records")
+            .Index(x => x.Key, idx => idx.IsUnique = true)  // Unique constraint prevents race condition
+            // The retention sweep and its count filter and order on CreatedAt. An existing database
+            // needs migrations/5.5.0/idempotency-created-at-index.sql.
+            .Index(x => x.CreatedAt);
+    }
+
     private static void MapGlobalDocuments(StoreOptions options)
     {
         options.Schema.For<EmailSettings>()
@@ -927,10 +945,7 @@ public static class ServiceCollectionExtensions
             .Index(x => x.TokenJti, idx => idx.IsUnique = true)  // Index for fast revocation check
             .Index(x => x.ExpiresAt);  // Index for cleanup queries
 
-        options.Schema.For<IdempotencyRecord>()
-            .SingleTenanted()
-            .DocumentAlias("idempotency_records")
-            .Index(x => x.Key, idx => idx.IsUnique = true);  // Unique constraint prevents race condition
+        MapIdempotencyRecords(options);
 
         options.Schema.For<OtpCode>()
             .SingleTenanted() // sign-in codes are keyed by global email, not by club
@@ -1003,6 +1018,15 @@ public static class ServiceCollectionExtensions
             .SingleTenanted() // the tenant registry itself is global
             .DocumentAlias("tenants")
             .Index(x => x.Slug, idx => idx.IsUnique = true);
+        // One row per claimed domain, keyed by the host, so the database refuses a second claim.
+        // migrations/5.5.0/1280-tenant-domains.sql adds it to an existing database and backfills it.
+        options.Schema.For<barakoCMS.Infrastructure.Multitenancy.TenantDomain>()
+            .SingleTenanted() // a domain is claimed across tenants, so it is global
+            .DocumentAlias("tenant_domains")
+            // The lock for verify's read-then-write: the route reads a row, waits on DNS, then writes
+            // it back, and the row version refuses the write if a claim change got in between.
+            .UseOptimisticConcurrency(true)
+            .Index(x => x.TenantSlug);
         options.Schema.For<Models.Membership>()
             .SingleTenanted() // maps global users to tenants — necessarily cross-tenant
             .DocumentAlias("memberships")
@@ -1151,9 +1175,9 @@ public static class ServiceCollectionExtensions
             }
 
             MapContentDocuments(options);
-
             MapIdentityAndSettingsDocuments(options);
             MapTenantScopedDocuments(options);
+            MapMissedWorkflowTriggers(options);
             options.Schema.For<barakoCMS.Data.SeedMarker>().SingleTenanted().DocumentAlias("seed_markers");
 
             MapGlobalDocuments(options);
@@ -1328,6 +1352,7 @@ public static class ServiceCollectionExtensions
         }
         services.AddSingleton(erasure);
         services.AddScoped<barakoCMS.Infrastructure.Erasure.IContentEraser, barakoCMS.Infrastructure.Erasure.ContentEraser>();
+        services.AddScoped<barakoCMS.Core.Interfaces.IContentErasureCascade, barakoCMS.Infrastructure.Erasure.WorkflowErasureCascade>();
     }
 
     private static void AddOtpAndEmailVerification(IServiceCollection services, IConfiguration configuration)
@@ -1399,6 +1424,11 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IConfiguration>()));
     }
 
+    private static void MapMissedWorkflowTriggers(StoreOptions options) =>
+        options.Schema.For<barakoCMS.Features.Workflows.MissedWorkflowTrigger>()
+            .MultiTenanted()
+            .DocumentAlias("workflow_missed_triggers");
+
     private static void MapPendingBuilds(StoreOptions options) =>
         options.Schema.For<PendingBuild>()
             .MultiTenanted()
@@ -1446,6 +1476,10 @@ public static class ServiceCollectionExtensions
         // would rebuild the cache lookup per request for no benefit.
         services.AddSingleton<barakoCMS.Infrastructure.Multitenancy.ITenantDomainSource,
                               barakoCMS.Infrastructure.Multitenancy.TenantDomainSource>();
+        // The real DNS check, replaceable: a test or a host that resolves some other way registers
+        // its own before this runs.
+        services.TryAddSingleton<barakoCMS.Infrastructure.Multitenancy.IDomainDnsChecker>(
+            _ => new barakoCMS.Infrastructure.Multitenancy.DnsClientDomainChecker());
         services.Configure<barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions>(
             configuration.GetSection(barakoCMS.Infrastructure.Multitenancy.MultitenancyOptions.SectionName));
 

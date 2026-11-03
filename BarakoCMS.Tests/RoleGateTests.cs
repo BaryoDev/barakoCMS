@@ -148,6 +148,7 @@ public class RoleGateTests
         new("GET", "/api/tenants", "/api/tenants"),
         new("POST", "/api/tenants", "/api/tenants"),
         new("PUT", "/api/tenants/{handle}", "/api/tenants/no-such-tenant"),
+        new("POST", "/api/tenants/{handle}/domains/{domain}/verify", "/api/tenants/no-such-tenant/domains/not_a_domain/verify"),
         new("GET", "/api/tenants/{handle}/export", $"/api/tenants/{NotASlug}/export"),
         new("POST", "/api/tenants/import", "/api/tenants/import"),
         new("GET", "/api/tenants/members", "/api/tenants/members"),

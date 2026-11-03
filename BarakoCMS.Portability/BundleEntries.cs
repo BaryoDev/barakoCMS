@@ -62,6 +62,7 @@ internal static class BundleEntries
     {
         if (string.IsNullOrWhiteSpace(rec.ContentType))
         {
+            errors.Add(new ValidationFailure($"contents[{index}]", "contentType is required."));
             return null;
         }
 
@@ -86,6 +87,14 @@ internal static class BundleEntries
             return null;
         }
 
+        var status = ContentStatus.Published;
+        if (!string.IsNullOrWhiteSpace(rec.Status)
+            && (!Enum.TryParse(rec.Status, ignoreCase: true, out status) || !Enum.IsDefined(status)))
+        {
+            errors.Add(new ValidationFailure($"contents[{index}]", "status is not a valid value."));
+            return null;
+        }
+
         var data = rec.Data ?? new Dictionary<string, object>();
 
         // A field the exporter could not read arrives holding its mask, not its value.
@@ -105,9 +114,7 @@ internal static class BundleEntries
         {
             ContentType = rec.ContentType,
             Data = data,
-            Status = Enum.TryParse<ContentStatus>(rec.Status, ignoreCase: true, out var s) && Enum.IsDefined(s)
-                ? s
-                : ContentStatus.Published,
+            Status = status,
             Sensitivity = rec.Sensitivity ?? SensitivityLevel.Public,
             Id = rec.Id is { } id && newIds.TryGetValue(id, out var fresh) ? fresh : null,
         };

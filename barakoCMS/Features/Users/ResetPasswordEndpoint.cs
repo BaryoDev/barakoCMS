@@ -1,5 +1,6 @@
 using FastEndpoints;
 using Marten;
+using Marten.Patching;
 using barakoCMS.Models;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Audit;
@@ -79,8 +80,9 @@ internal class ResetPasswordEndpoint(
             return;
         }
 
-        user.PasswordHash = barakoCMS.Infrastructure.Auth.PasswordHashing.Hash(req.NewPassword);
-        session.Store(user);
+        session.Patch<User>(user.Id).Set(x => x.PasswordHash, PasswordHashing.Hash(req.NewPassword));
+        session.Patch<User>(user.Id).Set(x => x.FailedLoginAttempts, 0);
+        session.Patch<User>(user.Id).Set(x => x.LockoutUntil, (DateTime?)null);
 
         // Revoke the user's refresh tokens so existing sessions can't be refreshed after the reset.
         await RevokeRefreshTokens.ForUserAsync(session, user.Id, "Password reset by administrator", ct, Resolve<barakoCMS.Infrastructure.Services.ISessionEpochService>());

@@ -23,7 +23,7 @@ internal class Endpoint(
         // Same fabricated-user path as AssignRole next door, and the same fix: an unknown user or an
         // unknown group is a 404, not a success that writes a ghost identity.
         var user = await session.LoadAsync<User>(req.UserId, ct);
-        if (user == null)
+        if (user == null || !await PlatformRoles.InTenantAsync(session, tenant, user, ct))
         {
             await Send.NotFoundAsync(ct);
             return;

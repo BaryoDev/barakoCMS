@@ -1,0 +1,1 @@
+- **The outbound address guard now refuses two more reserved IPv4 ranges.** 192.0.0.0/24 and 198.18.0.0/15 are blocked like the other non-public ranges.

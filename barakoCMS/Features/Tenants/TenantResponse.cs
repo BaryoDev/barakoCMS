@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Tenants;
@@ -19,6 +20,12 @@ internal sealed class TenantResponse
     public string Name { get; init; } = string.Empty;
     public Dictionary<string, string> Branding { get; init; } = new();
     public List<string> Domains { get; init; } = new();
+
+    /// <summary>
+    /// Where each domain stands: pending until its DNS check passes, then verified. Only a verified
+    /// domain routes. A domain with no entry here has no row yet and routes nowhere either.
+    /// </summary>
+    public List<TenantDomainState> DomainStates { get; init; } = new();
     public TenantStatus Status { get; init; }
 
     /// <summary>True when <see cref="Status"/> is Active. Kept for clients written before it.</summary>
@@ -31,8 +38,9 @@ internal sealed class TenantResponse
     /// <summary>The account that owns the tenant. The default account's id when none was assigned.</summary>
     public Guid AccountId { get; init; }
 
-    public static TenantResponse From(Tenant t) => new()
+    public static TenantResponse From(Tenant t, IEnumerable<TenantDomain>? claims = null) => new()
     {
+        DomainStates = (claims ?? []).OrderBy(c => c.Id, StringComparer.Ordinal).Select(TenantDomainState.From).ToList(),
         Id = t.Id,
         Slug = t.Slug,
         Name = t.Name,
@@ -48,5 +56,29 @@ internal sealed class TenantResponse
         SignIn = TenantSignInBody.From(t.SignIn ?? new TenantSignInPolicy()),
         // Stored as DateTime, emitted with a zone, like every other timestamp this API returns.
         CreatedAt = new DateTimeOffset(DateTime.SpecifyKind(t.CreatedAt, DateTimeKind.Utc)),
+    };
+}
+
+/// <summary>A claimed domain and what the tenant has to publish in DNS to verify it.</summary>
+internal sealed class TenantDomainState
+{
+    public string Domain { get; init; } = string.Empty;
+    public TenantDomainStatus Status { get; init; }
+
+    /// <summary>The TXT record's name, <c>_barako-challenge.{domain}</c>.</summary>
+    public string TxtName { get; init; } = string.Empty;
+
+    /// <summary>What that TXT record has to hold, <c>barako-verify=</c> and a value generated for this claim.</summary>
+    public string TxtValue { get; init; } = string.Empty;
+
+    public DateTimeOffset? VerifiedAt { get; init; }
+
+    public static TenantDomainState From(TenantDomain row) => new()
+    {
+        Domain = row.Id,
+        Status = row.Status,
+        TxtName = row.TxtName(),
+        TxtValue = row.TxtValue(),
+        VerifiedAt = row.VerifiedAt,
     };
 }

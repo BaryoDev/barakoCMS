@@ -45,6 +45,8 @@ internal class VerifyEndpoint(
 {
     private const int MaxAttempts = 5;
 
+    // Made the way the request endpoint hashes a code, so a miss costs what a real check costs.
+    private static readonly string DummyCodeHash = BCrypt.Net.BCrypt.HashPassword("000000");
 
     public override void Configure()
     {
@@ -124,19 +126,23 @@ internal class VerifyEndpoint(
         return (token, expiry);
     }
 
-    public override async Task HandleAsync(OtpVerifyRequest req, CancellationToken ct)
-    {
-        var email = (req.Email ?? string.Empty).Trim().ToLowerInvariant();
-        var code = (req.Code ?? string.Empty).Trim();
-
-        var otp = (await session.Query<OtpCode>()
+    private async Task<OtpCode?> LatestPendingCodeAsync(string email, CancellationToken ct) =>
+        (await session.Query<OtpCode>()
                 .Where(o => o.Email == email && !o.Consumed)
                 .ToListAsync(ct))
             .OrderByDescending(o => o.CreatedAt)
             .FirstOrDefault();
 
+    public override async Task HandleAsync(OtpVerifyRequest req, CancellationToken ct)
+    {
+        var email = (req.Email ?? string.Empty).Trim().ToLowerInvariant();
+        var code = (req.Code ?? string.Empty).Trim();
+
+        var otp = await LatestPendingCodeAsync(email, ct);
+
         if (otp == null || otp.ExpiresAt < DateTime.UtcNow)
         {
+            BCrypt.Net.BCrypt.Verify(code, DummyCodeHash);
             ThrowError("Invalid or expired code.");
             return;
         }

@@ -140,10 +140,35 @@ public class ModuleDiscoveryTests
         reaches("BarakoCMS").Should().BeFalse("core does not depend on itself, and depending on the "
           + "contract package is not depending on core. Reading the core's name off the assembly "
           + "holding IBarakoModule makes this true, and core is then scanned for modules");
-        reaches("Acme.ContractOnly").Should().BeFalse("a library that compiles against the contract "
-          + "alone is not discovered today. Every module still references core as well; changing "
-          + "that means changing this deliberately, not by accident");
     }
+
+    /// <summary>
+    /// A module built on the contract package alone never compiles against core, so its
+    /// dependency closure holds no core entry. It is still a candidate.
+    /// </summary>
+    [Fact]
+    public void A_library_that_references_only_the_contract_package_is_a_candidate()
+    {
+        var context = new DependencyContext(
+            new TargetInfo(".NETCoreApp,Version=v10.0", null, null, isPortable: true),
+            CompilationOptions.Default,
+            compileLibraries: [],
+            runtimeLibraries:
+            [
+                Library("BarakoCMS.Abstractions"),
+                Library("BarakoCMS", "BarakoCMS.Abstractions"),
+                Library("Acme.ContractOnly", "BarakoCMS.Abstractions"),
+                Library("Acme.ContractOnly.Extras", "Acme.ContractOnly"),
+                Library("Unrelated"),
+            ],
+            runtimeGraph: []);
+
+        var reaches = BarakoModuleBuilder.ReachesCore(context);
+
+        reaches("Acme.ContractOnly").Should().BeTrue("a direct reference to the contract package");
+        reaches("Acme.ContractOnly.Extras").Should().BeTrue("reach is transitive");
+        reaches("Unrelated").Should().BeFalse();
+        reaches("BarakoCMS").Should().BeFalse("core references the contract package and is not scanned for modules");    }
 
     private static RuntimeLibrary Library(string name, params string[] dependsOn) =>
         new("package", name, "1.0.0", hash: string.Empty,

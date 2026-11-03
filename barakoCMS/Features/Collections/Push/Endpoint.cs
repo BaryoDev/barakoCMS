@@ -86,7 +86,7 @@ internal sealed class Endpoint(
             await Send.NotFoundAsync(ct);
             return;
         }
-
+        req.Type = definition.Name;
         var slugField = PublicDelivery.SlugFieldForAuthoring(definition);
         if (slugField is null)
         {
@@ -191,12 +191,17 @@ internal sealed class Endpoint(
             return;
         }
 
+        if (definition.Lifecycle is not null && plans.Any(p => p.Existing is { } e && e.Status != req.Status))
+        {
+            ThrowError(barakoCMS.Features.Content.ChangeStatus.LifecycleGuard.StatusRefusal(req.Type), 400);
+        }
+
         var missing = new List<ContentDoc>();
         if (req.ArchiveMissing)
         {
             var (sql, parameters) = DeliveryQuery.FieldNotInIgnoreCaseSql(slugField, seen);
             missing = [.. await session.Query<ContentDoc>()
-                .Where(c => c.ContentType == req.Type
+                .Where(c => c.ContentType.ToLower() == req.Type.ToLower()
                             && c.Status == ContentStatus.Published
                             && c.MatchesSql(sql, parameters))
                 .OrderBy(c => c.CreatedAt)
@@ -255,7 +260,8 @@ internal sealed class Endpoint(
 
                 if (existing.Status != req.Status)
                 {
-                    events.Add(new ContentStatusChanged(existing.Id, req.Status, userId, DateTime.UtcNow));
+                    events.AddRange(barakoCMS.Features.Content.ChangeStatus.ScheduleClearing.With(
+                        existing, new ContentStatusChanged(existing.Id, req.Status, userId, DateTime.UtcNow), req.Status, userId));
                 }
 
                 if (events.Count == 0)
@@ -330,8 +336,9 @@ internal sealed class Endpoint(
     {
         var (sql, parameters) = DeliveryQuery.FieldInIgnoreCaseSql(slugField, slugs);
 
+        var lowered = type.ToLower();
         var holders = await session.Query<ContentDoc>()
-            .Where(c => c.ContentType == type && c.MatchesSql(sql, parameters))
+            .Where(c => c.ContentType.ToLower() == lowered && c.MatchesSql(sql, parameters))
             .OrderBy(c => c.CreatedAt)
             .ThenBy(c => c.Id)
             .Take(Limits.MaxEntries * 2)

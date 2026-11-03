@@ -2,7 +2,10 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using barakoCMS.Infrastructure.Multitenancy;
 using FluentAssertions;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.Tenants;
@@ -46,6 +49,23 @@ public class TenantDomainsApiTests
     private async Task<HttpResponseMessage> ByHostAsync(string host) =>
         await _fixture.CreateClient().GetAsync($"/api/tenants/by-host/{host}", Ct);
 
+    /// <summary>Stands in for the DNS check: marks the named domains verified and clears the cached map.</summary>
+    private async Task VerifyAsync(params string[] domains)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        foreach (var domain in domains)
+        {
+            var row = await session.LoadAsync<TenantDomain>(TenantDomainMap.Normalise(domain)!, Ct);
+            row.Should().NotBeNull("{0} was claimed through the API", domain);
+            TenantDomainClaims.Verify(row!);
+            session.Store(row!);
+        }
+
+        await session.SaveChangesAsync(Ct);
+        scope.ServiceProvider.GetRequiredService<ITenantDomainSource>().Invalidate();
+    }
+
     private static async Task<List<string>> DomainsOf(HttpResponseMessage response)
     {
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
@@ -63,6 +83,9 @@ public class TenantDomainsApiTests
 
         created.StatusCode.Should().Be(HttpStatusCode.OK, await created.Content.ReadAsStringAsync(Ct));
         (await DomainsOf(created)).Should().Equal(domain);
+
+        (await ByHostAsync(domain)).StatusCode.Should().Be(HttpStatusCode.NotFound, "a new domain is pending, and a pending domain routes nowhere");
+        await VerifyAsync(domain);
 
         foreach (var host in new[] { domain, $"www.{domain}" })
         {
@@ -89,6 +112,7 @@ public class TenantDomainsApiTests
 
         var updated = await UpdateAsync(client, handle, new { name = handle, isActive = true, domains = new[] { domain } });
         updated.StatusCode.Should().Be(HttpStatusCode.OK, await updated.Content.ReadAsStringAsync(Ct));
+        await VerifyAsync(domain);
 
         (await ByHostAsync(domain)).StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -100,6 +124,7 @@ public class TenantDomainsApiTests
         var handle = Handle();
         var domain = Domain();
         (await CreateAsync(client, handle, domain)).StatusCode.Should().Be(HttpStatusCode.OK);
+        await VerifyAsync(domain);
 
         var renamed = await UpdateAsync(client, handle, new { name = "Renamed", isActive = true });
         renamed.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -120,6 +145,7 @@ public class TenantDomainsApiTests
         var other = Handle();
         var domain = Domain();
         (await CreateAsync(client, holder, domain)).StatusCode.Should().Be(HttpStatusCode.OK);
+        await VerifyAsync(domain);
 
         var onCreate = await CreateAsync(client, other, domain);
         onCreate.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -144,6 +170,49 @@ public class TenantDomainsApiTests
         var saved = await UpdateAsync(client, handle, new { name = handle, isActive = true, domains = new[] { domain } });
 
         saved.StatusCode.Should().Be(HttpStatusCode.OK, "a tenant does not clash with itself");
+    }
+
+    [Fact]
+    public async Task A_domain_added_through_the_API_is_stored_as_a_pending_claim_with_a_generated_token()
+    {
+        var client = await SuperAdminAsync();
+        var handle = Handle();
+        var domain = Domain();
+
+        var created = await CreateAsync(client, handle, domain);
+
+        created.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var row = await session.LoadAsync<TenantDomain>(domain, Ct);
+        row.Should().NotBeNull();
+        row!.TenantSlug.Should().Be(handle);
+        row.Status.Should().Be(TenantDomainStatus.Pending);
+        row.Token.Should().MatchRegex("^[0-9a-f]{48}$");
+        row.VerifiedAt.Should().BeNull();
+    }
+
+    /// <summary>
+    /// The check for a holder reads the tenant documents, so two requests that both pass it can both
+    /// write. The claim row is keyed by the host, so the database lets one of them in.
+    /// </summary>
+    [Fact]
+    public async Task Two_tenants_claiming_one_domain_at_once_leave_exactly_one_owner()
+    {
+        var client = await SuperAdminAsync();
+        var domain = Domain();
+        var handles = Enumerable.Range(0, 6).Select(_ => Handle()).ToList();
+
+        var results = await Task.WhenAll(handles.Select(h => CreateAsync(client, h, domain)));
+
+        results.Count(r => r.StatusCode == HttpStatusCode.OK).Should().Be(1);
+        results.Where(r => r.StatusCode != HttpStatusCode.OK).Should().OnlyContain(r => r.StatusCode == HttpStatusCode.Conflict);
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var row = await session.LoadAsync<TenantDomain>(domain, Ct);
+        handles.Should().Contain(row!.TenantSlug);
+        var holders = await session.Query<barakoCMS.Models.Tenant>().Where(t => t.Slug.IsOneOf(handles.ToArray())).ToListAsync(Ct);
+        holders.Count(t => t.Domains.Contains(domain)).Should().Be(1, "the tenants that lost the race must not list the domain");
     }
 
     [Theory]
@@ -174,6 +243,7 @@ public class TenantDomainsApiTests
         var pausedDomain = Domain();
         (await CreateAsync(client, active, activeDomain)).StatusCode.Should().Be(HttpStatusCode.OK);
         (await CreateAsync(client, paused, pausedDomain)).StatusCode.Should().Be(HttpStatusCode.OK);
+        await VerifyAsync(activeDomain, pausedDomain);
         (await UpdateAsync(client, paused, new { name = paused, isActive = false })).StatusCode.Should().Be(HttpStatusCode.OK);
 
         var found = await ByHostAsync(activeDomain);

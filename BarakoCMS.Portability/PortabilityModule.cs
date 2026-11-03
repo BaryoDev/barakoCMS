@@ -17,6 +17,8 @@ public sealed class PortabilityModule : IBarakoModule
 {
     public string Name => "Portability";
 
+    public int HttpContractVersion => 2;
+
     public string? PackageId => "BarakoCMS.Portability";
 
     public string? PackageVersion => ModuleMetadata.VersionOf(GetType());

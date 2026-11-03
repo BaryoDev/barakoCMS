@@ -1,0 +1,1 @@
+- **Lists that page on creation time now break ties on the id, and the sitemap is ordered.** Entries created in the same instant no longer move between pages, and a sitemap cut at its 50000 cap lists the same entries each time. The feed and sitemap also drop characters XML 1.0 cannot carry, which used to make the whole document not well formed.

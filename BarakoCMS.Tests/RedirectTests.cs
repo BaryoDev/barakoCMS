@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using Marten;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using barakoCMS.Features.Redirects;
 using barakoCMS.Models;
@@ -325,6 +326,217 @@ public class RedirectEndpointTests
         report.GetProperty("created").GetInt32().Should().Be(1, "the first line is fine on its own");
         report.GetProperty("rejected").EnumerateArray().Should().ContainSingle()
             .Which.GetString().Should().Contain("loop");
+    }
+
+    private async Task<JsonElement> ImportAsync(string csv, bool dryRun = false)
+    {
+        var response = await _client.PostAsJsonAsync("/api/redirects/import",
+            new { csv, dryRun }, TestContext.Current.CancellationToken);
+
+        response.IsSuccessStatusCode.Should().BeTrue(
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+
+        return JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement;
+    }
+
+    private async Task<string> ResolveToAsync(string from, WebApplicationFactory<Program>? host = null)
+    {
+        using var anonymous = (host ?? _factory).CreateClient();
+        var response = await anonymous.GetAsync(
+            $"/api/public/redirects/resolve?path={Uri.EscapeDataString(from)}",
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))
+            .RootElement.GetProperty("toPath").GetString()!;
+    }
+
+    [Fact]
+    public async Task An_edited_redirect_answers_with_the_new_target_straight_away()
+    {
+        await AuthenticateAsync();
+        // The resolve answer is output cached, and only a host with the delivery cache on carries the
+        // listener that evicts it, so the edit has to go through this host.
+        var host = _factory.WithSetting("Delivery:ResponseCache:Enabled", "true");
+        var from = Unique();
+        (await SaveAsync(from, "/first")).IsSuccessStatusCode.Should().BeTrue();
+
+        (await ResolveToAsync(from, host)).Should().Be("/first");
+
+        using (var scope = host.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var rule = await session.Query<UrlRedirect>().FirstAsync(r => r.FromPath == from, TestContext.Current.CancellationToken);
+            rule.ToPath = "/second";
+            session.Store(rule);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        (await ResolveToAsync(from, host)).Should().Be("/second");
+    }
+
+    [Fact]
+    public async Task A_deleted_redirect_stops_answering_straight_away()
+    {
+        await AuthenticateAsync();
+        // The resolve answer is output cached, and only a host with the delivery cache on carries the
+        // listener that evicts it, so the edit has to go through this host.
+        var host = _factory.WithSetting("Delivery:ResponseCache:Enabled", "true");
+        var from = Unique();
+        (await SaveAsync(from, "/first")).IsSuccessStatusCode.Should().BeTrue();
+
+        (await ResolveToAsync(from, host)).Should().Be("/first");
+
+        using (var scope = host.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var rule = await session.Query<UrlRedirect>().FirstAsync(r => r.FromPath == from, TestContext.Current.CancellationToken);
+            session.Delete(rule);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        using var anonymous = host.CreateClient();
+        var response = await anonymous.GetAsync(
+            $"/api/public/redirects/resolve?path={Uri.EscapeDataString(from)}",
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task An_import_refuses_a_from_with_a_query_a_fragment_or_a_host()
+    {
+        await AuthenticateAsync();
+        var path = Unique();
+
+        var csv = string.Join("\n",
+            $"{path}?page=3,/a",
+            $"{path}#top,/b",
+            $"https://old.example.com{path},/c");
+
+        var report = await ImportAsync(csv);
+
+        report.GetProperty("created").GetInt32().Should().Be(0);
+        report.GetProperty("updated").GetInt32().Should().Be(0);
+        report.GetProperty("rejected").EnumerateArray().Should().HaveCount(3);
+    }
+
+    [Fact]
+    public async Task An_import_rejects_a_second_line_with_the_same_from()
+    {
+        await AuthenticateAsync();
+        var from = Unique();
+
+        var report = await ImportAsync($"{from},/first\n{from}/,/second");
+
+        report.GetProperty("created").GetInt32().Should().Be(1);
+        report.GetProperty("updated").GetInt32().Should().Be(0);
+        report.GetProperty("rejected").EnumerateArray().Should().ContainSingle()
+            .Which.GetString().Should().Contain("Line 2");
+
+        using var scope = _factory.Services.CreateScope();
+        var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+            .Query<UrlRedirect>().Where(r => r.FromPath == from).ToListAsync(TestContext.Current.CancellationToken);
+
+        stored.Should().ContainSingle().Which.ToPath.Should().Be("/first");
+    }
+
+    [Fact]
+    public async Task An_import_without_a_permanent_column_keeps_the_stored_status()
+    {
+        await AuthenticateAsync();
+        var from = Unique();
+        (await SaveAsync(from, "/old-target", permanent: true)).IsSuccessStatusCode.Should().BeTrue();
+
+        var report = await ImportAsync($"{from},/new-target\n");
+
+        report.GetProperty("updated").GetInt32().Should().Be(1);
+
+        using var scope = _factory.Services.CreateScope();
+        var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+            .Query<UrlRedirect>().Where(r => r.FromPath == from).ToListAsync(TestContext.Current.CancellationToken);
+
+        stored.Should().ContainSingle();
+        stored[0].ToPath.Should().Be("/new-target");
+        stored[0].Permanent.Should().BeTrue("the file said nothing about it");
+    }
+
+    [Fact]
+    public async Task An_import_with_an_explicit_false_makes_a_permanent_rule_temporary()
+    {
+        await AuthenticateAsync();
+        var from = Unique();
+        (await SaveAsync(from, "/old-target", permanent: true)).IsSuccessStatusCode.Should().BeTrue();
+
+        await ImportAsync($"{from},/new-target,false");
+
+        using var scope = _factory.Services.CreateScope();
+        var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+            .Query<UrlRedirect>().Where(r => r.FromPath == from).ToListAsync(TestContext.Current.CancellationToken);
+
+        stored.Should().ContainSingle().Which.Permanent.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("yes")]
+    [InlineData("1")]
+    [InlineData("perm")]
+    public async Task An_import_with_an_unrecognised_permanent_value_rejects_the_line_and_keeps_the_stored_status(
+        string value)
+    {
+        await AuthenticateAsync();
+        var from = Unique();
+        (await SaveAsync(from, "/old-target", permanent: true)).IsSuccessStatusCode.Should().BeTrue();
+
+        var report = await ImportAsync($"{from},/new-target,{value}");
+
+        report.GetProperty("updated").GetInt32().Should().Be(0);
+        report.GetProperty("rejected").GetArrayLength().Should().Be(1);
+
+        using var scope = _factory.Services.CreateScope();
+        var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+            .Query<UrlRedirect>().Where(r => r.FromPath == from).ToListAsync(TestContext.Current.CancellationToken);
+
+        stored.Should().ContainSingle();
+        stored[0].ToPath.Should().Be("/old-target");
+        stored[0].Permanent.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task An_import_with_a_blank_permanent_column_keeps_the_stored_status()
+    {
+        await AuthenticateAsync();
+        var from = Unique();
+        (await SaveAsync(from, "/old-target", permanent: true)).IsSuccessStatusCode.Should().BeTrue();
+
+        await ImportAsync($"{from},/new-target,  ");
+
+        using var scope = _factory.Services.CreateScope();
+        var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+            .Query<UrlRedirect>().Where(r => r.FromPath == from).ToListAsync(TestContext.Current.CancellationToken);
+
+        stored.Should().ContainSingle();
+        stored[0].ToPath.Should().Be("/new-target");
+        stored[0].Permanent.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_refused_line_does_not_stop_a_later_valid_line_with_the_same_from()
+    {
+        await AuthenticateAsync();
+        var from = Unique();
+
+        var report = await ImportAsync($"{from},{from}\n{from},/real-target\n");
+
+        report.GetProperty("created").GetInt32().Should().Be(1);
+        report.GetProperty("rejected").GetArrayLength().Should().Be(1);
+
+        using var scope = _factory.Services.CreateScope();
+        var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>()
+            .Query<UrlRedirect>().Where(r => r.FromPath == from).ToListAsync(TestContext.Current.CancellationToken);
+
+        stored.Should().ContainSingle().Which.ToPath.Should().Be("/real-target");
     }
 
     [Fact]

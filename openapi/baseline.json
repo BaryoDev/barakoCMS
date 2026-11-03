@@ -6575,6 +6575,8 @@
             "type": "boolean"
           },
           "name": {
+            "minLength": 1,
+            "nullable": false,
             "type": "string"
           },
           "permissions": {
@@ -6593,6 +6595,9 @@
             "type": "array"
           }
         },
+        "required": [
+          "name"
+        ],
         "type": "object"
       },
       "BarakoCMSFeaturesRolesCreateResponse": {
@@ -6750,6 +6755,8 @@
             "type": "boolean"
           },
           "name": {
+            "minLength": 1,
+            "nullable": false,
             "type": "string"
           },
           "permissions": {
@@ -6770,6 +6777,9 @@
             "type": "array"
           }
         },
+        "required": [
+          "name"
+        ],
         "type": "object"
       },
       "BarakoCMSFeaturesRolesUpdateResponse": {
@@ -7593,6 +7603,32 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesTenantsTenantDomainState": {
+        "additionalProperties": false,
+        "description": "A claimed domain and what the tenant has to publish in DNS to verify it.",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BarakoCMSInfrastructureMultitenancyTenantDomainStatus"
+          },
+          "txtName": {
+            "description": "The TXT record's name, _barako-challenge.{domain}.",
+            "type": "string"
+          },
+          "txtValue": {
+            "description": "What that TXT record has to hold, barako-verify= and a value generated for this claim.",
+            "type": "string"
+          },
+          "verifiedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesTenantsTenantPublicResponse": {
         "additionalProperties": false,
         "properties": {
@@ -7651,6 +7687,13 @@
           "createdAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "domainStates": {
+            "description": "Where each domain stands: pending until its DNS check passes, then verified. Only a verified\ndomain routes. A domain with no entry here has no row yet and routes nowhere either.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesTenantsTenantDomainState"
+            },
+            "type": "array"
           },
           "domains": {
             "items": {
@@ -7797,7 +7840,7 @@
             "type": "string"
           },
           "status": {
-            "description": "Whether the tenant is served. Leaving it and IsActive out makes it Active, as\nbefore, also on an update: a write that sends only other fields reactivates a suspended\ntenant, so send the current status to keep it.",
+            "description": "Whether the tenant is served. Leaving it and IsActive out keeps the current\nstatus on an update, and makes a new tenant Active.",
             "nullable": true,
             "oneOf": [
               {
@@ -7813,6 +7856,48 @@
         "properties": {
           "allowed": {
             "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesTenantsVerifyDomainResponse": {
+        "additionalProperties": false,
+        "description": "Where a domain's DNS check stands after one run.",
+        "properties": {
+          "cnameFound": {
+            "description": "The domain is a CNAME to CnameTarget.",
+            "type": "boolean"
+          },
+          "cnameTarget": {
+            "description": "The host the domain has to be a CNAME to.",
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "status": {
+            "description": "Pending until both records are found, then Verified.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSInfrastructureMultitenancyTenantDomainStatus"
+              }
+            ]
+          },
+          "timedOut": {
+            "description": "The lookups ran out of time, so retry: the records were not judged.",
+            "type": "boolean"
+          },
+          "txtFound": {
+            "description": "A TXT record at TxtName holds the value the tenant response shows.",
+            "type": "boolean"
+          },
+          "txtName": {
+            "type": "string"
+          },
+          "verifiedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
           }
         },
         "type": "object"
@@ -9888,6 +9973,18 @@
           }
         },
         "type": "object"
+      },
+      "BarakoCMSInfrastructureMultitenancyTenantDomainStatus": {
+        "description": "Whether a tenant has proved it controls a domain.",
+        "enum": [
+          "Pending",
+          "Verified"
+        ],
+        "type": "string",
+        "x-enumNames": [
+          "Pending",
+          "Verified"
+        ]
       },
       "BarakoCMSInfrastructureServicesClusterStatus": {
         "additionalProperties": false,
@@ -15432,7 +15529,7 @@
             "JWTBearerAuth": []
           }
         ],
-        "summary": "POST /api/auth/mfa/disable \u2014 turn off MFA for the signed-in user. Requires a current TOTP or a\nrecovery code, so a hijacked session (without the second factor) cannot remove it.",
+        "summary": "POST /api/auth/mfa/disable \u2014 turn off MFA for the signed-in user. Requires a current TOTP or a\nrecovery code, so a hijacked session (without the second factor) cannot remove it. Wrong codes\ncount toward the same lockout as the other second-factor endpoints.",
         "tags": [
           "Auth"
         ]
@@ -24996,6 +25093,54 @@
           }
         ],
         "summary": "PUT /api/tenants/{handle}: update a tenant's name, domains and status (platform admin).",
+        "tags": [
+          "Tenants"
+        ]
+      }
+    },
+    "/api/tenants/{handle}/domains/{domain}/verify": {
+      "post": {
+        "description": "Gated like the other tenant domain writes. A domain that is not the tenant's, or a tenant outside\nthe caller's account, answers 404. It never replays a stored answer: the result is what DNS says\nnow, and a replayed \"pending\" after the record was fixed would send the administrator in circles.\nA failed check is a 200 that says what was missing, because the check itself worked.",
+        "operationId": "barakoCMSFeaturesTenantsVerifyDomainEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesTenantsVerifyDomainResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/tenants/{handle}/domains/{domain}/verify: runs the DNS check for a pending domain and\nmoves it to verified when both records are there.",
         "tags": [
           "Tenants"
         ]

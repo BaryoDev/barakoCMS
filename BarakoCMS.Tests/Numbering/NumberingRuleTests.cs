@@ -128,7 +128,7 @@ public class NumberingRuleTests : IAsyncLifetime
 
         var update = await _client.PutAsJsonAsync($"/api/contents/{id}", new
         {
-            id, data = new Dictionary<string, object> { ["Title"] = "renamed", ["Number"] = "INV-99999" },
+            id, data = new Dictionary<string, object> { ["Title"] = "renamed" },
         }, Ct);
 
         update.StatusCode.Should().Be(HttpStatusCode.OK, await update.Content.ReadAsStringAsync(Ct));

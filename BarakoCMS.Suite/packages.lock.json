@@ -687,6 +687,7 @@
           "Carom": "[2.0.1, )",
           "Carom.Extensions": "[2.0.1, )",
           "Cronos": "[0.11.1, )",
+          "DnsClient": "[1.8.0, )",
           "FastEndpoints": "[8.3.0, )",
           "FastEndpoints.Security": "[8.3.0, )",
           "FastEndpoints.Swagger": "[8.3.0, )",
@@ -866,6 +867,12 @@
         "requested": "[0.11.1, )",
         "resolved": "0.11.1",
         "contentHash": "5Ug+giPQITSAdTp/METAsofRSSUi3I5p7t4dlcXnzUgUzwZb4HkOBcYfpHuPwAHrnKJjmyW8amVzLD6mfLpaBg=="
+      },
+      "DnsClient": {
+        "type": "CentralTransitive",
+        "requested": "[1.8.0, )",
+        "resolved": "1.8.0",
+        "contentHash": "RRwtaCXkXWsx0mmsReGDqCbRLtItfUbkRJlet1FpdciVhyMGKcPd57T1+8Jki9ojHlq9fntVhXQroOOgRak8DQ=="
       },
       "FastEndpoints": {
         "type": "CentralTransitive",

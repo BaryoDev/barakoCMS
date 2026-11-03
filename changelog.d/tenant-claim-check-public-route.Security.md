@@ -1,0 +1,1 @@
+- **The tenant claim check was skipped for any route ending in `/public`.** It now skips only `/api/tenants/{handle}/public`. A token for one tenant is refused on every other route under another tenant's host, including a resource whose slug is `public`.

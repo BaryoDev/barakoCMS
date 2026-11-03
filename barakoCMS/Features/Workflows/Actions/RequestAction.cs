@@ -32,6 +32,8 @@ internal sealed class RequestAction(
 {
     public string Type => "Request";
 
+    public bool HonoursIdempotencyKey => true;
+
     /// <summary>
     /// Only here because the interface still declares it. <see cref="RunAsync"/> is the contract
     /// this action implements, and delegating keeps a caller on the older path behaving the same.

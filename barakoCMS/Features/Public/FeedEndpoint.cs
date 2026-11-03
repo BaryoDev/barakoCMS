@@ -50,7 +50,7 @@ internal class FeedEndpoint(IQuerySession session, IConfiguration config) : Endp
             .Where(c => c.ContentType == type
                         && c.Status == ContentStatus.Published
                         && c.Sensitivity == SensitivityLevel.Public)
-            .OrderByDescending(c => c.CreatedAt)
+            .OrderByDescending(c => c.CreatedAt).ThenBy(c => c.Id)
             .Take(MaxItems)
             .ToListAsync(ct);
 
@@ -150,6 +150,5 @@ internal class FeedEndpoint(IQuerySession session, IConfiguration config) : Endp
         return DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var d) ? d : fallback;
     }
 
-    private static string Esc(string s) =>
-        s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
+    private static string Esc(string s) => XmlText.Escape(s);
 }

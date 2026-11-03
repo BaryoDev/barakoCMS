@@ -54,7 +54,10 @@ POST /api/redirects/import
 ```
 
 The columns are `from,to[,permanent[,note]]`. A header row is optional and skipped. `permanent`
-accepts `true` or `301`. At most 5000 lines per upload.
+accepts `true` or `301` for permanent and `false` or `302` for temporary. Leave it empty, or leave
+the column out, and an existing rule keeps its stored status while a new rule is temporary. Any other
+text rejects the line. The `from` must be a path: a query, a fragment or a host rejects the line, and
+so does a `from` that already appeared earlier in the same file. At most 5000 lines per upload.
 
 A bad line is rejected and named by line number; the rest still import. That is the opposite of the
 content importer, which is all or nothing, and the difference is what each is for: a content bundle

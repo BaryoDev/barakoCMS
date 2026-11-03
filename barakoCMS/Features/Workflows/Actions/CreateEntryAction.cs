@@ -29,6 +29,8 @@ internal class CreateEntryAction(
     /// <inheritdoc />
     public string Type => "CreateEntry";
 
+    public bool HonoursIdempotencyKey => true;
+
     /// <inheritdoc />
     public async Task ExecuteAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct)
         => await RunAsync(parameters, content, ct);

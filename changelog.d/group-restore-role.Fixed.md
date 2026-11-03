@@ -1,0 +1,1 @@
+- **Restoring a deleted group could bring back a role that had since been deleted.** Restore now drops role ids that no longer point at a live role and records them in the audit entry. Live roles stay.

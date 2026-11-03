@@ -366,6 +366,33 @@ public class PreviewShareLinkTests
         (await _host.StoredLinksAsync(tenant)).Should().BeEmpty("a JWT is verified by its signature and stores nothing");
     }
 
+    /// <summary>
+    /// The newer row is stored first, so only an oldest-first lookup binds the token to the older one.
+    /// </summary>
+    [Fact]
+    public async Task A_preview_token_for_a_shared_slug_names_the_oldest_entry_whatever_the_case()
+    {
+        var tenant = await _host.TenantAsync();
+        var type = await _host.TypeAsync(tenant);
+        var newer = await _host.EntryAsync(tenant, type, "Shared-Slug");
+        var older = await _host.EntryAsync(tenant, type, "shared-slug");
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession(tenant))
+        {
+            var row = (await session.LoadAsync<Content>(older, Ct))!;
+            row.CreatedAt = DateTime.UtcNow.AddMinutes(-10);
+            session.Store(row);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        await TokenAsync(await _host.SuperAdminInAsync(tenant), type, "SHARED-slug");
+
+        var links = await _host.StoredLinksAsync(tenant);
+        links.Should().HaveCount(1);
+        links[0].EntryId.Should().Be(older);
+        links[0].EntryId.Should().NotBe(newer);
+    }
+
     [Fact]
     public async Task A_preview_token_is_not_an_API_credential()
     {

@@ -1,0 +1,1 @@
+- **An update or a rollback could remove or change an entry's number.** The number the server gives an entry in its numbering field is now kept. An update that leaves it out keeps it, a rollback keeps the stored number whatever the old version held, and an update that sends a different number is refused with a 400. An entry with no number yet stays without one.

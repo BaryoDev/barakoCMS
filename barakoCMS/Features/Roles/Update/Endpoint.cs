@@ -34,17 +34,7 @@ internal class Endpoint(
         if (role is not null && (role.DeletedAt is not null || (!RoleScope.Reaches(role, tenant.Slug) && !platformCaller)))
             role = null;
 
-        // Here and not in a validator: a condition the stored role already holds is passed over,
-        // and that takes the stored role.
-        foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, role?.Permissions, ct))
-            AddError(r => r.Permissions, error);
-
-        // A set the request leaves out is kept, so a console that does not know field sets does not
-        // drop them by saving the role. An empty list is what removes one.
-        FieldSetRules.CarryOver(req.Permissions, role?.Permissions);
-        FieldSetRules.Normalise(req.Permissions);
-        foreach (var error in await RoleSaveRules.CheckAsync(session, req.Permissions, role?.Permissions, ct))
-            AddError(r => r.Permissions, error);
+        await CheckPermissionsAsync(req, role, ct);
 
         if (role is not null && (req.Invitable ?? role.Invitable)
             && !InvitableRule.Allows(role.Id, role.IsPlatform, req.SystemCapabilities))
@@ -94,6 +84,25 @@ internal class Endpoint(
             Message = "Role updated successfully",
             UnknownCapabilities = unknown.ToList(),
         }, ct);
+    }
+
+    /// <summary>Adds an error for each rule of the request the stored role does not already hold.</summary>
+    private async Task CheckPermissionsAsync(Request req, Role? role, CancellationToken ct)
+    {
+        // Here and not in a validator: a condition the stored role already holds is passed over,
+        // and that takes the stored role. The same goes for a repeated content type.
+        foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, role?.Permissions, ct))
+            AddError(r => r.Permissions, error);
+
+        foreach (var error in FieldSetRules.DuplicateTypeErrors(req.Permissions, role?.Permissions))
+            AddError(r => r.Permissions, error);
+
+        // A set the request leaves out is kept, so a console that does not know field sets does not
+        // drop them by saving the role. An empty list is what removes one.
+        FieldSetRules.CarryOver(req.Permissions, role?.Permissions);
+        FieldSetRules.Normalise(req.Permissions);
+        foreach (var error in await RoleSaveRules.CheckAsync(session, req.Permissions, role?.Permissions, ct))
+            AddError(r => r.Permissions, error);
     }
 
     /// <summary>

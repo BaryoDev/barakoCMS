@@ -40,6 +40,7 @@ public class TlsAskTests
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug, Status = active ? TenantStatus.Active : TenantStatus.Suspended, Domains = domains.ToList() });
+            VerifiedDomains.Stage(session, slug, domains);
             await session.SaveChangesAsync(Ct);
         }
 

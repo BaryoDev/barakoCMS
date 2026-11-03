@@ -71,8 +71,15 @@ internal sealed class OutboxSender(
 
         foreach (var tenantId in await TenantPartitions.ListAsync(store, config, PartitionsWithMessagesSql, ct))
         {
-            await using var session = store.LightweightSession(tenantId);
-            sent += await DeliverDueAsync(session, now, ct);
+            try
+            {
+                await using var session = store.LightweightSession(tenantId);
+                sent += await DeliverDueAsync(session, now, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError("The outbox sender failed for tenant {Tenant} ({Exception})", tenantId, ex.GetType().Name);
+            }
         }
 
         return sent;
@@ -100,7 +107,7 @@ internal sealed class OutboxSender(
 
         foreach (var message in due)
         {
-            message.LeasedUntil = now.Add(LeaseDuration);
+            message.LeasedUntil = (now > DateTimeOffset.UtcNow ? now : DateTimeOffset.UtcNow).Add(LeaseDuration);
             session.Update(message);
 
             try
@@ -109,43 +116,60 @@ internal sealed class OutboxSender(
             }
             catch (Exception ex) when (ex is JasperFx.ConcurrencyException || ex.GetType().Name.Contains("Concurrency"))
             {
-                // Another node took it.
+                // Another node took it. Nothing of this message's stays staged for the next save.
+                session.EjectAllPendingChanges();
                 continue;
             }
 
             var result = await transport.SendAsync(message, ct);
 
-            message.Attempts++;
-            message.LeasedUntil = null;
-            session.Store(NewDeliveryRow(message, result, now));
+            RecordResult(session, message, result, now);
 
-            if (result.Delivered)
+            try
             {
-                message.Status = OutboxStatus.Delivered;
-                message.DeliveredAt = DateTimeOffset.UtcNow;
-                message.LastError = null;
-                delivered++;
+                await session.SaveChangesAsync(ct);
             }
-            else
+            catch (Exception ex) when (ex is JasperFx.ConcurrencyException || ex.GetType().Name.Contains("Concurrency"))
             {
-                message.LastError = result.Error;
-                if (result.Permanent || message.Attempts >= MaxAttempts)
-                {
-                    message.Status = OutboxStatus.DeadLettered;
-                    logger.LogWarning(
-                        "Outbox message {MessageId} was dead-lettered after {Attempts} attempt(s)", message.Id, message.Attempts);
-                }
-                else
-                {
-                    message.NextAttemptAt = now.Add(Backoff(message.Attempts));
-                }
+                session.EjectAllPendingChanges();
+                logger.LogWarning("Outbox message {MessageId} changed while it was being sent, the result was not saved", message.Id);
+                continue;
             }
 
-            session.Update(message);
-            await session.SaveChangesAsync(ct);
+            if (result.Delivered) delivered++;
         }
 
         return delivered;
+    }
+
+    private void RecordResult(IDocumentSession session, OutboxMessage message, OutboxSendResult result, DateTimeOffset now)
+    {
+        message.Attempts++;
+        message.LeasedUntil = null;
+        session.Store(NewDeliveryRow(message, result, now));
+
+        if (result.Delivered)
+        {
+            message.Status = OutboxStatus.Delivered;
+            message.DeliveredAt = DateTimeOffset.UtcNow;
+            message.LastError = null;
+        }
+        else
+        {
+            message.LastError = result.Error;
+            if (result.Permanent || message.Attempts >= MaxAttempts)
+            {
+                message.Status = OutboxStatus.DeadLettered;
+                logger.LogWarning(
+                    "Outbox message {MessageId} was dead-lettered after {Attempts} attempt(s)", message.Id, message.Attempts);
+            }
+            else
+            {
+                message.NextAttemptAt = now.Add(Backoff(message.Attempts));
+            }
+        }
+
+        session.Update(message);
     }
 
     private static WebhookDelivery NewDeliveryRow(OutboxMessage message, OutboxSendResult result, DateTimeOffset now) => new()

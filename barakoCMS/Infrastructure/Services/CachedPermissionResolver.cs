@@ -161,22 +161,13 @@ public class CachedPermissionResolver(
             return cachedResult;
         }
 
+        // Both tokens are taken before the inner read. An invalidation during the read then cancels
+        // the source this entry is registered against, and the entry is evicted as it is set.
+        var cacheOptions = EntryOptions(user.Id);
+
         // Cache miss - call inner resolver
         logger.LogDebug("Permission cache MISS: {CacheKey}", cacheKey);
         var result = await inner.CanPerformActionAsync(user, contentTypeSlug, action, content: null, cancellationToken);
-
-        // Cache the result
-        var cacheOptions = new MemoryCacheEntryOptions
-        {
-            AbsoluteExpirationRelativeToNow = CacheDuration,
-            Size = 1
-        };
-
-        // Both tokens are read before the entry is stored. Reading them after would leave a window
-        // where an invalidation between the two cancelled a source this entry had not yet
-        // registered against, which is the same resurrection in a smaller window.
-        cacheOptions.AddExpirationToken(new CancellationChangeToken(TokenFor(user.Id)));
-        cacheOptions.AddExpirationToken(new CancellationChangeToken(Volatile.Read(ref _globalToken).Token));
 
         cache.Set(cacheKey, result, cacheOptions);
         logger.LogDebug("Permission cached: {CacheKey} = {Result} (TTL: {Duration})",
@@ -202,19 +193,25 @@ public class CachedPermissionResolver(
         if (cache.TryGetValue(cacheKey, out bool cachedResult))
             return cachedResult;
 
+        var cacheOptions = EntryOptions(userId);
         var result = await inner.HasCapabilityAsync(userId, capability, cancellationToken);
-
-        var cacheOptions = new MemoryCacheEntryOptions
-        {
-            AbsoluteExpirationRelativeToNow = CacheDuration,
-            Size = 1
-        };
-        cacheOptions.AddExpirationToken(new CancellationChangeToken(TokenFor(userId)));
-        cacheOptions.AddExpirationToken(new CancellationChangeToken(Volatile.Read(ref _globalToken).Token));
 
         cache.Set(cacheKey, result, cacheOptions);
 
         return result;
+    }
+
+    /// <summary>Expiry plus the user and global tokens, to be taken before the inner read.</summary>
+    private static MemoryCacheEntryOptions EntryOptions(Guid userId)
+    {
+        var options = new MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = CacheDuration,
+            Size = 1
+        };
+        options.AddExpirationToken(new CancellationChangeToken(TokenFor(userId)));
+        options.AddExpirationToken(new CancellationChangeToken(Volatile.Read(ref _globalToken).Token));
+        return options;
     }
 
     /// <summary>The user's current cancellation token, creating a source if there is not one.</summary>

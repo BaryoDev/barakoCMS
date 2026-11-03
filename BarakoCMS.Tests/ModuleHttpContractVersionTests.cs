@@ -79,6 +79,14 @@ public class ModuleHttpContractVersionTests
     /// another user uploaded opens to a capability rather than to a role name (#886).
     /// </summary>
     [Fact]
+    public void Portability_states_a_version_since_import_refuses_what_it_used_to_accept()
+    {
+        IBarakoModule portability = new BarakoCMS.Portability.PortabilityModule();
+
+        portability.HttpContractVersion.Should().Be(2);
+    }
+
+    [Fact]
     public void Files_and_AI_each_state_their_version()
     {
         IBarakoModule[] modules =

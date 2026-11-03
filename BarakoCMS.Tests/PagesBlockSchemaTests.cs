@@ -61,6 +61,24 @@ public class PagesBlockSchemaTests
     }
 
     [Fact]
+    public async Task A_boolean_property_schema_is_served_as_a_plain_text_field()
+    {
+        var (_, admin) = await TenantAsync();
+        await RegisterAsync(admin, """
+            { "note": { "type": "object", "properties": { "anything": true, "never": false,
+                                                          "title": { "type": "string" },
+                                                          "count": { "type": "integer" } } } }
+            """);
+
+        var served = await ServedAsync(admin);
+
+        var fields = Block(served, "note").GetProperty("fields").EnumerateArray().ToList();
+        fields.Should().HaveCount(4);
+        fields.Select(f => f.GetProperty("name").GetString()).Should().Equal("anything", "count", "never", "title");
+        fields.Select(f => f.GetProperty("kind").GetString()).Should().Equal("text", "number", "text", "text");
+    }
+
+    [Fact]
     public async Task A_tenant_with_no_schema_gets_an_empty_blocks_list()
     {
         var (_, admin) = await TenantAsync();

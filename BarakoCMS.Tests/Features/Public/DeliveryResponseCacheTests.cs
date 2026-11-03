@@ -1,14 +1,20 @@
 using System.Net;
+using barakoCMS.Infrastructure.Caching;
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Viewers;
 using barakoCMS.Models;
 using BarakoCMS.Tests.Features.Site;
 using FluentAssertions;
 using Marten;
+using Marten.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.Public;
@@ -660,5 +666,22 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
         await EntryAsync(host, tenant, other, "target", "target-marker", ContentStatus.Draft, id: target);
 
         (await BodyAsync(client, url)).Should().NotContain(target.ToString());
+    }
+
+    [Fact]
+    public async Task A_failure_working_out_the_tags_evicts_the_whole_tenant()
+    {
+        var store = Substitute.For<IOutputCacheStore>();
+        var session = Substitute.For<IDocumentSession>();
+        session.TenantId.Returns("acme");
+        var commit = Substitute.For<IChangeSet>();
+        commit.Inserted.Returns(_ => throw new InvalidOperationException("tags broke"));
+        var listener = new DeliveryResponseCacheListener(store, NullLogger<DeliveryResponseCacheListener>.Instance);
+
+        await listener.AfterCommitAsync(session, commit, CancellationToken.None);
+
+        await store.Received(1).EvictByTagAsync(
+            DeliveryCache.TenantTag(TenantScopes.SlugFor("acme")), Arg.Any<CancellationToken>());
+        await store.Received(1).EvictByTagAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 }

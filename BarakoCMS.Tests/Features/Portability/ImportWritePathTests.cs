@@ -386,8 +386,25 @@ public class ImportWritePathTests
             [Record(HookType, new() { ["Title"] = $"ref-{marker}" }), Record(HookType, new() { ["Title"] = "refuse" })]);
         refusedStatus.Should().Be(HttpStatusCode.BadRequest, refusedBody);
 
-        (await EventSequenceAsync(_fixture.ConnectionString, Ct)).Should().Be(before,
+        // Other writers in the database move the sequence too, so the sequence value alone says
+        // nothing. A number a committed writer took is a row in mt_events. A number a batch took
+        // and rolled back is a gap, and that gap is what the daemon would wait on.
+        var after = await EventSequenceAsync(_fixture.ConnectionString, Ct);
+        after.Should().BeGreaterThanOrEqualTo(before);
+        await using var connection = new Npgsql.NpgsqlConnection(_fixture.ConnectionString);
+        await connection.OpenAsync(Ct);
+
+        await using var rows = new Npgsql.NpgsqlCommand(
+            "select count(*) from public.mt_events where seq_id > @before and seq_id <= @after", connection);
+        rows.Parameters.AddWithValue("before", before);
+        rows.Parameters.AddWithValue("after", after);
+        ((long)(await rows.ExecuteScalarAsync(Ct))!).Should().Be(after - before,
             "a batch that keeps nothing must not leave gaps in the event sequence for the daemon to wait on");
+
+        await using var ours = new Npgsql.NpgsqlCommand(
+            "select count(*) from public.mt_events where data::text like @marker", connection);
+        ours.Parameters.AddWithValue("marker", $"%{marker}%");
+        ((long)(await ours.ExecuteScalarAsync(Ct))!).Should().Be(0, "neither batch keeps an event");
     }
 
     // Content type validation ------------------------------------------------------------------

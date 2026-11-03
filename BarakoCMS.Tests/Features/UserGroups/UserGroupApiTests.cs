@@ -3,6 +3,8 @@ using FluentAssertions;
 using System.Net;
 using System.Net.Http.Json;
 using FastEndpoints.Security;
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.Tests.Features.UserGroups;
 
@@ -22,6 +24,21 @@ public class UserGroupApiTests
     // from the claim, and the legacy role-name fallback that used to paper over the difference is
     // off by default from 4.0.
     private Task<string> CreateAdminToken() => _fixture.StoredUserTokenAsync("SuperAdmin");
+
+    private async Task<Guid> StoreUserAsync()
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var id = Guid.NewGuid();
+        session.Store(new barakoCMS.Models.User
+        {
+            Id = id,
+            Username = $"groupmember-{id:N}",
+            Email = $"groupmember-{id:N}@test.com",
+        });
+        await session.SaveChangesAsync();
+        return id;
+    }
 
     [Fact]
     public async Task POST_UserGroups_WithValidData_ShouldCreateGroup()
@@ -177,7 +194,7 @@ public class UserGroupApiTests
         var groupResult = await createGroupResponse.Content.ReadFromJsonAsync<barakoCMS.Features.UserGroups.Create.Response>();
         var groupId = groupResult!.Id;
 
-        var userId = Guid.NewGuid();
+        var userId = await StoreUserAsync();
 
         // Act
         var response = await _client.PostAsJsonAsync($"/api/user-groups/{groupId}/users", new { userId });
@@ -200,7 +217,7 @@ public class UserGroupApiTests
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
         // Create group with user
-        var userId = Guid.NewGuid();
+        var userId = await StoreUserAsync();
         var createGroupResponse = await _client.PostAsJsonAsync("/api/user-groups", new
         {
             name = "Test Group",

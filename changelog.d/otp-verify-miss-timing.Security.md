@@ -1,0 +1,1 @@
+- **Email code check no longer answers faster for an address with no pending code.** A miss now runs a hash check of about the same cost as a real one, so response time does not show whether a code is pending.

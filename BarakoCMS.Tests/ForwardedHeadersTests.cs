@@ -256,4 +256,81 @@ public class ForwardedHeadersTests
           + "here would put a caller-chosen address in the audit log no matter how the middleware "
           + "is configured");
     }
+
+    /// <summary>The host the rest of the pipeline sees, which is what picks a tenant's custom domain.</summary>
+    private static async Task<string> ObservedHost(IConfiguration configuration, string peer, string? forwardedHost)
+    {
+        using var host = await new HostBuilder()
+            .ConfigureWebHost(web =>
+            {
+                web.UseTestServer();
+                web.ConfigureServices(services =>
+                    services.Configure<ForwardedHeadersOptions>(o => ForwardedHeadersSetup.Configure(o, configuration)));
+                web.Configure(app =>
+                {
+                    app.Use(async (ctx, next) =>
+                    {
+                        ctx.Connection.RemoteIpAddress = IPAddress.Parse(peer);
+                        await next();
+                    });
+                    app.UseForwardedHeaders();
+                    app.Run(ctx => ctx.Response.WriteAsync(ctx.Request.Host.Host));
+                });
+            })
+            .StartAsync();
+
+        var request = new HttpRequestMessage(HttpMethod.Get, "http://internal.local/");
+        if (forwardedHost is not null)
+            request.Headers.Add("X-Forwarded-Host", forwardedHost);
+
+        var response = await host.GetTestClient().SendAsync(request);
+        return await response.Content.ReadAsStringAsync();
+    }
+
+    [Fact]
+    public async Task The_host_comes_from_X_Forwarded_Host_when_the_proxy_is_trusted()
+    {
+        var observed = await ObservedHost(TrustingTheProxy, peer: Proxy, forwardedHost: "shop.client.example");
+
+        observed.Should().Be("shop.client.example", "the trusted proxy says which site the visitor asked for");
+    }
+
+    [Fact]
+    public async Task The_host_is_not_taken_from_X_Forwarded_Host_sent_by_an_untrusted_peer()
+    {
+        var observed = await ObservedHost(TrustingTheProxy, peer: Stranger, forwardedHost: "shop.client.example");
+
+        observed.Should().Be("internal.local",
+            "a caller could otherwise pick any tenant's domain, and with it the tenant its request runs as");
+    }
+
+    [Fact]
+    public async Task ForwardHost_false_keeps_the_raw_host()
+    {
+        var config = Config(
+            ("ForwardedHeaders:Enabled", "true"),
+            ("ForwardedHeaders:KnownProxies:0", Proxy),
+            ("ForwardedHeaders:ForwardHost", "false"));
+
+        var observed = await ObservedHost(config, peer: Proxy, forwardedHost: "shop.client.example");
+
+        observed.Should().Be("internal.local");
+    }
+
+    [Theory]
+    [InlineData("shop.client.example", "shop.client.example")]
+    [InlineData("a.client.example", "a.client.example")]
+    [InlineData("evil.example", "internal.local")]
+    public async Task AllowedHosts_limits_which_forwarded_hosts_are_taken(string sent, string expected)
+    {
+        var config = Config(
+            ("ForwardedHeaders:Enabled", "true"),
+            ("ForwardedHeaders:KnownProxies:0", Proxy),
+            ("ForwardedHeaders:AllowedHosts:0", "shop.client.example"),
+            ("ForwardedHeaders:AllowedHosts:1", "*.client.example"));
+
+        var observed = await ObservedHost(config, peer: Proxy, forwardedHost: sent);
+
+        observed.Should().Be(expected);
+    }
 }

@@ -47,7 +47,7 @@ internal partial class WorkflowProjection : EventProjection
     /// workflow twice. ContentUpdated and ContentCreated carry the whole data bag (Apply replaces
     /// it), so the event is what that write said. A copy, so the loaded document is never changed.
     /// </remarks>
-    private static barakoCMS.Models.Content AsWritten(
+    internal static barakoCMS.Models.Content AsWritten(
         barakoCMS.Models.Content stored, System.Collections.Generic.Dictionary<string, object>? data, barakoCMS.Models.ContentStatus status) => new()
     {
         Id = stored.Id,
@@ -90,8 +90,9 @@ internal partial class WorkflowProjection : EventProjection
     /// this one. That read is only made when a workflow listens for Unpublished on the type. A draft
     /// moved to Archived was never Published and is not an unpublish.
     ///
-    /// Nothing but a shutdown may escape, for the reason given in ProcessEventAsync. A cancelled
-    /// read is let through so the daemon takes the event again when it restarts.
+    /// Nothing but a shutdown escapes, and a failure is kept as a missed trigger as in
+    /// ProcessEventAsync. A cancelled read is let through so the daemon takes the event again when
+    /// it restarts.
     /// </remarks>
     private async Task ProcessUnpublishedAsync(
         IEvent<barakoCMS.Events.ContentStatusChanged> e, IDocumentOperations ops, CancellationToken ct)
@@ -132,6 +133,7 @@ internal partial class WorkflowProjection : EventProjection
         {
             var logger = _serviceProvider.GetService<ILogger<WorkflowProjection>>();
             logger?.LogError(ex, "WorkflowProjection failed to process {EventType} for content {ContentId} in tenant {TenantId}", barakoCMS.Models.WorkflowEvents.Unpublished, e.Data.Id, e.TenantId);
+            RecordMissed(ops, barakoCMS.Models.WorkflowEvents.Unpublished, e.Data.Id, e.TenantId, e.Sequence, ex);
         }
     }
 
@@ -142,7 +144,7 @@ internal partial class WorkflowProjection : EventProjection
     /// An entry stored straight through a session, or seeded, has no ContentCreated in its stream,
     /// so its first status change has nothing before it that records a status.
     /// </remarks>
-    private static async Task<bool?> WasPublishedBeforeAsync(
+    internal static async Task<bool?> WasPublishedBeforeAsync(
         IEvent<barakoCMS.Events.ContentStatusChanged> e, IQuerySession query, CancellationToken ct)
     {
         if (e.Version <= 1)
@@ -186,19 +188,20 @@ internal partial class WorkflowProjection : EventProjection
     /// request and never to a span of the daemon. An event stored before the two were kept, or
     /// written by work no request caused, has neither, and the run is queued with neither.
     /// </remarks>
-    private static IDisposable OriginOf(IEvent e) =>
+    internal static IDisposable OriginOf(IEvent e) =>
         barakoCMS.Infrastructure.Tracing.Correlation.BeginFrom(e.CorrelationId, e.CausationId);
 
     private async Task ProcessEventAsync(
         string eventType, Guid contentId, string tenantId, long sequence, IDocumentOperations ops,
         Func<barakoCMS.Models.Content, barakoCMS.Models.Content>? asOfEvent = null)
     {
-        // This runs inside Marten's async projection daemon. Any unhandled exception here stops the
-        // projection shard, and every workflow stops firing with no further signal in the logs, so
-        // nothing may escape. There is no cheap remedy for that state: restarting resumes at the
-        // same event, and a rebuild re-runs every action for every event ever stored, so it re-sends
-        // every email and re-fires every webhook. The Workflow Projection health check is what makes
-        // the state visible. See docs/operating-workflows.md.
+        // This runs inside Marten's async projection daemon. The host sets no error handling for
+        // projections, so the JasperFx defaults apply: a transient failure is retried by the daemon,
+        // and a failure that is not transient is dead-lettered. Nothing replays a dead letter. A
+        // failure is caught here instead and kept as a MissedWorkflowTrigger, staged on the daemon's
+        // own batch, and MissedTriggerSweep replays it. Catching a transient failure gives up the
+        // daemon's retry, and the sweep takes its place. A rebuild re-runs every action for every
+        // event ever stored, so it is not a way to get one run back.
         try
         {
             // The scope has to carry the event's tenant. A plain CreateScope() lands on the default
@@ -222,6 +225,34 @@ internal partial class WorkflowProjection : EventProjection
         {
             var logger = _serviceProvider.GetService<ILogger<WorkflowProjection>>();
             logger?.LogError(ex, "WorkflowProjection failed to process {EventType} for content {ContentId} in tenant {TenantId}", eventType, contentId, tenantId);
+            RecordMissed(ops, eventType, contentId, tenantId, sequence, ex);
+        }
+    }
+
+    /// <summary>
+    /// Stages a row saying this event's runs were not queued, for <see cref="MissedTriggerSweep"/>
+    /// to replay.
+    /// </summary>
+    /// <remarks>
+    /// Staged on the daemon's operations and not written in a session of its own, so the row commits
+    /// with the shard's progress for the event. When Postgres is down the batch fails, and the
+    /// daemon retries the event instead of moving past it. Named for the event's tenant, so the row does not
+    /// depend on which tenant the operations were opened for. Nothing here reads or
+    /// writes the database, so it cannot fail for that reason, and a failure to stage is logged and
+    /// swallowed so the original failure is not replaced by this one.
+    /// </remarks>
+    private void RecordMissed(
+        IDocumentOperations ops, string eventType, Guid contentId, string tenantId, long sequence, Exception cause)
+    {
+        try
+        {
+            ops.ForTenant(tenantId).Store(MissedWorkflowTrigger.For(eventType, contentId, tenantId, sequence, cause));
+        }
+        catch (Exception ex)
+        {
+            var logger = _serviceProvider.GetService<ILogger<WorkflowProjection>>();
+            logger?.LogError("WorkflowProjection could not stage the missed {EventType} trigger for content {ContentId} in tenant {TenantId} ({ErrorType}), so no run will be made for it",
+                barakoCMS.Infrastructure.Logging.LogSafe.Value(eventType), contentId, barakoCMS.Infrastructure.Logging.LogSafe.Value(tenantId), ex.GetType().Name);
         }
     }
 }
