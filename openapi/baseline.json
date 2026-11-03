@@ -6575,6 +6575,8 @@
             "type": "boolean"
           },
           "name": {
+            "minLength": 1,
+            "nullable": false,
             "type": "string"
           },
           "permissions": {
@@ -6593,6 +6595,9 @@
             "type": "array"
           }
         },
+        "required": [
+          "name"
+        ],
         "type": "object"
       },
       "BarakoCMSFeaturesRolesCreateResponse": {
@@ -6750,6 +6755,8 @@
             "type": "boolean"
           },
           "name": {
+            "minLength": 1,
+            "nullable": false,
             "type": "string"
           },
           "permissions": {
@@ -6770,6 +6777,9 @@
             "type": "array"
           }
         },
+        "required": [
+          "name"
+        ],
         "type": "object"
       },
       "BarakoCMSFeaturesRolesUpdateResponse": {
@@ -7830,7 +7840,7 @@
             "type": "string"
           },
           "status": {
-            "description": "Whether the tenant is served. Leaving it and IsActive out makes it Active, as\nbefore, also on an update: a write that sends only other fields reactivates a suspended\ntenant, so send the current status to keep it.",
+            "description": "Whether the tenant is served. Leaving it and IsActive out keeps the current\nstatus on an update, and makes a new tenant Active.",
             "nullable": true,
             "oneOf": [
               {
@@ -15519,7 +15529,7 @@
             "JWTBearerAuth": []
           }
         ],
-        "summary": "POST /api/auth/mfa/disable \u2014 turn off MFA for the signed-in user. Requires a current TOTP or a\nrecovery code, so a hijacked session (without the second factor) cannot remove it.",
+        "summary": "POST /api/auth/mfa/disable \u2014 turn off MFA for the signed-in user. Requires a current TOTP or a\nrecovery code, so a hijacked session (without the second factor) cannot remove it. Wrong codes\ncount toward the same lockout as the other second-factor endpoints.",
         "tags": [
           "Auth"
         ]
