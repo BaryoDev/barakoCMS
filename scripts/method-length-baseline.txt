@@ -27,7 +27,6 @@
 133 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapGlobalDocuments
 133 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapTenantScopedDocuments
 86 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.ResolveConnectionString
-72 barakoCMS/Features/ApiKeys/Endpoints.cs::CreateApiKeyEndpoint.HandleAsync
 198 barakoCMS/Features/Auth/Login/Endpoint.cs::Endpoint.HandleAsync
 98 barakoCMS/Features/Auth/Otp/VerifyEndpoint.cs::VerifyEndpoint.HandleAsync
 147 barakoCMS/Features/Auth/Refresh/Endpoint.cs::Endpoint.HandleAsync
@@ -75,7 +74,6 @@
 75 barakoCMS/Features/Workflows/WorkflowEndpoints.cs::DeleteWorkflowEndpoint.HandleAsync
 105 barakoCMS/Features/Workflows/WorkflowEngine.cs::WorkflowEngine.ExecuteActionsAsync
 107 barakoCMS/Features/Workflows/WorkflowRunner.cs::WorkflowRunner.ExecuteAttemptAsync
-77 barakoCMS/Infrastructure/Auth/ApiKeyAuthenticationHandler.cs::ApiKeyAuthenticationHandler.HandleAuthenticateAsync
 77 barakoCMS/Infrastructure/Auth/TokenIssuer.cs::TokenIssuer.IssueAccessTokenAsync
 91 barakoCMS/Infrastructure/Connectors/ConnectorSender.cs::ConnectorSender.FetchAsync
 83 barakoCMS/Infrastructure/Connectors/ConnectorSender.cs::ConnectorSender.TryAttachGrantedTokenAsync
