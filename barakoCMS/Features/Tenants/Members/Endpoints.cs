@@ -498,11 +498,13 @@ internal sealed class AddMemberEndpoint(
         if (await Members.RefusesPlatformRolesAsync(session, User, roleIds, membership, ct))
             ThrowError(barakoCMS.Features.Users.PlatformRoles.PlatformRoleRefusedMessage, 403);
 
-        // The caller must hold what they hand out, and everything the member holds now: membership roles,
-        // global roles and roles from their groups (see HeldByAsync).
+        // The caller must hold what they newly hand out. Keeping, dropping and suspending need no hold.
+        var current = membership is null || membership.Status == MembershipStatus.Removed
+            ? new HashSet<Guid>()
+            : membership.RoleIds.ToHashSet();
         var notHeld = await barakoCMS.Features.Roles.RoleGrantRules.NotHeldAsync(
             session, callers, permissions, User,
-            roleIds.Concat(await barakoCMS.Features.Roles.RoleGrantRules.HeldByAsync(session, user, membership, slug, ct)),
+            roleIds.Where(id => !current.Contains(id)).ToList(),
             slug, ct);
         if (notHeld is not null)
             ThrowError(notHeld, 403);
@@ -611,12 +613,11 @@ internal sealed class UpdateMemberEndpoint(
         if (await Members.RefusesPlatformRolesAsync(session, User, roleIds, membership, ct))
             ThrowError(barakoCMS.Features.Users.PlatformRoles.PlatformRoleRefusedMessage, 403);
 
-        // The caller must hold what they hand out, and everything the member holds now: membership roles,
-        // global roles and roles from their groups (see HeldByAsync).
+        // The caller must hold what they newly hand out. Keeping, dropping and suspending need no hold.
+        var current = membership.RoleIds.ToHashSet();
         var notHeld = await barakoCMS.Features.Roles.RoleGrantRules.NotHeldAsync(
             session, callers, permissions, User,
-            roleIds.Concat(await barakoCMS.Features.Roles.RoleGrantRules.HeldByAsync(
-                session, await session.LoadAsync<User>(req.UserId, ct), membership, slug, ct)),
+            roleIds.Where(id => !current.Contains(id)).ToList(),
             slug, ct);
         if (notHeld is not null)
             ThrowError(notHeld, 403);

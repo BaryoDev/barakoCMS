@@ -69,23 +69,6 @@ internal static class RoleGrantRules
         return null;
     }
 
-    /// <summary>
-    /// Every role id a person holds in a tenant: what the permission resolver counts (their global roles,
-    /// their groups' roles and their active membership roles, see MembershipRoles.ResolveAsync) plus the
-    /// roles of a suspended membership row, which an update replaces too. A caller changing someone must
-    /// hold all of it.
-    /// </summary>
-    public static async Task<List<Guid>> HeldByAsync(
-        IQuerySession session, User? user, Membership? membership, string tenant, CancellationToken ct)
-    {
-        var ids = new List<Guid>();
-        if (user is not null)
-            ids.AddRange((await barakoCMS.Infrastructure.Multitenancy.MembershipRoles.ResolveAsync(session, user, tenant, ct)).RoleIds);
-        if (membership is { Status: not MembershipStatus.Removed })
-            ids.AddRange(membership.RoleIds ?? []);
-        return ids.Distinct().ToList();
-    }
-
     public const string GlobalRoleWithRightsMessage =
         "This role carries capabilities or content rights and would apply in every tenant, so only a platform administrator (SuperAdmin) can grant it globally.";
 

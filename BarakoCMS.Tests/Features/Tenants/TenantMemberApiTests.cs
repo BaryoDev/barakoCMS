@@ -447,19 +447,25 @@ public class TenantMemberApiTests
     }
 
     [Fact]
-    public async Task A_weaker_caller_cannot_change_a_member_who_holds_more_than_they_do()
+    public async Task A_weaker_caller_can_drop_a_role_but_not_add_one_they_do_not_hold()
     {
         var slug = await TenantAsync();
         var type = $"Mem{Guid.NewGuid():N}"[..12];
         var content = await StoreRoleAsync(slug, [], type);
+        var other = await StoreRoleAsync(slug, [], $"Oth{Guid.NewGuid():N}"[..12]);
         var (weak, _) = await ManagerAsync(slug);
         var target = await UserAsync($"strong-{Guid.NewGuid():n}@example.com");
         await MembershipAsync(target, slug, MembershipStatus.Active, content.Id);
 
-        var update = await weak.PutAsJsonAsync($"/api/tenants/members/{target}",
-            new { roleIds = Array.Empty<Guid>(), status = "Active" });
-        update.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        var add = await weak.PutAsJsonAsync($"/api/tenants/members/{target}",
+            new { roleIds = new[] { content.Id, other.Id }, status = "Active" });
+        add.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await MembershipsAsync(target, slug)).Single().RoleIds.Should().Equal(content.Id);
+
+        var drop = await weak.PutAsJsonAsync($"/api/tenants/members/{target}",
+            new { roleIds = Array.Empty<Guid>(), status = "Active" });
+        drop.StatusCode.Should().Be(HttpStatusCode.OK, await drop.Content.ReadAsStringAsync());
+        (await MembershipsAsync(target, slug)).Single().RoleIds.Should().BeEmpty();
     }
 
     [Fact]
@@ -478,27 +484,6 @@ public class TenantMemberApiTests
         var updated = await manager.PutAsJsonAsync($"/api/tenants/members/{userId}",
             new { roleIds = new[] { content.Id }, status = "Suspended" });
         updated.StatusCode.Should().Be(HttpStatusCode.OK, await updated.Content.ReadAsStringAsync());
-    }
-
-    [Fact]
-    public async Task A_weaker_caller_cannot_change_a_member_who_holds_more_only_through_a_group()
-    {
-        var slug = await TenantAsync();
-        var type = $"Mem{Guid.NewGuid():N}"[..12];
-        var content = await StoreRoleAsync(slug, [], type);
-        var (weak, _) = await ManagerAsync(slug);
-        var target = await UserAsync($"viagroup-{Guid.NewGuid():n}@example.com");
-        await MembershipAsync(target, slug, MembershipStatus.Active, SystemRoles.UserRoleId);
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(new UserGroup { Id = Guid.NewGuid(), Name = $"g_{Guid.NewGuid():n}", RoleIds = [content.Id], UserIds = [target] });
-            await session.SaveChangesAsync();
-        }
-
-        var update = await weak.PutAsJsonAsync($"/api/tenants/members/{target}",
-            new { roleIds = new[] { SystemRoles.UserRoleId }, status = "Active" });
-        update.StatusCode.Should().Be(HttpStatusCode.Forbidden, await update.Content.ReadAsStringAsync());
     }
 
     [Fact]
