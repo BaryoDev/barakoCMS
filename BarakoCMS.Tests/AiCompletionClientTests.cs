@@ -1,7 +1,11 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using BarakoCMS.AI;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -118,8 +122,148 @@ public class AiCompletionClientTests
         result.Provider.Should().Be("Anthropic");
         result.Model.Should().Be("claude-sonnet-5-5");
         handler.Hosts.Should().ContainSingle().Which.Host.Should().Be("api.anthropic.com");
-        handler.Bodies[0].Should().Contain("claude-sonnet-5-5").And.Contain("<data>");
-        handler.Bodies[0].Should().NotContain("a </data> b", "the data block cannot close its own delimiter");
+        handler.Bodies[0].Should().Contain("claude-sonnet-5-5");
+        var content = FirstUserContent(handler.Bodies[0]);
+        content.Should().StartWith("<data>").And.EndWith("</data>");
+        Regex.Matches(content, "</data>").Should().ContainSingle("the data block cannot close its own delimiter");
+        content.Should().NotContain("a </data> b");
+    }
+
+    private static string FirstUserContent(string body)
+    {
+        using var doc = JsonDocument.Parse(body);
+        return doc.RootElement.GetProperty("messages")[0].GetProperty("content").GetString()!;
+    }
+
+    [Fact]
+    public async Task A_closing_tag_with_inner_whitespace_cannot_close_the_data_block()
+    {
+        var handler = new RecordingHandler((_, _) => Task.FromResult(Json(OllamaReply)));
+        var client = Client(handler);
+
+        await client.CompleteAsync(new CompletionRequest("Summarise.", "a < /data> b </ DATA> c", 200),
+            TestContext.Current.CancellationToken);
+
+        using var doc = JsonDocument.Parse(handler.Bodies[0]);
+        var content = doc.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!;
+        Regex.Matches(content, @"<\s*/\s*data", RegexOptions.IgnoreCase).Should().ContainSingle();
+        content.Should().EndWith("</data>");
+    }
+
+    public static TheoryData<string, string> EmptyAnswers => new()
+    {
+        { "Anthropic", "{}" },
+        { "OpenAI", "{}" },
+        { "OpenAI", """{"choices":[]}""" },
+        { "Ollama", "{}" },
+        { "Ollama", "not json at all" },
+        { "Ollama", "[]" },
+    };
+
+    [Theory]
+    [MemberData(nameof(EmptyAnswers))]
+    public async Task An_answer_with_no_text_or_no_json_fails_as_ProviderFailed(string provider, string body)
+    {
+        var handler = new RecordingHandler((_, _) => Task.FromResult(Json(body)));
+        var client = Client(handler, o =>
+        {
+            o.Completion.Provider = provider;
+            o.Completion.OpenAIKey = "sk-test";
+            o.Completion.AnthropicKey = "sk-ant-test";
+        });
+
+        var act = () => client.CompleteAsync(Ask, TestContext.Current.CancellationToken);
+
+        (await act.Should().ThrowAsync<CompletionException>()).Which.Reason.Should().Be(CompletionFailure.ProviderFailed);
+    }
+
+    [Fact]
+    public async Task A_key_with_a_newline_fails_as_NotConfigured_without_the_key_in_the_message()
+    {
+        const string key = "sk-bad\nkey-secret";
+        var handler = new RecordingHandler((_, _) => Task.FromResult(Json(AnthropicReply)));
+        var client = Client(handler, o =>
+        {
+            o.Completion.Provider = "Anthropic";
+            o.Completion.AnthropicKey = key;
+        });
+
+        var act = () => client.CompleteAsync(Ask, TestContext.Current.CancellationToken);
+
+        var error = (await act.Should().ThrowAsync<CompletionException>()).Which;
+        error.Reason.Should().Be(CompletionFailure.NotConfigured);
+        error.Message.Should().NotContain("secret");
+        handler.Hosts.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_malformed_base_URL_fails_as_NotConfigured()
+    {
+        var handler = new RecordingHandler((_, _) => Task.FromResult(Json(OllamaReply)));
+        var client = Client(handler, o => o.EmbeddingBaseUrl = "http://[");
+
+        var act = () => client.CompleteAsync(Ask, TestContext.Current.CancellationToken);
+
+        (await act.Should().ThrowAsync<CompletionException>()).Which.Reason.Should().Be(CompletionFailure.NotConfigured);
+        handler.Hosts.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task An_oversized_answer_fails_as_ProviderFailed_even_on_a_client_with_no_cap()
+    {
+        var big = """{"message":{"content":"%s"}}""".Replace("%s", new string('x', 1_100_000));
+        var handler = new RecordingHandler((_, _) => Task.FromResult(Json(big)));
+        var client = Client(handler);
+
+        var act = () => client.CompleteAsync(Ask, TestContext.Current.CancellationToken);
+
+        (await act.Should().ThrowAsync<CompletionException>()).Which.Reason.Should().Be(CompletionFailure.ProviderFailed);
+    }
+
+    [Fact]
+    public async Task An_oversized_answer_with_no_Content_Length_is_cut_off_while_reading()
+    {
+        var handler = new RecordingHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new MemoryStream(Encoding.UTF8.GetBytes(new string('x', 1_100_000)))),
+        }));
+        var client = Client(handler);
+
+        var act = () => client.CompleteAsync(Ask, TestContext.Current.CancellationToken);
+
+        (await act.Should().ThrowAsync<CompletionException>()).Which.Reason.Should().Be(CompletionFailure.ProviderFailed);
+    }
+
+    private static ServiceProvider ServicesWith(Dictionary<string, string?> settings)
+    {
+        var config = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        new AiModule().ConfigureServices(services, config);
+        return services.BuildServiceProvider();
+    }
+
+    [Theory]
+    [InlineData("Completion:TimeoutSeconds", "2147483647")]
+    [InlineData("Completion:TimeoutSeconds", "601")]
+    [InlineData("Completion:TimeoutSeconds", "0")]
+    [InlineData("Completion:AnthropicKey", "bad\nkey")]
+    [InlineData("Completion:OpenAIKey", "bad\rkey")]
+    public void Bad_completion_settings_fail_options_validation(string key, string value)
+    {
+        using var sp = ServicesWith(new() { [key] = value });
+
+        var act = () => sp.GetRequiredService<IOptions<AiOptions>>().Value;
+
+        act.Should().Throw<OptionsValidationException>();
+    }
+
+    [Fact]
+    public void The_default_completion_settings_pass_options_validation()
+    {
+        using var sp = ServicesWith(new() { ["Completion:TimeoutSeconds"] = "600" });
+
+        sp.GetRequiredService<IOptions<AiOptions>>().Value.Completion.TimeoutSeconds.Should().Be(600);
     }
 
     [Fact]

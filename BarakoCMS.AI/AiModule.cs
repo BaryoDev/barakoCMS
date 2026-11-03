@@ -43,6 +43,10 @@ public sealed class AiModule : IBarakoModule
                 "Modules:AI semantic search rate limit values must be at least 1.")
             .Validate(o => o.Completion.TimeoutSeconds >= 1 && o.Completion.MaxInputChars >= 1 && o.Completion.MaxOutputChars >= 1,
                 "Modules:AI:Completion timeout and size caps must be at least 1.")
+            .Validate(o => o.Completion.TimeoutSeconds <= CompletionOptions.MaxTimeoutSeconds,
+                $"Modules:AI:Completion:TimeoutSeconds must be at most {CompletionOptions.MaxTimeoutSeconds}.")
+            .Validate(o => IsHeaderSafe(o.Completion.OpenAIKey) && IsHeaderSafe(o.Completion.AnthropicKey),
+                "Modules:AI:Completion keys must not contain control characters.")
             .ValidateOnStart();
 
         services.AddOptions<RateLimiterOptions>().Configure<IConfiguration, IOptions<AiOptions>>((options, root, ai) =>
@@ -58,6 +62,8 @@ public sealed class AiModule : IBarakoModule
         // Nothing calls this yet. It is an extension point, off until Modules:AI:Completion:Enabled is true.
         services.AddHttpClient<ICompletionClient, CompletionClient>(c => c.MaxResponseContentBufferSize = 1_000_000);
     }
+
+    private static bool IsHeaderSafe(string? key) => key is null || !key.Any(char.IsControl);
 
     public void ConfigureSchema(IModuleSchema schema)
     {

@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -72,8 +73,11 @@ public static class CompletionProviders
 /// Ollama by default. OpenAI or Anthropic only when <c>Completion:Provider</c> names it and its key is
 /// set; with no key there is no hosted call. Registered as a typed HttpClient, so the factory owns the handler.
 /// </summary>
-public sealed class CompletionClient : ICompletionClient
+public sealed partial class CompletionClient : ICompletionClient
 {
+    /// <summary>Most bytes of a provider answer the client reads. Over it, the call fails with ProviderFailed.</summary>
+    internal const int MaxResponseBytes = 1_000_000;
+
     internal const string OpenAIUrl = "https://api.openai.com/v1/chat/completions";
     internal const string AnthropicUrl = "https://api.anthropic.com/v1/messages";
     internal const string AnthropicVersion = "2023-06-01";
@@ -150,14 +154,14 @@ public sealed class CompletionClient : ICompletionClient
         try
         {
             using var message = Build(provider, system, user, maxTokens, out var configuredModel);
-            using var res = await _http.SendAsync(message, timeout.Token);
+            using var res = await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
             if (!res.IsSuccessStatusCode)
             {
                 throw new CompletionException(CompletionFailure.ProviderFailed,
                     $"{provider} answered {(int)res.StatusCode}.", provider);
             }
 
-            var body = await res.Content.ReadAsStringAsync(timeout.Token);
+            var body = await ReadBoundedAsync(res.Content, provider, timeout.Token);
             var (text, model) = Read(provider, body);
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -188,6 +192,13 @@ public sealed class CompletionClient : ICompletionClient
             throw new CompletionException(CompletionFailure.TimedOut,
                 $"{provider} did not answer within {Cfg.TimeoutSeconds} seconds.", provider);
         }
+        catch (FormatException)
+        {
+            // A key with a control character, or a malformed base URL. The message names neither.
+            _log.LogWarning("Completion by {Provider} failed: {Reason}", provider, CompletionFailure.NotConfigured);
+            throw new CompletionException(CompletionFailure.NotConfigured,
+                $"The {provider} key or URL is not valid.", provider);
+        }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException)
         {
             _log.LogWarning("Completion by {Provider} failed: {Reason}", provider, CompletionFailure.ProviderFailed);
@@ -198,7 +209,36 @@ public sealed class CompletionClient : ICompletionClient
 
     /// <summary>The data block cannot close its own delimiter early.</summary>
     private static string EscapeDelimiter(string data) =>
-        data.Replace("</data", "<\\/data", StringComparison.OrdinalIgnoreCase);
+        ClosingTag().Replace(data, "<\\/data");
+
+    [GeneratedRegex(@"<\s*/\s*data", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ClosingTag();
+
+    private static async Task<string> ReadBoundedAsync(HttpContent content, string provider, CancellationToken ct)
+    {
+        if (content.Headers.ContentLength is > MaxResponseBytes)
+        {
+            throw TooBig(provider);
+        }
+
+        await using var stream = await content.ReadAsStreamAsync(ct);
+        using var buffer = new MemoryStream();
+        var chunk = new byte[16 * 1024];
+        int read;
+        while ((read = await stream.ReadAsync(chunk, ct)) > 0)
+        {
+            if (buffer.Length + read > MaxResponseBytes)
+            {
+                throw TooBig(provider);
+            }
+            buffer.Write(chunk, 0, read);
+        }
+        return Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
+    }
+
+    // TooLarge means a request over a cap with no call made. An oversized answer is the provider's fault.
+    private static CompletionException TooBig(string provider) =>
+        new(CompletionFailure.ProviderFailed, $"{provider} sent an answer over {MaxResponseBytes} bytes.", provider);
 
     private HttpRequestMessage Build(string provider, string system, string user, int maxTokens, out string model)
     {
@@ -258,25 +298,45 @@ public sealed class CompletionClient : ICompletionClient
     {
         using var doc = JsonDocument.Parse(body);
         var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return (null, null);
+        }
         var model = root.TryGetProperty("model", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString() : null;
         switch (provider)
         {
             case CompletionProviders.OpenAI:
-                var choice = root.GetProperty("choices")[0];
-                return (choice.GetProperty("message").GetProperty("content").GetString(), model);
+                if (!root.TryGetProperty("choices", out var choices) || choices.ValueKind != JsonValueKind.Array
+                    || choices.GetArrayLength() == 0)
+                {
+                    return (null, model);
+                }
+                return (StringAt(choices[0], "message", "content"), model);
             case CompletionProviders.Anthropic:
                 var sb = new StringBuilder();
-                foreach (var part in root.GetProperty("content").EnumerateArray())
+                if (root.TryGetProperty("content", out var parts) && parts.ValueKind == JsonValueKind.Array)
                 {
-                    if (part.TryGetProperty("type", out var t) && t.GetString() == "text"
-                        && part.TryGetProperty("text", out var tx))
+                    foreach (var part in parts.EnumerateArray())
                     {
-                        sb.Append(tx.GetString());
+                        if (part.ValueKind == JsonValueKind.Object
+                            && part.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String
+                            && t.GetString() == "text"
+                            && part.TryGetProperty("text", out var tx) && tx.ValueKind == JsonValueKind.String)
+                        {
+                            sb.Append(tx.GetString());
+                        }
                     }
                 }
                 return (sb.ToString(), model);
             default:
-                return (root.GetProperty("message").GetProperty("content").GetString(), model);
+                return (StringAt(root, "message", "content"), model);
         }
     }
+
+    private static string? StringAt(JsonElement element, string first, string second) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(first, out var a) && a.ValueKind == JsonValueKind.Object
+        && a.TryGetProperty(second, out var b) && b.ValueKind == JsonValueKind.String
+            ? b.GetString()
+            : null;
 }

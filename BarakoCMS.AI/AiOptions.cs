@@ -2,8 +2,8 @@ namespace BarakoCMS.AI;
 
 /// <summary>
 /// Configuration for the AI module, bound from the "Ai" section. Off by default, so the module ships
-/// inert. Points at an OpenAI-compatible/Ollama embeddings endpoint; nothing leaves the host except a
-/// call to that endpoint (self-hosted by default).
+/// inert. Points at an OpenAI-compatible/Ollama embeddings endpoint, self-hosted by default. Completion
+/// calls also go there unless a hosted provider and its key are set, which sends them to that provider.
 /// </summary>
 public sealed class AiOptions
 {
@@ -66,6 +66,7 @@ public sealed class CompletionOptions
     public string AnthropicModel { get; set; } = "claude-sonnet-5-5";
 
     public const int DefaultTimeoutSeconds = 30;
+    public const int MaxTimeoutSeconds = 600;
     public const int DefaultMaxInputChars = 20_000;
     public const int DefaultMaxOutputChars = 8_000;
 
