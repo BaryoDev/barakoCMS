@@ -71,12 +71,49 @@ public class RoleAssignmentEscalationTests
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             roleId = Guid.NewGuid();
-            session.Store(new Role { Id = roleId, Name = $"ord-{roleId:N}", SystemCapabilities = new() { "view_monitoring" } });
+            session.Store(new Role { Id = roleId, Name = $"ord-{roleId:N}" });
             await session.SaveChangesAsync();
         }
 
         var res = await _client.PostAsJsonAsync($"/api/users/{target}/roles", new { roleId });
         res.StatusCode.Should().Be(HttpStatusCode.OK, "the guard is specific to SuperAdmin, not all roles");
+    }
+
+    [Fact]
+    public async Task Admin_cannot_grant_a_global_role_carrying_content_rights_or_a_capability()
+    {
+        Auth(await _fixture.StoredUserTokenAsync("Admin"));
+        var target = await CreateUserAsync();
+        var type = $"Glob{Guid.NewGuid():N}"[..12];
+
+        Guid content, capability;
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            content = Guid.NewGuid();
+            capability = Guid.NewGuid();
+            session.Store(new Role
+            {
+                Id = content, Name = $"rights-{content:N}",
+                Permissions = [new ContentTypePermission { ContentTypeSlug = type, Read = new PermissionRule { Enabled = true } }],
+            });
+            session.Store(new Role { Id = capability, Name = $"cap-{capability:N}", SystemCapabilities = new() { "view_monitoring" } });
+            await session.SaveChangesAsync();
+        }
+
+        var withContent = await _client.PostAsJsonAsync($"/api/users/{target}/roles", new { roleId = content });
+        var withCapability = await _client.PostAsJsonAsync($"/api/users/{target}/roles", new { roleId = capability });
+
+        withContent.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        withCapability.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        using var check = _fixture.Services.CreateScope();
+        var stored = await check.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<User>(target);
+        stored!.RoleIds.Should().NotContain([content, capability]);
+
+        Auth(await _fixture.StoredUserTokenAsync("SuperAdmin"));
+        (await _client.PostAsJsonAsync($"/api/users/{target}/roles", new { roleId = content }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]

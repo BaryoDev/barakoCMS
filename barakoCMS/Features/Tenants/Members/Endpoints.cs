@@ -498,10 +498,11 @@ internal sealed class AddMemberEndpoint(
         if (await Members.RefusesPlatformRolesAsync(session, User, roleIds, membership, ct))
             ThrowError(barakoCMS.Features.Users.PlatformRoles.PlatformRoleRefusedMessage, 403);
 
-        // The caller must hold what they hand out, and what the member holds now (that is replaced).
+        // The caller must hold what they hand out, and everything the member holds now: membership roles,
+        // global roles and roles from their groups (see HeldByAsync).
         var notHeld = await barakoCMS.Features.Roles.RoleGrantRules.NotHeldAsync(
             session, callers, permissions, User,
-            roleIds.Concat(membership is { Status: not MembershipStatus.Removed } ? membership.RoleIds ?? [] : []),
+            roleIds.Concat(await barakoCMS.Features.Roles.RoleGrantRules.HeldByAsync(session, user, membership, slug, ct)),
             slug, ct);
         if (notHeld is not null)
             ThrowError(notHeld, 403);
@@ -610,10 +611,12 @@ internal sealed class UpdateMemberEndpoint(
         if (await Members.RefusesPlatformRolesAsync(session, User, roleIds, membership, ct))
             ThrowError(barakoCMS.Features.Users.PlatformRoles.PlatformRoleRefusedMessage, 403);
 
-        // The caller must hold what they hand out, and what the member holds now (that is replaced).
+        // The caller must hold what they hand out, and everything the member holds now: membership roles,
+        // global roles and roles from their groups (see HeldByAsync).
         var notHeld = await barakoCMS.Features.Roles.RoleGrantRules.NotHeldAsync(
             session, callers, permissions, User,
-            roleIds.Concat(membership is { Status: not MembershipStatus.Removed } ? membership.RoleIds ?? [] : []),
+            roleIds.Concat(await barakoCMS.Features.Roles.RoleGrantRules.HeldByAsync(
+                session, await session.LoadAsync<User>(req.UserId, ct), membership, slug, ct)),
             slug, ct);
         if (notHeld is not null)
             ThrowError(notHeld, 403);

@@ -27,6 +27,12 @@ internal class Endpoint(
             return;
         }
 
+        if (await barakoCMS.Features.Roles.RoleGrantRules.GlobalRightsRefusalAsync(session, User, roleIds, ct) is { } withRights)
+        {
+            await Send.ResponseAsync(new Response { Message = withRights }, 403, ct);
+            return;
+        }
+
         var userIds = (req.UserIds ?? []).Distinct().ToList();
         foreach (var userId in userIds)
         {

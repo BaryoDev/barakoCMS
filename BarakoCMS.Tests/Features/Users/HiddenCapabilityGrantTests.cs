@@ -172,7 +172,7 @@ public class HiddenCapabilityGrantTests
     }
 
     [Fact]
-    public async Task A_global_admin_can_grant_a_role_holding_view_sensitive()
+    public async Task A_global_admin_cannot_grant_a_global_role_holding_view_sensitive()
     {
         var adminId = await UserAsync(SystemRoles.AdminRoleId);
         var client = ClientFor(adminId, ["Admin"]);
@@ -181,16 +181,25 @@ public class HiddenCapabilityGrantTests
 
         var res = await client.PostAsJsonAsync($"/api/users/{target}/roles", new { roleId });
 
-        res.StatusCode.Should().Be(HttpStatusCode.OK,
-            "an Admin could always assign HR, which is what carried this access");
-        (await LoadAsync(target)).RoleIds.Should().Contain(roleId);
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "a global role reaches every tenant, so one carrying a capability is a SuperAdmin grant");
+        (await LoadAsync(target)).RoleIds.Should().NotContain(roleId);
     }
 
     [Fact]
     public async Task A_tenant_admin_can_give_a_member_a_role_holding_view_sensitive()
     {
-        var (_, client, slug) = await TenantAdminAsync();
+        var (adminId, client, slug) = await TenantAdminAsync();
         var roleId = await RoleHoldingAsync(SystemCapabilities.ViewSensitive, slug);
+        // Capabilities are checked exactly, so the Admin must hold view_sensitive itself to hand it on.
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var m = await session.Query<Membership>().FirstAsync(x => x.UserId == adminId && x.TenantSlug == slug);
+            m.RoleIds = [SystemRoles.AdminRoleId, roleId];
+            session.Store(m);
+            await session.SaveChangesAsync();
+        }
         var email = $"member-{Guid.NewGuid():N}@example.com";
 
         var res = await client.PostAsJsonAsync("/api/tenants/members", new { email, roleIds = new[] { roleId } });

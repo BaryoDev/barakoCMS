@@ -37,6 +37,13 @@ internal class Endpoint(
                 return;
             }
 
+            // The caller must be able to grant the new roles and the ones being replaced.
+            if (await barakoCMS.Features.Roles.RoleGrantRules.GlobalRightsRefusalAsync(session, User, roleIds.Concat(group.RoleIds), ct) is { } withRights)
+            {
+                await Send.ResponseAsync(new Response { Message = withRights }, 403, ct);
+                return;
+            }
+
             rolesChanged = !roleIds.Order().SequenceEqual(group.RoleIds.Order());
             group.RoleIds = roleIds;
         }

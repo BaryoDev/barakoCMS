@@ -481,6 +481,27 @@ public class TenantMemberApiTests
     }
 
     [Fact]
+    public async Task A_weaker_caller_cannot_change_a_member_who_holds_more_only_through_a_group()
+    {
+        var slug = await TenantAsync();
+        var type = $"Mem{Guid.NewGuid():N}"[..12];
+        var content = await StoreRoleAsync(slug, [], type);
+        var (weak, _) = await ManagerAsync(slug);
+        var target = await UserAsync($"viagroup-{Guid.NewGuid():n}@example.com");
+        await MembershipAsync(target, slug, MembershipStatus.Active, SystemRoles.UserRoleId);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new UserGroup { Id = Guid.NewGuid(), Name = $"g_{Guid.NewGuid():n}", RoleIds = [content.Id], UserIds = [target] });
+            await session.SaveChangesAsync();
+        }
+
+        var update = await weak.PutAsJsonAsync($"/api/tenants/members/{target}",
+            new { roleIds = new[] { SystemRoles.UserRoleId }, status = "Active" });
+        update.StatusCode.Should().Be(HttpStatusCode.Forbidden, await update.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task A_plain_tenant_Admin_can_add_a_member_with_a_content_role()
     {
         var slug = await TenantAsync();

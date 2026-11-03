@@ -50,12 +50,15 @@ internal static class RoleGrantRules
         }
 
         // The seeded Admin system role (matched by id, as the resolver matches SuperAdmin) counts as
-        // holding every content right and field list in its tenant. Capabilities above are still exact.
+        // holding every content right and field list in its tenant, but only for a granted role owned by
+        // that tenant. A global or platform role reaches other tenants, so it gets the full per-right check.
         var tenantAdmin = callerRoles.Any(r => r.Id == SystemRoles.AdminRoleId);
-        foreach (var (type, action, rule) in roles.SelectMany(ContentRights).Distinct())
+        var rights = roles.SelectMany(r => ContentRights(r).Select(x =>
+            (x.Type, x.Action, x.Rule, Local: !r.IsPlatform && string.Equals(r.TenantSlug, tenant, StringComparison.OrdinalIgnoreCase)))).Distinct();
+        foreach (var (type, action, rule, local) in rights)
         {
-            if (tenantAdmin)
-                break;
+            if (tenantAdmin && local)
+                continue;
             var held = caller is not null
                 && await permissions.CanPerformActionAsync(caller, type, action, null, ct)
                 && callerRoles.Any(r => r.Id == SystemRoles.SuperAdminRoleId || HoldsRule(r, type, action, rule));
@@ -64,6 +67,45 @@ internal static class RoleGrantRules
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Every role id a person holds in a tenant: what the permission resolver counts (their global roles,
+    /// their groups' roles and their active membership roles, see MembershipRoles.ResolveAsync) plus the
+    /// roles of a suspended membership row, which an update replaces too. A caller changing someone must
+    /// hold all of it.
+    /// </summary>
+    public static async Task<List<Guid>> HeldByAsync(
+        IQuerySession session, User? user, Membership? membership, string tenant, CancellationToken ct)
+    {
+        var ids = new List<Guid>();
+        if (user is not null)
+            ids.AddRange((await barakoCMS.Infrastructure.Multitenancy.MembershipRoles.ResolveAsync(session, user, tenant, ct)).RoleIds);
+        if (membership is { Status: not MembershipStatus.Removed })
+            ids.AddRange(membership.RoleIds ?? []);
+        return ids.Distinct().ToList();
+    }
+
+    public const string GlobalRoleWithRightsMessage =
+        "This role carries capabilities or content rights and would apply in every tenant, so only a platform administrator (SuperAdmin) can grant it globally.";
+
+    /// <summary>Whether a role carries any capability or any enabled content right.</summary>
+    public static bool CarriesRights(Role role) =>
+        (role.SystemCapabilities ?? []).Count > 0 || ContentRights(role).Any();
+
+    /// <summary>
+    /// The refusal for a non-SuperAdmin changing a global role set (a user's global roles or a group's
+    /// roles, which reach every tenant): any role in it that carries rights. No per-tenant proof is
+    /// tried, because a hold in one tenant says nothing about the others.
+    /// </summary>
+    public static async Task<string?> GlobalRightsRefusalAsync(
+        IQuerySession session, System.Security.Claims.ClaimsPrincipal user, IEnumerable<Guid> roleIds, CancellationToken ct)
+    {
+        var ids = roleIds.Distinct().ToList();
+        if (ids.Count == 0 || await PlatformRoles.IsSuperAdminAsync(session, user, ct))
+            return null;
+        var roles = await session.Query<Role>().Where(r => r.DeletedAt == null && ids.Contains(r.Id)).ToListAsync(ct);
+        return roles.Any(CarriesRights) ? GlobalRoleWithRightsMessage : null;
     }
 
     /// <summary>Every enabled content rule a role carries: each type with create, read, update, delete and named transitions.</summary>

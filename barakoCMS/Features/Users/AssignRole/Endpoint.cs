@@ -10,7 +10,6 @@ internal class Endpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
-    barakoCMS.Core.Interfaces.ICallerCapabilities callers,
     IConfiguration configuration) : Endpoint<Request, Response>
 {
     private static readonly IReadOnlyList<string> LegacyRoles = CapabilityGate.AdminLegacyRoles;
@@ -65,11 +64,11 @@ internal class Endpoint(
             return;
         }
 
-        var notHeld = await barakoCMS.Features.Roles.RoleGrantRules.NotHeldAsync(
-            session, callers, permissionResolver, User, [req.RoleId], tenant.Slug, ct);
-        if (notHeld is not null)
+        // A global role applies in every tenant, so a hold in this tenant proves nothing about the
+        // others: a role with any capability or content right is granted by a SuperAdmin only.
+        if (await barakoCMS.Features.Roles.RoleGrantRules.GlobalRightsRefusalAsync(session, User, [req.RoleId], ct) is { } withRights)
         {
-            await Send.ResponseAsync(new Response { Message = notHeld }, 403, ct);
+            await Send.ResponseAsync(new Response { Message = withRights }, 403, ct);
             return;
         }
 
