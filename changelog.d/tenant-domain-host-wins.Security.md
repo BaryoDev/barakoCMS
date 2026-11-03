@@ -1,1 +1,0 @@
-- **A request on a tenant's verified domain can no longer name another tenant with `X-Tenant`.** The host is checked before the header and a different tenant is refused with 403, so a token for tenant A is refused on tenant B's domain even when it sends `X-Tenant: A`. With `ForwardedHeaders:Enabled`, `X-Forwarded-Host` is now honoured, only from a configured proxy.

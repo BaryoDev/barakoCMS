@@ -1,1 +1,0 @@
-- **A role still held by a user group could be deleted.** Deleting a role is now refused with 409 while a live user group in any tenant holds it.

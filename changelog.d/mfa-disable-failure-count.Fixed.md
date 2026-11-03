@@ -1,1 +1,0 @@
-- **Turning off MFA now counts wrong codes.** Wrong codes sent to the disable endpoint count toward the same account lockout as the other second-factor checks, and a locked account is refused. A correct code clears the count, signs out all devices, and emails the account owner.
