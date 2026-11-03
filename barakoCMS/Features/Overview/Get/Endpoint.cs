@@ -120,8 +120,7 @@ internal sealed class Endpoint(
 
     private async Task<PeriodCount?> ReadContentAsync(DateTimeOffset now, List<RuleResult> results, CancellationToken ct)
     {
-        if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId)
-            || await session.LoadAsync<User>(userId, ct) is not { } user)
+        if (await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct) is not { } user)
         {
             return null;
         }

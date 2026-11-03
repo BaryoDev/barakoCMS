@@ -46,9 +46,18 @@ tenant-active check.
 Claims: a principal has no `UserId`, so nothing treats it as a person and nothing reads a missing id.
 `Username` is `principal:<name>`. `principal_id` and one `principal_capability` per capability of its
 roles are added. `CallerCapabilities` ignores platform capabilities and `*` for a principal.
-Endpoints that need a real user (they read the `UserId` claim) answer 401 or 400 for a principal key.
-Principal keys are for content routes and for routes gated on a capability the key names with a `cap:`
-scope.
+A principal key does content work. Create, update, change status, schedule, rollback, get, list,
+history, batch, runs, counts, erase, numbering, collections push, overview, activity, email template
+preview, workflow run and aggregate query run all accept it. The acting identity is a transient user whose
+id is the principal id (no fake user is stored) and whose roles are the principal's tenant roles, so
+permission checks, `$createdBy` conditions and events use the principal's roles.
+
+Audit shows the principal: `ActorUserId` is the principal id and `ActorUsername` is `principal:<name>`.
+Created-by and modified-by on content hold the principal id.
+
+Person-only routes answer a clean 401 or 403 for a principal key: `/api/me`, `/api/me/tenants`, profile,
+password, tenant switch, MFA, preview tokens, stations, the email test send, tenant import and export,
+config apply, plan and export, and share links. Everything else is reached with a `cap:` scope.
 
 Escalation guard, the same rule core uses when a person assigns roles to a membership: the SuperAdmin
 role is never assignable, and another tenant's role answers "does not exist". The principal rule is

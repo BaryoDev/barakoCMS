@@ -19,14 +19,12 @@ internal sealed class Endpoint(IContentBatchRunner batch, IDocumentSession sessi
     public override void Configure()
     {
         Post("/api/contents/batch");
-        Claims("UserId");
         Summary(s => s.Summary = "Create entries and run transitions in one transaction.");
     }
 
     public override async Task HandleAsync(BatchRequest req, CancellationToken ct)
     {
-        if (!Guid.TryParse(User.FindFirstValue("UserId"), out var userId)
-            || await session.LoadAsync<barakoCMS.Models.User>(userId, ct) is not { } user)
+        if (await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct) is not { } user)
         {
             await Send.UnauthorizedAsync(ct);
             return;

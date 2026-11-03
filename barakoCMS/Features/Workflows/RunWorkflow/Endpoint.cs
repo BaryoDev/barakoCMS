@@ -71,12 +71,13 @@ internal sealed class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId)
-            || await session.LoadAsync<User>(userId, ct) is not { } user)
+        if (await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct) is not { } user)
         {
             await Send.UnauthorizedAsync(ct);
             return;
         }
+
+        var userId = user.Id;
 
         // Under the lock a delete of the workflow takes, so a run is not queued for a workflow the
         // delete has already looked past. It also makes two requests with one key take turns.

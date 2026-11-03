@@ -25,15 +25,13 @@ internal sealed class NextNumberEndpoint(
     public override void Configure()
     {
         Post("/api/numbering/next");
-        Claims("UserId");
         Description(b => b.WithTags("Numbering"));
         Summary(s => s.Summary = "The next number of a client-allocated series.");
     }
 
     public override async Task HandleAsync(NextNumberRequest req, CancellationToken ct)
     {
-        if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId)
-            || await session.LoadAsync<User>(userId, ct) is not { } user)
+        if (await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct) is not { } user)
         {
             await Send.UnauthorizedAsync(ct);
             return;

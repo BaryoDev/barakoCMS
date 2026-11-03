@@ -56,8 +56,7 @@ internal sealed class Endpoint(IQuerySession session, IPermissionResolver permis
         if (!Guid.TryParse(Route<string>("id"), out var id))
             ThrowError("That is not an entry id.", 400);
 
-        if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId)
-            || await session.LoadAsync<Models.User>(userId, ct) is not { } user)
+        if (await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct) is not { } user)
         {
             await Send.UnauthorizedAsync(ct);
             return;

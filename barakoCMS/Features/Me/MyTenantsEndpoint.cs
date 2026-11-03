@@ -38,7 +38,11 @@ internal class MyTenantsEndpoint(IQuerySession session, IDocumentStore store) : 
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId);
+        if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId))
+        {
+            await Send.UnauthorizedAsync(ct);
+            return;
+        }
 
         var memberships = await session.Query<Membership>()
             .Where(m => m.UserId == userId && m.Status == MembershipStatus.Active)

@@ -89,6 +89,7 @@ public class ServicePrincipalTests
 
     private sealed record Principal(Guid Id, string Name);
     private sealed record Created(Guid Id, string Key);
+    private sealed record EntryId(Guid Id);
 
     private async Task<HttpResponseMessage> CreatePrincipalRawAsync(Caller caller, params Guid[] roleIds) =>
         await caller.Client.PostAsJsonAsync("/api/service-principals",
@@ -408,6 +409,89 @@ public class ServicePrincipalTests
         {
             var res = await creator.Client.PostAsJsonAsync("/api/api-keys", new { name = "x", scopes = new[] { scope } }, Ct);
             res.StatusCode.Should().Be(HttpStatusCode.BadRequest, scope);
+        }
+    }
+
+    private async Task<(string Type, Role Role)> ContentRoleAsync(string tenant)
+    {
+        var type = $"Sp{Guid.NewGuid():N}"[..12];
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(), Name = type, DisplayName = type,
+            Fields = new() { new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" } },
+        });
+        var rule = () => new PermissionRule { Enabled = true };
+        var role = new Role
+        {
+            Id = Guid.NewGuid(), Name = $"sp-content-{Guid.NewGuid():N}"[..20], TenantSlug = tenant,
+            Permissions = [new ContentTypePermission
+            {
+                ContentTypeSlug = type, Create = rule(), Read = rule(), Update = rule(), Delete = rule(),
+            }],
+        };
+        session.Store(role);
+        await session.SaveChangesAsync(Ct);
+        return (type, role);
+    }
+
+    private HttpClient KeyClient(string secret, string tenant)
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", secret);
+        client.DefaultRequestHeaders.Add("X-Tenant", tenant);
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
+        return client;
+    }
+
+    [Fact]
+    public async Task A_principal_key_with_a_content_role_does_content_work_and_the_audit_names_the_principal()
+    {
+        var tenant = await TenantAsync();
+        var steward = await StewardAsync(tenant);
+        var (type, role) = await ContentRoleAsync(tenant);
+        var principal = await CreatePrincipalAsync(steward, role.Id);
+        var key = await CreateKeyAsync(steward, principal.Id);
+        var client = KeyClient(key.Key, tenant);
+
+        var created = await client.PostAsJsonAsync("/api/contents",
+            new { contentType = type, data = new Dictionary<string, object> { ["Title"] = "one" } }, Ct);
+        created.StatusCode.Should().Be(HttpStatusCode.OK, await created.Content.ReadAsStringAsync(Ct));
+        var id = (await created.Content.ReadFromJsonAsync<EntryId>(Ct))!.Id;
+
+        var updated = await client.PutAsJsonAsync($"/api/contents/{id}",
+            new { data = new Dictionary<string, object> { ["Title"] = "two" } }, Ct);
+        updated.StatusCode.Should().Be(HttpStatusCode.OK, await updated.Content.ReadAsStringAsync(Ct));
+
+        var archived = await client.PutAsJsonAsync($"/api/contents/{id}/status", new { newStatus = 2 }, Ct);
+        archived.StatusCode.Should().Be(HttpStatusCode.OK, await archived.Content.ReadAsStringAsync(Ct));
+
+        var list = await client.GetAsync($"/api/contents?contentType={type}", Ct);
+        list.StatusCode.Should().Be(HttpStatusCode.OK, await list.Content.ReadAsStringAsync(Ct));
+
+        using var scope = _factory.Services.CreateScope();
+        var audit = await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<AuditEvent>()
+            .Where(e => e.TenantSlug == tenant && e.Action == "content.archived" && e.TargetId == id.ToString())
+            .ToListAsync(Ct);
+        audit.Should().ContainSingle();
+        audit[0].ActorUserId.Should().Be(principal.Id);
+        audit[0].ActorUsername.Should().Be("principal:" + principal.Name);
+    }
+
+    [Fact]
+    public async Task A_principal_key_on_a_person_only_route_gets_a_clean_401_or_403()
+    {
+        var tenant = await TenantAsync();
+        var steward = await StewardAsync(tenant);
+        var principal = await CreatePrincipalAsync(steward);
+        var key = await CreateKeyAsync(steward, principal.Id);
+        var client = KeyClient(key.Key, tenant);
+
+        foreach (var route in new[] { "/api/me", "/api/me/tenants", "/api/auth/mfa/status" })
+        {
+            var res = await client.GetAsync(route, Ct);
+            res.StatusCode.Should().BeOneOf([HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden], route);
         }
     }
 

@@ -20,14 +20,7 @@ internal class Endpoint(
         // "UserId" is the only identity claim the token carries. This used to look first for the
         // literal string System.Security.Claims.ClaimTypes.NameIdentifier, which is the name of a
         // constant and not its value, so it never matched and the fallback was always what ran.
-        var userIdClaim = User.FindFirst("UserId");
-        if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
-        {
-            await Send.UnauthorizedAsync(ct);
-            return;
-        }
-
-        var user = await session.LoadAsync<Models.User>(userId, ct);
+        var user = await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct);
         if (user == null)
         {
             await Send.UnauthorizedAsync(ct);

@@ -210,7 +210,7 @@ internal sealed class SendTestEmailEndpoint(
 
         if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId))
         {
-            ThrowError("No user id on the token.", 400);
+            await Send.UnauthorizedAsync(ct);
             return;
         }
 

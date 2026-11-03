@@ -22,13 +22,13 @@ internal class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId))
+        var user = await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct);
+        if (user is null)
         {
             await Send.UnauthorizedAsync(ct);
             return;
         }
 
-        var user = await session.LoadAsync<Models.User>(userId, ct);
         var header = await session.LoadAsync<barakoCMS.Models.Content>(req.Id, ct);
         if (header is null)
         {

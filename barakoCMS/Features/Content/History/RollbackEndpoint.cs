@@ -61,7 +61,7 @@ internal class RollbackEndpoint(
         //
         // It runs before the stream is read, so a caller who may not write learns nothing about
         // what versions exist. See #447.
-        var actor = await session.LoadAsync<barakoCMS.Models.User>(userId, ct);
+        var actor = await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct);
         if (actor == null || !await permissionResolver.CanPerformActionAsync(
                 actor, content.ContentType, "update", content, ct))
         {
@@ -136,18 +136,10 @@ internal class RollbackEndpoint(
 
     private async Task<Guid?> ReadUserIdAsync(CancellationToken ct)
     {
-        var userIdClaim = User.FindFirst("UserId");
-        if (userIdClaim == null)
+        var id = barakoCMS.Infrastructure.Auth.ActingCaller.IdOf(User);
+        if (id is not { } userId)
         {
-            AddError("User ID claim not found");
-            await Send.ErrorsAsync(400, ct);
-            return null;
-        }
-
-        if (!Guid.TryParse(userIdClaim.Value, out var userId))
-        {
-            AddError("Invalid User ID format");
-            await Send.ErrorsAsync(400, ct);
+            await Send.UnauthorizedAsync(ct);
             return null;
         }
 

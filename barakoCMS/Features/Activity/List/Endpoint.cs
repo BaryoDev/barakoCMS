@@ -63,8 +63,7 @@ internal sealed class Endpoint(
         }
 
         if (want.HasAny(ActivityKinds.Published, ActivityKinds.Scheduled, ActivityKinds.Edited)
-            && Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId)
-            && await session.LoadAsync<User>(userId, ct) is { } caller)
+            && await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct) is { } caller)
         {
             slots.AddRange(await ActivitySources.EventsAsync(
                 session, want, input, limit, now, (entry, token) => TitleIfReadableAsync(caller, entry, token), ct));
