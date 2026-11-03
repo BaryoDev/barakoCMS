@@ -269,8 +269,10 @@ public class WorkflowRunnerFairClaimTests
             claims.Should().BeGreaterThanOrEqualTo(12, "no other runner is polling, so this one claimed all twelve");
 
             // One list to start, one before reporting idle, and one more for each idle interval the
-            // drain lasted, which is how long a kept list is trusted. Listing per action is thirteen.
-            var allowed = 2 + (int)(timer.Elapsed / WorkflowRunner.Idle);
+            // drain lasted, which is how long a kept list is trusted. One more because the list covers
+            // every tenant in the shared database, so work another test leaves can force one rescan.
+            // Listing per action is thirteen.
+            var allowed = 3 + (int)(timer.Elapsed / WorkflowRunner.Idle);
             runner.PartitionScans.Should().BeLessThanOrEqualTo(allowed);
         });
     }
