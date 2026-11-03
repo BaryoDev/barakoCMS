@@ -38,6 +38,14 @@ public sealed class SmtpOptions
     public string? From { get; set; }
 
     /// <summary>
+    /// Domains a tenant may use in its own From (the <c>Email.Smtp</c> tenant setting). SMTP has no
+    /// tenant credential, so a tenant sender goes out over the host's login and the host decides which
+    /// domains it will vouch for. Exact match, case-insensitive, no subdomain wildcard. Empty (the
+    /// default) means every send uses the host sender.
+    /// </summary>
+    public List<string> TenantFromDomains { get; set; } = [];
+
+    /// <summary>
     /// How the connection is secured. Unset picks by port: implicit TLS on 465, STARTTLS everywhere
     /// else.
     /// </summary>

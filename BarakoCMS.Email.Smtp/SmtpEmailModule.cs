@@ -32,7 +32,8 @@ public sealed class SmtpEmailModule : IBarakoModule
         [
             new ModuleSettingsKey("From", "Sender address for this tenant's business mail (workflow emails). "
                 + "Account mail such as sign-in codes keeps the host sender.",
-                Category: "Sender", HostDefaultKey: $"{SmtpOptions.SectionName}:From"),
+                Category: "Sender", HostDefaultKey: $"{SmtpOptions.SectionName}:From",
+                Kind: ModuleSettingsKind.Mailbox),
         ]),
     ];
 

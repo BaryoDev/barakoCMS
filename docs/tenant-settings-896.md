@@ -29,16 +29,32 @@ unchanged.
 
 A module lists `SettingsSections` (section name, keys, category, description, secret flag, tenant or
 host scope). `GET` and `PUT /api/tenant-settings/{section}` work for any declared section. An
-unknown section answers 404 and an unknown key 400. Secret keys are write-only. Resolution is
+unknown section answers 404 and an unknown key 400. Secret keys are write-only. A key can carry a type: `Mailbox` and `Url` values are checked on `PUT`
+(a Url must be absolute https), and a bad value answers 400 naming the key. An empty string clears. Resolution is
 tenant override, then the stored host default, then configuration.
 
 Declared today: Email.Smtp (From), Files.S3 (Bucket, PublicBaseUrl, AccessKey, SecretKey) and AI
 (EmbeddingModel, EmbeddingBaseUrl).
 
+## Storage
+
+The module-declared sections live in `TenantSettings`, one row per tenant in `mt_doc_tenant_settings`.
+Production runs `CreateOnly`, so apply `migrations/5.5.0/896-tenant-settings.sql` before the upgrade
+(`rollback-896-tenant-settings.sql` undoes it). Section names are unique across running modules, and
+`email` is reserved for the route above.
+
 ## Not in this tranche
+
+- Known limits: a secret key with no tenant value falls back to host configuration, and nothing reads
+  the S3 or AI tenant values yet.
 
 - The Files.S3 and AI sections are declarations only. Their services still read host configuration.
 - ExternalAuth has no tenant override.
-- A tenant SMTP From applies to business mail sent for a tenant. Account mail keeps the host sender.
+- A tenant SMTP From applies to business mail sent for a tenant, and only when its domain is in the
+  host setting `Modules:Email.Smtp:TenantFromDomains` (exact match, case-insensitive, no subdomain
+  wildcard). The list is empty by default, so the host sender is used until an operator adds a domain.
+  A From on any other domain falls back to the host sender and the send logs a warning with the tenant
+  and the domain. The check runs at send time, whatever `PUT` accepted. Account mail always uses the
+  host sender.
 - Sender and key overrides apply to mail sent inside a request for that tenant. Background work that
   runs with no tenant uses the host default.

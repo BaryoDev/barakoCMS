@@ -76,8 +76,8 @@ public class TenantSettingsTests
             await put.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
 
         using var relay = new FakeSmtpServer();
-        await SendForTenantAsync(host, relay.Port, tenantA);
-        await SendForTenantAsync(host, relay.Port, tenantB);
+        await SendForTenantAsync(host, relay.Port, tenantA, "tenant-a.example");
+        await SendForTenantAsync(host, relay.Port, tenantB, "tenant-a.example");
 
         var messages = relay.Messages;
         messages.Should().HaveCount(2);
@@ -85,6 +85,47 @@ public class TenantSettingsTests
         messages[0].Should().NotContain(HostFrom);
         messages[1].Should().Contain(HostFrom, "tenant B set nothing, so it keeps the host default");
         messages[1].Should().NotContain("tenant-a.example");
+    }
+
+    [Fact]
+    public async Task A_tenant_smtp_from_on_an_unlisted_domain_sends_from_the_host_sender()
+    {
+        var host = HostWithModules();
+        var tenant = await TenantAsync();
+        var admin = await MemberClientAsync(host, tenant, SystemRoles.AdminRoleId, "Admin");
+        (await admin.PutAsJsonAsync("/api/tenant-settings/Email.Smtp",
+            new { values = new Dictionary<string, string?> { ["From"] = "ceo@bigbank.example" } },
+            TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue("PUT does not decide who may send");
+
+        using var relay = new FakeSmtpServer();
+        await SendForTenantAsync(host, relay.Port, tenant);
+        await SendForTenantAsync(host, relay.Port, tenant, "other.example");
+        await SendForTenantAsync(host, relay.Port, tenant, "mail.bigbank.example");
+
+        var messages = relay.Messages;
+        messages.Should().HaveCount(3);
+        messages.Should().OnlyContain(m => m.Contains(HostFrom) && !m.Contains("bigbank.example"),
+            "an empty list, another domain and a parent domain of the listed one all fall back to the host sender");
+    }
+
+    [Fact]
+    public async Task A_listed_domain_is_matched_exactly_and_without_regard_to_case()
+    {
+        var host = HostWithModules();
+        var tenant = await TenantAsync();
+        var admin = await MemberClientAsync(host, tenant, SystemRoles.AdminRoleId, "Admin");
+        (await admin.PutAsJsonAsync("/api/tenant-settings/Email.Smtp",
+            new { values = new Dictionary<string, string?> { ["From"] = "Hello@Tenant-A.Example" } },
+            TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
+
+        using var relay = new FakeSmtpServer();
+        await SendForTenantAsync(host, relay.Port, tenant, "TENANT-a.example");
+        await SendForTenantAsync(host, relay.Port, tenant, "a.example");
+
+        var messages = relay.Messages;
+        messages.Should().HaveCount(2);
+        messages[0].Should().Contain("Tenant-A.Example").And.NotContain(HostFrom);
+        messages[1].Should().Contain(HostFrom, "a.example is not the sender's domain, and there is no subdomain wildcard");
     }
 
     [Fact]
@@ -100,12 +141,12 @@ public class TenantSettingsTests
         using var relay = new FakeSmtpServer();
         using var scope = host.Services.CreateScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Slug = tenant;
-        await Smtp(scope, relay.Port).SendEmailAsync("someone@example.com", "Your sign-in code", "<p>1</p>",
+        await Smtp(scope, relay.Port, "bigbank.example").SendEmailAsync("someone@example.com", "Your sign-in code", "<p>1</p>",
             TestContext.Current.CancellationToken);
 
         var messages = relay.Messages;
         messages.Should().HaveCount(1);
-        messages[0].Should().Contain(HostFrom).And.NotContain("bigbank.example");
+        messages[0].Should().Contain(HostFrom).And.NotContain("bigbank.example", "account mail never takes the tenant sender, even for a listed domain");
     }
 
     [Fact]
@@ -154,9 +195,29 @@ public class TenantSettingsTests
                 .GetProperty("value").GetString().Should().Be("tenant-bucket");
         }
 
-        // The module configuration view and the resolver's plain read are the other two ways out.
-        var config = await admin.GetAsync("/api/modules/Files.S3/configuration", TestContext.Current.CancellationToken);
-        (await config.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().NotContain(SecretValue);
+        // The stored secret does decrypt, so the places that could hand it out are worth checking. The
+        // Files.S3 view never overlays tenant values, so also set the Email.Smtp sender, the module
+        // whose view does, and read both views as a global admin on this tenant.
+        using (var inner = host.Services.CreateScope())
+        {
+            var settings = inner.ServiceProvider.GetRequiredService<ITenantSettings>();
+            (await settings.GetOverrideAsync(tenant, "Files.S3", "SecretKey", TestContext.Current.CancellationToken))
+                .Should().Be(SecretValue, "the resolver is the one reader that may see a secret");
+        }
+
+        (await admin.PutAsJsonAsync("/api/tenant-settings/Email.Smtp",
+            new { values = new Dictionary<string, string?> { ["From"] = "hello@tenant-s.example" } },
+            TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
+        var superAdmin = await MemberClientAsync(host, tenant, SystemRoles.SuperAdminRoleId, "SuperAdmin");
+        foreach (var module in new[] { "Files.S3", "Email.Smtp" })
+        {
+            var config = await superAdmin.GetAsync($"/api/modules/{module}/configuration", TestContext.Current.CancellationToken);
+            config.StatusCode.Should().Be(HttpStatusCode.OK);
+            (await config.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().NotContain(SecretValue);
+        }
+
+        (await FromEntryAsync(superAdmin)).GetProperty("value").GetString().Should().Be("hello@tenant-s.example",
+            "the Email.Smtp view does overlay tenant values, so the check above is not a view that never shows them");
 
         using var scope = host.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
@@ -214,9 +275,158 @@ public class TenantSettingsTests
     {
         var member = await MemberClientAsync(HostWithModules(), await TenantAsync(), SystemRoles.UserRoleId, "User");
 
+        (await member.GetAsync("/api/tenant-settings/Email.Smtp", TestContext.Current.CancellationToken))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await member.PutAsJsonAsync("/api/tenant-settings/Email.Smtp",
             new { values = new Dictionary<string, string?> { ["From"] = "a@b.example" } },
             TestContext.Current.CancellationToken)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Theory]
+    [InlineData("Email.Smtp", "From", "not a mailbox")]
+    [InlineData("Email.Smtp", "From", "a@b.example\r\nBcc: victim@example.com")]
+    [InlineData("Email.Smtp", "From", "a@b.example, c@d.example")]
+    [InlineData("Email.Smtp", "From", "a@b.example; c@d.example")]
+    [InlineData("Files.S3", "PublicBaseUrl", "http://files.tenant.example/")]
+    [InlineData("Files.S3", "PublicBaseUrl", "files.tenant.example")]
+    public async Task A_value_of_the_wrong_kind_is_400_names_the_key_and_stores_nothing(string section, string key, string value)
+    {
+        var host = HostWithModules();
+        var tenant = await TenantAsync();
+        var admin = await MemberClientAsync(host, tenant, SystemRoles.AdminRoleId, "Admin");
+
+        var res = await admin.PutAsJsonAsync($"/api/tenant-settings/{section}",
+            new { values = new Dictionary<string, string?> { [key] = value } },
+            TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        body.Should().Contain(key).And.NotContain("victim@example.com").And.NotContain("tenant.example");
+        using var scope = host.Services.CreateScope();
+        (await scope.ServiceProvider.GetRequiredService<ITenantSettings>()
+            .GetOverrideAsync(tenant, section, key, TestContext.Current.CancellationToken)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_https_url_and_a_plain_mailbox_are_accepted()
+    {
+        var admin = await MemberClientAsync(HostWithModules(), await TenantAsync(), SystemRoles.AdminRoleId, "Admin");
+
+        (await admin.PutAsJsonAsync("/api/tenant-settings/Files.S3",
+            new { values = new Dictionary<string, string?> { ["PublicBaseUrl"] = "https://files.tenant.example/" } },
+            TestContext.Current.CancellationToken)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await admin.PutAsJsonAsync("/api/tenant-settings/Email.Smtp",
+            new { values = new Dictionary<string, string?> { ["From"] = "Tenant Team <team@tenant.example>" } },
+            TestContext.Current.CancellationToken)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Resolution_prefers_the_tenant_value_then_the_stored_host_default_then_configuration()
+    {
+        var host = HostWithModules();
+        var tenant = await TenantAsync();
+        var admin = await MemberClientAsync(host, tenant, SystemRoles.AdminRoleId, "Admin");
+        var ct = TestContext.Current.CancellationToken;
+        var stored = new SystemSetting { Id = Guid.NewGuid(), Key = "Email.Smtp:From", Value = "stored@example.com" };
+
+        async Task<string?> EffectiveAsync()
+        {
+            using var scope = host.Services.CreateScope();
+            return await scope.ServiceProvider.GetRequiredService<ITenantSettings>().GetAsync(tenant, "Email.Smtp", "From", ct);
+        }
+
+        await EffectiveAsync().ContinueWith(t => t.Result.Should().Be(HostFrom, "configuration is the last step"), ct);
+
+        await StoreAsync(stored);
+        try
+        {
+            (await EffectiveAsync()).Should().Be("stored@example.com", "the stored host default beats configuration");
+
+            (await admin.PutAsJsonAsync("/api/tenant-settings/Email.Smtp",
+                new { values = new Dictionary<string, string?> { ["From"] = "own@tenant.example" } }, ct))
+                .IsSuccessStatusCode.Should().BeTrue();
+            (await EffectiveAsync()).Should().Be("own@tenant.example", "the tenant value beats both");
+
+            (await admin.PutAsJsonAsync("/api/tenant-settings/Email.Smtp",
+                new { values = new Dictionary<string, string?> { ["From"] = "" } }, ct))
+                .IsSuccessStatusCode.Should().BeTrue();
+            (await EffectiveAsync()).Should().Be("stored@example.com", "clearing hands the key back to the host default");
+        }
+        finally
+        {
+            using var scope = _factory.Services.CreateScope();
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentStore>().LightweightSession();
+            session.Delete<SystemSetting>(stored.Id);
+            await session.SaveChangesAsync(CancellationToken.None);
+        }
+
+        (await EffectiveAsync()).Should().Be(HostFrom, "with the stored default gone, configuration is back");
+    }
+
+    [Fact]
+    public async Task An_empty_string_clears_a_value_and_the_host_default_applies_again()
+    {
+        var host = HostWithModules();
+        var tenant = await TenantAsync();
+        var admin = await MemberClientAsync(host, tenant, SystemRoles.AdminRoleId, "Admin");
+        var ct = TestContext.Current.CancellationToken;
+        (await admin.PutAsJsonAsync("/api/tenant-settings/Email.Smtp",
+            new { values = new Dictionary<string, string?> { ["From"] = "own@tenant.example" } }, ct)).IsSuccessStatusCode.Should().BeTrue();
+
+        var cleared = await admin.PutAsJsonAsync("/api/tenant-settings/Email.Smtp",
+            new { values = new Dictionary<string, string?> { ["From"] = "" } }, ct);
+
+        cleared.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var json = JsonDocument.Parse(await cleared.Content.ReadAsStringAsync(ct));
+        json.RootElement.GetProperty("keys").EnumerateArray().Single().GetProperty("set").GetBoolean().Should().BeFalse();
+        using var scope = host.Services.CreateScope();
+        var settings = scope.ServiceProvider.GetRequiredService<ITenantSettings>();
+        (await settings.GetOverrideAsync(tenant, "Email.Smtp", "From", ct)).Should().BeNull();
+        (await settings.GetAsync(tenant, "Email.Smtp", "From", ct)).Should().Be(HostFrom);
+    }
+
+    [Fact]
+    public async Task A_change_is_audited_without_the_secret_value()
+    {
+        var host = HostWithModules();
+        var tenant = await TenantAsync();
+        var admin = await MemberClientAsync(host, tenant, SystemRoles.AdminRoleId, "Admin");
+        var ct = TestContext.Current.CancellationToken;
+
+        (await admin.PutAsJsonAsync("/api/tenant-settings/Files.S3",
+            new { values = new Dictionary<string, string?> { ["Bucket"] = "audited-bucket", ["SecretKey"] = SecretValue } }, ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var scope = host.Services.CreateScope();
+        var entries = await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<AuditEvent>()
+            .Where(e => e.TenantSlug == tenant && e.Action == "settings.tenant.changed")
+            .ToListAsync(ct);
+        entries.Should().ContainSingle();
+        var entry = entries[0];
+        entry.TargetType.Should().Be(nameof(TenantSettings));
+        entry.TargetId.Should().Be(TenantSettings.IdForTenant(tenant).ToString());
+        entry.Metadata.Should().NotBeNull();
+        entry.Metadata!["section"].ToString().Should().Be("Files.S3");
+        var recorded = JsonSerializer.Serialize(entry);
+        recorded.Should().Contain("SecretKey", "the audit names the field that changed");
+        recorded.Should().NotContain(SecretValue, "and never the value");
+        recorded.Should().NotContain("audited-bucket", "values are not recorded, only field names");
+    }
+
+    [Fact]
+    public async Task The_default_tenant_has_no_overrides_so_get_and_put_are_400()
+    {
+        var host = HostWithModules();
+        var client = host.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+            _factory.CreateToken(roles: ["SuperAdmin"]));
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
+
+        (await client.GetAsync("/api/tenant-settings/Email.Smtp", TestContext.Current.CancellationToken))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await client.PutAsJsonAsync("/api/tenant-settings/Email.Smtp",
+            new { values = new Dictionary<string, string?> { ["From"] = "a@b.example" } },
+            TestContext.Current.CancellationToken)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]
@@ -250,20 +460,21 @@ public class TenantSettingsTests
         return entries[0];
     }
 
-    private static SmtpEmailService Smtp(IServiceScope scope, int port) =>
+    private static SmtpEmailService Smtp(IServiceScope scope, int port, params string[] fromDomains) =>
         new(Options.Create(new SmtpOptions
             {
                 Host = "127.0.0.1", Port = port, From = HostFrom, Security = SmtpSecurity.None,
+                TenantFromDomains = [.. fromDomains],
             }).AsSnapshot(),
             scope.ServiceProvider.GetRequiredService<IEmailSettingsProvider>(),
             null,
             scope.ServiceProvider.GetRequiredService<ITenantSettings>());
 
-    private async Task SendForTenantAsync(WebApplicationFactory<Program> host, int port, string tenant)
+    private async Task SendForTenantAsync(WebApplicationFactory<Program> host, int port, string tenant, params string[] fromDomains)
     {
         using var scope = host.Services.CreateScope();
         scope.ServiceProvider.GetRequiredService<TenantContext>().Slug = tenant;
-        await ((IEmailService)Smtp(scope, port)).SendForTenantAsync(tenant, "customer@example.com", "Order shipped",
+        await ((IEmailService)Smtp(scope, port, fromDomains)).SendForTenantAsync(tenant, "customer@example.com", "Order shipped",
             "<p>Hi</p>", TestContext.Current.CancellationToken);
     }
 

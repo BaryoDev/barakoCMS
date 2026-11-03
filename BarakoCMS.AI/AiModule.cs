@@ -24,7 +24,7 @@ public sealed class AiModule : IBarakoModule
         new("AI", "Embedding model used for a tenant's semantic search",
         [
             new ModuleSettingsKey("EmbeddingModel", "Embedding model the tenant's search uses", "Model", HostDefaultKey: "Modules:AI:EmbeddingModel"),
-            new ModuleSettingsKey("EmbeddingBaseUrl", "Base URL of the embedding service", "Model", HostDefaultKey: "Modules:AI:EmbeddingBaseUrl"),
+            new ModuleSettingsKey("EmbeddingBaseUrl", "Base URL of the embedding service", "Model", HostDefaultKey: "Modules:AI:EmbeddingBaseUrl", Kind: ModuleSettingsKind.Url),
             new ModuleSettingsKey("Enabled", "Turns the AI module on, set for the whole host", "Model", TenantOverridable: false, HostDefaultKey: "Modules:AI:Enabled"),
         ]),
     ];

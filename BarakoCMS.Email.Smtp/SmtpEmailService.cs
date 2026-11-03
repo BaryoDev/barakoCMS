@@ -93,7 +93,7 @@ public sealed class SmtpEmailService : IEmailService
             throw new InvalidOperationException(
                 $"No SMTP host is set. Set {SmtpOptions.SectionName}:Host.");
 
-        var from = await TenantFromAsync(tenant, cancellationToken)
+        var from = await TenantFromAsync(tenant, options, cancellationToken)
             ?? await ResolveFromAsync(options, cancellationToken);
 
         var message = new MimeMessage();
@@ -196,9 +196,13 @@ public sealed class SmtpEmailService : IEmailService
 
     /// <summary>The tenant's own From, or null when it has none and the host sender applies.</summary>
     /// <remarks>
-    /// A stored value that is not a mailbox is skipped with a warning rather than failing the send.
+    /// SMTP has no tenant credential, so a tenant sender goes out over the host's login. The tenant's
+    /// From is therefore honoured only when its domain is in <see cref="SmtpOptions.TenantFromDomains"/>
+    /// (exact match, no subdomains). An empty list means the host sender always. A stored value that
+    /// is not a mailbox, or whose domain is not listed, is skipped with a warning rather than failing
+    /// the send.
     /// </remarks>
-    private async Task<string?> TenantFromAsync(string? tenant, CancellationToken ct)
+    private async Task<string?> TenantFromAsync(string? tenant, SmtpOptions options, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(tenant) || _tenantSettings is null)
         {
@@ -211,9 +215,20 @@ public sealed class SmtpEmailService : IEmailService
             return null;
         }
 
-        if (!MailboxAddress.TryParse(value, out _))
+        if (!MailboxAddress.TryParse(value, out var mailbox))
         {
             _logger?.LogWarning("A tenant's {Section} From is not a valid mailbox, so the host sender is used.", SmtpEmailModule.SettingsSectionName);
+            return null;
+        }
+
+        var domain = mailbox.Domain;
+        var allowed = options.TenantFromDomains?.Any(d =>
+            !string.IsNullOrWhiteSpace(d) && string.Equals(d.Trim(), domain, StringComparison.OrdinalIgnoreCase)) == true;
+        if (!allowed)
+        {
+            _logger?.LogWarning(
+                "Tenant {Tenant} set an {Section} From on domain {Domain}, which is not in {Option}, so the host sender is used.",
+                tenant, SmtpEmailModule.SettingsSectionName, domain, $"{SmtpOptions.SectionName}:TenantFromDomains");
             return null;
         }
 
@@ -227,8 +242,9 @@ public sealed class SmtpEmailService : IEmailService
     /// The stored from address is the one part of the email settings surface that is not about
     /// an API-key provider, so it carries across: an operator who types a sender at Settings, Email gets that
     /// sender, whichever provider is registered. The API key beside it does not carry across,
-    /// because SMTP has no use for one. Always the host's: SMTP has no tenant credential, so a tenant
-    /// sender would go out over the host's login.
+    /// because SMTP has no use for one. This is always the host's sender. A tenant's own From is chosen
+    /// earlier, in <c>TenantFromAsync</c>, and only for a domain the host listed in
+    /// <see cref="SmtpOptions.TenantFromDomains"/>.
     /// </remarks>
     private async Task<string> ResolveFromAsync(SmtpOptions options, CancellationToken ct)
     {

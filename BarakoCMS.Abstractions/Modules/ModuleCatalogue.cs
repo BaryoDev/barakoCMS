@@ -21,9 +21,16 @@ internal sealed class ModuleCatalogue
 
     public IReadOnlyList<ModuleCatalogueEntry> Entries { get; }
 
+    /// <summary>
+    /// The settings section name the host serves itself at <c>/api/tenant-settings/email</c>. A module
+    /// section with this name would never be reached, because the fixed route wins.
+    /// </summary>
+    internal const string ReservedSectionName = "email";
+
     public static ModuleCatalogue Of(IEnumerable<IBarakoModule> seen, IEnumerable<IBarakoModule> enabled)
     {
         var running = new HashSet<IBarakoModule>(enabled, ReferenceEqualityComparer.Instance);
+        CheckSectionNames(running);
         return new ModuleCatalogue(seen
             .Select(m => new ModuleCatalogueEntry(m.Name, m.ContractVersion, running.Contains(m))
             {
@@ -37,6 +44,31 @@ internal sealed class ModuleCatalogue
                 Glyph = m.Glyph,
             })
             .ToArray());
+    }
+
+    // Only modules that run can serve a section, so a switched-off module does not stop the host.
+    private static void CheckSectionNames(IEnumerable<IBarakoModule> running)
+    {
+        var owners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var module in running)
+        {
+            foreach (var section in module.SettingsSections)
+            {
+                if (string.Equals(section.Name, ReservedSectionName, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(
+                        $"Module '{module.Name}' declares a settings section named '{section.Name}'. "
+                        + $"'{ReservedSectionName}' is reserved for the host's own route, so the section could never be reached.");
+                }
+
+                if (!owners.TryAdd(section.Name, module.Name))
+                {
+                    throw new InvalidOperationException(
+                        $"Modules '{owners[section.Name]}' and '{module.Name}' both declare a settings section named "
+                        + $"'{section.Name}'. Section names are matched without regard to case and must be unique.");
+                }
+            }
+        }
     }
 }
 

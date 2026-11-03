@@ -114,6 +114,37 @@ internal sealed class GetTenantSettingsEndpoint(IQuerySession session, TenantCon
     }
 }
 
+internal static class TenantSettingsValues
+{
+    /// <summary>Whether <paramref name="value"/> fits the declared kind. Empty fits every kind, because it clears.</summary>
+    internal static bool Fits(ModuleSettingsKind kind, string value)
+    {
+        var trimmed = value.Trim();
+        if (trimmed.Length == 0)
+        {
+            return true;
+        }
+
+        return kind switch
+        {
+            // The same rules as PUT /api/tenant-settings/email.
+            ModuleSettingsKind.Mailbox => trimmed.Length <= 320
+                && trimmed.AsSpan().IndexOfAny(['\r', '\n', ',', ';']) < 0
+                && System.Net.Mail.MailAddress.TryCreate(trimmed, out _),
+            ModuleSettingsKind.Url => Uri.TryCreate(trimmed, UriKind.Absolute, out var uri)
+                && uri.Scheme == Uri.UriSchemeHttps,
+            _ => true,
+        };
+    }
+
+    internal static string Describe(ModuleSettingsKind kind) => kind switch
+    {
+        ModuleSettingsKind.Mailbox => "email address",
+        ModuleSettingsKind.Url => "https URL",
+        _ => "value",
+    };
+}
+
 internal sealed class UpdateTenantSettingsRequest
 {
     public string Section { get; set; } = string.Empty;
@@ -171,6 +202,10 @@ internal sealed class UpdateTenantSettingsEndpoint(
             {
                 ThrowError($"'{key.Key}' is set for the whole host and a tenant cannot override it.", 400);
             }
+            if (value is not null && !TenantSettingsValues.Fits(key.Kind, value))
+            {
+                ThrowError($"'{key.Key}' is not a valid {TenantSettingsValues.Describe(key.Kind)}.", 400);
+            }
             keys.Add((key, value));
         }
 
@@ -179,7 +214,7 @@ internal sealed class UpdateTenantSettingsEndpoint(
         var id = TenantSettings.IdForTenant(tenant.Slug);
         await session.BeginTransactionAsync(ct);
         await session.QueryAsync<int>(
-            "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct, $"barakocms:tenant-settings:{tenant.Slug}");
+            "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct, $"barakocms:tenant-settings:{tenant.Slug.ToLowerInvariant()}");
 
         var row = await session.LoadAsync<TenantSettings>(id, ct)
             ?? new TenantSettings { Id = id, TenantSlug = tenant.Slug };

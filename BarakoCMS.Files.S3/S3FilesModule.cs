@@ -25,7 +25,7 @@ public sealed class S3FilesModule : IBarakoModule
         new("Files.S3", "S3 storage for a tenant's files",
         [
             new ModuleSettingsKey("Bucket", "Bucket that holds the tenant's files", "Storage", HostDefaultKey: "Modules:Files.S3:Bucket"),
-            new ModuleSettingsKey("PublicBaseUrl", "Public base URL used to link the tenant's files", "Storage", HostDefaultKey: "Modules:Files.S3:PublicBaseUrl"),
+            new ModuleSettingsKey("PublicBaseUrl", "Public base URL used to link the tenant's files", "Storage", HostDefaultKey: "Modules:Files.S3:PublicBaseUrl", Kind: ModuleSettingsKind.Url),
             new ModuleSettingsKey("AccessKey", "Access key for the tenant's bucket", "Credentials", Secret: true, HostDefaultKey: "Modules:Files.S3:AccessKey"),
             new ModuleSettingsKey("SecretKey", "Secret key for the tenant's bucket", "Credentials", Secret: true, HostDefaultKey: "Modules:Files.S3:SecretKey"),
             new ModuleSettingsKey("ServiceUrl", "Endpoint of the S3 service, set for the whole host", "Storage", TenantOverridable: false, HostDefaultKey: "Modules:Files.S3:ServiceUrl"),

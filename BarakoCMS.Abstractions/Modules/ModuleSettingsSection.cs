@@ -1,5 +1,18 @@
 namespace barakoCMS.Modules;
 
+/// <summary>What shape a setting's value must have. Checked when a tenant saves it.</summary>
+public enum ModuleSettingsKind
+{
+    /// <summary>Any text.</summary>
+    Text,
+
+    /// <summary>One email address, optionally with a display name.</summary>
+    Mailbox,
+
+    /// <summary>An absolute https URL.</summary>
+    Url,
+}
+
 /// <summary>One setting a module lets a tenant override (#896, #890).</summary>
 /// <param name="Key">The key within the section, for example <c>From</c>. Matched without regard to case.</param>
 /// <param name="Description">What the setting does, shown beside the field.</param>
@@ -15,13 +28,15 @@ namespace barakoCMS.Modules;
 /// The full configuration key that holds the host default, for example <c>Modules:Email.Smtp:From</c>.
 /// Null when the host has no configured default.
 /// </param>
+/// <param name="Kind">The shape the value must have. The tenant route answers 400 for a value that does not fit. Empty always clears.</param>
 public sealed record ModuleSettingsKey(
     string Key,
     string Description,
     string Category = "General",
     bool Secret = false,
     bool TenantOverridable = true,
-    string? HostDefaultKey = null);
+    string? HostDefaultKey = null,
+    ModuleSettingsKind Kind = ModuleSettingsKind.Text);
 
 /// <summary>
 /// A named group of settings a module declares. A tenant administrator may override its keys
