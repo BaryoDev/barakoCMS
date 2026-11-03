@@ -538,6 +538,55 @@ public class CollectionPushTests
           + "that never fires would pass the no-delivery assertion on its own.");
     }
 
+    [Fact]
+    public async Task A_push_that_moves_a_scheduled_entry_to_Draft_clears_its_publish_time()
+    {
+        var type = await ArrangeTypeAsync();
+        var client = await AdminAsync();
+        await PushOkAsync(client, type, new { status = "Draft", entries = new[] { Entry("a", "A") } });
+        var id = (await EntriesAsync(type)).Single().Id;
+        var schedule = await client.PutAsJsonAsync($"/api/contents/{id}/schedule",
+            new { id, scheduledPublishAt = DateTime.UtcNow.AddDays(2) }, TestContext.Current.CancellationToken);
+        schedule.IsSuccessStatusCode.Should().BeTrue();
+        var scheduled = (await EntriesAsync(type)).Single();
+        scheduled.Status.Should().Be(ContentStatus.Scheduled);
+        scheduled.ScheduledPublishAt.Should().NotBeNull();
+
+        await PushOkAsync(client, type, new { status = "Draft", entries = new[] { Entry("a", "A") } });
+
+        var after = (await EntriesAsync(type)).Single();
+        after.Status.Should().Be(ContentStatus.Draft);
+        after.ScheduledPublishAt.Should().BeNull("a push that moves the entry off Scheduled must not leave the old schedule to publish it");
+    }
+
+    [Fact]
+    public async Task A_push_that_changes_status_on_a_type_with_a_lifecycle_is_refused_like_an_update()
+    {
+        var type = await ArrangeTypeAsync();
+        var client = await AdminAsync();
+        await PushOkAsync(client, type, new { entries = new[] { Entry("a", "A") } });
+
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession())
+        {
+            var definition = await session.Query<ContentTypeDefinition>().FirstAsync(d => d.Name == type, TestContext.Current.CancellationToken);
+            definition.Lifecycle = new LifecycleDefinition
+            {
+                States = ["Draft", "Submitted"],
+                InitialState = "Draft",
+                Transitions = [new StateTransition { Name = "Submit", From = "Draft", To = "Submitted" }],
+            };
+            session.Store(definition);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var (status, body) = await PushAsync(client, type, new { status = "Draft", entries = new[] { Entry("a", "A") } });
+
+        status.Should().Be(HttpStatusCode.BadRequest, body.ToString());
+        body.ToString().Should().Contain("declares a lifecycle");
+        (await EntriesAsync(type)).Single().Status.Should().Be(ContentStatus.Published);
+    }
+
     private async Task<Dictionary<Guid, long>> StreamVersionsAsync(IEnumerable<Content> entries)
     {
         using var scope = _factory.Services.CreateScope();

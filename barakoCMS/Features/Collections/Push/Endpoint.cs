@@ -191,6 +191,11 @@ internal sealed class Endpoint(
             return;
         }
 
+        if (definition.Lifecycle is not null && plans.Any(p => p.Existing is { } e && e.Status != req.Status))
+        {
+            ThrowError(barakoCMS.Features.Content.ChangeStatus.LifecycleGuard.StatusRefusal(req.Type), 400);
+        }
+
         var missing = new List<ContentDoc>();
         if (req.ArchiveMissing)
         {
@@ -255,7 +260,8 @@ internal sealed class Endpoint(
 
                 if (existing.Status != req.Status)
                 {
-                    events.Add(new ContentStatusChanged(existing.Id, req.Status, userId, DateTime.UtcNow));
+                    events.AddRange(barakoCMS.Features.Content.ChangeStatus.ScheduleClearing.With(
+                        existing, new ContentStatusChanged(existing.Id, req.Status, userId, DateTime.UtcNow), req.Status, userId));
                 }
 
                 if (events.Count == 0)
