@@ -256,6 +256,15 @@ internal sealed class CollectionSyncRunner(
                 continue;
             }
 
+            // The entry's number is written once, on create. A source row that sends a different one
+            // is skipped, as an update with one is refused.
+            if (changed && ContentValidatorService.KeepStoredNumber(schema, merged, existing, refuseDifferent: true) is { } numbered)
+            {
+                skipped++;
+                firstSkip ??= numbered;
+                continue;
+            }
+
             if (changed && await RefusalAsync(sync.ContentType, id, merged, existing.Data, ct) is { } refusal)
             {
                 skipped++;

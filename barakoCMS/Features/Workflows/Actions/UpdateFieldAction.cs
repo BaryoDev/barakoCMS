@@ -216,9 +216,10 @@ internal class UpdateFieldAction : IWorkflowAction
             var tokenKey = field.StartsWith("data.", StringComparison.OrdinalIgnoreCase) ? field.Substring(5) : field;
 
             barakoCMS.Models.FieldDefinition? token;
+            barakoCMS.Models.ContentTypeDefinition? definition;
             try
             {
-                var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(_session, targetContent.ContentType, ct);
+                definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(_session, targetContent.ContentType, ct);
                 token = definition?.Fields.FirstOrDefault(
                     f => f is not null
                          && string.Equals(f.Name, tokenKey, StringComparison.OrdinalIgnoreCase)
@@ -234,6 +235,15 @@ internal class UpdateFieldAction : IWorkflowAction
             {
                 return WorkflowActionResult.PermanentFailure(
                     $"Field '{token.Name}' is a token, which the server generates, so a workflow cannot write it.");
+            }
+
+            // The entry's number is written once, on create, as update and rollback keep it.
+            // Permanent: the same value differs on every retry.
+            if (definition is not null
+                && barakoCMS.Infrastructure.Services.ContentValidatorService.KeepStoredNumber(
+                    definition, data, targetContent, refuseDifferent: true) is { } numbered)
+            {
+                return WorkflowActionResult.PermanentFailure(numbered);
             }
         }
 
