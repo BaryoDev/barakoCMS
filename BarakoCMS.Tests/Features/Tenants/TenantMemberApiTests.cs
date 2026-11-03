@@ -469,6 +469,28 @@ public class TenantMemberApiTests
     }
 
     [Fact]
+    public async Task Only_a_caller_who_holds_the_roles_can_reactivate_a_suspended_member()
+    {
+        var slug = await TenantAsync();
+        var type = $"Mem{Guid.NewGuid():N}"[..12];
+        var content = await StoreRoleAsync(slug, [], type);
+        var (weak, _) = await ManagerAsync(slug);
+        var (strong, _) = await ManagerAsync(slug, content.Id);
+        var target = await UserAsync($"suspended-{Guid.NewGuid():n}@example.com");
+        await MembershipAsync(target, slug, MembershipStatus.Suspended, content.Id);
+
+        var denied = await weak.PutAsJsonAsync($"/api/tenants/members/{target}",
+            new { roleIds = new[] { content.Id }, status = "Active" });
+        denied.StatusCode.Should().Be(HttpStatusCode.Forbidden, await denied.Content.ReadAsStringAsync());
+        (await MembershipsAsync(target, slug)).Single().Status.Should().Be(MembershipStatus.Suspended);
+
+        var allowed = await strong.PutAsJsonAsync($"/api/tenants/members/{target}",
+            new { roleIds = new[] { content.Id }, status = "Active" });
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK, await allowed.Content.ReadAsStringAsync());
+        (await MembershipsAsync(target, slug)).Single().Status.Should().Be(MembershipStatus.Active);
+    }
+
+    [Fact]
     public async Task A_caller_can_add_or_update_a_member_with_roles_they_hold()
     {
         var slug = await TenantAsync();

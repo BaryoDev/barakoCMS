@@ -499,7 +499,9 @@ internal sealed class AddMemberEndpoint(
             ThrowError(barakoCMS.Features.Users.PlatformRoles.PlatformRoleRefusedMessage, 403);
 
         // The caller must hold what they newly hand out. Keeping, dropping and suspending need no hold.
-        var current = membership is null || membership.Status == MembershipStatus.Removed
+        // Roles count as already held only while the membership is Active; a Suspended or Removed
+        // member coming back needs every role held.
+        var current = membership is null || membership.Status != MembershipStatus.Active
             ? new HashSet<Guid>()
             : membership.RoleIds.ToHashSet();
         var notHeld = await barakoCMS.Features.Roles.RoleGrantRules.NotHeldAsync(
@@ -614,7 +616,10 @@ internal sealed class UpdateMemberEndpoint(
             ThrowError(barakoCMS.Features.Users.PlatformRoles.PlatformRoleRefusedMessage, 403);
 
         // The caller must hold what they newly hand out. Keeping, dropping and suspending need no hold.
-        var current = membership.RoleIds.ToHashSet();
+        // Roles count as already held only while the membership is Active and stays so. Reactivating a
+        // Suspended member needs every role held; suspending or dropping roles needs none.
+        var reactivating = req.Status == MembershipStatus.Active && membership.Status != MembershipStatus.Active;
+        var current = reactivating ? new HashSet<Guid>() : membership.RoleIds.ToHashSet();
         var notHeld = await barakoCMS.Features.Roles.RoleGrantRules.NotHeldAsync(
             session, callers, permissions, User,
             roleIds.Where(id => !current.Contains(id)).ToList(),
