@@ -452,7 +452,7 @@ public class ServicePrincipalTests
         var steward = await StewardAsync(tenant);
         var (type, role) = await ContentRoleAsync(tenant);
         var principal = await CreatePrincipalAsync(steward, role.Id);
-        var key = await CreateKeyAsync(steward, principal.Id);
+        var key = await CreateKeyAsync(steward, principal.Id, "content:read", "content:write");
         var client = KeyClient(key.Key, tenant);
 
         var created = await client.PostAsJsonAsync("/api/contents",
@@ -485,7 +485,7 @@ public class ServicePrincipalTests
         var tenant = await TenantAsync();
         var steward = await StewardAsync(tenant);
         var principal = await CreatePrincipalAsync(steward);
-        var key = await CreateKeyAsync(steward, principal.Id);
+        var key = await CreateKeyAsync(steward, principal.Id, "content:read");
         var client = KeyClient(key.Key, tenant);
 
         foreach (var route in new[] { "/api/me", "/api/me/tenants", "/api/auth/mfa/status" })
