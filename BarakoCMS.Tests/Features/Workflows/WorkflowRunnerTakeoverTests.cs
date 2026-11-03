@@ -187,10 +187,33 @@ public class WorkflowRunnerTakeoverTests
     }
 
     [Fact]
+    public async Task An_undo_that_ends_unknown_on_a_lapsed_lease_tells_the_failure_handlers()
+    {
+        var contentId = await _harness.StoreContentAsync();
+
+        var run = await DrainSeededAsync(contentId, [LapsedUndo()]);
+
+        run.Status.Should().BeOneOf(RunStatus.Failed, RunStatus.PartiallyFailed);
+        RecordingFailureHandler.Told.GetValueOrDefault(run.Id).Should().Be(1);
+    }
+
+    [Fact]
     public async Task An_undo_that_lost_its_lease_is_counted_and_ends_unknown_when_it_cannot_dedupe()
     {
         var contentId = await _harness.StoreContentAsync();
-        var done = new WorkflowActionAttempt
+        var done = LapsedUndo();
+
+        var run = await DrainSeededAsync(contentId, [done]);
+
+        var undo = run.Actions.Should().ContainSingle().Which.Compensation!;
+        undo.Status.Should().Be(CompensationStatus.Unknown);
+        undo.Attempts.Should().Be(1);
+        undo.Takeovers.Should().Be(1);
+        SendOnceRunnerAction.RunsByKey.GetValueOrDefault(undo.IdempotencyKey).Should().Be(0);
+    }
+
+    private static WorkflowActionAttempt LapsedUndo() =>
+        new WorkflowActionAttempt
         {
             ActionType = WorkflowStopHarness.Counting,
             Status = AttemptStatus.Succeeded,
@@ -205,15 +228,6 @@ public class WorkflowRunnerTakeoverTests
                 LeaseExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-5),
             },
         };
-
-        var run = await DrainSeededAsync(contentId, [done]);
-
-        var undo = run.Actions.Should().ContainSingle().Which.Compensation!;
-        undo.Status.Should().Be(CompensationStatus.Unknown);
-        undo.Attempts.Should().Be(1);
-        undo.Takeovers.Should().Be(1);
-        SendOnceRunnerAction.RunsByKey.GetValueOrDefault(undo.IdempotencyKey).Should().Be(0);
-    }
 
     [Fact]
     public async Task A_takeover_of_an_action_that_honours_the_key_runs_it_again()

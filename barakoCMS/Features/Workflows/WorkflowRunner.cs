@@ -643,7 +643,10 @@ internal sealed class WorkflowRunner(
             return null;
         }
 
-        return ended ? new Claim(run, null) : new Claim(run, undoing, Undo: true);
+        if (!ended) return new Claim(run, undoing, Undo: true);
+
+        Metrics.Recorded(undoing.Compensate?.Type ?? string.Empty, true, AttemptStatus.Unknown, 0);
+        return new Claim(run, null, Notify: true);
     }
 
     /// <summary>
