@@ -217,6 +217,30 @@ public class TenantMemberApiTests
     }
 
     [Fact]
+    public async Task The_assignable_roles_list_leaves_out_roles_the_caller_cannot_grant()
+    {
+        var slug = await TenantAsync();
+        var plain = await StoreRoleAsync(slug, [], null);
+        var hr = barakoCMS.Data.DataSeeder.DemoHrRoleId;
+
+        async Task<List<Guid>> IdsAsync(HttpClient client)
+        {
+            var response = await client.GetAsync("/api/tenants/members/roles");
+            response.IsSuccessStatusCode.Should().BeTrue("assignable roles returned {0}", response.StatusCode);
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            return document.RootElement.GetProperty("items")
+                .EnumerateArray().Select(r => r.GetProperty("id").GetGuid()).ToList();
+        }
+
+        var admin = await IdsAsync(await AdminOfAsync(slug));
+        admin.Should().Contain(plain.Id);
+        admin.Should().NotContain(hr, "the seeded HR role carries view_sensitive, which a tenant Admin does not hold");
+
+        var super = await IdsAsync(await AdminOfAsync(slug, "SuperAdmin", "Admin"));
+        super.Should().Contain(hr);
+    }
+
+    [Fact]
     public async Task An_unknown_email_creates_an_otp_only_user()
     {
         // The branch a happy-path test misses. An invited person has no password: they sign in with

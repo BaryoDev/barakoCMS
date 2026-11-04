@@ -699,7 +699,9 @@ internal sealed class RemoveMemberEndpoint(
 /// </summary>
 internal sealed class AssignableRolesEndpoint(
     IQuerySession session,
-    TenantContext tenant) : Endpoint<ListRequest, PaginatedResponse<AssignableRoleResponse>>
+    TenantContext tenant,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions,
+    barakoCMS.Core.Interfaces.ICallerCapabilities callers) : Endpoint<ListRequest, PaginatedResponse<AssignableRoleResponse>>
 {
     public override void Configure()
     {
@@ -713,13 +715,18 @@ internal sealed class AssignableRolesEndpoint(
             .OrderBy(r => r.Name).ToListAsync(ct);
         var superAdmin = await barakoCMS.Features.Users.PlatformRoles.IsSuperAdminAsync(session, User, ct);
 
-        // Filtered by the same predicate the write paths refuse on, so the list a client is offered
-        // and the list the server accepts cannot drift apart.
-        var assignable = roles
-            .Where(r => Members.IsAssignable(r.Id))
-            .Where(r => superAdmin || !barakoCMS.Features.Users.PlatformRoles.CarriesPlatformCapability(r))
-            .Select(r => new AssignableRoleResponse(r.Id, r.Name, r.Description))
-            .ToList();
+        // Filtered by the predicates the write paths refuse on: platform roles, and for anyone but a
+        // SuperAdmin the same hold check the add and update paths run (RoleGrantRules.NotHeldAsync).
+        var assignable = new List<AssignableRoleResponse>();
+        foreach (var r in roles.Where(r => Members.IsAssignable(r.Id)))
+        {
+            if (!superAdmin
+                && (barakoCMS.Features.Users.PlatformRoles.CarriesPlatformCapability(r)
+                    || await barakoCMS.Features.Roles.RoleGrantRules.NotHeldAsync(
+                        session, callers, permissions, User, [r.Id], tenant.Slug, ct) is not null))
+                continue;
+            assignable.Add(new AssignableRoleResponse(r.Id, r.Name, r.Description));
+        }
 
         await Send.OkAsync(assignable.ToPagedResponse(req), ct);
     }
