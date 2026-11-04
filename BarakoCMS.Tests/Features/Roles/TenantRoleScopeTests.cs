@@ -211,7 +211,8 @@ public class TenantRoleScopeTests
         offered.StatusCode.Should().Be(HttpStatusCode.OK, await offered.Content.ReadAsStringAsync(Ct));
         var ids = (await offered.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("items").EnumerateArray()
             .Select(i => i.GetProperty("id").GetGuid()).ToList();
-        ids.Should().Contain([own.Id, SystemRoles.AdminRoleId]);
+        ids.Should().Contain(own.Id);
+        ids.Should().NotContain(SystemRoles.AdminRoleId, "a members manager does not hold what the Admin role carries");
         ids.Should().NotContain(theirs.Id);
 
         var accepted = await manager.PostAsJsonAsync("/api/tenants/members",

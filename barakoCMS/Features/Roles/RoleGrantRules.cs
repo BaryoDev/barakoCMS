@@ -27,7 +27,7 @@ internal static class RoleGrantRules
             return null;
 
         var roles = await session.Query<Role>().Where(r => r.DeletedAt == null && ids.Contains(r.Id)).ToListAsync(ct);
-        foreach (var capability in roles.SelectMany(r => r.SystemCapabilities).Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (var capability in roles.SelectMany(r => r.SystemCapabilities ?? []).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (!await callers.HoldsAsync(user, capability, ct))
                 return $"You cannot grant '{capability}' because you do not hold it.";
