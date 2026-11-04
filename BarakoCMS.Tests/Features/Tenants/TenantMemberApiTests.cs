@@ -221,7 +221,9 @@ public class TenantMemberApiTests
     {
         var slug = await TenantAsync();
         var plain = await StoreRoleAsync(slug, [], null);
-        var hr = barakoCMS.Data.DataSeeder.DemoHrRoleId;
+        var type = $"Lst{Guid.NewGuid():N}"[..12];
+        var content = await StoreRoleAsync(slug, [], type);
+        var capability = await StoreRoleAsync(slug, [SystemCapabilities.ManageApiKeys], null);
 
         async Task<List<Guid>> IdsAsync(HttpClient client)
         {
@@ -232,12 +234,14 @@ public class TenantMemberApiTests
                 .EnumerateArray().Select(r => r.GetProperty("id").GetGuid()).ToList();
         }
 
-        var admin = await IdsAsync(await AdminOfAsync(slug));
-        admin.Should().Contain(plain.Id);
-        admin.Should().NotContain(hr, "the seeded HR role carries view_sensitive, which a tenant Admin does not hold");
+        var (weak, _) = await ManagerAsync(slug);
+        var offered = await IdsAsync(weak);
+        offered.Should().Contain(plain.Id);
+        offered.Should().NotContain(content.Id, "the caller does not hold read on the role's type");
+        offered.Should().NotContain(capability.Id, "the caller does not hold manage_api_keys");
 
         var super = await IdsAsync(await AdminOfAsync(slug, "SuperAdmin", "Admin"));
-        super.Should().Contain(hr);
+        super.Should().Contain([plain.Id, content.Id, capability.Id]);
     }
 
     [Fact]
