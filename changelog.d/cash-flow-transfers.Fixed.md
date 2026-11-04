@@ -1,1 +1,0 @@
-- **Cash flow counted a transfer between cash accounts twice.** It was counted as both a receipt and a disbursement. It now counts as neither.

@@ -1,1 +1,0 @@
-- **`GET /api/tenants/by-host/{host}` is rate limited.** A made-up subdomain cost a database read to rule out, and the route is anonymous. The new `by-host` policy allows 60 lookups a minute per address, and a renderer holding the renderer key is counted by the visitor it names, as on delivery.

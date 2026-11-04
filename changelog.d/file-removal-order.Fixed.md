@@ -1,1 +1,0 @@
-- **Deleting a file could leave a record with no bytes, or bytes with no record.** The bytes are now deleted after the record is removed, and a file whose storage cannot be built is kept instead of being deleted against the wrong storage.

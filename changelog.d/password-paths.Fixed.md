@@ -1,1 +1,0 @@
-- **Password change, admin reset and sign-in no longer overwrite other changes to the user.** They now write only the fields they own. Changing the password of an account with no password answers 400 instead of 500, and an admin reset lifts a lockout.

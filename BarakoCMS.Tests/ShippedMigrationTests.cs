@@ -84,6 +84,14 @@ public class ShippedMigrationTests
         ["core/5.3.0/98-locale-settings"] = "feb469f6ed7c50b4cbb368e1e3784b6551a68645e42d088d4802a4baabc0a77c",
         ["Accounting/5.3.0/accounting-journal-lifecycle"] = "9729574df1abebb11b7e8e5f27e826053f8abf4d22ac71b7379b9bf41f918d29",
         ["Accounting/5.3.0/accounting-mappings"] = "aa1c2f31888dd847149609343ba3e03b0a04f6aa6af17669f27d9d3143c3c1d5",
+        ["core/5.5.0/1280-tenant-domains"] = "cc9c0fc18afc4b0e09084448fb1d2e05ec2e877c8d3d28b2e630934fb712d7d1",
+        ["core/5.5.0/896-tenant-settings"] = "d7fdba21ff90021f8b31f107a6e62710389b07bee5f61e565ba8b267f954d07d",
+        ["core/5.5.0/906-service-principals"] = "65fc1292fdbec962d9fb4ba2f8d31e518f2e80da014d081060f7383cdf4cae3c",
+        ["core/5.5.0/content-type-lower-index"] = "d61327dc12ea7b6940b54a078160d086299a546371fb1cf448ff6b31b4a284db",
+        ["core/5.5.0/idempotency-created-at-index"] = "d47d2da286e3ffc362401a19a23038b07b55fc53e8607acb1af5b14c3f3e0b9c",
+        ["core/5.5.0/workflow-missed-triggers"] = "8fe6d9e137bc426ee1a01d6a52f79221678c5bb5ccb6d6a3b95bfcbaba634c77",
+        ["ExternalAuth/5.5.0/1270-external-auth-social-handoff"] = "187b21746f52fed4fa7d613a6ab155a6e27ba175b0852fde08f9297f3312dc9a",
+        ["ExternalAuth/5.5.0/915-external-auth-provider-settings"] = "f10f22aacc47fba6f52349beae150b705ea93defc7ad4b1206ccaee89cbeaecb",
     };
 
     /// <summary>

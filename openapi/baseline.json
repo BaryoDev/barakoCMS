@@ -1256,6 +1256,9 @@
           "prefix": {
             "type": "string"
           },
+          "readOnly": {
+            "type": "boolean"
+          },
           "revoked": {
             "type": "boolean"
           },
@@ -1264,6 +1267,11 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "servicePrincipalId": {
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
           },
           "tenantSlug": {
             "type": "string"
@@ -1290,11 +1298,21 @@
           "name": {
             "type": "string"
           },
+          "readOnly": {
+            "description": "Makes a read-only key (secret prefix bcms_ro_) that refuses every write.",
+            "type": "boolean"
+          },
           "scopes": {
             "items": {
               "type": "string"
             },
             "type": "array"
+          },
+          "servicePrincipalId": {
+            "description": "A service principal of the caller's tenant for the key to act as, so it takes its roles from\nthe principal and outlives its creator. Null for a key that acts as its creator.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
           }
         },
         "type": "object"
@@ -5193,7 +5211,7 @@
             "type": "string"
           },
           "source": {
-            "description": "appsettings, environment, default (no provider holds the key, so the code\ndefault applies) or unknown (a provider this view cannot name).",
+            "description": "tenant (the calling tenant's own stored override), appsettings, environment, default (no provider holds the key, so the code\ndefault applies) or unknown (a provider this view cannot name).",
             "type": "string"
           },
           "value": {
@@ -6856,6 +6874,113 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesServicePrincipalsCreateCreateServicePrincipalRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "roleIds": {
+            "items": {
+              "format": "guid",
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesServicePrincipalsMoveKeysMoveKeysRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "allManageable": {
+            "description": "Move every active key of the tenant the caller may manage: the caller's own keys, or all of\nthem for a SuperAdmin. This is the same reach rotation has.",
+            "type": "boolean"
+          },
+          "keyId": {
+            "description": "One key to move. Leave empty and set AllManageable to move many.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
+          "servicePrincipalId": {
+            "format": "guid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesServicePrincipalsMoveKeysMoveKeysResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "keyIds": {
+            "items": {
+              "format": "guid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "moved": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesServicePrincipalsServicePrincipalResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdBy": {
+            "format": "guid",
+            "type": "string"
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "disabledAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "roleIds": {
+            "items": {
+              "format": "guid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tenantSlug": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesServicePrincipalsSetRolesSetPrincipalRolesRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "roleIds": {
+            "items": {
+              "format": "guid",
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesSettingsEmailEmailSettingsResponse": {
         "additionalProperties": false,
         "description": "What is configured, and where each value came from. Never the key itself.",
@@ -7046,6 +7171,88 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSettingsTenantSettingsSectionsGetTenantSettingsRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSettingsTenantSettingsSectionsTenantSettingsKeyResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "boolean"
+          },
+          "set": {
+            "description": "True when this tenant has stored its own value.",
+            "type": "boolean"
+          },
+          "tenantOverridable": {
+            "type": "boolean"
+          },
+          "value": {
+            "description": "The tenant's own value. Always null for a secret, which is write-only.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSettingsTenantSettingsSectionsTenantSettingsSectionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsTenantSettingsSectionsTenantSettingsKeyResponse"
+            },
+            "type": "array"
+          },
+          "section": {
+            "type": "string"
+          },
+          "tenant": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "updatedBy": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSettingsTenantSettingsSectionsUpdateTenantSettingsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "values": {
+            "additionalProperties": {
+              "nullable": true,
+              "type": "string"
+            },
+            "description": "Key to value. A missing key is left alone; an empty value clears the override.",
+            "nullable": false,
+            "type": "object"
+          }
+        },
+        "required": [
+          "values"
+        ],
         "type": "object"
       },
       "BarakoCMSFeaturesSettingsUpdateSettingRequest": {
@@ -12047,6 +12254,48 @@
         },
         "type": "object"
       },
+      "BarakoCMSModelsPaginatedResponseOfServicePrincipalResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesServicePrincipalsServicePrincipalResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSModelsPaginatedResponseOfShareLinkResponse": {
         "additionalProperties": false,
         "description": "Generic paginated response with metadata.",
@@ -14781,6 +15030,48 @@
         ]
       }
     },
+    "/api/api-keys/move-to-principal": {
+      "post": {
+        "operationId": "barakoCMSFeaturesServicePrincipalsMoveKeysMoveKeysToPrincipalEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesServicePrincipalsMoveKeysMoveKeysRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "MoveKeysRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesServicePrincipalsMoveKeysMoveKeysResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/api-keys/move-to-principal. Opt-in: nothing moves unless a caller asks. A moved key\nkeeps its secret, scopes and expiry and from then on acts as the principal, so it no longer\ndepends on the person who made it.",
+        "tags": [
+          "ServicePrincipals"
+        ]
+      }
+    },
     "/api/api-keys/{id}": {
       "delete": {
         "operationId": "barakoCMSFeaturesApiKeysRevokeApiKeyEndpoint",
@@ -17137,9 +17428,6 @@
           },
           "401": {
             "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
           }
         },
         "security": [
@@ -19025,9 +19313,6 @@
           },
           "401": {
             "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
           }
         },
         "security": [
@@ -19080,9 +19365,6 @@
           },
           "401": {
             "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
           }
         },
         "security": [
@@ -19287,9 +19569,6 @@
           },
           "401": {
             "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
           }
         },
         "security": [
@@ -19585,9 +19864,6 @@
           },
           "401": {
             "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
           }
         },
         "security": [
@@ -19827,9 +20103,6 @@
           },
           "401": {
             "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
           }
         },
         "security": [
@@ -21340,9 +21613,6 @@
           },
           "401": {
             "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
           }
         },
         "security": [
@@ -23543,6 +23813,234 @@
         ]
       }
     },
+    "/api/service-principals": {
+      "get": {
+        "operationId": "barakoCMSFeaturesServicePrincipalsListListServicePrincipalsEndpoint",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfServicePrincipalResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/service-principals",
+        "tags": [
+          "ServicePrincipals"
+        ]
+      },
+      "post": {
+        "operationId": "barakoCMSFeaturesServicePrincipalsCreateCreateServicePrincipalEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesServicePrincipalsCreateCreateServicePrincipalRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "CreateServicePrincipalRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesServicePrincipalsServicePrincipalResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/service-principals",
+        "tags": [
+          "ServicePrincipals"
+        ]
+      }
+    },
+    "/api/service-principals/{id}": {
+      "get": {
+        "operationId": "barakoCMSFeaturesServicePrincipalsGetGetServicePrincipalEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesServicePrincipalsServicePrincipalResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/service-principals/{id}",
+        "tags": [
+          "ServicePrincipals"
+        ]
+      }
+    },
+    "/api/service-principals/{id}/disable": {
+      "post": {
+        "operationId": "barakoCMSFeaturesServicePrincipalsDisableDisableServicePrincipalEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesServicePrincipalsServicePrincipalResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/service-principals/{id}/disable. Its keys are refused on their next request.",
+        "tags": [
+          "ServicePrincipals"
+        ]
+      }
+    },
+    "/api/service-principals/{id}/roles": {
+      "put": {
+        "operationId": "barakoCMSFeaturesServicePrincipalsSetRolesSetServicePrincipalRolesEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesServicePrincipalsSetRolesSetPrincipalRolesRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "SetPrincipalRolesRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesServicePrincipalsServicePrincipalResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/service-principals/{id}/roles replaces the principal's roles.",
+        "tags": [
+          "ServicePrincipals"
+        ]
+      }
+    },
     "/api/settings": {
       "get": {
         "operationId": "barakoCMSFeaturesSettingsGetSettingsEndpoint",
@@ -24247,6 +24745,103 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsTenantEmailTenantEmailSettingsResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "tags": [
+          "Settings"
+        ]
+      }
+    },
+    "/api/tenant-settings/{section}": {
+      "get": {
+        "operationId": "barakoCMSFeaturesSettingsTenantSettingsSectionsGetTenantSettingsEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "section",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsTenantSettingsSectionsTenantSettingsSectionResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "tags": [
+          "Settings"
+        ]
+      },
+      "put": {
+        "operationId": "barakoCMSFeaturesSettingsTenantSettingsSectionsUpdateTenantSettingsEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "section",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsTenantSettingsSectionsUpdateTenantSettingsRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "UpdateTenantSettingsRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsTenantSettingsSectionsTenantSettingsSectionResponse"
                 }
               }
             },

@@ -1,1 +1,0 @@
-- **Erasure used a fixed schema name.** Erasing an entry now deletes its events and stream from the schema the store is configured with, not always `public`.

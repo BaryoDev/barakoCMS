@@ -1,1 +1,0 @@
-- **Converting a field now clears its default value, and a block schema with a boolean property schema is served.** A default typed for the old type no longer lands on new entries of the new type. `GET /api/pages/block-schema` answered 500 for a tenant whose schema held `true` or `false` as a property schema. That property is now served as a plain text field.

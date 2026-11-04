@@ -1,1 +1,0 @@
-- **Two lookups got indexes.** The content type uniqueness check and the idempotency record sweep no longer scan their tables. An existing database needs `db-migrate` (5.5.0 `content-type-lower-index` and `idempotency-created-at-index`).

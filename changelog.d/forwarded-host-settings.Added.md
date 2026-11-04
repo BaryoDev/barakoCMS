@@ -1,1 +1,0 @@
-- **`ForwardedHeaders:ForwardHost` and `ForwardedHeaders:AllowedHosts`.** With forwarded headers on, `X-Forwarded-Host` from a trusted proxy picks the host, and so the tenant domain. `ForwardHost` false keeps the raw `Host` (default true). `AllowedHosts` takes only the forwarded hosts it lists, such as `*.example.com`. Any other forwarded host is ignored.
