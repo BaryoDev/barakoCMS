@@ -495,21 +495,7 @@ internal sealed class AddMemberEndpoint(
         var membership = await session.Query<Membership>()
             .FirstOrDefaultAsync(m => m.UserId == user.Id && m.TenantSlug == slug, ct);
 
-        if (await Members.RefusesPlatformRolesAsync(session, User, roleIds, membership, ct))
-            ThrowError(barakoCMS.Features.Users.PlatformRoles.PlatformRoleRefusedMessage, 403);
-
-        // The caller must hold what they newly hand out. Keeping, dropping and suspending need no hold.
-        // Roles count as already held only while the membership is Active; a Suspended or Removed
-        // member coming back needs every role held.
-        var current = membership is null || membership.Status != MembershipStatus.Active
-            ? new HashSet<Guid>()
-            : membership.RoleIds.ToHashSet();
-        var notHeld = await barakoCMS.Features.Roles.RoleGrantRules.NotHeldAsync(
-            session, callers, permissions, User,
-            roleIds.Where(id => !current.Contains(id)).ToList(),
-            slug, ct);
-        if (notHeld is not null)
-            ThrowError(notHeld, 403);
+        await RefuseUnheldRolesAsync(roleIds, membership, slug, ct);
 
         var details = new Dictionary<string, object> { ["invited"] = invited };
 
@@ -548,6 +534,26 @@ internal sealed class AddMemberEndpoint(
         permissions.InvalidateUserPermissions(user.Id);
 
         await Send.OkAsync(Members.ToResponse(membership, user), ct);
+    }
+
+    // Platform roles and roles the caller does not hold are refused with a 403.
+    // The caller must hold what they newly hand out. Keeping, dropping and suspending need no hold.
+    // Roles count as already held only while the membership is Active; a Suspended or Removed
+    // member coming back needs every role held.
+    private async Task RefuseUnheldRolesAsync(List<Guid> roleIds, Membership? membership, string slug, CancellationToken ct)
+    {
+        if (await Members.RefusesPlatformRolesAsync(session, User, roleIds, membership, ct))
+            ThrowError(barakoCMS.Features.Users.PlatformRoles.PlatformRoleRefusedMessage, 403);
+
+        var current = membership is null || membership.Status != MembershipStatus.Active
+            ? new HashSet<Guid>()
+            : membership.RoleIds.ToHashSet();
+        var notHeld = await barakoCMS.Features.Roles.RoleGrantRules.NotHeldAsync(
+            session, callers, permissions, User,
+            roleIds.Where(id => !current.Contains(id)).ToList(),
+            slug, ct);
+        if (notHeld is not null)
+            ThrowError(notHeld, 403);
     }
 
     internal const string ConcurrentAdd =
