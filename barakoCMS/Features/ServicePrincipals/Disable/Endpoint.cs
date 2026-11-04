@@ -5,6 +5,7 @@ using barakoCMS.Features.Tenants.Members;
 using barakoCMS.Features.Users;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
+using barakoCMS.Infrastructure.Services;
 using FastEndpoints;
 using Marten;
 using barakoCMS.Features.ServicePrincipals;
@@ -12,7 +13,7 @@ using barakoCMS.Features.ServicePrincipals;
 namespace barakoCMS.Features.ServicePrincipals.Disable;
 
 /// <summary>POST /api/service-principals/{id}/disable. Its keys are refused on their next request.</summary>
-internal class DisableServicePrincipalEndpoint(IDocumentSession session) : EndpointWithoutRequest<ServicePrincipalResponse>
+internal class DisableServicePrincipalEndpoint(IDocumentSession session, ICallerCapabilities callers, IPermissionResolver permissions) : EndpointWithoutRequest<ServicePrincipalResponse>
 {
     public override void Configure()
     {
@@ -25,6 +26,10 @@ internal class DisableServicePrincipalEndpoint(IDocumentSession session) : Endpo
         var tenant = PrincipalRules.TenantOf(User);
         var principal = await PrincipalRules.InTenantAsync(session, Route<Guid>("id"), tenant, ct);
         if (principal is null) { await Send.NotFoundAsync(ct); return; }
+
+        // Disabling a principal stops what its roles do, so a caller who lacks what it holds cannot.
+        if (await PrincipalRules.NotHeldByPrincipalAsync(session, callers, permissions, User, principal, ct) is { } notHeld)
+            ThrowError(notHeld, 403);
 
         // Disabling twice writes nothing, so the trail holds one row per disable.
         if (!principal.Disabled)

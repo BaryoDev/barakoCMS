@@ -4,6 +4,7 @@ using barakoCMS.Features.Roles;
 using barakoCMS.Features.Tenants.Members;
 using barakoCMS.Features.Users;
 using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -40,35 +41,17 @@ internal static class PrincipalRules
         return roles.Any(r => r.IsPlatform || PlatformRoles.CarriesPlatformCapability(r)) ? PlatformRoleMessage : null;
     }
 
-    /// <summary>
-    /// The first reason the caller cannot hand these roles to a principal, or null. A person may
-    /// only grant what they hold, as for stations: otherwise a key steward could mint a principal
-    /// with a capability they lack and use it through a key. A SuperAdmin holds every capability
-    /// the roles can carry, since platform capabilities are already refused above.
-    /// </summary>
-    public static async Task<string?> NotHeldAsync(
-        IQuerySession session, ICallerCapabilities callers, System.Security.Claims.ClaimsPrincipal user,
-        IEnumerable<Guid> roleIds, CancellationToken ct)
-    {
-        var ids = roleIds.ToList();
-        if (ids.Count == 0 || await PlatformRoles.IsSuperAdminAsync(session, user, ct))
-            return null;
-
-        var roles = await session.Query<Role>().Where(r => r.DeletedAt == null && ids.Contains(r.Id)).ToListAsync(ct);
-        foreach (var capability in roles.SelectMany(r => r.SystemCapabilities).Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            if (!await callers.HoldsAsync(user, capability, ct))
-                return $"You cannot grant '{capability}' because you do not hold it.";
-        }
-
-        return null;
-    }
+    /// <summary>The first reason the caller cannot hand these roles to a principal, or null (see <see cref="RoleGrantRules"/>).</summary>
+    public static Task<string?> NotHeldAsync(
+        IQuerySession session, ICallerCapabilities callers, IPermissionResolver permissions, System.Security.Claims.ClaimsPrincipal user,
+        IEnumerable<Guid> roleIds, CancellationToken ct) =>
+        RoleGrantRules.NotHeldAsync(session, callers, permissions, user, roleIds, TenantOf(user), ct);
 
     /// <summary>Whether these roles may go on a principal, then whether the caller holds what they carry.</summary>
     public static async Task<string?> CheckAsync(
-        IQuerySession session, ICallerCapabilities callers, System.Security.Claims.ClaimsPrincipal user,
+        IQuerySession session, ICallerCapabilities callers, IPermissionResolver permissions, System.Security.Claims.ClaimsPrincipal user,
         List<Guid> roleIds, string tenant, CancellationToken ct) =>
-        await RefusalAsync(session, roleIds, tenant, ct) ?? await NotHeldAsync(session, callers, user, roleIds, ct);
+        await RefusalAsync(session, roleIds, tenant, ct) ?? await NotHeldAsync(session, callers, permissions, user, roleIds, ct);
 
     /// <summary>The trimmed name, or the reason it is refused.</summary>
     public static string? NameProblem(string? raw, out string name)
@@ -101,9 +84,9 @@ internal static class PrincipalRules
 
     /// <summary>The principal's roles, loaded for the hold check on bind and move.</summary>
     public static Task<string?> NotHeldByPrincipalAsync(
-        IQuerySession session, ICallerCapabilities callers, System.Security.Claims.ClaimsPrincipal user,
+        IQuerySession session, ICallerCapabilities callers, IPermissionResolver permissions, System.Security.Claims.ClaimsPrincipal user,
         ServicePrincipal principal, CancellationToken ct) =>
-        NotHeldAsync(session, callers, user, principal.RoleIds, ct);
+        NotHeldAsync(session, callers, permissions, user, principal.RoleIds, ct);
 
     public static string TenantOf(System.Security.Claims.ClaimsPrincipal user) =>
         (user.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();

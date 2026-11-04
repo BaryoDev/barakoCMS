@@ -64,6 +64,14 @@ internal class Endpoint(
             return;
         }
 
+        // A global role applies in every tenant, so a hold in this tenant proves nothing about the
+        // others: a role with any capability or content right is granted by a SuperAdmin only.
+        if (await barakoCMS.Features.Roles.RoleGrantRules.GlobalRightsRefusalAsync(session, User, [req.RoleId], ct) is { } withRights)
+        {
+            await Send.ResponseAsync(new Response { Message = withRights }, 403, ct);
+            return;
+        }
+
         if (!user.RoleIds.Contains(req.RoleId))
         {
             user.RoleIds.Add(req.RoleId);

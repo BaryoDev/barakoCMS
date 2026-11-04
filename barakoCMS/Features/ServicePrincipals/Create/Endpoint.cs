@@ -5,6 +5,7 @@ using barakoCMS.Features.Tenants.Members;
 using barakoCMS.Features.Users;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
+using barakoCMS.Infrastructure.Services;
 using FastEndpoints;
 using Marten;
 using barakoCMS.Features.ServicePrincipals;
@@ -18,7 +19,7 @@ internal sealed class CreateServicePrincipalRequest
 }
 
 /// <summary>POST /api/service-principals</summary>
-internal class CreateServicePrincipalEndpoint(IDocumentSession session, ICallerCapabilities callers)
+internal class CreateServicePrincipalEndpoint(IDocumentSession session, ICallerCapabilities callers, IPermissionResolver permissions)
     : Endpoint<CreateServicePrincipalRequest, ServicePrincipalResponse>
 {
     public override void Configure()
@@ -34,7 +35,7 @@ internal class CreateServicePrincipalEndpoint(IDocumentSession session, ICallerC
             ThrowError(r => r.Name, nameProblem);
 
         var roleIds = (req.RoleIds ?? []).Distinct().ToList();
-        if (await PrincipalRules.CheckAsync(session, callers, User, roleIds, tenant, ct) is { } why)
+        if (await PrincipalRules.CheckAsync(session, callers, permissions, User, roleIds, tenant, ct) is { } why)
             ThrowError(r => r.RoleIds!, why, 403);
 
         var actor = PrincipalRules.ActorOf(User);

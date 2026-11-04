@@ -295,7 +295,7 @@ public class UserGroupRoleTests
     }
 
     [Fact]
-    public async Task A_caller_allowed_to_grant_roles_can_assign_a_role_bearing_group_from_the_user_side()
+    public async Task A_caller_who_is_not_SuperAdmin_cannot_assign_a_group_carrying_content_rights_from_the_user_side()
     {
         var (roleId, slug) = await ReaderRoleAsync();
         var groupId = await GroupAsync(roleId);
@@ -304,13 +304,18 @@ public class UserGroupRoleTests
         var caller = await CallerHoldingAsync(SystemCapabilities.ManageUserMembership);
         var post = await caller.PostAsJsonAsync($"/api/users/{member}/groups", new { userId = member, groupId });
 
-        post.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await StoredUserAsync(member)).GroupIds.Should().Equal(groupId);
+        post.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await StoredUserAsync(member)).GroupIds.Should().BeEmpty();
+        (await CanReadAsync(member, slug)).Should().BeFalse();
+
+        var superAdmin = await ClientAsync("SuperAdmin");
+        (await superAdmin.PostAsJsonAsync($"/api/users/{member}/groups", new { userId = member, groupId }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
         (await CanReadAsync(member, slug)).Should().BeTrue();
     }
 
     [Fact]
-    public async Task A_caller_allowed_to_grant_roles_can_add_a_member_from_the_group_side()
+    public async Task A_caller_who_is_not_SuperAdmin_cannot_add_a_member_to_a_group_carrying_content_rights()
     {
         var (roleId, slug) = await ReaderRoleAsync();
         var groupId = await GroupAsync(roleId);
@@ -318,10 +323,54 @@ public class UserGroupRoleTests
 
         var caller = await CallerHoldingAsync(SystemCapabilities.ManageUserGroups, SystemCapabilities.ManageUserMembership);
         (await caller.PostAsJsonAsync($"/api/user-groups/{groupId}/users", new { groupId, userId = member }))
-            .StatusCode.Should().Be(HttpStatusCode.OK);
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
-        (await StoredGroupAsync(groupId)).UserIds.Should().Equal(member);
-        (await CanReadAsync(member, slug)).Should().BeTrue();
+        (await StoredGroupAsync(groupId)).UserIds.Should().BeEmpty();
+        (await CanReadAsync(member, slug)).Should().BeFalse();
+    }
+
+    private async Task<Guid> RightsFreeRoleAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var role = new Role { Id = Guid.NewGuid(), Name = $"Plain_{Guid.NewGuid():n}" };
+        session.Store(role);
+        await session.SaveChangesAsync();
+        return role.Id;
+    }
+
+    [Fact]
+    public async Task A_weaker_caller_cannot_create_or_update_a_group_with_roles_that_carry_rights()
+    {
+        var (rights, _) = await ReaderRoleAsync();
+        var plain = await RightsFreeRoleAsync();
+        var caller = await CallerHoldingAsync(SystemCapabilities.ManageUserGroups, SystemCapabilities.ManageUserMembership);
+
+        var refusedCreate = await caller.PostAsJsonAsync("/api/user-groups",
+            new { name = $"g_{Guid.NewGuid():n}", description = "d", userIds = Array.Empty<Guid>(), roleIds = new[] { rights } });
+        refusedCreate.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var okCreate = await caller.PostAsJsonAsync("/api/user-groups",
+            new { name = $"g_{Guid.NewGuid():n}", description = "d", userIds = Array.Empty<Guid>(), roleIds = new[] { plain } });
+        okCreate.StatusCode.Should().Be(HttpStatusCode.OK, await okCreate.Content.ReadAsStringAsync());
+
+        var groupId = await GroupAsync(plain);
+        var refusedUpdate = await caller.PutAsJsonAsync($"/api/user-groups/{groupId}",
+            new { id = groupId, name = "n", description = "d", roleIds = new[] { rights } });
+        refusedUpdate.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await StoredGroupAsync(groupId)).RoleIds.Should().Equal(plain);
+
+        // The group's current roles count too: replacing a rights-bearing role is refused.
+        var held = await GroupAsync(rights);
+        var refusedReplace = await caller.PutAsJsonAsync($"/api/user-groups/{held}",
+            new { id = held, name = "n", description = "d", roleIds = new[] { plain } });
+        refusedReplace.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await StoredGroupAsync(held)).RoleIds.Should().Equal(rights);
+
+        var superAdmin = await ClientAsync("SuperAdmin");
+        (await superAdmin.PutAsJsonAsync($"/api/user-groups/{groupId}",
+            new { id = groupId, name = "n", description = "d", roleIds = new[] { rights } }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]

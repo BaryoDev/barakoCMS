@@ -409,12 +409,12 @@ public class MemberProfileApiTests
         var member = await MemberAsync(slug, Branch("north"), email);
 
         var again = await admin.PostAsJsonAsync("/api/tenants/members",
-            new { email, roleIds = new[] { SystemRoles.HRRoleId } });
+            new { email, roleIds = new[] { SystemRoles.UserRoleId } });
         NotRateLimited(again);
         again.StatusCode.Should().Be(HttpStatusCode.OK, await again.Content.ReadAsStringAsync());
 
         var row = await RowAsync(member, slug);
-        row.RoleIds.Should().Equal(SystemRoles.HRRoleId);
+        row.RoleIds.Should().Equal(SystemRoles.UserRoleId);
         row.Profile.Should().HaveCount(1);
         row.Profile.Should().Contain("region", "north", "a client that knows nothing of profiles must not erase one");
 
@@ -423,7 +423,7 @@ public class MemberProfileApiTests
 
         // And one that does send a profile replaces it.
         var replaced = await admin.PostAsJsonAsync("/api/tenants/members",
-            new { email, roleIds = new[] { SystemRoles.HRRoleId }, profile = Branch("south") });
+            new { email, roleIds = new[] { SystemRoles.UserRoleId }, profile = Branch("south") });
         replaced.StatusCode.Should().Be(HttpStatusCode.OK);
         (await RowAsync(member, slug)).Profile.Should().Contain("region", "south");
     }

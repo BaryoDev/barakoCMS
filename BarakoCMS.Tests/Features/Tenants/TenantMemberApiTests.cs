@@ -217,6 +217,34 @@ public class TenantMemberApiTests
     }
 
     [Fact]
+    public async Task The_assignable_roles_list_leaves_out_roles_the_caller_cannot_grant()
+    {
+        var slug = await TenantAsync();
+        var plain = await StoreRoleAsync(slug, [], null);
+        var type = $"Lst{Guid.NewGuid():N}"[..12];
+        var content = await StoreRoleAsync(slug, [], type);
+        var capability = await StoreRoleAsync(slug, [SystemCapabilities.ManageApiKeys], null);
+
+        async Task<List<Guid>> IdsAsync(HttpClient client)
+        {
+            var response = await client.GetAsync("/api/tenants/members/roles");
+            response.IsSuccessStatusCode.Should().BeTrue("assignable roles returned {0}", response.StatusCode);
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            return document.RootElement.GetProperty("items")
+                .EnumerateArray().Select(r => r.GetProperty("id").GetGuid()).ToList();
+        }
+
+        var (weak, _) = await ManagerAsync(slug);
+        var offered = await IdsAsync(weak);
+        offered.Should().Contain(plain.Id);
+        offered.Should().NotContain(content.Id, "the caller does not hold read on the role's type");
+        offered.Should().NotContain(capability.Id, "the caller does not hold manage_api_keys");
+
+        var super = await IdsAsync(await AdminOfAsync(slug, "SuperAdmin", "Admin"));
+        super.Should().Contain([plain.Id, content.Id, capability.Id]);
+    }
+
+    [Fact]
     public async Task An_unknown_email_creates_an_otp_only_user()
     {
         // The branch a happy-path test misses. An invited person has no password: they sign in with
@@ -316,6 +344,8 @@ public class TenantMemberApiTests
     {
         var slug = await TenantAsync();
         var client = await AdminOfAsync(slug);
+        // A tenant-owned role: the seeded HR role is global and carries view_sensitive, which a tenant Admin cannot hand out.
+        var role = await StoreRoleAsync(slug, [], null);
         var email = $"promoted-{Guid.NewGuid():n}@example.com";
 
         var added = await client.PostAsJsonAsync("/api/tenants/members",
@@ -324,14 +354,14 @@ public class TenantMemberApiTests
             .RootElement.GetProperty("userId").GetGuid();
 
         var updated = await client.PutAsJsonAsync($"/api/tenants/members/{userId}",
-            new { roleIds = new[] { barakoCMS.Data.DataSeeder.DemoHrRoleId }, status = "Suspended" });
+            new { roleIds = new[] { role.Id }, status = "Suspended" });
 
         NotRateLimited(updated);
         updated.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var row = (await MembershipsAsync(userId, slug)).Single();
         row.Status.Should().Be(MembershipStatus.Suspended);
-        row.RoleIds.Should().Equal(barakoCMS.Data.DataSeeder.DemoHrRoleId);
+        row.RoleIds.Should().Equal(role.Id);
     }
 
     [Fact]
@@ -383,5 +413,141 @@ public class TenantMemberApiTests
 
         (await client.DeleteAsync($"/api/tenants/members/{ourUserId}")).StatusCode
             .Should().Be(HttpStatusCode.OK, "the route exists and the refusal above was about the tenant");
+    }
+
+    // A members manager with one custom role (which carries nothing but the manager capability),
+    // and any roles they also hold.
+    private async Task<(HttpClient Client, Guid UserId)> ManagerAsync(string slug, params Guid[] alsoHolds)
+    {
+        var role = await StoreRoleAsync(slug, [SystemCapabilities.ManageTenantMembers], null);
+        var userId = await UserAsync($"mgr-{Guid.NewGuid():n}@example.com");
+        await MembershipAsync(userId, slug, MembershipStatus.Active, [role.Id, .. alsoHolds]);
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+            "Bearer", _factory.CreateToken(
+                roles: [role.Name], userId: userId.ToString(),
+                additionalClaims: new Dictionary<string, string> { ["tenant"] = slug }));
+        client.DefaultRequestHeaders.Add("X-Tenant", slug);
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
+        return (client, userId);
+    }
+
+    private async Task<Role> StoreRoleAsync(string slug, string[] capabilities, string? readType)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var role = new Role
+        {
+            Id = Guid.NewGuid(), Name = $"mem-role-{Guid.NewGuid():N}"[..20], TenantSlug = slug,
+            SystemCapabilities = capabilities.ToList(),
+            Permissions = readType is null ? new() : [new ContentTypePermission
+            {
+                ContentTypeSlug = readType, Read = new PermissionRule { Enabled = true },
+            }],
+        };
+        session.Store(role);
+        await session.SaveChangesAsync();
+        return role;
+    }
+
+    [Fact]
+    public async Task A_weaker_caller_cannot_add_or_update_a_member_with_more_than_they_hold()
+    {
+        var slug = await TenantAsync();
+        var type = $"Mem{Guid.NewGuid():N}"[..12];
+        var content = await StoreRoleAsync(slug, [], type);
+        var capability = await StoreRoleAsync(slug, [SystemCapabilities.ManageApiKeys], null);
+        var (weak, _) = await ManagerAsync(slug);
+
+        var email = $"weak-{Guid.NewGuid():n}@example.com";
+        var addContent = await weak.PostAsJsonAsync("/api/tenants/members", new { email, roleIds = new[] { content.Id } });
+        addContent.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await addContent.Content.ReadAsStringAsync()).Should().Contain($"'read' on '{type}' because you do not hold it");
+
+        var addCapability = await weak.PostAsJsonAsync("/api/tenants/members", new { email, roleIds = new[] { capability.Id } });
+        addCapability.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var target = await UserAsync($"target-{Guid.NewGuid():n}@example.com");
+        await MembershipAsync(target, slug, MembershipStatus.Active, SystemRoles.UserRoleId);
+        var update = await weak.PutAsJsonAsync($"/api/tenants/members/{target}",
+            new { roleIds = new[] { content.Id }, status = "Active" });
+        update.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        (await MembershipsAsync(target, slug)).Single().RoleIds.Should().Equal(SystemRoles.UserRoleId);
+    }
+
+    [Fact]
+    public async Task A_weaker_caller_can_drop_a_role_but_not_add_one_they_do_not_hold()
+    {
+        var slug = await TenantAsync();
+        var type = $"Mem{Guid.NewGuid():N}"[..12];
+        var content = await StoreRoleAsync(slug, [], type);
+        var other = await StoreRoleAsync(slug, [], $"Oth{Guid.NewGuid():N}"[..12]);
+        var (weak, _) = await ManagerAsync(slug);
+        var target = await UserAsync($"strong-{Guid.NewGuid():n}@example.com");
+        await MembershipAsync(target, slug, MembershipStatus.Active, content.Id);
+
+        var add = await weak.PutAsJsonAsync($"/api/tenants/members/{target}",
+            new { roleIds = new[] { content.Id, other.Id }, status = "Active" });
+        add.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await MembershipsAsync(target, slug)).Single().RoleIds.Should().Equal(content.Id);
+
+        var drop = await weak.PutAsJsonAsync($"/api/tenants/members/{target}",
+            new { roleIds = Array.Empty<Guid>(), status = "Active" });
+        drop.StatusCode.Should().Be(HttpStatusCode.OK, await drop.Content.ReadAsStringAsync());
+        (await MembershipsAsync(target, slug)).Single().RoleIds.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Only_a_caller_who_holds_the_roles_can_reactivate_a_suspended_member()
+    {
+        var slug = await TenantAsync();
+        var type = $"Mem{Guid.NewGuid():N}"[..12];
+        var content = await StoreRoleAsync(slug, [], type);
+        var (weak, _) = await ManagerAsync(slug);
+        var (strong, _) = await ManagerAsync(slug, content.Id);
+        var target = await UserAsync($"suspended-{Guid.NewGuid():n}@example.com");
+        await MembershipAsync(target, slug, MembershipStatus.Suspended, content.Id);
+
+        var denied = await weak.PutAsJsonAsync($"/api/tenants/members/{target}",
+            new { roleIds = new[] { content.Id }, status = "Active" });
+        denied.StatusCode.Should().Be(HttpStatusCode.Forbidden, await denied.Content.ReadAsStringAsync());
+        (await MembershipsAsync(target, slug)).Single().Status.Should().Be(MembershipStatus.Suspended);
+
+        var allowed = await strong.PutAsJsonAsync($"/api/tenants/members/{target}",
+            new { roleIds = new[] { content.Id }, status = "Active" });
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK, await allowed.Content.ReadAsStringAsync());
+        (await MembershipsAsync(target, slug)).Single().Status.Should().Be(MembershipStatus.Active);
+    }
+
+    [Fact]
+    public async Task A_caller_can_add_or_update_a_member_with_roles_they_hold()
+    {
+        var slug = await TenantAsync();
+        var type = $"Mem{Guid.NewGuid():N}"[..12];
+        var content = await StoreRoleAsync(slug, [], type);
+        var (manager, _) = await ManagerAsync(slug, content.Id);
+
+        var email = $"held-{Guid.NewGuid():n}@example.com";
+        var added = await manager.PostAsJsonAsync("/api/tenants/members", new { email, roleIds = new[] { content.Id } });
+        added.StatusCode.Should().Be(HttpStatusCode.OK, await added.Content.ReadAsStringAsync());
+        var userId = JsonDocument.Parse(await added.Content.ReadAsStringAsync()).RootElement.GetProperty("userId").GetGuid();
+
+        var updated = await manager.PutAsJsonAsync($"/api/tenants/members/{userId}",
+            new { roleIds = new[] { content.Id }, status = "Suspended" });
+        updated.StatusCode.Should().Be(HttpStatusCode.OK, await updated.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_plain_tenant_Admin_can_add_a_member_with_a_content_role()
+    {
+        var slug = await TenantAsync();
+        var type = $"Mem{Guid.NewGuid():N}"[..12];
+        var content = await StoreRoleAsync(slug, [], type);
+        var client = await AdminOfAsync(slug);
+
+        var added = await client.PostAsJsonAsync("/api/tenants/members",
+            new { email = $"admin-adds-{Guid.NewGuid():n}@example.com", roleIds = new[] { content.Id } });
+        added.StatusCode.Should().Be(HttpStatusCode.OK, await added.Content.ReadAsStringAsync());
     }
 }

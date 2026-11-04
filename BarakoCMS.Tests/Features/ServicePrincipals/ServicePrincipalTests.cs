@@ -87,6 +87,20 @@ public class ServicePrincipalTests
         return new Caller(userId, tenant, client);
     }
 
+    // A key steward who also holds these roles, so what they grant is something they hold.
+    private async Task<Caller> StewardWithRolesAsync(string tenant, params Guid[] roleIds)
+    {
+        var role = await RoleAsync(tenant, [SystemCapabilities.ManageApiKeys]);
+        var userId = await MemberAsync(tenant, [role.Id, .. roleIds]);
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _factory.CreateToken(
+            roles: [role.Name], userId: userId.ToString(),
+            additionalClaims: new Dictionary<string, string> { ["tenant"] = tenant }));
+        client.DefaultRequestHeaders.Add("X-Tenant", tenant);
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
+        return new Caller(userId, tenant, client);
+    }
+
     private sealed record Principal(Guid Id, string Name);
     private sealed record Created(Guid Id, string Key);
     private sealed record EntryId(Guid Id);
@@ -370,6 +384,88 @@ public class ServicePrincipalTests
         stored!.RoleIds.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task A_caller_cannot_give_a_principal_content_rights_they_do_not_hold()
+    {
+        var tenant = await TenantAsync();
+        var (type, writer) = await ContentRoleAsync(tenant);
+        var (_, reader) = await ContentRoleAsync(tenant, type, write: false);
+        var holder = await StewardWithRolesAsync(tenant, writer.Id);
+        var readOnly = await StewardWithRolesAsync(tenant, reader.Id);
+        var wide = await CreatePrincipalAsync(holder, writer.Id);
+        var empty = await CreatePrincipalAsync(holder);
+        var own = await CreateKeyAsync(readOnly, null, "content:read");
+
+        var create = await CreatePrincipalRawAsync(readOnly, writer.Id);
+        create.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await create.Content.ReadAsStringAsync(Ct)).Should().Contain($"on '{type}' because you do not hold it");
+
+        var setRoles = await readOnly.Client.PutAsJsonAsync($"/api/service-principals/{empty.Id}/roles",
+            new { roleIds = new[] { writer.Id } }, Ct);
+        setRoles.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var bind = await readOnly.Client.PostAsJsonAsync("/api/api-keys",
+            new { name = "x", scopes = new[] { "content:read" }, servicePrincipalId = wide.Id }, Ct);
+        bind.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var move = await readOnly.Client.PostAsJsonAsync("/api/api-keys/move-to-principal",
+            new { servicePrincipalId = wide.Id, keyId = own.Id }, Ct);
+        move.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        await StoredAsync(own.Id, k => k.ServicePrincipalId.Should().BeNull());
+
+        using var scope = _factory.Services.CreateScope();
+        var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<ServicePrincipal>(empty.Id, Ct);
+        stored!.RoleIds.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_caller_can_give_a_principal_content_rights_they_hold()
+    {
+        var tenant = await TenantAsync();
+        var (_, reader) = await ContentRoleAsync(tenant, write: false);
+        var readOnly = await StewardWithRolesAsync(tenant, reader.Id);
+
+        var principal = await CreatePrincipalAsync(readOnly, reader.Id);
+        var empty = await CreatePrincipalAsync(readOnly);
+
+        var setRoles = await readOnly.Client.PutAsJsonAsync($"/api/service-principals/{empty.Id}/roles",
+            new { roleIds = new[] { reader.Id } }, Ct);
+        setRoles.StatusCode.Should().Be(HttpStatusCode.OK, await setRoles.Content.ReadAsStringAsync(Ct));
+
+        var own = await CreateKeyAsync(readOnly, null, "content:read");
+        var move = await readOnly.Client.PostAsJsonAsync("/api/api-keys/move-to-principal",
+            new { servicePrincipalId = principal.Id, keyId = own.Id }, Ct);
+        move.StatusCode.Should().Be(HttpStatusCode.OK, await move.Content.ReadAsStringAsync(Ct));
+        await CreateKeyAsync(readOnly, principal.Id, "content:read");
+    }
+
+    [Fact]
+    public async Task A_weaker_caller_cannot_disable_or_strip_a_principal_that_holds_more()
+    {
+        var tenant = await TenantAsync();
+        var viewer = await RoleAsync(tenant, [SystemCapabilities.ViewJobs]);
+        var holder = await StewardAsync(tenant, SystemCapabilities.ViewJobs);
+        var lacking = await StewardAsync(tenant);
+        var principal = await CreatePrincipalAsync(holder, viewer.Id);
+
+        var disable = await lacking.Client.PostAsync($"/api/service-principals/{principal.Id}/disable", null, Ct);
+        disable.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var strip = await lacking.Client.PutAsJsonAsync($"/api/service-principals/{principal.Id}/roles",
+            new { roleIds = Array.Empty<Guid>() }, Ct);
+        strip.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var stored = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<ServicePrincipal>(principal.Id, Ct);
+            stored!.Disabled.Should().BeFalse();
+            stored.RoleIds.Should().Equal(viewer.Id);
+        }
+
+        (await holder.Client.PostAsync($"/api/service-principals/{principal.Id}/disable", null, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
@@ -413,23 +509,80 @@ public class ServicePrincipalTests
         }
     }
 
-    private async Task<(string Type, Role Role)> ContentRoleAsync(string tenant)
+    // A role with one read rule on a type, with optional conditions and readable fields.
+    private async Task<Role> ReadRoleAsync(string tenant, string type, Dictionary<string, object>? conditions, List<string>? fields)
     {
-        var type = $"Sp{Guid.NewGuid():N}"[..12];
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        session.Store(new ContentTypeDefinition
+        var role = new Role
         {
-            Id = Guid.NewGuid(), Name = type, DisplayName = type,
-            Fields = new() { new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" } },
-        });
+            Id = Guid.NewGuid(), Name = $"sp-read-{Guid.NewGuid():N}"[..20], TenantSlug = tenant,
+            Permissions = [new ContentTypePermission
+            {
+                ContentTypeSlug = type,
+                Read = new PermissionRule { Enabled = true, Conditions = conditions, ReadableFields = fields },
+            }],
+        };
+        session.Store(role);
+        await session.SaveChangesAsync(Ct);
+        return role;
+    }
+
+    [Fact]
+    public async Task A_caller_with_a_conditional_read_cannot_grant_an_unconditional_one()
+    {
+        var tenant = await TenantAsync();
+        var type = $"Sp{Guid.NewGuid():N}"[..12];
+        var conditional = await ReadRoleAsync(tenant, type, new() { ["Status"] = "Published" }, null);
+        var open = await ReadRoleAsync(tenant, type, null, null);
+        var sameConditions = await ReadRoleAsync(tenant, type, new() { ["Status"] = "Published" }, null);
+        var caller = await StewardWithRolesAsync(tenant, conditional.Id);
+
+        var refused = await CreatePrincipalRawAsync(caller, open.Id);
+        refused.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain($"'read' on '{type}' because you do not hold it");
+
+        var allowed = await CreatePrincipalRawAsync(caller, sameConditions.Id);
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK, await allowed.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_caller_limited_to_some_fields_cannot_grant_all_fields()
+    {
+        var tenant = await TenantAsync();
+        var type = $"Sp{Guid.NewGuid():N}"[..12];
+        var limited = await ReadRoleAsync(tenant, type, null, ["Title", "Body"]);
+        var all = await ReadRoleAsync(tenant, type, null, null);
+        var wider = await ReadRoleAsync(tenant, type, null, ["Title", "Secret"]);
+        var subset = await ReadRoleAsync(tenant, type, null, ["Title"]);
+        var caller = await StewardWithRolesAsync(tenant, limited.Id);
+
+        (await CreatePrincipalRawAsync(caller, all.Id)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await CreatePrincipalRawAsync(caller, wider.Id)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var allowed = await CreatePrincipalRawAsync(caller, subset.Id);
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK, await allowed.Content.ReadAsStringAsync(Ct));
+    }
+
+    private async Task<(string Type, Role Role)> ContentRoleAsync(string tenant, string? existingType = null, bool write = true)
+    {
+        var type = existingType ?? $"Sp{Guid.NewGuid():N}"[..12];
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        if (existingType is null)
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = type, DisplayName = type,
+                Fields = new() { new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" } },
+            });
         var rule = () => new PermissionRule { Enabled = true };
+        var off = () => new PermissionRule { Enabled = false };
         var role = new Role
         {
             Id = Guid.NewGuid(), Name = $"sp-content-{Guid.NewGuid():N}"[..20], TenantSlug = tenant,
             Permissions = [new ContentTypePermission
             {
-                ContentTypeSlug = type, Create = rule(), Read = rule(), Update = rule(), Delete = rule(),
+                ContentTypeSlug = type, Create = write ? rule() : off(), Read = rule(), Update = write ? rule() : off(), Delete = write ? rule() : off(),
             }],
         };
         session.Store(role);
@@ -450,8 +603,8 @@ public class ServicePrincipalTests
     public async Task A_principal_key_with_a_content_role_does_content_work_and_the_audit_names_the_principal()
     {
         var tenant = await TenantAsync();
-        var steward = await StewardAsync(tenant);
         var (type, role) = await ContentRoleAsync(tenant);
+        var steward = await StewardWithRolesAsync(tenant, role.Id);
         var principal = await CreatePrincipalAsync(steward, role.Id);
         var key = await CreateKeyAsync(steward, principal.Id, "content:read", "content:write");
         var client = KeyClient(key.Key, tenant);

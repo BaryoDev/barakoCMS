@@ -35,6 +35,12 @@ internal class Endpoint(
         var dropped = group.RoleIds.Where(id => !liveRoles.Contains(id)).ToList();
         group.RoleIds = group.RoleIds.Where(liveRoles.Contains).ToList();
 
+        if (await barakoCMS.Features.Roles.RoleGrantRules.GlobalRightsRefusalAsync(session, User, group.RoleIds, ct) is { } withRights)
+        {
+            await Send.ResponseAsync(new Response { Message = withRights }, 403, ct);
+            return;
+        }
+
         group.DeletedAt = null;
         session.Store(group);
         Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);

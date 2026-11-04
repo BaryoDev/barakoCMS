@@ -43,7 +43,8 @@ internal class CreateApiKeyEndpoint(
     IDocumentSession session,
     ApiKeyService keys,
     CapabilityVocabulary vocabulary,
-    barakoCMS.Core.Interfaces.ICallerCapabilities callers) : Endpoint<CreateApiKeyRequest, CreateApiKeyResponse>
+    barakoCMS.Core.Interfaces.ICallerCapabilities callers,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<CreateApiKeyRequest, CreateApiKeyResponse>
 {
     public override void Configure()
     {
@@ -148,7 +149,7 @@ internal class CreateApiKeyEndpoint(
             return;
         }
 
-        if (await Features.ServicePrincipals.PrincipalRules.NotHeldByPrincipalAsync(session, callers, User, principal, ct) is { } notHeld)
+        if (await Features.ServicePrincipals.PrincipalRules.NotHeldByPrincipalAsync(session, callers, permissions, User, principal, ct) is { } notHeld)
         {
             AddError(r => r.ServicePrincipalId!, notHeld);
             ThrowIfAnyErrors(403);
