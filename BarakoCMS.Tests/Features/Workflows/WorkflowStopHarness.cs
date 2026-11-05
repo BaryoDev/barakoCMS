@@ -115,9 +115,11 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
     };
 
     public async Task<WorkflowRun> SeedRunAsync(
-        Guid workflowId, Guid contentId, IReadOnlyList<WorkflowActionAttempt> attempts, DateTimeOffset? cancelledAt = null)
+        Guid workflowId, Guid contentId, IReadOnlyList<WorkflowActionAttempt> attempts, DateTimeOffset? cancelledAt = null,
+        DateTimeOffset? createdAt = null)
     {
         var run = NewRun(workflowId, contentId, attempts, cancelledAt);
+        if (createdAt is { } at) run.CreatedAt = at;
 
         await using var session = Store.LightweightSession();
         session.Store(run);
