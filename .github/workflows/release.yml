@@ -462,6 +462,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Trusted publishing: the job's OIDC token is traded for a NuGet key that lasts one hour, so
+      # no long-lived key is stored in the repository.
+      id-token: write
     steps:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
@@ -477,8 +480,16 @@ jobs:
 
       # The pattern stays `*.nupkg`. `dotnet nuget push` is symbol-aware: it pushes each .nupkg and
       # then the .snupkg sitting next to it, which is why the artifact above has to carry both.
+      # Asked for right before the push, because the key it returns expires after an hour. The
+      # nuget.org policy names this repository, release.yml and the nuget environment.
+      - name: Get a short-lived NuGet key
+        id: nuget-login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: arnelirobles
+
       - name: Publish to NuGet.org
-        run: dotnet nuget push "out/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+        run: dotnet nuget push "out/*.nupkg" --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
 
       # --no-symbols here because GitHub Packages has no symbol server. nuget.org is where the
       # .snupkg belongs, and it is pushed by the step above.
