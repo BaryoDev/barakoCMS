@@ -217,7 +217,7 @@ public class MfaPolicyTests
         (await Client(body.Token).GetAsync("/api/auth/mfa/status")).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    [Fact(Skip = "Flaky under a full run, tech debt #1301")]
+    [Fact]
     public async Task EnrollmentToken_HubSubscribe_Refused()
     {
         var login = await LoginAsync(await SeedUserAsync(await StoreRoleAsync(requireMfa: true)));
@@ -234,7 +234,22 @@ public class MfaPolicyTests
                 o.AccessTokenProvider = () => Task.FromResult<string?>(login.Token);
             })
             .Build();
-        await connection.StartAsync();
+
+        // The negotiated connection is dropped by the server if its socket does not open within the
+        // disconnect timeout, and a thread pool busy with a full run can miss it. Opening again
+        // negotiates a new one. Only the open is retried, never the refusal asserted below.
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await connection.StartAsync();
+                break;
+            }
+            catch (Exception) when (attempt < 3)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt));
+            }
+        }
 
         var act = () => connection.InvokeAsync("Subscribe", "any.topic");
 
