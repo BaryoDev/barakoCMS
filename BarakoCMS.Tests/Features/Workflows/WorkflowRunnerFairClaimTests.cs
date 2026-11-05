@@ -242,7 +242,7 @@ public class WorkflowRunnerFairClaimTests
     /// <summary>
     /// Draining a backlog used to list the partitions once per action claimed.
     /// </summary>
-    [Fact(Skip = "Flaky under a full run, tech debt #1301")]
+    [Fact]
     public async Task A_drain_does_not_list_the_partitions_once_per_action()
     {
         await WithHostedRunnerPausedAsync(async () =>
@@ -358,30 +358,15 @@ public class WorkflowRunnerFairClaimTests
     }
 
     /// <summary>
-    /// Runs the body with the fixture's hosted runner stopped, and starts it again afterwards.
+    /// Runs the body with every live host's hosted runner stopped, and starts them again afterwards.
     /// </summary>
     /// <remarks>
-    /// For the tests that count passes, claims or scans. The hosted runner polls the same database,
-    /// and a run it claimed first would change every one of those counts. The collection is
-    /// sequential, so no other test is waiting on it meanwhile.
+    /// For the tests that count passes, claims or scans. The hosted runners poll the same database,
+    /// the fixture's and those of hosts earlier classes derived, and a run one of them claimed first
+    /// would change every one of those counts. The collection is sequential, so no other test is
+    /// waiting on them meanwhile.
     /// </remarks>
-    private async Task WithHostedRunnerPausedAsync(Func<Task> body)
-    {
-        var hosted = _factory.Services.GetServices<IHostedService>().OfType<WorkflowRunner>().Single();
-
-        await hosted.StopAsync(Ct);
-
-        try
-        {
-            await body();
-        }
-        finally
-        {
-            // Not the test's token: the runner's loop is linked to the one it is started with, and
-            // this one is cancelled when the test ends.
-            await hosted.StartAsync(CancellationToken.None);
-        }
-    }
+    private Task WithHostedRunnerPausedAsync(Func<Task> body) => _factory.WithWorkflowRunnersPausedAsync(body, Ct);
 
     private static DateTimeOffset ParkedUntil => DateTimeOffset.UtcNow.AddHours(1);
 
