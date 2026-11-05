@@ -234,12 +234,16 @@ public class SiteFieldSchemasTests
             .Single(f => f!["name"]!.GetValue<string>() == "Fonts")!["jsonSchema"]!;
         JsonNode.DeepEquals(JsonNode.Parse(Field(await SiteTypeAsync(slug), "Fonts").JsonSchema!.Value.GetRawText()), expected)
             .Should().BeTrue("an existing site type ends up with the schema a new one gets");
-        (await WriteSiteAsync(admin, new() { ["Name"] = "Club", ["Fonts"] = font }))
-            .StatusCode.Should().Be(HttpStatusCode.OK);
-        (await WriteSiteAsync(admin, new() { ["Name"] = "Club", ["Fonts"] = Parse("""{ "heading": "Inter" }""") }))
-            .StatusCode.Should().Be(HttpStatusCode.OK);
+        // A tenant holds one site entry, so the refused write goes first and the object form updates the entry
+        // the family name created.
         (await WriteSiteAsync(admin, new() { ["Name"] = "Club", ["Fonts"] = Parse("""{ "heading": { "url": "https://example.com/a.css" } }""") }))
             .StatusCode.Should().Be(HttpStatusCode.BadRequest, "family is required in a font object");
+        var created = await WriteSiteAsync(admin, new() { ["Name"] = "Club", ["Fonts"] = Parse("""{ "heading": "Inter" }""") });
+        created.StatusCode.Should().Be(HttpStatusCode.OK, await created.Content.ReadAsStringAsync(Ct));
+        var id = (await created.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("id").GetGuid();
+        var updated = await admin.PutAsJsonAsync($"/api/contents/{id}",
+            new { Id = id, Data = new Dictionary<string, object> { ["Name"] = "Club", ["Fonts"] = font }, Version = 1 }, Ct);
+        updated.StatusCode.Should().Be(HttpStatusCode.OK, await updated.Content.ReadAsStringAsync(Ct));
 
         var version = await TypeVersionAsync(slug);
         await RunAsync(FontsUp, slug);
