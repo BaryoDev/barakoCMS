@@ -16,13 +16,16 @@ namespace BarakoCMS.Tests.Features.Site;
 /// <summary>
 /// The site blueprint declares a schema for its json fields and makes <c>Mode</c> a choice of
 /// <c>Live</c> and <c>Holding</c>, and <c>migrations/5.0.0/site-field-schemas.sql</c> brings a site
-/// type applied before 5.0.0 up to it (#924).
+/// type applied before 5.0.0 up to it (#924). <c>migrations/5.5.0/site-fonts-schema.sql</c> then
+/// moves <c>Fonts</c> to the schema that also takes a font object.
 /// </summary>
 [Collection("Integration1")]
 public class SiteFieldSchemasTests
 {
     private const string Up = "site-field-schemas.sql";
     private const string Down = "rollback-site-field-schemas.sql";
+    private const string FontsUp = "site-fonts-schema.sql";
+    private const string FontsDown = "rollback-site-fonts-schema.sql";
 
     private readonly IntegrationTestFixture _fixture;
 
@@ -137,8 +140,15 @@ public class SiteFieldSchemasTests
         var literal = Regex.Match(sql, @"schemas\s+constant jsonb := '(.*?)'::jsonb;").Groups[1].Value;
         literal.Should().NotBeEmpty();
 
-        JsonNode.DeepEquals(JsonNode.Parse(literal), schemas).Should().BeTrue(
-            "the migration gives an existing site type the schemas a new one gets from the blueprint");
+        // 5.0.0 shipped before Fonts took a font object; 5.5.0 site-fonts-schema.sql patches it.
+        var shipped = JsonNode.Parse(literal)!.AsObject();
+        var fontsSql = File.ReadAllText(Path.Combine(RepositoryRoot(), "migrations", "5.5.0", FontsUp));
+        JsonNode.DeepEquals(shipped["Fonts"], JsonNode.Parse(FontsSchema(fontsSql, "old_schema"))).Should().BeTrue(
+            "5.5.0 only replaces the Fonts schema 5.0.0 set");
+        shipped["Fonts"] = JsonNode.Parse(FontsSchema(fontsSql, "new_schema"));
+
+        JsonNode.DeepEquals(shipped, schemas).Should().BeTrue(
+            "the migrations give an existing site type the schemas a new one gets from the blueprint");
 
         var mode = fields.Single(f => f!["name"]!.GetValue<string>() == "Mode")!;
         var options = Regex.Match(sql, @"mode_options\s+constant jsonb := '(.*?)'::jsonb;").Groups[1].Value;
@@ -205,9 +215,77 @@ public class SiteFieldSchemasTests
         Field(type, "HeaderLinks").JsonSchema.Should().NotBeNull("the schemas do not wait on Mode");
     }
 
+    [Fact]
+    public async Task The_fonts_migration_moves_an_untouched_fonts_schema_to_the_blueprints_and_its_rollback_moves_it_back()
+    {
+        var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct);
+        await OlderSiteTypeAsync(slug, FieldWithFonts());
+        var admin = await TenantProfileSeed.AdminInAsync(_fixture, slug, Ct);
+        var font = Parse("""{ "heading": { "family": "Inter", "url": "https://example.com/inter.css", "fallback": "sans-serif" } }""");
+
+        await RunAsync(Up, slug);
+        (await WriteSiteAsync(admin, new() { ["Name"] = "Club", ["Fonts"] = font }))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest, "5.0.0 accepts a family name only");
+
+        await RunAsync(FontsUp, slug);
+
+        var blueprint = JsonNode.Parse(File.ReadAllText(Path.Combine(RepositoryRoot(), "barakoCMS", "Blueprints", "site.json")))!;
+        var expected = blueprint["contentTypes"]![0]!["fields"]!.AsArray()
+            .Single(f => f!["name"]!.GetValue<string>() == "Fonts")!["jsonSchema"]!;
+        JsonNode.DeepEquals(JsonNode.Parse(Field(await SiteTypeAsync(slug), "Fonts").JsonSchema!.Value.GetRawText()), expected)
+            .Should().BeTrue("an existing site type ends up with the schema a new one gets");
+        (await WriteSiteAsync(admin, new() { ["Name"] = "Club", ["Fonts"] = font }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await WriteSiteAsync(admin, new() { ["Name"] = "Club", ["Fonts"] = Parse("""{ "heading": "Inter" }""") }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await WriteSiteAsync(admin, new() { ["Name"] = "Club", ["Fonts"] = Parse("""{ "heading": { "url": "https://example.com/a.css" } }""") }))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest, "family is required in a font object");
+
+        var version = await TypeVersionAsync(slug);
+        await RunAsync(FontsUp, slug);
+        (await TypeVersionAsync(slug)).Should().Be(version, "a second run finds nothing to change");
+
+        await RunAsync(FontsDown, slug);
+        JsonNode.DeepEquals(
+                JsonNode.Parse(Field(await SiteTypeAsync(slug), "Fonts").JsonSchema!.Value.GetRawText()),
+                JsonNode.Parse("""{"type":"object","additionalProperties":{"type":"string"}}"""))
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task The_fonts_migration_leaves_a_fonts_schema_a_tenant_changed_alone()
+    {
+        var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct);
+        var custom = """{"type":"object","maxProperties":2,"additionalProperties":{"type":"string"}}""";
+        await OlderSiteTypeAsync(slug, new FieldDefinition
+        {
+            Name = "Fonts", DisplayName = "Fonts", Type = "json", JsonSchema = JsonDocument.Parse(custom).RootElement,
+        });
+        await RunAsync(Up, slug);
+        var version = await TypeVersionAsync(slug);
+
+        await RunAsync(FontsUp, slug);
+
+        JsonNode.DeepEquals(JsonNode.Parse(Field(await SiteTypeAsync(slug), "Fonts").JsonSchema!.Value.GetRawText()), JsonNode.Parse(custom))
+            .Should().BeTrue();
+        (await TypeVersionAsync(slug)).Should().Be(version);
+
+        await RunAsync(FontsDown, slug);
+        JsonNode.DeepEquals(JsonNode.Parse(Field(await SiteTypeAsync(slug), "Fonts").JsonSchema!.Value.GetRawText()), JsonNode.Parse(custom))
+            .Should().BeTrue();
+    }
+
+    private static string FontsSchema(string sql, string name) =>
+        Regex.Match(sql, name + @"\s+constant jsonb := '(.*?)'::jsonb;").Groups[1].Value;
+
+    /// <summary>A Fonts field as 5.0.0's migration leaves it when the type declared none.</summary>
+    private static FieldDefinition FieldWithFonts() => TenantProfileSeed.Declared("Fonts", "json");
+
     /// <summary>A site type as a tenant applied it before 5.0.0, plus a json field with its own schema.</summary>
-    private Task OlderSiteTypeAsync(string slug) =>
+    private Task OlderSiteTypeAsync(string slug, params FieldDefinition[] more) =>
         TenantProfileSeed.StoreSiteTypeAsync(_fixture, slug, Ct,
+            [
+            ..more,
             TenantProfileSeed.Declared("HeaderLinks", "json"),
             TenantProfileSeed.Declared("Colors", "json"),
             TenantProfileSeed.Declared("Presets", "json"),
@@ -216,7 +294,7 @@ public class SiteFieldSchemasTests
             {
                 Name = "Own", DisplayName = "Own", Type = "json",
                 JsonSchema = JsonDocument.Parse("""{"type":"object"}""").RootElement,
-            });
+            }]);
 
     private async Task EraseSiteEntriesAsync(string slug)
     {
@@ -249,7 +327,8 @@ public class SiteFieldSchemasTests
 
     private async Task<List<string>> RunAsync(string file, string slug)
     {
-        var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "5.0.0", file), Ct);
+        var version = file.Contains("fonts") ? "5.5.0" : "5.0.0";
+        var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", version, file), Ct);
         var notices = new List<string>();
 
         await using var connection = new NpgsqlConnection(_fixture.ConnectionString);
@@ -265,7 +344,7 @@ public class SiteFieldSchemasTests
         await using var command = new NpgsqlCommand(sql, connection);
         await command.ExecuteNonQueryAsync(Ct);
 
-        if (file == Up)
+        if (file is Up or FontsUp)
         {
             notices.Should().Contain(n => n.Contains($"Only {slug} was looked at"));
         }
