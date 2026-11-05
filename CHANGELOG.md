@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.5.0-beta.2] - 2026-11-06
+
+This is a beta (NuGet prerelease). It republishes the modules that 5.5.0-beta.1 skipped. There are no core changes beyond the version.
+
+### Fixed
+
+- **Two modules built for 5.5 never reached NuGet.** The beta.1 release pushed with `--skip-duplicate`, and BarakoCMS.Diagnostics 4.5.1 and BarakoCMS.FeatureFlags 4.6.1 were already on nuget.org from the 5.4 line, so both were dropped without an error. Their only change was the core they are compiled against, which moved from 5.2 to 5.5, so nothing in the source showed it and the module version check passed. They publish again as Diagnostics 4.5.2 and FeatureFlags 4.6.2.
+- **The module version check now sees a module compiled against another core.** `scripts/check-module-versions.sh` counts a move of the core floor in a module's `packages.lock.json` (by major and minor, so a patch or prerelease bump does not count) as a change that needs a new `<Version>`. The release workflow runs the check before it publishes, where it only ran on pull requests before.
+
+**Package changes.** BarakoCMS.Diagnostics 4.5.2 and BarakoCMS.FeatureFlags 4.6.2 are the modules that beta.1 skipped. The other modules with 5.5 changes published in beta.1 at their own new versions and are unchanged: Accounting 4.8.0, AI 4.8.0, Email.Smtp 4.6.0, ExternalAuth 4.9.0, Files 5.2.0, Files.S3 5.2.0, Import 4.7.2, Pages 4.5.1 and Portability 4.7.2. BarakoCMS, BarakoCMS.Abstractions, BarakoCMS.Templates and BarakoCMS.Testing are at 5.5.0-beta.2.
+
 ## [5.5.0-beta.1] - 2026-11-05
 
 This is a beta (NuGet prerelease). Three flaky tests are skipped, tracked in #1301.
