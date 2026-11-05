@@ -215,23 +215,7 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
     /// <summary>
     /// Runs the body with the fixture's hosted runner stopped, and starts it again afterwards.
     /// </summary>
-    public async Task WithHostedRunnerPausedAsync(Func<Task> body)
-    {
-        var hosted = factory.Services.GetServices<IHostedService>().OfType<WorkflowRunner>().Single();
-
-        await hosted.StopAsync(Ct);
-
-        try
-        {
-            await body();
-        }
-        finally
-        {
-            // Not the test's token: the runner's loop is linked to the one it is started with, and
-            // this one is cancelled when the test ends.
-            await hosted.StartAsync(CancellationToken.None);
-        }
-    }
+    public Task WithHostedRunnerPausedAsync(Func<Task> body) => factory.WithWorkflowRunnersPausedAsync(body, Ct);
 
     public WorkflowRunner NewRunner(int? bound = null) => new(
         factory.Services,

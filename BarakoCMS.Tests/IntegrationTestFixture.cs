@@ -828,6 +828,47 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         }
     }
 
+    /// <summary>
+    /// Runs the body with the workflow runner of every host that is up stopped, and starts them again
+    /// afterwards.
+    /// </summary>
+    /// <remarks>
+    /// Not only this fixture's own host. A host a test class derived stays alive until another class
+    /// derives one, and its hosted runner polls this same database. Left running it claims runs a
+    /// later class seeds, and its failure handlers and scans change what that class counts (#1301).
+    /// </remarks>
+    internal async Task WithWorkflowRunnersPausedAsync(Func<Task> body, CancellationToken ct)
+    {
+        var runners = _startedHosts
+            .Where(IsUp)
+            .SelectMany(sp => sp.GetServices<Microsoft.Extensions.Hosting.IHostedService>())
+            .OfType<barakoCMS.Features.Workflows.WorkflowRunner>()
+            .Distinct()
+            .ToList();
+
+        var stopped = new List<barakoCMS.Features.Workflows.WorkflowRunner>();
+
+        try
+        {
+            foreach (var runner in runners)
+            {
+                await runner.StopAsync(ct);
+                stopped.Add(runner);
+            }
+
+            await body();
+        }
+        finally
+        {
+            // Not the test's token: the runner's loop is linked to the one it is started with, and
+            // this one is cancelled when the test ends.
+            foreach (var runner in stopped)
+            {
+                await runner.StartAsync(CancellationToken.None);
+            }
+        }
+    }
+
     private static bool IsUp(IServiceProvider services)
     {
         try
