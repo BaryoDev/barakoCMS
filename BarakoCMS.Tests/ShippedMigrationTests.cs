@@ -89,6 +89,7 @@ public class ShippedMigrationTests
         ["core/5.5.0/906-service-principals"] = "65fc1292fdbec962d9fb4ba2f8d31e518f2e80da014d081060f7383cdf4cae3c",
         ["core/5.5.0/content-type-lower-index"] = "d61327dc12ea7b6940b54a078160d086299a546371fb1cf448ff6b31b4a284db",
         ["core/5.5.0/idempotency-created-at-index"] = "d47d2da286e3ffc362401a19a23038b07b55fc53e8607acb1af5b14c3f3e0b9c",
+        ["core/5.5.0/user-groups"] = "288d995757941a906e729e02cd2d6c12214eb7a7fca400a2561fba9c58682a7d",
         ["core/5.5.0/workflow-missed-triggers"] = "8fe6d9e137bc426ee1a01d6a52f79221678c5bb5ccb6d6a3b95bfcbaba634c77",
         ["ExternalAuth/5.5.0/1270-external-auth-social-handoff"] = "187b21746f52fed4fa7d613a6ab155a6e27ba175b0852fde08f9297f3312dc9a",
         ["ExternalAuth/5.5.0/915-external-auth-provider-settings"] = "f10f22aacc47fba6f52349beae150b705ea93defc7ad4b1206ccaee89cbeaecb",
