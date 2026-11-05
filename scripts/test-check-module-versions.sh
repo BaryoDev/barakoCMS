@@ -414,6 +414,28 @@ set_version 4.3.0 "$module" "$linked"; migration demo-things.sql "create table t
 commit "the module's first migration: a csproj line and a file under migrations/"
 run; check "a first migration added with only a csproj line inside the module" fail "1 commit(s)" "since v4.3.0"
 
+echo "== a module whose only change is the core it was compiled against =="
+# 5.5.0-beta.1 skipped BarakoCMS.Diagnostics 4.5.1 and BarakoCMS.FeatureFlags 4.6.1: no source file
+# moved, the lock file's floor for core went from 5.2 to 5.5, and NuGet already held the number.
+lock() { # $1 = the floor written for BarakoCMS.Abstractions
+  printf '{\n  "dependencies": {\n    "net10.0": {\n      "BarakoCMS.Abstractions": "[%s, )",\n      "Other": "[1.0.0, )"\n    }\n  }\n}\n' "$1" > "$repo/$module/packages.lock.json"
+}
+new_repo
+set_version 4.3.0; touch_module "first"; lock 5.2.0; commit "module at 4.3.0"; tag v5.2.0
+on_nuget 4.3.0
+lock 5.2.1; commit "core patch bump"
+run; check "a core patch bump in the lock file" pass
+lock 5.3.0-beta.1; commit "core prerelease of the next minor"
+run; check "a core move to 5.3 in the lock file" fail "4.3.0" "lock BarakoCMS.Abstractions 5.2 to 5.3"
+lock 5.5.0-beta.1; commit "core 5.5"
+run; check "a core move to 5.5 in the lock file, nothing else changed" fail "1 commit(s)" "since v5.2.0" "lock BarakoCMS.Abstractions 5.2 to 5.5"
+set_version 4.3.1; commit "bump the module"
+run; check "the same, bumped" pass
+new_repo
+set_version 4.3.0; touch_module "first"; lock 5.2.0; commit "module at 4.3.0"; tag v5.2.0
+lock 5.5.0-beta.1; commit "core 5.5"
+run; check "a core move when the version is not on NuGet yet" pass
+
 echo "== a branch cut before the release that published the version =="
 new_repo
 set_version 4.3.0; touch_module "first"; commit "module at 4.3.0"; tag v4.3.0

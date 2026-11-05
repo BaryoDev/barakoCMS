@@ -118,6 +118,36 @@ module_commits() { # $1 = range, $2 = module
     [ -n "$link" ] && links+=("$link")
   done < <(linked_migrations "$2")
   git log --no-color --oneline "$1" -- "$2" ${links[@]+"${links[@]}"} ':!*.csproj' ':!*/packages.lock.json'
+  lock_floor_moves "$1" "$2"
+}
+
+# A module's own files can stay byte for byte the same and its package still change: the .csproj
+# references core and Abstractions, so the package declares a dependency on them, and the lock file
+# records the floor. The lock file is excluded above because a dependency bump is not a reason to
+# republish. A move of the core line (5.4 to 5.5) is different. The package was compiled against
+# another core, 5.5 removed and changed things, and the old package stays on NuGet under the same
+# number. That is how BarakoCMS.Diagnostics 4.5.1 and BarakoCMS.FeatureFlags 4.6.1 were skipped by
+# 5.5.0-beta.1 with only a lock file changed. Only major.minor counts, so a patch or prerelease bump
+# of core does not force every module to bump. Prints one line per BarakoCMS.* package whose floor
+# moved, shaped like a log line so the callers count and show it the same way.
+lock_floor_moves() { # $1 = range, $2 = module
+  local base lock before after name old new
+  case "$1" in *..*) base=${1%%..*} ;; *) return 0 ;; esac
+  lock="$2/packages.lock.json"
+  git cat-file -e "$base:$lock" 2>/dev/null || return 0
+  [ -f "$lock" ] || return 0
+  before=$(git show "$base:$lock" | lock_floors)
+  after=$(lock_floors < "$lock")
+  while read -r name old; do
+    [ -n "$name" ] || continue
+    new=$(awk -v n="$name" '$1 == n { print $2; exit }' <<< "$after")
+    if [ -n "$new" ] && [ "$new" != "$old" ]; then
+      echo "lock $name $old to $new in $lock (compiled against another core)"
+    fi
+  done <<< "$before"
+}
+lock_floors() { # stdin = a packages.lock.json; prints "<package> <major.minor>" per BarakoCMS.* floor
+  sed -n 's/^[[:space:]]*"\(BarakoCMS\.[^"]*\)": "\[\([0-9][0-9]*\)\.\([0-9][0-9]*\)\..*/\1 \2.\3/p' | sort -u
 }
 
 if [ -n "${CHECK_MODULE_VERSIONS_NUGET_DIR:-}" ]; then

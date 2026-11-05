@@ -61,7 +61,12 @@ jobs:
       version: ${{ steps.check.outputs.version }}
       should_release: ${{ steps.check.outputs.should_release }}
     steps:
+      # Full history and tags: the module version check below measures from the release tag that
+      # first declared each module's version.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - id: check
         run: |
           set -euo pipefail
@@ -84,6 +89,17 @@ jobs:
             echo "should_release=true" >> "$GITHUB_OUTPUT"
             echo "::notice::Releasing BarakoCMS $VERSION."
           fi
+
+      # The push uses --skip-duplicate, so a module whose number is already on NuGet is dropped
+      # without an error and its changes ship in nothing. CI runs this check on pull requests, but
+      # a release can be cut from a merge queue batch or a dispatch that never saw it, and
+      # 5.5.0-beta.1 published with BarakoCMS.Diagnostics and BarakoCMS.FeatureFlags skipped this
+      # way. Run it here, before anything irreversible.
+      - name: Every changed module has a new version
+        if: steps.check.outputs.should_release == 'true'
+        env:
+          CHECK_MODULE_VERSIONS_NUGET_DIR: ""
+        run: bash scripts/check-module-versions.sh
 
       # The release body is written last, after every package and image is published, and GitHub
       # refuses one over 125,000 characters. 4.0.0 published everything and then failed here with
