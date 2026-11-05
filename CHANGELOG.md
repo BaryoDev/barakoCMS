@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [5.5.0] - 2026-11-03
+## [5.5.0-beta.1] - 2026-11-05
+
+This is a beta (NuGet prerelease). Three flaky tests are skipped, tracked in #1301.
 
 5.5 is a minor release with breaking changes. Eighteen business modules and the stock reservation primitive leave the repository. API keys can belong to a service principal, carry `cap:` scopes or be read only. Tenants can override module settings, choose their external sign-in providers and verify custom domains. BarakoCMS.AI gets a completion client other modules can call. The admin API contract moves from 13 to 14 and the delivery contract from 9 to 10.
 
