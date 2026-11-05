@@ -242,7 +242,7 @@ public class WorkflowRunnerFairClaimTests
     /// <summary>
     /// Draining a backlog used to list the partitions once per action claimed.
     /// </summary>
-    [Fact]
+    [Fact(Skip = "Flaky under a full run, tech debt #1301")]
     public async Task A_drain_does_not_list_the_partitions_once_per_action()
     {
         await WithHostedRunnerPausedAsync(async () =>

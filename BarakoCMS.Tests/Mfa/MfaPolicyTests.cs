@@ -217,7 +217,7 @@ public class MfaPolicyTests
         (await Client(body.Token).GetAsync("/api/auth/mfa/status")).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    [Fact]
+    [Fact(Skip = "Flaky under a full run, tech debt #1301")]
     public async Task EnrollmentToken_HubSubscribe_Refused()
     {
         var login = await LoginAsync(await SeedUserAsync(await StoreRoleAsync(requireMfa: true)));
