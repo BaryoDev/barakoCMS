@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The site blueprint's `Fonts` field takes a font object as well as a family name.** A value is a string or an object with a required `family` and optional `url` and `fallback`. A site type applied from the blueprint before this holds the string-only schema, and `db-migrate` moves it to the new one (5.5.0 `site-fonts-schema`). A tenant that edited the `Fonts` schema keeps its own.
+
 ## [5.5.0-beta.1] - 2026-11-05
 
 This is a beta (NuGet prerelease). Three flaky tests are skipped, tracked in #1301.
