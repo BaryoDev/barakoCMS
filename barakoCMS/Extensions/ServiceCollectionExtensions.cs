@@ -749,6 +749,7 @@ public static class ServiceCollectionExtensions
             .DocumentAlias("system_settings");
 
         MapPendingBuilds(options);
+        MapOnDemandDocuments(options);
         // Global: a webhook carries no tenant, and the receiver has to find a replay before it
         // knows whose data the event touches.
         options.Schema.For<InboundWebhookEvent>()
@@ -1442,6 +1443,20 @@ public static class ServiceCollectionExtensions
         options.Schema.For<barakoCMS.Features.Workflows.MissedWorkflowTrigger>()
             .MultiTenanted()
             .DocumentAlias("workflow_missed_triggers");
+
+    /// <summary>
+    /// Document types that used to be created on first use. Registered so the startup apply creates
+    /// their tables, because two requests creating the same table at once fail on 42710 or 42P07.
+    /// No alias, so the tables keep the names they were created under.
+    /// </summary>
+    private static void MapOnDemandDocuments(StoreOptions options)
+    {
+        options.Schema.For<BlockBinding>().MultiTenanted();
+        options.Schema.For<BlockPreset>().MultiTenanted();
+        options.Schema.For<BlockSchema>().MultiTenanted();
+        options.Schema.For<UserGroup>().MultiTenanted();
+        options.Schema.For<WorkflowDefinition>().MultiTenanted();
+    }
 
     private static void MapPendingBuilds(StoreOptions options) =>
         options.Schema.For<PendingBuild>()
