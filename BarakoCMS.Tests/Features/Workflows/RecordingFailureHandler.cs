@@ -11,12 +11,17 @@ internal sealed class RecordingFailureHandler : IWorkflowRunFailureHandler
 {
     public static readonly ConcurrentDictionary<Guid, int> Told = new();
 
-    /// <summary>When set, every call waits for it after it is recorded.</summary>
-    public static volatile Task? Hold;
+    /// <summary>
+    /// When set, the call for that run waits for the task after it is recorded. Only that run: a failed
+    /// run from another test reaching the same handler must not block too.
+    /// </summary>
+    public static volatile HeldRun? Hold;
 
     public async Task OnRunFailedAsync(WorkflowRunFailure failure, CancellationToken ct)
     {
         Told.AddOrUpdate(failure.Run.Id, 1, (_, told) => told + 1);
-        if (Hold is { } hold) await hold.WaitAsync(ct);
+        if (Hold is { } hold && hold.RunId == failure.Run.Id) await hold.Gate.WaitAsync(ct);
     }
 }
+
+internal sealed record HeldRun(Guid RunId, Task Gate);

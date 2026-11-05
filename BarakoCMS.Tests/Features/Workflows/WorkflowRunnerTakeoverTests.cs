@@ -162,7 +162,7 @@ public class WorkflowRunnerTakeoverTests
 
             first = await _harness.SeedRunAsync(Guid.NewGuid(), contentId, [Abandoned("SendOnceRunner", attempts: 0)]);
             second = await _harness.SeedRunAsync(Guid.NewGuid(), contentId, [Abandoned("SendOnceRunner", attempts: 0)]);
-            RecordingFailureHandler.Hold = hold.Task;
+            RecordingFailureHandler.Hold = new HeldRun(first.Id, hold.Task);
 
             try
             {
