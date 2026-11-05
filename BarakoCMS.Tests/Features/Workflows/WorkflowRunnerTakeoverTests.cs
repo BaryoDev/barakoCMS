@@ -156,6 +156,10 @@ public class WorkflowRunnerTakeoverTests
 
         await _harness.WithHostedRunnerPausedAsync(async () =>
         {
+            // Runs left due by earlier tests are older, so the pass would claim them first and fill
+            // both slots before the second run. Drain them while nothing holds the handlers.
+            await _harness.DrainAsync();
+
             first = await _harness.SeedRunAsync(Guid.NewGuid(), contentId, [Abandoned("SendOnceRunner", attempts: 0)]);
             second = await _harness.SeedRunAsync(Guid.NewGuid(), contentId, [Abandoned("SendOnceRunner", attempts: 0)]);
             RecordingFailureHandler.Hold = hold.Task;
