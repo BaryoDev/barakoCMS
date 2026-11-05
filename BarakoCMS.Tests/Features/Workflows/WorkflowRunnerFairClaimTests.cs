@@ -271,8 +271,10 @@ public class WorkflowRunnerFairClaimTests
             // One list to start, one before reporting idle, and one more for each idle interval the
             // drain lasted, which is how long a kept list is trusted. One more because the list covers
             // every tenant in the shared database, so work another test leaves can force one rescan.
-            // Listing per action is thirteen.
-            var allowed = 3 + (int)(timer.Elapsed / WorkflowRunner.Idle);
+            // A rescan only finds work the kept list missed, which is another test's tenant, so each
+            // one beyond that is paid for by a claim past our twelve. Listing per action is thirteen
+            // plus one for each of those claims.
+            var allowed = 3 + (int)(timer.Elapsed / WorkflowRunner.Idle) + (claims - 12);
             runner.PartitionScans.Should().BeLessThanOrEqualTo(allowed);
         });
     }
