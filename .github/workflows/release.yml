@@ -616,8 +616,11 @@ jobs:
               [ -s "$F" ] || { echo "::error::no digest for $img/$arch, refusing to publish a single-architecture image"; exit 1; }
               REFS="$REFS ghcr.io/baryodev/$img@$(cat "$F")"
             done
+            # A prerelease (a hyphen in the version) must not move :latest.
+            LATEST_GHCR="--tag ghcr.io/baryodev/$img:latest"
+            case "$V" in *-*) LATEST_GHCR="" ;; esac
             docker buildx imagetools create \
-              --tag "ghcr.io/baryodev/$img:latest" \
+              $LATEST_GHCR \
               --tag "ghcr.io/baryodev/$img:$V" \
               $REFS
           done
@@ -645,8 +648,10 @@ jobs:
           set -euo pipefail
           V="${{ env.VERSION }}"
           for img in barako-cms barako-cms-decaf; do
+            LATEST_HUB="--tag arnelirobles/$img:latest"
+            case "$V" in *-*) LATEST_HUB="" ;; esac
             docker buildx imagetools create \
-              --tag "arnelirobles/$img:latest" \
+              $LATEST_HUB \
               --tag "arnelirobles/$img:$V" \
               "ghcr.io/baryodev/$img:$V"
           done
@@ -797,10 +802,16 @@ jobs:
             exit 0
           fi
 
+          # A hyphen in the version (5.5.0-beta.1) marks a prerelease, so it is not shown as the
+          # latest release.
+          PRERELEASE=""
+          case "$VERSION" in *-*) PRERELEASE="--prerelease" ;; esac
+
           gh release create "v$VERSION" \
             --target "${{ github.sha }}" \
             --title "v$VERSION" \
-            --notes-file /tmp/notes.md
+            --notes-file /tmp/notes.md \
+            $PRERELEASE
           echo "::notice::Tagged v$VERSION and published the release."
 
   # Org discussions (best-effort). Discord is handled by announce-discord below, NOT here: passing the
