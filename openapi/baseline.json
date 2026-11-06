@@ -9064,7 +9064,7 @@
               "format": "int32",
               "type": "integer"
             },
-            "description": "How many runs have each status under the content and workflow filters, whatever the status filter and\nthe page. Every status is present, with zero where there are none. Null when changedSince\nwas given, since a poll reads what changed and a count would add a scan to each one.",
+            "description": "How many runs have each status under the content and workflow filters, whatever the status filter\nand the page, each counted up to StatusCountCap. Every status is present, with zero\nwhere there are none. Null when changedSince was given, since a poll reads what changed and\na count would add a scan to each one.",
             "nullable": true,
             "type": "object"
           },

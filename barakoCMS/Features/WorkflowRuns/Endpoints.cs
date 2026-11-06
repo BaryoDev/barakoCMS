@@ -321,9 +321,10 @@ internal sealed class RunListResponse
     public bool HasPreviousPage => Page > 1;
 
     /// <summary>
-    /// How many runs have each status under the content and workflow filters, whatever the status filter and
-    /// the page, each counted up to <see cref="StatusCountCap"/>. Every status is present, with zero where there are none. Null when <c>changedSince</c>
-    /// was given, since a poll reads what changed and a count would add a scan to each one.
+    /// How many runs have each status under the content and workflow filters, whatever the status filter
+    /// and the page, each counted up to <see cref="StatusCountCap"/>. Every status is present, with zero
+    /// where there are none. Null when <c>changedSince</c> was given, since a poll reads what changed and
+    /// a count would add a scan to each one.
     /// </summary>
     public Dictionary<string, int>? StatusCounts { get; set; }
 
@@ -590,7 +591,7 @@ internal sealed class ListRunsEndpoint(
             session, HttpContext, User, page.Items.Select(r => r.ContentId), ct);
         var items = page.Items.Select(r => RunResponse.From(r, titles.GetValueOrDefault(r.ContentId))).ToList();
 
-        var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, counts,
+        var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, counts, tally.Cap, tally.Capped,
             $"{sweeping}:{windows.SucceededDays}:{windows.FailedDays}" + tally.ETagSuffix());
         HttpContext.Response.Headers.ETag = etag;
         HttpContext.Response.Headers.CacheControl = "private, no-cache";
