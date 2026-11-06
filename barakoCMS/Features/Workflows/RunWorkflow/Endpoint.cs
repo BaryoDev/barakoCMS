@@ -154,7 +154,7 @@ internal sealed class Endpoint(
             throw;
         }
 
-        WorkflowMetrics.Default.Queued(WorkflowEvents.Manual, 1);
+        WorkflowMetrics.Default.Queued(WorkflowEvents.Manual, 1, session.TenantId);
         await Send.ResponseAsync(new Response { RunId = run.Id }, 202, ct);
     }
 

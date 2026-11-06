@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using Prometheus;
 
@@ -6,10 +7,12 @@ namespace barakoCMS.Features.Workflows;
 
 /// <summary>What the workflow queue and its runner publish on <c>/metrics</c>.</summary>
 /// <remarks>
-/// A label value is one of the fixed words in this file or an action type a handler is registered
-/// for. Never a tenant, a workflow, a run, a content type or an error. <c>/metrics</c> is read for
-/// the whole deployment by whoever holds the scrape key, so a value a tenant chose would show that
-/// tenant's data to the reader, and would let a tenant add series without limit.
+/// A label value is one of the fixed words in this file, an action type a handler is registered
+/// for, or a tenant slug from <see cref="MetricTenantLabel"/>. Never a workflow, a run, a content
+/// type or an error. <c>/metrics</c> is read for the whole deployment by whoever holds the scrape
+/// key, so a value a tenant chose would show that tenant's data to the reader, and would let a
+/// tenant add series without limit. A slug is the operator's own registry entry, and the label can
+/// be switched off with <c>Metrics:TenantLabel</c>.
 ///
 /// One instance per registry. The host uses <see cref="Default"/>. A test builds its own on a
 /// registry nothing else writes to.
@@ -44,7 +47,7 @@ internal sealed class WorkflowMetrics
         RunsQueued = factory.CreateCounter(
             "barakocms_workflow_runs_queued_total",
             "Workflow runs queued, by the kind of event that fired them.",
-            new CounterConfiguration { LabelNames = ["trigger"] });
+            new CounterConfiguration { LabelNames = ["trigger", MetricTenantLabel.Name] });
 
         AttemptsClaimed = factory.CreateCounter(
             "barakocms_workflow_attempts_claimed_total",
@@ -53,21 +56,22 @@ internal sealed class WorkflowMetrics
         Attempts = factory.CreateCounter(
             "barakocms_workflow_attempts_total",
             "Workflow action attempts whose outcome this node's runner recorded, by action type and outcome.",
-            new CounterConfiguration { LabelNames = ["action", "outcome"] });
+            new CounterConfiguration { LabelNames = ["action", "outcome", MetricTenantLabel.Name] });
 
         ActionDuration = factory.CreateHistogram(
             "barakocms_workflow_action_duration_seconds",
             "How long a workflow action took, for attempts whose outcome was recorded, by action type.",
-            new HistogramConfiguration { LabelNames = ["action"], Buckets = DurationBuckets });
+            new HistogramConfiguration { LabelNames = ["action", MetricTenantLabel.Name], Buckets = DurationBuckets });
 
         RunsFinished = factory.CreateCounter(
             "barakocms_workflow_runs_finished_total",
             "Workflow runs this node's runner finished, by the status they ended in.",
-            new CounterConfiguration { LabelNames = ["status"] });
+            new CounterConfiguration { LabelNames = ["status", MetricTenantLabel.Name] });
 
         RunsHalted = factory.CreateCounter(
             "barakocms_workflow_runs_halted_total",
-            "Workflow runs where an action set to halt failed and the actions after it were skipped.");
+            "Workflow runs where an action set to halt failed and the actions after it were skipped.",
+            new CounterConfiguration { LabelNames = [MetricTenantLabel.Name] });
 
         LastPass = factory.CreateGauge(
             "barakocms_workflow_runner_last_pass_timestamp_seconds",
@@ -110,9 +114,10 @@ internal sealed class WorkflowMetrics
 
     public Gauge BacklogMeasured { get; }
 
-    public void Queued(string trigger, int runs)
+    /// <param name="tenant">The Marten tenant id or slug the runs belong to. Null is the default tenant.</param>
+    public void Queued(string trigger, int runs, string? tenant = null)
     {
-        if (runs > 0) RunsQueued.WithLabels(TriggerLabel(trigger)).Inc(runs);
+        if (runs > 0) RunsQueued.WithLabels(TriggerLabel(trigger), MetricTenantLabel.For(tenant)).Inc(runs);
     }
 
     public void Claimed() => AttemptsClaimed.Inc();
@@ -122,27 +127,28 @@ internal sealed class WorkflowMetrics
     /// <param name="status">
     /// The attempt's status as saved. Pending is an attempt that failed and was queued again.
     /// </param>
-    public void Recorded(string actionType, bool registered, AttemptStatus status, long elapsedMs)
+    public void Recorded(string actionType, bool registered, AttemptStatus status, long elapsedMs, string? tenant = null)
     {
         var action = ActionLabel(actionType, registered);
+        var tenantLabel = MetricTenantLabel.For(tenant);
 
-        Attempts.WithLabels(action, OutcomeLabel(status)).Inc();
+        Attempts.WithLabels(action, OutcomeLabel(status), tenantLabel).Inc();
 
         // Skipped is the content having gone, and an unregistered type has no handler. Neither
         // called anything, and their zeroes would read as a fast provider.
         if (registered && status != AttemptStatus.Skipped)
         {
-            ActionDuration.WithLabels(action).Observe(elapsedMs / 1000d);
+            ActionDuration.WithLabels(action, tenantLabel).Observe(elapsedMs / 1000d);
         }
     }
 
     /// <summary>Counts a run that has just ended. A run that is still open is not counted.</summary>
-    public void Finished(RunStatus status)
+    public void Finished(RunStatus status, string? tenant = null)
     {
-        if (StatusLabel(status) is { } label) RunsFinished.WithLabels(label).Inc();
+        if (StatusLabel(status) is { } label) RunsFinished.WithLabels(label, MetricTenantLabel.For(tenant)).Inc();
     }
 
-    public void Halted() => RunsHalted.Inc();
+    public void Halted(string? tenant = null) => RunsHalted.WithLabels(MetricTenantLabel.For(tenant)).Inc();
 
     /// <summary>
     /// Whether this attempt, as just recorded, halted its run: it ended Failed or Unknown and an
