@@ -326,6 +326,33 @@ with every action succeeded, while an action is in flight, for a run already rol
 
 The obsolete `IWorkflowEngine` path does not compensate.
 
+## Running a workflow on a schedule
+
+A workflow with the `schedule` trigger carries a 5-field cron expression in `schedule` and a zone in
+`scheduleTimeZone`: `tenant` (the `TimeZone` in the site settings, UTC when there is none) or an IANA
+id such as `Asia/Manila`. A save checks both, and answers with `nextDueTimes`, the next five due
+times in UTC. The sweep that publishes scheduled content (one timer, once a minute) starts the runs.
+
+A run carries `{{schedule.at}}`, the time it was due, and `{{schedule.previousAt}}`, the due time
+before it, so "yesterday" is worked out from when the run was due and not when it ran. The due time
+is claimed in the database, so two API instances or a restart start one run for it.
+
+`scheduleCatchUp` decides what happens for due times that passed while no host was running:
+
+| Value | Runs started |
+|---|---|
+| `once` (default) | One, for the latest missed time |
+| `each` | One per missed time, oldest first, for the latest 24 at most. Older ones are dropped, not caught up later |
+| `skip` | None for a missed time. A time within five minutes of the sweep still counts as on time |
+
+At a daylight saving change a due time that does not exist in the zone runs at the next valid minute
+(`30 2 * * *` in `America/New_York` runs at 03:00 on the spring day), and a fixed local time that
+occurs twice runs once, at the first. An expression that matches every hour or minute still runs
+for each hour or minute that passes.
+
+Switching a workflow off (see below) stops its due times without deleting the schedule. Switching it
+back on counts from that moment, so the times it was off are not caught up.
+
 ## What runs a workflow
 
 A workflow can name its executor in `executor`. Left out, or null, it is the built-in runner, which is
