@@ -381,7 +381,7 @@ internal sealed class WorkflowRunner(
             }
             else
             {
-                Metrics.Finished(claim.Run.Status);
+                Metrics.Finished(claim.Run.Status, tenantId);
                 if (claim.Notify) pass.Running.Add(Task.Run(() => NotifyEndedAsync(store, claim.Run, tenantId, ct), CancellationToken.None));
             }
 
@@ -645,7 +645,7 @@ internal sealed class WorkflowRunner(
 
         if (!ended) return new Claim(run, undoing, Undo: true);
 
-        Metrics.Recorded(undoing.Compensate?.Type ?? string.Empty, true, AttemptStatus.Unknown, 0);
+        Metrics.Recorded(undoing.Compensate?.Type ?? string.Empty, true, AttemptStatus.Unknown, 0, tenantId);
         return new Claim(run, null, Notify: true);
     }
 
@@ -698,8 +698,8 @@ internal sealed class WorkflowRunner(
             return false;
         }
 
-        Metrics.Recorded(lapsed.ActionType, true, lapsed.Status, 0);
-        if (WorkflowMetrics.HaltedTheRun(run, lapsed)) Metrics.Halted();
+        Metrics.Recorded(lapsed.ActionType, true, lapsed.Status, 0, tenantId);
+        if (WorkflowMetrics.HaltedTheRun(run, lapsed)) Metrics.Halted(tenantId);
         return true;
     }
 
@@ -832,10 +832,10 @@ internal sealed class WorkflowRunner(
                 return false;
             }
 
-            Metrics.Recorded(attempt.ActionType, outcome.Registered, attempt.Status, outcome.ElapsedMs);
-            Metrics.Finished(latest.Status);
+            Metrics.Recorded(attempt.ActionType, outcome.Registered, attempt.Status, outcome.ElapsedMs, tenantId);
+            Metrics.Finished(latest.Status, tenantId);
 
-            if (WorkflowMetrics.HaltedTheRun(latest, attempt)) Metrics.Halted();
+            if (WorkflowMetrics.HaltedTheRun(latest, attempt)) Metrics.Halted(tenantId);
             await NotifyOnFailureAsync(session, latest, tenantId, ct);
         }
 
@@ -949,7 +949,7 @@ internal sealed class WorkflowRunner(
             return false;
         }
 
-        Metrics.Finished(latest.Status);
+        Metrics.Finished(latest.Status, session.TenantId);
         return true;
     }
 

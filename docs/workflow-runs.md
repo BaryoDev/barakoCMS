@@ -432,12 +432,12 @@ that answer "are workflows running" without a query against the database.
 
 | Metric | Type | Labels | What it counts |
 | --- | --- | --- | --- |
-| `barakocms_workflow_runs_queued_total` | counter | `trigger` | Runs queued, by the kind of event that fired them. |
+| `barakocms_workflow_runs_queued_total` | counter | `trigger`, `tenant` | Runs queued, by the kind of event that fired them. |
 | `barakocms_workflow_attempts_claimed_total` | counter | none | Action attempts this node's runner claimed. |
-| `barakocms_workflow_attempts_total` | counter | `action`, `outcome` | Attempts whose outcome this node recorded. |
-| `barakocms_workflow_action_duration_seconds` | histogram | `action` | How long the action took, for those attempts. |
-| `barakocms_workflow_runs_finished_total` | counter | `status` | Runs this node's runner finished. |
-| `barakocms_workflow_runs_halted_total` | counter | none | Runs where a `Halt` action failed and later actions were skipped. |
+| `barakocms_workflow_attempts_total` | counter | `action`, `outcome`, `tenant` | Attempts whose outcome this node recorded. |
+| `barakocms_workflow_action_duration_seconds` | histogram | `action`, `tenant` | How long the action took, for those attempts. |
+| `barakocms_workflow_runs_finished_total` | counter | `status`, `tenant` | Runs this node's runner finished. |
+| `barakocms_workflow_runs_halted_total` | counter | `tenant` | Runs where a `Halt` action failed and later actions were skipped. |
 | `barakocms_workflow_runner_last_pass_timestamp_seconds` | gauge | none | Unix time this node's runner last completed a pass. |
 | `barakocms_workflow_due_runs` | gauge | none | Runs with an action that could be claimed now. |
 | `barakocms_workflow_oldest_due_run_age_seconds` | gauge | none | Seconds since the oldest due run was queued. 0 when none is due. |
@@ -459,10 +459,16 @@ The label values are fixed, so the number of series is too:
   buckets from 50 ms to 5 minutes, `+Inf`, sum and count), 765 at most.
 - `status` is `succeeded`, `failed`, `partially_failed` or `cancelled`. 4 series.
 
-No label holds a tenant, a workflow, a run, a content type or an error message, and no metric is
-kept per tenant. Whoever can read `/metrics` learns how much workflow activity the whole deployment
-has, which action types it uses, how long they take and how often they fail. That is the same kind
-of exposure as the request metrics already there, which name every route and count its traffic.
+`tenant` is the slug of the tenant the run belongs to (`default` for the default tenant). The
+series above multiply by the number of tenants, so a deployment with many tenants sets
+`Metrics:TenantLabel` to `false` (environment variable `Metrics__TenantLabel`). The label stays on
+every series and reads `all`, so a dashboard query does not change shape. The same label is on the
+HTTP request metrics and on `barakocms_jobs_attempts_total`. It defaults to on.
+
+No other label holds a workflow, a run, a content type or an error message. Whoever can read
+`/metrics` learns how much workflow activity each tenant has, which action types it uses, how long
+they take and how often they fail. That is the same kind of exposure as the request metrics
+already there, which name every route and count its traffic.
 
 What the numbers do not include:
 

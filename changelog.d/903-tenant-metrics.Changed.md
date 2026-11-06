@@ -1,0 +1,1 @@
+Request, workflow run and job metrics carry a `tenant` label with the tenant slug (#903). A dashboard query that matches on the full label set needs the new label, or an aggregation over it. Set `Metrics:TenantLabel` to `false` for a deployment with many tenants and every series reads `tenant="all"`.

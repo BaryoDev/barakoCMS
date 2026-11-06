@@ -213,7 +213,7 @@ internal static class WorkflowSchedule
         try
         {
             await session.SaveChangesAsync(ct);
-            WorkflowMetrics.Default.Queued(WorkflowEvents.Schedule, 1);
+            WorkflowMetrics.Default.Queued(WorkflowEvents.Schedule, 1, session.TenantId);
             return true;
         }
         catch (DocumentAlreadyExistsException)

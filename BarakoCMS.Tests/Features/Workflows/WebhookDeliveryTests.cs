@@ -618,6 +618,34 @@ public class WebhookDeliveryTests
         bogus.StatusCode.Should().Be(HttpStatusCode.BadRequest, "an unknown class is refused rather than ignored");
     }
 
+    [Fact]
+    public async Task The_list_keeps_the_deliveries_inside_the_from_to_window_and_leaves_the_rest()
+    {
+        var workflowId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(
+                Row(now.AddHours(-5), workflowId, status: 200),
+                Row(now.AddHours(-3), workflowId, status: 200),
+                Row(now.AddHours(-2), workflowId, status: 200),
+                Row(now.AddHours(-1), workflowId, status: 200),
+                Row(now, workflowId, status: 200));
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var client = await AdminClientAsync();
+        var from = Uri.EscapeDataString(now.AddHours(-3).AddMinutes(-30).UtcDateTime.ToString("O"));
+        var to = Uri.EscapeDataString(now.AddHours(-1).AddMinutes(-30).UtcDateTime.ToString("O"));
+        var baseUrl = $"/api/webhook-deliveries?workflowId={workflowId}";
+
+        (await CountAsync(client, baseUrl)).Should().Be(5);
+        (await CountAsync(client, $"{baseUrl}&from={from}&to={to}")).Should().Be(2, "only the rows at -3h and -2h sit inside the window");
+        (await CountAsync(client, $"{baseUrl}&from={from}")).Should().Be(4, "from alone leaves the oldest row out");
+        (await CountAsync(client, $"{baseUrl}&to={to}")).Should().Be(3, "to alone leaves the two newest rows out");
+    }
+
     /// <summary>The recipe from docs/webhooks.md, as a receiver would write it.</summary>
     private static string Recipe(string secret, string timestamp, byte[] body)
     {

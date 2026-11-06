@@ -159,7 +159,7 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
 
         var queued = await InsertRunsAsync(runs, ct);
 
-        WorkflowMetrics.Default.Queued(eventType, queued);
+        WorkflowMetrics.Default.Queued(eventType, queued, session.TenantId);
 
         return queued;
     }
@@ -279,7 +279,7 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
             await session.SaveChangesAsync(ct);
         }
 
-        WorkflowMetrics.Default.Queued(trigger, queued);
+        WorkflowMetrics.Default.Queued(trigger, queued, session.TenantId);
 
         return queued;
     }
@@ -322,7 +322,7 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
             return false;
         }
 
-        WorkflowMetrics.Default.Queued(trigger, 1);
+        WorkflowMetrics.Default.Queued(trigger, 1, session.TenantId);
         return true;
     }
 

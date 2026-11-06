@@ -1922,6 +1922,8 @@ public static class ServiceCollectionExtensions
 
         UseMetricsScrapeGuard(app, configuration);
 
+        barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.Configure(configuration);
+
         app.UseRateLimiter();
 
         UseObservability(app);

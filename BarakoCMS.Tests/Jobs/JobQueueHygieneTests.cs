@@ -118,14 +118,27 @@ public class JobQueueHygieneTests
         await provider.OnHandlerExecutionFailureAsync(fails, new InvalidOperationException("first"), Ct);
         await provider.OnHandlerExecutionFailureAsync(fails, new InvalidOperationException("second"), Ct);
 
-        metrics.Attempts.WithLabels(JobMetrics.Succeeded).Value.Should().Be(1);
-        metrics.Attempts.WithLabels(JobMetrics.Retried).Value.Should().Be(1);
-        metrics.Attempts.WithLabels(JobMetrics.DeadLettered).Value.Should().Be(1, "the second failure was the last allowed");
+        metrics.Attempts.WithLabels(JobMetrics.Succeeded, Tenant.DefaultSlug).Value.Should().Be(1);
+        metrics.Attempts.WithLabels(JobMetrics.Retried, Tenant.DefaultSlug).Value.Should().Be(1);
+        metrics.Attempts.WithLabels(JobMetrics.DeadLettered, Tenant.DefaultSlug).Value.Should().Be(1, "the second failure was the last allowed");
 
         var dead = await LoadAsync(fails.TrackingID);
         dead.Should().NotBeNull();
         dead!.State.Should().Be(JobState.DeadLettered);
         dead.CompletedAt.Should().NotBeNull("the retention window counts from when the job gave up");
+    }
+
+    [Fact]
+    public void A_recorded_attempt_carries_the_tenant_slug()
+    {
+        var metrics = OwnMetrics();
+
+        metrics.Recorded(JobMetrics.Succeeded, "acme");
+        metrics.Recorded(JobMetrics.Succeeded, "*DEFAULT*");
+
+        metrics.Attempts.WithLabels(JobMetrics.Succeeded, "acme").Value.Should().Be(1);
+        metrics.Attempts.WithLabels(JobMetrics.Succeeded, Tenant.DefaultSlug).Value.Should().Be(1);
+        metrics.Attempts.WithLabels(JobMetrics.Retried, "acme").Value.Should().Be(0, "an outcome of its own");
     }
 
     [Fact]
@@ -165,7 +178,7 @@ public class JobQueueHygieneTests
         published.Should().Contain("barakocms_jobs_due ")
             .And.Contain("barakocms_jobs_oldest_due_age_seconds ")
             .And.Contain("barakocms_jobs_dead_lettered ")
-            .And.Contain("barakocms_jobs_attempts_total{outcome=\"succeeded\"}");
+            .And.Contain("barakocms_jobs_attempts_total{outcome=\"succeeded\",tenant=\"default\"}");
     }
 
     [Fact]

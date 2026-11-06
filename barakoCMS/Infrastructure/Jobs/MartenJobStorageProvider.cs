@@ -406,7 +406,7 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         session.Store(fresh);
         await session.SaveChangesAsync(ct);
 
-        Metrics.Recorded(JobMetrics.Succeeded);
+        Metrics.Recorded(JobMetrics.Succeeded, r.TenantId);
         return JobMetrics.Succeeded;
     }
 
@@ -501,7 +501,7 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         }
 
         var outcome = deadLettered ? JobMetrics.DeadLettered : JobMetrics.Retried;
-        Metrics.Recorded(outcome);
+        Metrics.Recorded(outcome, r.TenantId);
         return outcome;
     }
 

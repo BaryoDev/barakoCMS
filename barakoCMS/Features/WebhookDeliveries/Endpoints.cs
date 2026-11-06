@@ -53,6 +53,12 @@ internal sealed class ListDeliveriesRequest : ListRequest
 
     /// <summary>A status class: <c>2xx</c>, <c>3xx</c>, <c>4xx</c>, <c>5xx</c>, or <c>failed</c> for no response at all.</summary>
     public string? Status { get; set; }
+
+    /// <summary>Only deliveries at or after this instant (UTC). Null = no lower bound.</summary>
+    public DateTime? From { get; set; }
+
+    /// <summary>Only deliveries at or before this instant (UTC). Null = no upper bound.</summary>
+    public DateTime? To { get; set; }
 }
 
 /// <summary>
@@ -105,6 +111,18 @@ internal sealed class ListDeliveriesEndpoint(
             }
 
             query = filtered;
+        }
+
+        if (req.From is { } from)
+        {
+            var after = new DateTimeOffset(DateTime.SpecifyKind(from, DateTimeKind.Utc));
+            query = query.Where(d => d.CreatedAt >= after);
+        }
+
+        if (req.To is { } to)
+        {
+            var before = new DateTimeOffset(DateTime.SpecifyKind(to, DateTimeKind.Utc));
+            query = query.Where(d => d.CreatedAt <= before);
         }
 
         var page = await query.OrderByDescending(d => d.CreatedAt).ToPagedResponseAsync(req, ct);
