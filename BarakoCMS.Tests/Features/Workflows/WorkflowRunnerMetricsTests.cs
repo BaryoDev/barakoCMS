@@ -61,12 +61,12 @@ public class WorkflowRunnerMetricsTests
 
         run.Status.Should().Be(RunStatus.Succeeded, "the counts below are of a run that went out");
 
-        metrics.Attempts.WithLabels(Metered, "succeeded").Value.Should().Be(1);
-        metrics.Attempts.WithLabels(Metered, "failed").Value.Should().Be(0);
-        metrics.Attempts.WithLabels(Metered, "retried").Value.Should().Be(0);
-        metrics.ActionDuration.WithLabels(Metered).Count.Should().Be(1);
+        metrics.Attempts.WithLabels(Metered, "succeeded", Tenant.DefaultSlug).Value.Should().Be(1);
+        metrics.Attempts.WithLabels(Metered, "failed", Tenant.DefaultSlug).Value.Should().Be(0);
+        metrics.Attempts.WithLabels(Metered, "retried", Tenant.DefaultSlug).Value.Should().Be(0);
+        metrics.ActionDuration.WithLabels(Metered, Tenant.DefaultSlug).Count.Should().Be(1);
         metrics.AttemptsClaimed.Value.Should().BeGreaterThanOrEqualTo(1);
-        metrics.RunsFinished.WithLabels("succeeded").Value.Should().BeGreaterThanOrEqualTo(1);
+        metrics.RunsFinished.WithLabels("succeeded", Tenant.DefaultSlug).Value.Should().BeGreaterThanOrEqualTo(1);
     }
 
     [Fact]
@@ -91,9 +91,9 @@ public class WorkflowRunnerMetricsTests
         run.Actions[0].Status.Should().Be(AttemptStatus.Pending, "a 503 is queued for another try");
         run.Actions[0].Attempts.Should().BeGreaterThanOrEqualTo(1, "a long drain can reach its second try");
 
-        metrics.Attempts.WithLabels(Metered, "retried").Value.Should().Be(run.Actions[0].Attempts);
-        metrics.Attempts.WithLabels(Metered, "failed").Value.Should().Be(0);
-        metrics.ActionDuration.WithLabels(Metered).Count.Should().Be(run.Actions[0].Attempts);
+        metrics.Attempts.WithLabels(Metered, "retried", Tenant.DefaultSlug).Value.Should().Be(run.Actions[0].Attempts);
+        metrics.Attempts.WithLabels(Metered, "failed", Tenant.DefaultSlug).Value.Should().Be(0);
+        metrics.ActionDuration.WithLabels(Metered, Tenant.DefaultSlug).Count.Should().Be(run.Actions[0].Attempts);
     }
 
     [Fact]
@@ -118,9 +118,9 @@ public class WorkflowRunnerMetricsTests
 
         run.Status.Should().Be(RunStatus.Failed);
 
-        metrics.Attempts.WithLabels(Metered, "failed").Value.Should().Be(1);
-        metrics.Attempts.WithLabels(Metered, "retried").Value.Should().Be(0);
-        metrics.RunsFinished.WithLabels("failed").Value.Should().BeGreaterThanOrEqualTo(1);
+        metrics.Attempts.WithLabels(Metered, "failed", Tenant.DefaultSlug).Value.Should().Be(1);
+        metrics.Attempts.WithLabels(Metered, "retried", Tenant.DefaultSlug).Value.Should().Be(0);
+        metrics.RunsFinished.WithLabels("failed", Tenant.DefaultSlug).Value.Should().BeGreaterThanOrEqualTo(1);
     }
 
     [Fact]
@@ -147,11 +147,11 @@ public class WorkflowRunnerMetricsTests
         run.Actions.Select(a => a.Status).Should().Equal(AttemptStatus.Failed, AttemptStatus.Skipped);
         run.Actions[1].HaltedBy.Should().Be(0);
 
-        metrics.Attempts.WithLabels(Metered, "failed").Value.Should().Be(1);
-        metrics.Attempts.WithLabels(Metered, "succeeded").Value.Should().Be(0, "the action after the halt never ran");
-        metrics.Attempts.WithLabels(Metered, "skipped").Value.Should().Be(0, "it was not attempted, so it is not an attempt");
-        metrics.RunsHalted.Value.Should().BeGreaterThanOrEqualTo(1);
-        metrics.RunsFinished.WithLabels("failed").Value.Should().BeGreaterThanOrEqualTo(1);
+        metrics.Attempts.WithLabels(Metered, "failed", Tenant.DefaultSlug).Value.Should().Be(1);
+        metrics.Attempts.WithLabels(Metered, "succeeded", Tenant.DefaultSlug).Value.Should().Be(0, "the action after the halt never ran");
+        metrics.Attempts.WithLabels(Metered, "skipped", Tenant.DefaultSlug).Value.Should().Be(0, "it was not attempted, so it is not an attempt");
+        metrics.RunsHalted.WithLabels(Tenant.DefaultSlug).Value.Should().BeGreaterThanOrEqualTo(1);
+        metrics.RunsFinished.WithLabels("failed", Tenant.DefaultSlug).Value.Should().BeGreaterThanOrEqualTo(1);
     }
 
     /// <summary>
@@ -186,10 +186,10 @@ public class WorkflowRunnerMetricsTests
 
         run.Status.Should().Be(RunStatus.PartiallyFailed);
 
-        metrics.Attempts.WithLabels(Metered, "failed").Value.Should().Be(1);
-        metrics.Attempts.WithLabels(Metered, "succeeded").Value.Should().Be(1);
-        metrics.RunsFinished.WithLabels("partially_failed").Value.Should().BeGreaterThanOrEqualTo(1);
-        metrics.RunsHalted.Value.Should().Be(0, "an action set to continue stops nothing");
+        metrics.Attempts.WithLabels(Metered, "failed", Tenant.DefaultSlug).Value.Should().Be(1);
+        metrics.Attempts.WithLabels(Metered, "succeeded", Tenant.DefaultSlug).Value.Should().Be(1);
+        metrics.RunsFinished.WithLabels("partially_failed", Tenant.DefaultSlug).Value.Should().BeGreaterThanOrEqualTo(1);
+        metrics.RunsHalted.WithLabels(Tenant.DefaultSlug).Value.Should().Be(0, "an action set to continue stops nothing");
     }
 
     /// <summary>
@@ -219,9 +219,9 @@ public class WorkflowRunnerMetricsTests
         run.Actions.Select(a => a.Status).Should().Equal(AttemptStatus.Unknown, AttemptStatus.Skipped);
         run.Actions[1].HaltedBy.Should().Be(0);
 
-        metrics.Attempts.WithLabels(Metered, "unknown").Value.Should().Be(1);
-        metrics.Attempts.WithLabels(Metered, "succeeded").Value.Should().Be(0, "the action after the halt never ran");
-        metrics.RunsHalted.Value.Should().BeGreaterThanOrEqualTo(1);
+        metrics.Attempts.WithLabels(Metered, "unknown", Tenant.DefaultSlug).Value.Should().Be(1);
+        metrics.Attempts.WithLabels(Metered, "succeeded", Tenant.DefaultSlug).Value.Should().Be(0, "the action after the halt never ran");
+        metrics.RunsHalted.WithLabels(Tenant.DefaultSlug).Value.Should().BeGreaterThanOrEqualTo(1);
     }
 
     /// <summary>
@@ -251,9 +251,9 @@ public class WorkflowRunnerMetricsTests
         run.Actions.Should().HaveCount(1);
         run.Actions[0].Status.Should().Be(AttemptStatus.Cancelled);
 
-        metrics.RunsFinished.WithLabels("cancelled").Value.Should().BeGreaterThanOrEqualTo(1);
-        metrics.Attempts.WithLabels(Metered, "succeeded").Value.Should().Be(0, "a cancelled action never went out");
-        metrics.ActionDuration.WithLabels(Metered).Count.Should().Be(0);
+        metrics.RunsFinished.WithLabels("cancelled", Tenant.DefaultSlug).Value.Should().BeGreaterThanOrEqualTo(1);
+        metrics.Attempts.WithLabels(Metered, "succeeded", Tenant.DefaultSlug).Value.Should().Be(0, "a cancelled action never went out");
+        metrics.ActionDuration.WithLabels(Metered, Tenant.DefaultSlug).Count.Should().Be(0);
     }
 
     [Fact]
@@ -276,8 +276,8 @@ public class WorkflowRunnerMetricsTests
         run.Actions.Should().HaveCount(1);
         run.Actions[0].Status.Should().Be(AttemptStatus.Unknown);
 
-        metrics.Attempts.WithLabels(Metered, "unknown").Value.Should().Be(1);
-        metrics.Attempts.WithLabels(Metered, "retried").Value.Should().Be(0, "a timeout is never queued again on its own");
+        metrics.Attempts.WithLabels(Metered, "unknown", Tenant.DefaultSlug).Value.Should().Be(1);
+        metrics.Attempts.WithLabels(Metered, "retried", Tenant.DefaultSlug).Value.Should().Be(0, "a timeout is never queued again on its own");
     }
 
     /// <summary>
@@ -305,8 +305,8 @@ public class WorkflowRunnerMetricsTests
         run.Actions.Should().HaveCount(1);
         run.Actions[0].Status.Should().Be(AttemptStatus.Failed);
 
-        metrics.Attempts.WithLabels(WorkflowMetrics.Other, "failed").Value.Should().BeGreaterThanOrEqualTo(1);
-        metrics.ActionDuration.WithLabels(WorkflowMetrics.Other).Count.Should().Be(0, "nothing was called");
+        metrics.Attempts.WithLabels(WorkflowMetrics.Other, "failed", Tenant.DefaultSlug).Value.Should().BeGreaterThanOrEqualTo(1);
+        metrics.ActionDuration.WithLabels(WorkflowMetrics.Other, Tenant.DefaultSlug).Count.Should().Be(0, "nothing was called");
 
         var published = await ExportAsync(registry);
         published.Should().Contain("barakocms_workflow_attempts_total", "the export has to hold the counter for the next line to mean anything");
@@ -315,7 +315,7 @@ public class WorkflowRunnerMetricsTests
 
     /// <summary>
     /// A run in a tenant of its own, with a workflow name, a content type and a transition only this
-    /// test uses. None of them may appear in what the registry publishes.
+    /// test uses. The tenant is the one name that is published, as the tenant label. None of the others may appear in what the registry publishes.
     /// </summary>
     /// <remarks>
     /// The entry does not exist, so the attempt is Skipped. That is the one outcome the other tests
@@ -347,13 +347,14 @@ public class WorkflowRunnerMetricsTests
         run.Actions.Should().HaveCount(1);
         run.Actions[0].Status.Should().Be(AttemptStatus.Skipped, "the entry it names was never stored");
 
-        metrics.Attempts.WithLabels(Metered, "skipped").Value.Should().Be(1);
-        metrics.ActionDuration.WithLabels(Metered).Count.Should().Be(0, "nothing was called");
+        metrics.Attempts.WithLabels(Metered, "skipped", tenant).Value.Should().Be(1);
+        metrics.ActionDuration.WithLabels(Metered, tenant).Count.Should().Be(0, "nothing was called");
 
         var published = await ExportAsync(registry);
         published.Should().Contain("barakocms_workflow_attempts_total");
+        published.Should().Contain($"tenant=\"{tenant}\"", "the tenant slug is the one label value a tenant picks");
 
-        foreach (var chosen in new[] { tenant, workflowName, contentType, transition, run.Id.ToString(), run.ContentId.ToString() })
+        foreach (var chosen in new[] { workflowName, contentType, transition, run.Id.ToString(), run.ContentId.ToString() })
         {
             published.Should().NotContain(chosen);
         }

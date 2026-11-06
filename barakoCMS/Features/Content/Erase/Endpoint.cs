@@ -90,7 +90,7 @@ internal class Endpoint(
             return;
         }
 
-        barakoCMS.Features.Workflows.WorkflowMetrics.Default.Queued(barakoCMS.Models.WorkflowEvents.Deleted, queued);
+        barakoCMS.Features.Workflows.WorkflowMetrics.Default.Queued(barakoCMS.Models.WorkflowEvents.Deleted, queued, tenant.Slug);
 
         await Send.NoContentAsync(ct);
     }

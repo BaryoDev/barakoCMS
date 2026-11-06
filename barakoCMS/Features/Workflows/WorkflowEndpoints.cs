@@ -216,6 +216,10 @@ internal sealed class SetWorkflowEnabledEndpoint(
         {
             workflow.Enabled = enabled;
 
+            // Switching a schedule back on counts due times from now, so the ones that passed while
+            // it was off are not caught up.
+            if (enabled && workflow.Schedule is not null) workflow.ScheduleArmedAt = DateTime.UtcNow;
+
             // An update and not a store. A store is an upsert, and a delete committed after the
             // load above would be undone by it: the workflow would be inserted again.
             session.Update(workflow);
@@ -480,10 +484,7 @@ internal sealed class UpdateWorkflowEndpoint(
         if (WorkflowSchedule.Parse(workflow.Schedule) is not { } cron) return;
 
         var now = DateTime.UtcNow;
-        var sameSchedule = stored.ScheduleArmedAt is not null
-            && string.Equals(stored.Schedule, workflow.Schedule, StringComparison.Ordinal)
-            && string.Equals(stored.ScheduleTimeZone, workflow.ScheduleTimeZone, StringComparison.OrdinalIgnoreCase);
-        workflow.ScheduleArmedAt = sameSchedule ? stored.ScheduleArmedAt : now;
+        workflow.ScheduleArmedAt = WorkflowSchedule.ArmedAt(stored, workflow, now);
         response.NextDueTimes = WorkflowSchedule.Next(
             cron, await WorkflowSchedule.ZoneAsync(session, workflow, ct), now, WorkflowSchedule.PreviewCount);
     }

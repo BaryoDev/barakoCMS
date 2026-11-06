@@ -49,7 +49,7 @@ try
     // ServiceCollectionExtensions), each with a minimal response writer so they don't leak internal
     // check details to anonymous callers.
 
-    app.UseHttpMetrics();
+    // UseHttpMetrics is inside UseBarakoCMS, ahead of the endpoints that answer requests.
     app.MapMetrics();
 
     Log.Information("Starting BarakoCMS Host...");

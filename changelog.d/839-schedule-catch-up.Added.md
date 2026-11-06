@@ -1,0 +1,1 @@
+- **A workflow schedule can catch up on every missed time or skip them.** `scheduleCatchUp` takes `each` (a run per missed due time, the latest 24 at most) and `skip` (none for a missed time) as well as `once`, which stays the default. Daylight saving changes give one run for a skipped or repeated local time.

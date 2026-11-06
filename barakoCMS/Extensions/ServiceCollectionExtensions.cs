@@ -3,6 +3,7 @@ using FastEndpoints;
 using FastEndpoints.Swagger;
 using FastEndpoints.Security;
 using Marten;
+using Prometheus;
 using Marten.Events.Projections;
 using Marten.Events.Daemon;
 using Weasel.Core;
@@ -1922,11 +1923,21 @@ public static class ServiceCollectionExtensions
 
         UseMetricsScrapeGuard(app, configuration);
 
+        barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.Configure(configuration);
+
         app.UseRateLimiter();
 
         UseObservability(app);
 
         UseTenantAndAuthentication(app);
+
+        // After TenantResolutionMiddleware so the tenant label sees the resolved tenant, and ahead of
+        // the health probes and FastEndpoints, which end the pipeline for the requests they answer.
+        // Placed after UseBarakoCMS in Program.cs it only ever saw requests nothing answered.
+        // Tenant slug when it is a registered tenant, else the default tenant; "all" when Metrics:TenantLabel is off.
+        app.UseHttpMetrics(options => options.AddCustomLabel(
+            barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.Name,
+            context => barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.ForRequest(context)));
 
         app.UseMiddleware<barakoCMS.Infrastructure.Security.RateLimitAfterAuthentication>();
 

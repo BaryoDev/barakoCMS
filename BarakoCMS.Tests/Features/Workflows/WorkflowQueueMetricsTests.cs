@@ -48,7 +48,7 @@ public class WorkflowQueueMetricsTests
             w.TriggerEvent = trigger;
         });
 
-        var before = WorkflowMetrics.Default.RunsQueued.WithLabels("transition").Value;
+        var before = WorkflowMetrics.Default.RunsQueued.WithLabels("transition", Tenant.DefaultSlug).Value;
 
         using (var scope = _factory.Services.CreateScope())
         {
@@ -63,7 +63,7 @@ public class WorkflowQueueMetricsTests
             (await queue.EnqueueAsync(content, trigger, Random.Shared.NextInt64(1, long.MaxValue), Ct)).Should().Be(1);
         }
 
-        (WorkflowMetrics.Default.RunsQueued.WithLabels("transition").Value - before).Should().BeGreaterThanOrEqualTo(1);
+        (WorkflowMetrics.Default.RunsQueued.WithLabels("transition", Tenant.DefaultSlug).Value - before).Should().BeGreaterThanOrEqualTo(1);
 
         using var stream = new MemoryStream();
         await Prometheus.Metrics.DefaultRegistry.CollectAndExportAsTextAsync(stream, Ct);
@@ -93,12 +93,12 @@ public class WorkflowQueueMetricsTests
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin"));
 
-        var before = WorkflowMetrics.Default.RunsQueued.WithLabels("deleted").Value;
+        var before = WorkflowMetrics.Default.RunsQueued.WithLabels("deleted", Tenant.DefaultSlug).Value;
 
         (await client.DeleteAsync($"/api/contents/{id}/erase", Ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         (await _harness.RunsOfAsync(workflowId)).Should().HaveCount(1, "the count below is of a run that was queued");
-        (WorkflowMetrics.Default.RunsQueued.WithLabels("deleted").Value - before).Should().BeGreaterThanOrEqualTo(1);
+        (WorkflowMetrics.Default.RunsQueued.WithLabels("deleted", Tenant.DefaultSlug).Value - before).Should().BeGreaterThanOrEqualTo(1);
     }
 
     private async Task<Guid> CreateEntryAsync(string contentType)
