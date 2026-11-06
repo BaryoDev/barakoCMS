@@ -115,13 +115,13 @@ internal sealed class ListDeliveriesEndpoint(
 
         if (req.From is { } from)
         {
-            var after = new DateTimeOffset(DateTime.SpecifyKind(from, DateTimeKind.Utc));
+            var after = new DateTimeOffset(barakoCMS.Infrastructure.Http.QueryTimestamps.AsUtc(from));
             query = query.Where(d => d.CreatedAt >= after);
         }
 
         if (req.To is { } to)
         {
-            var before = new DateTimeOffset(DateTime.SpecifyKind(to, DateTimeKind.Utc));
+            var before = new DateTimeOffset(barakoCMS.Infrastructure.Http.QueryTimestamps.AsUtc(to));
             query = query.Where(d => d.CreatedAt <= before);
         }
 
