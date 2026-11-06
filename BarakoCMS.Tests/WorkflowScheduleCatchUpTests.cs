@@ -41,8 +41,13 @@ public class WorkflowScheduleCatchUpTests
         Actions = [new WorkflowAction { Type = "Email", Parameters = new() { ["To"] = "a@b.com", ["Subject"] = "s", ["Body"] = "b" } }],
     };
 
+    // The sweep covers every enabled scheduled workflow in the shared tenant, so workflows other
+    // tests left behind also fire. A count is therefore taken over this test's own workflows.
+    private readonly List<Guid> _own = [];
+
     private async Task StoreAsync(WorkflowDefinition workflow)
     {
+        _own.Add(workflow.Id);
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         session.Store(workflow);
@@ -53,7 +58,15 @@ public class WorkflowScheduleCatchUpTests
     {
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        return await WorkflowSchedule.FireDueAsync(session, now, null, Ct);
+        var before = await OwnRunCountAsync(session);
+        await WorkflowSchedule.FireDueAsync(session, now, null, Ct);
+        return await OwnRunCountAsync(session) - before;
+    }
+
+    private async Task<int> OwnRunCountAsync(IDocumentSession session)
+    {
+        var own = _own.ToArray();
+        return await session.Query<WorkflowRun>().CountAsync(r => own.Contains(r.WorkflowDefinitionId), Ct);
     }
 
     private async Task<List<WorkflowRun>> RunsOfAsync(Guid workflowId)
@@ -240,5 +253,40 @@ public class WorkflowScheduleCatchUpTests
         stored!.Enabled.Should().BeTrue();
         stored.ScheduleArmedAt.Should().BeOnOrAfter(before, "the weeks the schedule was off are not owed runs");
         stored.Schedule.Should().Be("0 * * * *", "pausing never deleted the schedule");
+    }
+
+    [Fact]
+    public async Task Skip_records_the_newest_skipped_time_so_the_next_sweep_starts_after_it()
+    {
+        var workflow = Scheduled("0 * * * *", "UTC", Utc(2026, 10, 19, 9, 0), WorkflowSchedule.CatchUpSkip);
+        await StoreAsync(workflow);
+
+        (await FireAsync(Utc(2026, 10, 19, 12, 30))).Should().Be(0, "10:00, 11:00 and 12:00 are older than the on-time window");
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var claims = await session.Query<ScheduleClaim>().Where(c => c.WorkflowId == workflow.Id).ToListAsync(Ct);
+
+        claims.Should().ContainSingle("the skipped window is one claim, not one per time");
+        claims[0].DueAt.Should().Be(Utc(2026, 10, 19, 12, 0), "the next sweep counts from the newest skipped time");
+        (await RunsOfAsync(workflow.Id)).Should().BeEmpty("a skipped time starts no run");
+
+        (await FireAsync(Utc(2026, 10, 19, 13, 0, 20))).Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(false, true, "0 * * * *", "0 * * * *", true, "off then on re-arms")]
+    [InlineData(true, true, "0 * * * *", "0 * * * *", false, "on and still on keeps the stored time")]
+    [InlineData(false, false, "0 * * * *", "0 * * * *", false, "off and still off keeps the stored time")]
+    [InlineData(true, true, "0 * * * *", "30 * * * *", true, "a changed schedule re-arms")]
+    public void ArmedAt_re_arms_when_a_workflow_is_enabled_or_its_schedule_changes(
+        bool wasEnabled, bool isEnabled, string was, string now, bool rearmed, string why)
+    {
+        var armed = Utc(2026, 1, 1, 0, 0);
+        var stored = Scheduled(was, "UTC", armed, enabled: wasEnabled);
+        var next = Scheduled(now, "UTC", armed, enabled: isEnabled);
+        var clock = Utc(2026, 10, 19, 12, 0);
+
+        WorkflowSchedule.ArmedAt(stored, next, clock).Should().Be(rearmed ? clock : armed, why);
     }
 }
