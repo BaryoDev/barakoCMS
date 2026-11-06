@@ -61,13 +61,19 @@ public class ActivityEventIndexTests
 
         plan.Should().Contain(IndexName);
 
-        // Naming the index is not enough: the tenant condition alone can pick it. Postgres prints the
-        // conditions it walks the index with as "Index Cond: (... AND (\"timestamp\" >= ...))", and the
-        // plain range is what the `e.Timestamp >= at` conjunct adds next to the OR.
+        // Naming the index is not enough: the tenant condition alone can pick it. Postgres 16 prints the
+        // plan for this query as
+        //   Index Cond: ((tenant_id = '...'::text) AND ("timestamp" >= '...'::timestamp with time zone))
+        //   Filter: (("timestamp" > '...'::timestamp with time zone) OR (seq_id > '1'::bigint))
+        // so the plain range the `e.Timestamp >= at` conjunct adds is an Index Cond, and the OR next to it
+        // is a Filter. "timestamp" is the real mt_events column (Marten stores it as timestamptz, not in
+        // the json), and it is quoted because timestamp is a type name. Without VERBOSE the column has no
+        // table prefix. A Seq Scan prints no Index Cond line at all, and a Filter line is not read.
         var indexConds = plan.Split('\n').Where(l => l.Contains("Index Cond:")).ToList();
         indexConds.Should().NotBeEmpty("the plan walks the index");
         indexConds.Should().Contain(
-            l => System.Text.RegularExpressions.Regex.IsMatch(l, "timestamp\"?\\s*>="),
+            l => System.Text.RegularExpressions.Regex.IsMatch(
+                l, "\\(([A-Za-z_]+\\.)?\"timestamp\" >= '[^']+'::timestamp with time zone\\)"),
             "the timestamp bound is part of the index condition, not left to a filter");
     }
 
