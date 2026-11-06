@@ -9068,6 +9068,20 @@
             "nullable": true,
             "type": "object"
           },
+          "statusCountCap": {
+            "description": "The most runs StatusCounts counts for one status. Null when StatusCounts is.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
+          "statusCountsCapped": {
+            "description": "The statuses that have more runs than StatusCountCap, so their entry in\nStatusCounts is that many or more. Empty when every count is exact. Null when\nStatusCounts is.",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "succeededRetainedFrom": {
             "description": "Succeeded runs that finished before this are removed by the retention sweep. Null when the\nsweep is off or keeps them forever.",
             "format": "date-time",
