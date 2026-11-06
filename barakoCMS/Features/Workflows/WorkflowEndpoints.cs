@@ -216,6 +216,10 @@ internal sealed class SetWorkflowEnabledEndpoint(
         {
             workflow.Enabled = enabled;
 
+            // Switching a schedule back on counts due times from now, so the ones that passed while
+            // it was off are not caught up.
+            if (enabled && workflow.Schedule is not null) workflow.ScheduleArmedAt = DateTime.UtcNow;
+
             // An update and not a store. A store is an upsert, and a delete committed after the
             // load above would be undone by it: the workflow would be inserted again.
             session.Update(workflow);
