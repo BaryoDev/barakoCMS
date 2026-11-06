@@ -213,8 +213,10 @@ internal static class ActivitySources
     // ---- the event store: published, scheduled, edited ----
 
     /// <summary>
-    /// How far back a read with no cursor looks in the event store. mt_events has no index on its
-    /// timestamp, so an open lookback would scan every event of the tenant.
+    /// How far back a read with no cursor looks in the event store. The window is part of what the
+    /// route has always answered, and it bounds a read for a kind that is rare among a tenant's events.
+    /// mt_events_idx_tenant_timestamp (migrations/5.6.0) keeps the read cheap inside the window and for
+    /// a cursor or a <c>since</c> older than it.
     /// </summary>
     public static readonly TimeSpan EventLookback = TimeSpan.FromDays(7);
 
@@ -283,22 +285,38 @@ internal static class ActivitySources
     {
         if (after is { } cursor)
         {
-            var at = cursor.At;
             var sequence = cursor.Source == ActivitySource.Events
                 ? await SequenceOfAsync(session, cursor.Id, cursor.Sequence, ct)
                 : 0;
-            query = cursor.Source switch
-            {
-                ActivitySource.Events => query.Where(e => e.Timestamp > at || (e.Timestamp == at && e.Sequence > sequence)),
-                > ActivitySource.Events => query.Where(e => e.Timestamp > at),
-                _ => query.Where(e => e.Timestamp >= at),
-            };
-            return await query.OrderBy(e => e.Timestamp).ThenBy(e => e.Sequence).Take(limit + 1).ToListAsync(ct);
+            return await OldestAfter(query, cursor, sequence, limit).ToListAsync(ct);
         }
 
-        var since = now - EventLookback;
-        return await query.Where(e => e.Timestamp >= since)
-            .OrderByDescending(e => e.Timestamp).ThenByDescending(e => e.Sequence).Take(limit + 1).ToListAsync(ct);
+        return await NewestFirst(query, now - EventLookback, limit).ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// Events at or after <paramref name="since"/>, newest first. The tenant filter, the timestamp bound
+    /// and the order are what <c>mt_events_idx_tenant_timestamp</c> (migrations/5.6.0) serves.
+    /// </summary>
+    internal static IQueryable<IEvent> NewestFirst(IQueryable<IEvent> query, DateTimeOffset since, int limit) =>
+        query.Where(e => e.Timestamp >= since)
+            .OrderByDescending(e => e.Timestamp).ThenByDescending(e => e.Sequence).Take(limit + 1);
+
+    /// <summary>
+    /// Events after a cursor, oldest first. The events branch states <c>Timestamp &gt;= at</c> next to
+    /// the tie break on the sequence. It selects the same rows, and it gives Postgres a plain range on
+    /// the timestamp to walk the index with: an OR alone is not one.
+    /// </summary>
+    internal static IQueryable<IEvent> OldestAfter(IQueryable<IEvent> query, ActivityCursor cursor, long sequence, int limit)
+    {
+        var at = cursor.At;
+        query = cursor.Source switch
+        {
+            ActivitySource.Events => query.Where(e => e.Timestamp >= at && (e.Timestamp > at || e.Sequence > sequence)),
+            > ActivitySource.Events => query.Where(e => e.Timestamp > at),
+            _ => query.Where(e => e.Timestamp >= at),
+        };
+        return query.OrderBy(e => e.Timestamp).ThenBy(e => e.Sequence).Take(limit + 1);
     }
 
     /// <summary>
