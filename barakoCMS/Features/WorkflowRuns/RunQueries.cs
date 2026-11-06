@@ -34,7 +34,7 @@ internal static class RunQueries
             var q = batch.Query<WorkflowRun>().Where(r => r.Status == wanted);
             if (contentId is { } c) q = q.Where(r => r.ContentId == c);
             if (workflowId is { } w) q = q.Where(r => r.WorkflowDefinitionId == w);
-            pending.Add((status, q.Select(r => r.Id).Take(cap + 1).ToList()));
+            pending.Add((status, q.Take(cap + 1).Select(r => r.Id).ToList()));
         }
 
         await batch.Execute(ct);
