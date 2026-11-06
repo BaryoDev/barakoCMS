@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using barakoCMS.Features.Workflows;
 using barakoCMS.Models;
 using Xunit;
+using ConfigCallers = BarakoCMS.Tests.Features.Config.ConfigCallers;
 
 namespace BarakoCMS.Tests;
 
@@ -272,6 +273,111 @@ public class WorkflowScheduleCatchUpTests
         (await RunsOfAsync(workflow.Id)).Should().BeEmpty("a skipped time starts no run");
 
         (await FireAsync(Utc(2026, 10, 19, 13, 0, 20))).Should().Be(1);
+    }
+
+    // Once a year, so a workflow armed two years back has two missed times (January 1 of last year and
+    // of this one) and none within the seconds a test takes.
+    private const string Yearly = "0 0 1 1 *";
+
+    [Fact]
+    public async Task A_schedule_disabled_and_enabled_again_by_the_update_endpoint_arms_from_now_and_catches_up_nothing()
+    {
+        var workflow = Scheduled(Yearly, "UTC", new DateTime(DateTime.UtcNow.Year - 2, 6, 1, 0, 0, 0, DateTimeKind.Utc),
+            WorkflowSchedule.CatchUpEach, enabled: false);
+        await StoreAsync(workflow);
+
+        var (token, _) = await TestHelpers.CreateAdminUserAsync(_fixture);
+        var client = _fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        var before = DateTime.UtcNow;
+        var response = await client.PutAsJsonAsync($"/api/workflows/{workflow.Id}", new
+        {
+            name = workflow.Name,
+            triggerContentType = "Article",
+            triggerContentTypes = new[] { "Article" },
+            triggerEvent = WorkflowEvents.Schedule,
+            triggerEvents = new[] { WorkflowEvents.Schedule },
+            schedule = Yearly,
+            scheduleTimeZone = "UTC",
+            scheduleCatchUp = WorkflowSchedule.CatchUpEach,
+            enabled = true,
+            actions = new[] { new { type = "Email", parameters = new Dictionary<string, string> { ["To"] = "a@b.com", ["Subject"] = "s", ["Body"] = "b" } } },
+        }, Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var stored = await session.LoadAsync<WorkflowDefinition>(workflow.Id, Ct);
+
+        stored!.Enabled.Should().BeTrue();
+        stored.ScheduleArmedAt.Should().BeOnOrAfter(before, "the stored time passed while the schedule was off, so it arms from now");
+        WorkflowSchedule.Next(WorkflowSchedule.Parse(Yearly)!, TimeZoneInfo.Utc, stored.ScheduleArmedAt!.Value, 1)
+            .Single().Should().BeAfter(DateTime.UtcNow, "the next time is ahead of now");
+
+        (await FireAsync(DateTime.UtcNow)).Should().Be(0, "the January 1 times that passed while it was off are not owed");
+        (await RunsOfAsync(workflow.Id)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_schedule_disabled_and_enabled_again_by_config_apply_arms_from_now_and_catches_up_nothing()
+    {
+        var callers = new ConfigCallers(_fixture);
+        var tenant = await callers.TenantAsync();
+        var client = await callers.SuperAdminAsync(tenant);
+        var name = "rearm-" + Guid.NewGuid().ToString("N")[..10];
+        await callers.StoreInTenantAsync(tenant, new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(), Name = "delivery", DisplayName = "Delivery",
+            Fields = [new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" }],
+        });
+
+        object Document(bool enabled) => new
+        {
+            version = 1,
+            workflows = new Dictionary<string, object>
+            {
+                [name] = new
+                {
+                    triggerContentTypes = new[] { "delivery" },
+                    triggerEvents = new[] { WorkflowEvents.Schedule },
+                    schedule = Yearly,
+                    scheduleTimeZone = "UTC",
+                    scheduleCatchUp = WorkflowSchedule.CatchUpEach,
+                    enabled,
+                    actions = new[] { new { type = "Webhook", parameters = new Dictionary<string, string> { ["Url"] = "https://hooks.example.com/a" } } },
+                },
+            },
+        };
+
+        var (created, createdBody) = await ConfigCallers.ApplyAsync(client, Document(false), allowDestructive: true);
+        created.StatusCode.Should().Be(HttpStatusCode.OK, createdBody.ToString());
+
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        Guid id;
+        await using (var write = store.LightweightSession(tenant))
+        {
+            var stored = await write.Query<WorkflowDefinition>().SingleAsync(w => w.Name == name, Ct);
+            id = stored.Id;
+            stored.ScheduleArmedAt = new DateTime(DateTime.UtcNow.Year - 2, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+            write.Store(stored);
+            await write.SaveChangesAsync(Ct);
+        }
+
+        var before = DateTime.UtcNow;
+        var (enabled, enabledBody) = await ConfigCallers.ApplyAsync(client, Document(true), allowDestructive: true);
+        enabled.StatusCode.Should().Be(HttpStatusCode.OK, enabledBody.ToString());
+
+        await using var read = store.LightweightSession(tenant);
+        var after = await read.LoadAsync<WorkflowDefinition>(id, Ct);
+        after!.Enabled.Should().BeTrue();
+        after.ScheduleArmedAt.Should().BeOnOrAfter(before, "the stored time passed while the schedule was off, so apply arms from now");
+        WorkflowSchedule.Next(WorkflowSchedule.Parse(Yearly)!, TimeZoneInfo.Utc, after.ScheduleArmedAt!.Value, 1)
+            .Single().Should().BeAfter(DateTime.UtcNow, "the next time is ahead of now");
+
+        await WorkflowSchedule.FireDueAsync(read, DateTime.UtcNow, null, Ct);
+        (await read.Query<WorkflowRun>().CountAsync(r => r.WorkflowDefinitionId == id, Ct))
+            .Should().Be(0, "the January 1 times that passed while it was off are not owed");
     }
 
     [Theory]
