@@ -97,8 +97,20 @@ public class ViewerTokenAuthoringRoutesTests
     private static HttpRequestMessage Request(string method, string url) =>
         new(new HttpMethod(method), url)
         {
-            Content = method is "GET" or "DELETE" ? null : JsonContent.Create(new { }),
+            Content = method is "GET" or "DELETE" ? null : BodyFor(url),
         };
+
+    // The upload route answers 415 to anything but a form before authorization runs, so it needs
+    // a multipart body to reach the check under test.
+    private static HttpContent BodyFor(string url)
+    {
+        if (!url.StartsWith("/api/files", StringComparison.Ordinal))
+            return JsonContent.Create(new { });
+
+        var form = new MultipartFormDataContent();
+        form.Add(new ByteArrayContent("probe"u8.ToArray()), "file", "probe.txt");
+        return form;
+    }
 
     [Theory]
     [MemberData(nameof(AuthoringRoutes))]
