@@ -25,17 +25,25 @@ internal static class RunQueries
     internal static async Task<StatusCounts> CountByStatusAsync(
         IQuerySession session, Guid? contentId, Guid? workflowId, CancellationToken ct, int cap = StatusCountCap)
     {
-        var counts = new Dictionary<string, int>();
-        var capped = new List<string>();
-
+        // One batch: one round trip and one snapshot for all the statuses.
+        var batch = session.CreateBatchQuery();
+        var pending = new List<(RunStatus Status, Task<IReadOnlyList<Guid>> Ids)>();
         foreach (var status in Enum.GetValues<RunStatus>())
         {
             var wanted = status;
-            var q = session.Query<WorkflowRun>().Where(r => r.Status == wanted);
+            var q = batch.Query<WorkflowRun>().Where(r => r.Status == wanted);
             if (contentId is { } c) q = q.Where(r => r.ContentId == c);
             if (workflowId is { } w) q = q.Where(r => r.WorkflowDefinitionId == w);
+            pending.Add((status, q.Select(r => r.Id).Take(cap + 1).ToList()));
+        }
 
-            var ids = await q.Select(r => r.Id).Take(cap + 1).ToListAsync(ct);
+        await batch.Execute(ct);
+
+        var counts = new Dictionary<string, int>();
+        var capped = new List<string>();
+        foreach (var (status, task) in pending)
+        {
+            var ids = await task;
             counts[status.ToString()] = Math.Min(ids.Count, cap);
             if (ids.Count > cap) capped.Add(status.ToString());
         }
