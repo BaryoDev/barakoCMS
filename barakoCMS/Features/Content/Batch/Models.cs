@@ -35,9 +35,21 @@ internal sealed class BatchStep
 internal sealed class BatchRequest
 {
     public List<BatchStep> Steps { get; set; } = [];
+
+    /// <summary>
+    /// Run every step through the checks, in the batch's transaction, and roll it back: the answer
+    /// says what each step would do and nothing is stored.
+    /// </summary>
+    public bool DryRun { get; set; }
 }
 
 /// <summary>What one step did. <paramref name="State"/> is the lifecycle state after it, or null for a type with none.</summary>
-internal sealed record BatchStepResult(int Index, string Op, Guid Id, string? State);
+/// <param name="Changes">For a create in a dry run, the fields the entry would hold. Null otherwise.</param>
+internal sealed record BatchStepResult(int Index, string Op, Guid Id, string? State,
+    List<barakoCMS.Core.Validation.FieldDiff>? Changes = null);
 
-internal sealed record BatchResponse(List<BatchStepResult> Steps);
+internal sealed record BatchResponse(List<BatchStepResult> Steps) : barakoCMS.Core.Validation.IDryRunResponse
+{
+    /// <summary>True when this answers a dry run: nothing was stored.</summary>
+    public bool DryRun { get; init; }
+}

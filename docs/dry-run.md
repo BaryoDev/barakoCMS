@@ -1,6 +1,6 @@
 # Dry run
 
-Four writes take `"dryRun": true` in their body:
+Six writes take `"dryRun": true` in their body:
 
 | Route | A dry run answers |
 | :--- | :--- |
@@ -8,11 +8,13 @@ Four writes take `"dryRun": true` in their body:
 | `PUT /api/contents/{id}` | `dryRun: true` and `changes`: each field whose value would change, with `from` and `to` |
 | `POST /api/content-types` | `dryRun: true` and `changes`: each field the type would have, `to` its type |
 | `POST /api/content-types/{name}/fields` | `dryRun: true`, `fields` as the type would list them, and the one field in `changes` |
+| `POST /api/content-types/{name}/fields/{field}/change` | `dryRun: true`, the `classification`, and `changes`: the field's name, type or label before and after. A convert or remove also has `valuesLost`. No job is started |
+| `POST /api/contents/batch` | `dryRun: true` and each step as it would run; a create step carries `changes`. The batch runs in its transaction and is rolled back |
 
 A dry run runs, in the same order as the real write: authorization, field permissions and
 sensitivity, schema validation and the type's lifecycle hooks. A request those would refuse is
 refused the same way, with the same status and errors. A request they accept answers 200 with
-what it would change, and nothing is stored: no entry, no event, no type, no audit entry. An
+what it would change, and nothing is stored: no entry, no event, no type, no field change job, no audit entry. An
 `Idempotency-Key` sent with a dry run is released afterwards, so the real write can send it.
 
 Three checks run only when the write is stored, so a dry run that answers 200 can still be

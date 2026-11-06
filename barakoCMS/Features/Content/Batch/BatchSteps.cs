@@ -28,7 +28,7 @@ internal sealed record BatchOutcome(List<BatchStepResult> Steps, BatchFailure? F
 /// entry, as it does on the single create. A permission refusal carries no detail for the same
 /// reason the status route answers 403 with no body.
 /// </remarks>
-internal sealed class BatchSteps(IServiceProvider scope, User user, HttpContext http)
+internal sealed class BatchSteps(IServiceProvider scope, User user, HttpContext http, bool dryRun = false)
 {
     private const string Forbidden = "Forbidden.";
 
@@ -45,7 +45,7 @@ internal sealed class BatchSteps(IServiceProvider scope, User user, HttpContext 
             ? scope.GetRequiredService<Infrastructure.Multitenancy.BatchTransaction>().EagerStreamsScope()
             : null;
 
-        var run = new BatchSteps(scope, user, http);
+        var run = new BatchSteps(scope, user, http, request.DryRun);
         var results = new List<BatchStepResult>();
 
         for (var index = 0; index < request.Steps.Count; index++)
@@ -140,7 +140,8 @@ internal sealed class BatchSteps(IServiceProvider scope, User user, HttpContext 
 
             // Written now, so the next step's checks and hooks read this entry.
             await _session.SaveChangesAsync(ct);
-            return (new BatchStepResult(index, BatchOps.Create, created.Id, created.LifecycleState), null);
+            return (new BatchStepResult(index, BatchOps.Create, created.Id, created.LifecycleState,
+                dryRun ? barakoCMS.Core.Validation.DryRuns.Between(null, request.Data) : null), null);
         }
         catch (ContentUniquenessException ex)
         {
