@@ -9,8 +9,10 @@ namespace barakoCMS.Infrastructure.Multitenancy;
 /// for a deployment with too many to carry. The label is declared either way, so a dashboard query
 /// does not change shape when the setting does.
 ///
-/// The value is a slug from the tenant registry, never text a tenant wrote into content or a
-/// workflow.
+/// Workflow run and job metrics take the slug from a stored tenant id. The HTTP label takes it
+/// from the request, where in Single mode the slug is whatever the caller sent in <c>X-Tenant</c>
+/// or the host. <see cref="ForRequest"/> therefore emits it only when TenantResolutionMiddleware
+/// found a registered tenant, and the default tenant otherwise, so a caller cannot mint series.
 /// </remarks>
 internal static class MetricTenantLabel
 {
@@ -27,6 +29,17 @@ internal static class MetricTenantLabel
 
     public static void Configure(IConfiguration configuration) =>
         Enabled = configuration.GetValue(ConfigurationKey, true);
+
+    /// <summary>The <c>HttpContext.Items</c> key TenantResolutionMiddleware sets for a registered tenant.</summary>
+    public const string RegisteredItem = "barako.tenant.registered";
+
+    /// <summary>The HTTP label value: the request's slug if it is a registered tenant, else the default.</summary>
+    public static string ForRequest(Microsoft.AspNetCore.Http.HttpContext context)
+    {
+        var registered = context.Items.ContainsKey(RegisteredItem);
+        var slug = registered ? context.RequestServices.GetService<TenantContext>()?.Slug : null;
+        return For(slug);
+    }
 
     /// <summary>The label value for a Marten tenant id or a slug. Null is the default tenant.</summary>
     public static string For(string? tenant) => For(tenant, Enabled);
