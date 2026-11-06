@@ -10,7 +10,8 @@ namespace barakoCMS.Features.Workflows;
 /// <remarks>
 /// Keyed by workflow id and due time, so a second host that reaches the same due time inserts the
 /// same id and is refused by the database. Stored in the same save as the run it started, so there
-/// is never a claim without a run or a run without a claim.
+/// is never a run without a claim. The one claim without a run is a time the <c>skip</c> policy
+/// passed over, kept so the next sweep counts from it instead of from the last run.
 /// </remarks>
 internal sealed class ScheduleClaim
 {
@@ -181,7 +182,13 @@ internal static class WorkflowSchedule
 
             for (var i = first; i < window.Count; i++)
             {
-                if (policy == CatchUpSkip && nowUtc - window[i] > OnTimeWindow) continue;
+                if (policy == CatchUpSkip && nowUtc - window[i] > OnTimeWindow)
+                {
+                    // Nothing else moves the start past a time that starts no run, and every sweep
+                    // would list every occurrence since the last claim again.
+                    await TrySkipAsync(session, workflow, window[i], nowUtc, logger, ct);
+                    continue;
+                }
 
                 var previous = i > 0 ? window[i - 1] : Previous(cron, zone, window[i]);
                 if (await TryQueueAsync(session, workflow, window[i], previous, nowUtc, logger, ct)) queued++;
@@ -189,6 +196,43 @@ internal static class WorkflowSchedule
         }
 
         return queued;
+    }
+
+    private static async Task TrySkipAsync(
+        IDocumentSession session, WorkflowDefinition workflow, DateTime skipped,
+        DateTime nowUtc, ILogger? logger, CancellationToken ct)
+    {
+        session.Insert(new ScheduleClaim
+        {
+            Id = $"{workflow.Id:N}:{skipped:yyyyMMddTHHmmZ}",
+            WorkflowId = workflow.Id,
+            DueAt = skipped,
+            ClaimedAt = nowUtc,
+        });
+
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (DocumentAlreadyExistsException)
+        {
+            session.EjectAllPendingChanges();
+            logger?.LogDebug("Another host already passed over {DueAt:o} for workflow {WorkflowId}", skipped, workflow.Id);
+        }
+    }
+
+    /// <summary>
+    /// When a saved workflow's due times count from. The stored time is kept while the schedule and
+    /// zone are unchanged, except when the workflow was off and is now on: the times that passed
+    /// while it was off are not caught up.
+    /// </summary>
+    public static DateTime ArmedAt(WorkflowDefinition? stored, WorkflowDefinition next, DateTime now)
+    {
+        var same = stored?.ScheduleArmedAt is not null
+            && string.Equals(stored.Schedule, next.Schedule, StringComparison.Ordinal)
+            && string.Equals(stored.ScheduleTimeZone, next.ScheduleTimeZone, StringComparison.OrdinalIgnoreCase)
+            && !(!stored.Enabled && next.Enabled);
+        return same ? stored!.ScheduleArmedAt!.Value : now;
     }
 
     private static async Task<bool> TryQueueAsync(
