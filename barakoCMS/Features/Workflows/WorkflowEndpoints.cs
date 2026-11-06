@@ -484,10 +484,7 @@ internal sealed class UpdateWorkflowEndpoint(
         if (WorkflowSchedule.Parse(workflow.Schedule) is not { } cron) return;
 
         var now = DateTime.UtcNow;
-        var sameSchedule = stored.ScheduleArmedAt is not null
-            && string.Equals(stored.Schedule, workflow.Schedule, StringComparison.Ordinal)
-            && string.Equals(stored.ScheduleTimeZone, workflow.ScheduleTimeZone, StringComparison.OrdinalIgnoreCase);
-        workflow.ScheduleArmedAt = sameSchedule ? stored.ScheduleArmedAt : now;
+        workflow.ScheduleArmedAt = WorkflowSchedule.ArmedAt(stored, workflow, now);
         response.NextDueTimes = WorkflowSchedule.Next(
             cron, await WorkflowSchedule.ZoneAsync(session, workflow, ct), now, WorkflowSchedule.PreviewCount);
     }
