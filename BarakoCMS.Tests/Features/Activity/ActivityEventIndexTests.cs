@@ -60,6 +60,15 @@ public class ActivityEventIndexTests
         var plan = await ExplainAsync(connection, query.ToCommand());
 
         plan.Should().Contain(IndexName);
+
+        // Naming the index is not enough: the tenant condition alone can pick it. Postgres prints the
+        // conditions it walks the index with as "Index Cond: (... AND (\"timestamp\" >= ...))", and the
+        // plain range is what the `e.Timestamp >= at` conjunct adds next to the OR.
+        var indexConds = plan.Split('\n').Where(l => l.Contains("Index Cond:")).ToList();
+        indexConds.Should().NotBeEmpty("the plan walks the index");
+        indexConds.Should().Contain(
+            l => System.Text.RegularExpressions.Regex.IsMatch(l, "timestamp\"?\\s*>="),
+            "the timestamp bound is part of the index condition, not left to a filter");
     }
 
     [Fact]
