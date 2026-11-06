@@ -193,8 +193,9 @@ public class MetricsEndpointTests
         var res = await client.GetAsync("/metrics", TestContext.Current.CancellationToken);
         var body = await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
-        body.Should().Contain("http_requests_received_total", "the probe above was counted");
-        body.Should().Contain("tenant=\"default\"");
+        body.Split('\n').Should().Contain(
+            l => l.StartsWith("http_requests_received_total{") && l.Contains("tenant=\"default\""),
+            "the probe above was counted as a series under the default tenant");
         body.Should().NotContain(forged);
     }
 }

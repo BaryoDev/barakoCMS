@@ -49,10 +49,7 @@ try
     // ServiceCollectionExtensions), each with a minimal response writer so they don't leak internal
     // check details to anonymous callers.
 
-    // Tenant slug when it is a registered tenant, else the default tenant; "all" when Metrics:TenantLabel is off.
-    app.UseHttpMetrics(options => options.AddCustomLabel(
-        barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.Name,
-        context => barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.ForRequest(context)));
+    // UseHttpMetrics is inside UseBarakoCMS, ahead of the endpoints that answer requests.
     app.MapMetrics();
 
     Log.Information("Starting BarakoCMS Host...");
