@@ -34,6 +34,11 @@ public class ViewerTokenAuthoringRoutesTests
     {
         var store = _factory.Services.GetRequiredService<IDocumentStore>();
         await using var s = store.LightweightSession();
+
+        // The database is shared and the name is unique, so the second case must find the first's rows.
+        if (await s.Query<ContentTypeDefinition>().AnyAsync(d => d.Name == TypeName, Ct))
+            return;
+
         s.Store(new ContentTypeDefinition
         {
             Id = Guid.NewGuid(), Name = TypeName, DisplayName = TypeName,
