@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.5.0] - 2026-11-09
+
+This is the stable release of 5.5. It is the 5.5.0-beta.2 code with the prerelease suffix removed. There are no code changes since beta.2. Read the upgrade steps and breaking changes under 5.5.0-beta.1 below before upgrading from 5.4.x.
+
+**Package changes.** BarakoCMS, BarakoCMS.Abstractions, BarakoCMS.Templates and BarakoCMS.Testing are at 5.5.0. The modules keep the versions they published at in the betas: Accounting 4.8.0, AI 4.8.0, Diagnostics 4.5.2, Email.Smtp 4.6.0, ExternalAuth 4.9.0, FeatureFlags 4.6.2, Files 5.2.0, Files.S3 5.2.0, Import 4.7.2, Pages 4.5.1 and Portability 4.7.2.
+
 ## [5.5.0-beta.2] - 2026-11-06
 
 This is a beta (NuGet prerelease). It republishes the modules that 5.5.0-beta.1 skipped. There are no core changes beyond the version.
