@@ -309,6 +309,8 @@ public class ContentCountsWindowTests
     [InlineData("series=day", "Series needs a window")]
     [InlineData("from=2026-03-01T00:00:00Z&to=2026-03-13T00:00:00Z&series=hour", "at most 200 buckets")]
     [InlineData("range=30d&series=hour", "at most 200 buckets")]
+    [InlineData("from=0001-01-01T00:00:00Z&to=0001-01-02T00:00:00Z", "on or after 2000-01-01")]
+    [InlineData("from=yesterday", "From must be a date and time")]
     public async Task A_window_past_a_cap_or_badly_formed_is_refused_with_400(string query, string reason)
     {
         var (reader, type) = await SeedAsync(ownerScoped: false);
@@ -317,6 +319,203 @@ public class ContentCountsWindowTests
 
         status.Should().Be(HttpStatusCode.BadRequest, body);
         body.Should().Contain(reason);
+    }
+
+    [Fact]
+    public async Task A_time_with_an_offset_counts_the_same_window_as_the_same_instant_in_utc()
+    {
+        var (reader, type) = await SeedAsync(ownerScoped: false);
+        var client = Client(reader);
+        string Eight(DateTime utc) => Uri.EscapeDataString(utc.AddHours(8).ToString("yyyy-MM-dd'T'HH:mm:ss") + "+08:00");
+
+        var counts = await CountsAsync(client, $"contentType={type}&from={Eight(From)}&to={Eight(To)}");
+
+        Numbers(counts).Should().Be((7, 1, 4, 1, 1));
+        counts.GetProperty("window").GetProperty("from").GetDateTimeOffset().UtcDateTime.Should().Be(From);
+    }
+
+    [Fact]
+    public async Task A_time_with_no_zone_is_read_as_utc()
+    {
+        var (reader, type) = await SeedAsync(ownerScoped: false);
+
+        var counts = await CountsAsync(Client(reader), $"contentType={type}&from=2026-03-10T00:00:00&to=2026-03-13T00:00:00");
+
+        Numbers(counts).Should().Be((7, 1, 4, 1, 1));
+    }
+
+    [Fact]
+    public async Task One_call_over_a_type_read_in_full_and_a_type_read_by_owner_counts_both_in_one_answer()
+    {
+        var type = $"all_{Guid.NewGuid():N}"[..16];
+        var scoped = $"own_{Guid.NewGuid():N}"[..16];
+        var other = Guid.NewGuid();
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = $"window_{Guid.NewGuid():N}",
+            Permissions =
+            [
+                new ContentTypePermission { ContentTypeSlug = type, Read = new PermissionRule { Enabled = true } },
+                new ContentTypePermission { ContentTypeSlug = scoped, Read = Owned() },
+            ],
+        };
+        var reader = new User
+        {
+            Id = Guid.NewGuid(),
+            Username = $"window_{Guid.NewGuid():N}",
+            Email = $"{Guid.NewGuid():N}@example.com",
+            RoleIds = [role.Id],
+        };
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(role);
+            session.Store(reader);
+            foreach (var name in new[] { type, scoped })
+            {
+                session.Store(new ContentTypeDefinition
+                {
+                    Id = Guid.NewGuid(),
+                    Name = name,
+                    DisplayName = name,
+                    Fields =
+                    [
+                        new() { Name = "Title", Type = "string", Sensitivity = SensitivityLevel.Public },
+                        new() { Name = "OwnerId", Type = "string", Sensitivity = SensitivityLevel.Public },
+                    ],
+                });
+            }
+
+            // Read in full: three in the window, one of them somebody else's. Read by owner: two in the
+            // window of the reader's, one of somebody else's.
+            var rows = new (string Type, DateTime At, ContentStatus Status, Guid Owner)[]
+            {
+                (type, From.AddHours(1), ContentStatus.Published, reader.Id),
+                (type, From.AddHours(2), ContentStatus.Draft, other),
+                (type, From.AddDays(1), ContentStatus.Published, other),
+                (scoped, From.AddHours(3), ContentStatus.Archived, reader.Id),
+                (scoped, From.AddDays(1), ContentStatus.Published, reader.Id),
+                (scoped, From.AddDays(1), ContentStatus.Published, other),
+            };
+            foreach (var (t, at, status, owner) in rows)
+            {
+                session.Store(new barakoCMS.Models.Content
+                {
+                    Id = Guid.NewGuid(),
+                    ContentType = t,
+                    Status = status,
+                    Data = new Dictionary<string, object> { ["Title"] = "x", ["OwnerId"] = owner.ToString() },
+                    CreatedAt = at,
+                    UpdatedAt = at,
+                });
+            }
+
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var counts = await CountsAsync(Client(reader.Id), $"{WindowQuery}&series=day");
+
+        Numbers(counts).Should().Be((5, 1, 3, 1, 0), "three from the full type and two of the reader's from the owned one, not the sixth");
+        var series = counts.GetProperty("series").EnumerateArray().ToList();
+        series.Should().NotBeEmpty();
+        Bucket(series[0]).Should().Be((3, 1, 1, 1, 0));
+        Bucket(series[1]).Should().Be((2, 0, 2, 0, 0));
+        counts.GetProperty("previous").GetProperty("total").GetInt32().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Another_tenant_never_counts_a_tenants_entries()
+    {
+        var acme = await TenantAsync();
+        var globex = await TenantAsync();
+        var type = $"xt_{Guid.NewGuid():N}"[..12];
+        await ContentInAsync(acme, type, From.AddHours(1), 3);
+        await ContentInAsync(globex, type, From.AddHours(1), 5);
+        await ContentInAsync(globex, type, From.AddDays(-1), 2);
+
+        var inAcme = await CountsAsync(await MemberAsync(acme, "203.0.113.141"), $"contentType={type}&{WindowQuery}&series=day");
+        var inGlobex = await CountsAsync(await MemberAsync(globex, "203.0.113.142"), $"contentType={type}&{WindowQuery}&series=day");
+
+        inAcme.GetProperty("total").GetInt32().Should().Be(3);
+        inAcme.GetProperty("previous").GetProperty("total").GetInt32().Should().Be(0);
+        inAcme.GetProperty("series")[0].GetProperty("total").GetInt32().Should().Be(3);
+        inGlobex.GetProperty("total").GetInt32().Should().Be(5);
+        inGlobex.GetProperty("previous").GetProperty("total").GetInt32().Should().Be(2);
+    }
+
+    private async Task<string> TenantAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var slug = $"club-{Guid.NewGuid():N}"[..14].ToLowerInvariant();
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
+        await session.SaveChangesAsync(Ct);
+        return slug;
+    }
+
+    private async Task<HttpClient> MemberAsync(string tenantSlug, string ip)
+    {
+        var userId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new User
+            {
+                Id = userId,
+                Username = $"xt-{Guid.NewGuid():n}"[..14],
+                Email = $"xt-{Guid.NewGuid():n}@example.com",
+                RoleIds = [SystemRoles.SuperAdminRoleId],
+            });
+            session.Store(new Membership
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                TenantSlug = tenantSlug,
+                Status = MembershipStatus.Active,
+                RoleIds = [SystemRoles.SuperAdminRoleId],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", _factory.CreateToken(
+                roles: ["SuperAdmin"],
+                userId: userId.ToString(),
+                additionalClaims: new Dictionary<string, string> { ["tenant"] = tenantSlug }));
+        client.DefaultRequestHeaders.Add("X-Tenant", tenantSlug);
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, ip);
+        return client;
+    }
+
+    private async Task ContentInAsync(string tenantSlug, string type, DateTime at, int count)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+        await using var session = store.LightweightSession(tenantSlug);
+        if (await session.Query<ContentTypeDefinition>().Where(d => d.Name == type).AnyAsync(Ct) is false)
+        {
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = type, DisplayName = type,
+                Fields = [new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" }],
+            });
+        }
+
+        for (var i = 0; i < count; i++)
+        {
+            session.Store(new barakoCMS.Models.Content
+            {
+                Id = Guid.NewGuid(), ContentType = type, Status = ContentStatus.Published,
+                Sensitivity = SensitivityLevel.Public,
+                Data = new Dictionary<string, object> { ["Title"] = "t" },
+                CreatedAt = at, UpdatedAt = at,
+            });
+        }
+
+        await session.SaveChangesAsync(Ct);
     }
 
     [Fact]

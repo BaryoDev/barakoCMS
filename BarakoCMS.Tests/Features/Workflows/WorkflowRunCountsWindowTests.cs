@@ -3,6 +3,8 @@ using System.Text.Json;
 using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
+using Microsoft.Extensions.DependencyInjection;
+using System.Net.Http.Headers;
 
 namespace BarakoCMS.Tests.Features.Workflows;
 
@@ -21,9 +23,14 @@ public class WorkflowRunCountsWindowTests
     private static readonly DateTime From = Base;
     private static readonly DateTime To = Base.AddDays(3);
 
+    private readonly IntegrationTestFixture _factory;
     private readonly WorkflowStopHarness _harness;
 
-    public WorkflowRunCountsWindowTests(IntegrationTestFixture factory) => _harness = new WorkflowStopHarness(factory);
+    public WorkflowRunCountsWindowTests(IntegrationTestFixture factory)
+    {
+        _factory = factory;
+        _harness = new WorkflowStopHarness(factory);
+    }
 
     private static CancellationToken Ct => WorkflowStopHarness.Ct;
 
@@ -209,12 +216,138 @@ public class WorkflowRunCountsWindowTests
     [InlineData("from=2025-12-01T00:00:00Z&to=2026-03-13T00:00:00Z", "at most 90 days")]
     [InlineData("series=day", "Series needs a window")]
     [InlineData("range=30d&series=hour", "at most 200 buckets")]
+    [InlineData("from=0001-01-01T00:00:00Z&to=0001-01-02T00:00:00Z", "on or after 2000-01-01")]
     public async Task A_window_past_a_cap_or_badly_formed_is_refused_with_400(string query, string reason)
     {
         var (status, body) = await GetAsync(query);
 
         status.Should().Be(HttpStatusCode.BadRequest, body);
         body.Should().Contain(reason);
+    }
+
+    [Fact]
+    public async Task A_poll_with_a_cursor_is_not_refused_for_a_window_it_ignores_but_a_list_is()
+    {
+        var workflow = await SeedAsync();
+
+        var poll = await ListAsync($"workflowId={workflow}&changedSince=2019-12-31T00:00:00Z&range=1h&series=week");
+        poll.GetProperty("statusCounts").ValueKind.Should().Be(JsonValueKind.Null);
+
+        var (status, _) = await GetAsync($"workflowId={workflow}&range=1h");
+        status.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task A_window_that_moved_is_not_answered_304_because_the_counts_stayed_the_same()
+    {
+        var empty = Guid.NewGuid();
+        var admin = await _harness.AdminAsync();
+        var first = await admin.GetAsync($"/api/workflow-runs?workflowId={empty}&{WindowQuery}&series=day", Ct);
+        first.StatusCode.Should().Be(HttpStatusCode.OK);
+        var etag = first.Headers.ETag!;
+
+        var again = new HttpRequestMessage(HttpMethod.Get, $"/api/workflow-runs?workflowId={empty}&{WindowQuery}&series=day");
+        again.Headers.IfNoneMatch.Add(etag);
+        (await admin.SendAsync(again, Ct)).StatusCode.Should().Be(HttpStatusCode.NotModified, "the same window, the same answer");
+
+        var moved = new HttpRequestMessage(HttpMethod.Get,
+            $"/api/workflow-runs?workflowId={empty}&from={Q(From.AddDays(1))}&to={Q(To.AddDays(1))}&series=day");
+        moved.Headers.IfNoneMatch.Add(etag);
+        var response = await admin.SendAsync(moved, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, "every count is zero in both windows, but the window and the bucket starts differ");
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+        body.RootElement.GetProperty("window").GetProperty("from").GetDateTimeOffset().UtcDateTime.Should().Be(From.AddDays(1));
+    }
+
+    [Fact]
+    public async Task Another_tenant_never_counts_a_tenants_runs()
+    {
+        var acme = await TenantAsync();
+        var globex = await TenantAsync();
+        var workflow = Guid.NewGuid();
+        await RunsInAsync(acme, workflow, From.AddHours(1), 2);
+        await RunsInAsync(globex, workflow, From.AddHours(1), 4);
+        await RunsInAsync(globex, workflow, From.AddDays(-1), 3);
+
+        var inAcme = await ListInAsync(await MemberAsync(acme, "203.0.113.151"), $"workflowId={workflow}&{WindowQuery}&series=day");
+        var inGlobex = await ListInAsync(await MemberAsync(globex, "203.0.113.152"), $"workflowId={workflow}&{WindowQuery}&series=day");
+
+        Counts(inAcme.GetProperty("statusCounts"))["Failed"].Should().Be(2);
+        Counts(inAcme.GetProperty("previousStatusCounts"))["Failed"].Should().Be(0);
+        inAcme.GetProperty("series")[0].GetProperty("total").GetInt32().Should().Be(2);
+        Counts(inGlobex.GetProperty("statusCounts"))["Failed"].Should().Be(4);
+        Counts(inGlobex.GetProperty("previousStatusCounts"))["Failed"].Should().Be(3);
+    }
+
+    private async Task<JsonElement> ListInAsync(HttpClient client, string query)
+    {
+        var response = await client.GetAsync($"/api/workflow-runs?{query}", Ct);
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body);
+        using var parsed = JsonDocument.Parse(body);
+        return parsed.RootElement.Clone();
+    }
+
+    private async Task<string> TenantAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var slug = $"club-{Guid.NewGuid():N}"[..14].ToLowerInvariant();
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
+        await session.SaveChangesAsync(Ct);
+        return slug;
+    }
+
+    private async Task<HttpClient> MemberAsync(string tenantSlug, string ip)
+    {
+        var userId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new User
+            {
+                Id = userId,
+                Username = $"xt-{Guid.NewGuid():n}"[..14],
+                Email = $"xt-{Guid.NewGuid():n}@example.com",
+                RoleIds = [SystemRoles.SuperAdminRoleId],
+            });
+            session.Store(new Membership
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                TenantSlug = tenantSlug,
+                Status = MembershipStatus.Active,
+                RoleIds = [SystemRoles.SuperAdminRoleId],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", _factory.CreateToken(
+                roles: ["SuperAdmin"],
+                userId: userId.ToString(),
+                additionalClaims: new Dictionary<string, string> { ["tenant"] = tenantSlug }));
+        client.DefaultRequestHeaders.Add("X-Tenant", tenantSlug);
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, ip);
+        return client;
+    }
+
+    private async Task RunsInAsync(string tenantSlug, Guid workflow, DateTime at, int count)
+    {
+        await using var session = _harness.Store.LightweightSession(tenantSlug);
+        for (var i = 0; i < count; i++)
+        {
+            session.Store(new WorkflowRun
+            {
+                Id = Guid.NewGuid(), WorkflowDefinitionId = workflow, WorkflowName = "Counted", ContentId = Guid.NewGuid(),
+                ContentType = "article", TriggerEvent = "Published", TriggeringEventSequence = i + 1,
+                Status = RunStatus.Failed, CreatedAt = new DateTimeOffset(at, TimeSpan.Zero),
+            });
+        }
+
+        await session.SaveChangesAsync(Ct);
     }
 
     [Fact]
