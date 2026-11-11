@@ -7,7 +7,8 @@ namespace barakoCMS.Features.Content.Runs;
 /// <param name="Status">The name of an <see cref="AttemptStatus"/>.</param>
 /// <param name="Error">Why the attempt failed, or null.</param>
 /// <param name="Created">The entries the action created, or null when it created none.</param>
-internal sealed record RunActionSummary(int Ordinal, string ActionType, string Status, string? Error, List<CreatedRef>? Created);
+/// <param name="Label">The workflow's label for the action when the run was queued, or null.</param>
+internal sealed record RunActionSummary(int Ordinal, string ActionType, string Status, string? Error, List<CreatedRef>? Created, string? Label = null);
 
 /// <param name="Id">The run's id.</param>
 /// <param name="WorkflowName">The workflow's name when it fired.</param>

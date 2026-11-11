@@ -791,9 +791,9 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         {
             problem = $"A label is at most {MaxLabelLength} characters";
         }
-        else if (label.AsSpan().IndexOfAny('<', '>') >= 0 || label.Any(char.IsControl))
+        else if (label.AsSpan().IndexOfAny('<', '>') >= 0 || label.Any(IsHiddenCharacter))
         {
-            problem = "A label is plain text, with no markup or control characters";
+            problem = "A label is plain text, with no markup, control, format or separator characters";
         }
 
         if (problem is null)
@@ -804,6 +804,10 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         result.Errors.Add(new ValidationError { Field = $"{fieldPrefix}.label", Message = problem });
         result.IsValid = false;
     }
+
+    private static bool IsHiddenCharacter(char c) =>
+        char.GetUnicodeCategory(c) is System.Globalization.UnicodeCategory.Control or System.Globalization.UnicodeCategory.Format
+            or System.Globalization.UnicodeCategory.LineSeparator or System.Globalization.UnicodeCategory.ParagraphSeparator;
 
     private static void ValidateCapture(List<string>? capture, string fieldPrefix, WorkflowValidationResult result)
     {

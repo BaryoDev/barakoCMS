@@ -20,8 +20,8 @@ internal sealed class RunResponse
     /// <summary>
     /// The title of the entry the run points at, as this caller may read it. Null when the caller
     /// may not read the entry, when it was erased, when its title is masked from them, and on an
-    /// entry with no title. Filled by the list and by the single run read, null on the answers that
-    /// act on a run.
+    /// entry with no title. Untrusted text: it is an author's value with control and format
+    /// characters removed, so a console shows it as text and never as markup.
     /// </summary>
     public string? ContentTitle { get; init; }
     public string TriggerEvent { get; init; } = string.Empty;
@@ -67,6 +67,14 @@ internal sealed class RunResponse
     /// </summary>
     [NJsonSchema.Annotations.JsonSchemaType(typeof(RunCompensation), IsNullable = true)]
     public string? Compensation { get; init; }
+
+    /// <summary>The run with its entry's title as the caller may read it.</summary>
+    public static async Task<RunResponse> FromWithTitleAsync(
+        WorkflowRun r, IQuerySession session, HttpContext http, System.Security.Claims.ClaimsPrincipal caller, CancellationToken ct)
+    {
+        var titles = await RunContentTitles.ResolveAsync(session, http, caller, [r.ContentId], ct);
+        return From(r, titles.GetValueOrDefault(r.ContentId));
+    }
 
     public static RunResponse From(WorkflowRun r, string? contentTitle = null) => new()
     {
@@ -335,7 +343,9 @@ internal sealed class ListRunsEndpoint(
 
         if (!text.Contains(','))
         {
-            return [ParseOne(text, ignoreCase: true)];
+            var one = ParseOne(text, ignoreCase: true);
+            if (!Enum.IsDefined(one) || !Enum.GetNames<RunStatus>().Contains(text.Trim(), StringComparer.OrdinalIgnoreCase)) Refuse();
+            return [one];
         }
 
         // Each part has to be a name. Enum parsing alone reads a comma as a combination of flags,
@@ -520,8 +530,7 @@ internal sealed class GetRunEndpoint(IQuerySession session) : EndpointWithoutReq
             return;
         }
 
-        var titles = await RunContentTitles.ResolveAsync(session, HttpContext, User, [run.ContentId], ct);
-        await Send.ResponseAsync(RunResponse.From(run, titles.GetValueOrDefault(run.ContentId)), cancellation: ct);
+        await Send.ResponseAsync(await RunResponse.FromWithTitleAsync(run, session, HttpContext, User, ct), cancellation: ct);
     }
 }
 
@@ -678,7 +687,7 @@ internal sealed class RetryAttemptEndpoint(
             return;
         }
 
-        await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+        await Send.ResponseAsync(await RunResponse.FromWithTitleAsync(run, session, HttpContext, User, ct), cancellation: ct);
     }
 
     /// <summary>Why this attempt of the run cannot be retried as it stands, or null when it can.</summary>
@@ -754,7 +763,7 @@ internal sealed class CancelRunEndpoint(
         // records nothing, and answers with the run as it stands.
         if (alreadyStopped && cancelled == 0)
         {
-            await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+            await Send.ResponseAsync(await RunResponse.FromWithTitleAsync(run, session, HttpContext, User, ct), cancellation: ct);
             return;
         }
 
@@ -784,7 +793,7 @@ internal sealed class CancelRunEndpoint(
             return;
         }
 
-        await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+        await Send.ResponseAsync(await RunResponse.FromWithTitleAsync(run, session, HttpContext, User, ct), cancellation: ct);
     }
 }
 
@@ -878,7 +887,7 @@ internal sealed class AbandonRunEndpoint(
             return;
         }
 
-        await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+        await Send.ResponseAsync(await RunResponse.FromWithTitleAsync(run, session, HttpContext, User, ct), cancellation: ct);
     }
 
     /// <summary>Why the run cannot be abandoned as it stands, or null when it can.</summary>
