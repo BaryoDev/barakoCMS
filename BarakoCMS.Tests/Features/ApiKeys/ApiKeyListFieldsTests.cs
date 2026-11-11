@@ -101,6 +101,22 @@ public class ApiKeyListFieldsTests
     }
 
     [Fact]
+    public async Task Rotating_the_same_key_twice_keeps_the_first_link_and_links_the_second_new_key_back()
+    {
+        var (owner, admin) = await AdminAsync();
+        var (oldId, _) = await StoreKeyAsync(owner);
+
+        var first = await RotateAsync(admin, oldId);
+        var second = await RotateAsync(admin, oldId);
+        var (items, _) = await ListAsync(admin);
+
+        first.Should().NotBe(second);
+        items[oldId].GetProperty("replacedBy").GetGuid().Should().Be(first, "the first successor is not overwritten");
+        items[first].GetProperty("replaces").GetGuid().Should().Be(oldId);
+        items[second].GetProperty("replaces").GetGuid().Should().Be(oldId);
+    }
+
+    [Fact]
     public async Task A_key_stored_without_the_rotation_fields_loads_and_lists_them_as_null()
     {
         var (owner, admin) = await AdminAsync();

@@ -341,7 +341,9 @@ internal class RotateApiKeyEndpoint(
             old.ExpiresAt = cutoff;
 
         // The link the list reads to tell an overlap from an ordinary expiry.
-        old.ReplacedByKeyId = fresh.Id;
+        // A key rotated twice keeps its first successor: the list shows who took over from it, and
+        // the later key still names it through ReplacesKeyId.
+        old.ReplacedByKeyId ??= fresh.Id;
         fresh.ReplacesKeyId = old.Id;
 
         if (AfterLoadForTests is { } hook)
