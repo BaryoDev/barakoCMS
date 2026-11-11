@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.6.0] - 2026-11-11
+
+This release adds list fields and counts the Brew console reads, and a doc fix for the Apple key placeholder. No contract number moves.
+
+### Added
+
+- **Content and run counts take a window and a series.** `GET /api/contents/counts` and `GET /api/workflow-runs` accept `range` (`24h`, `7d`, `30d`) or `from` and `to`, and `series` (`hour` or `day`). A windowed answer adds `window`, the counts of the previous window of the same length for a delta, and, with `series`, one bucket per hour or day. A window is at most 90 days and a series at most 200 buckets; a request past either answers 400. Without the parameters the responses are unchanged.
+- **The key list says what a rotation linked and what kind each key is, and the role list says how many people hold each role.** `GET /api/api-keys` items carry `replacedBy` and `replaces` (set by a rotation from now on, the first successor kept if a key is rotated twice, null for keys rotated earlier and for keys never rotated, which a client reads as not known) and `kind` (`user`, `servicePrincipal` or `readOnly`, derived from what is stored, so existing keys answer with no migration). `GET /api/roles` items carry `holderCount`, the holders in this tenant (people with an Active membership in it who hold the role directly or through a group), read with one statement for the page and returned to callers of the role list (manage_roles). `ApiKey` gained two public nullable properties, `ReplacedByKeyId` and `ReplacesKeyId`, which old documents load without. No key hash or secret is returned, no contract number moves, and rotation behaviour is unchanged.
+- **The tenant list says how many members each tenant has and what mode its site is in.** `GET /api/tenants`, and the create and update answers, carry `memberCount` (accounts with a membership that is not removed) and `siteMode` (the `Mode` of the tenant's published `site` entry as stored, null when there is none). Both are new optional fields on the response, read with one statement each for the page inside the caller's account reach. No contract number moves.
+- **A workflow run says what it was about and which step was which.** `GET /api/workflow-runs` and `GET /api/workflow-runs/{id}` return `contentTitle`, the title of the run's entry as the caller may read it. It goes through the same branch, read permission and field sensitivity rules as reading the entry, and is null when the caller may not read it, its title is masked, or it was erased. A page reads its entries in one query. A workflow action takes an optional `label` (80 characters, plain text) that is copied onto the run's action as `label` when the run is queued, so renaming it does not change earlier runs. `status` on the run list also takes a comma list such as `Running,Pending`; one status answers as before.
+
+**Package changes.** BarakoCMS, BarakoCMS.Templates and BarakoCMS.Testing are at 5.6.0. BarakoCMS.Abstractions is at 5.5.1: it gains optional fields only, so the modules keep their versions. BarakoCMS.ExternalAuth is at 4.9.1 for the readme fix.
+
 ## [5.5.0] - 2026-11-09
 
 This is the stable release of 5.5. It is the 5.5.0-beta.2 code with the prerelease suffix removed. There are no code changes since beta.2. Read the upgrade steps and breaking changes under 5.5.0-beta.1 below before upgrading from 5.4.x.
