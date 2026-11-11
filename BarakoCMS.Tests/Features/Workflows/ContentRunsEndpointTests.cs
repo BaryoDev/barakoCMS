@@ -40,6 +40,7 @@ public class ContentRunsEndpointTests(IntegrationTestFixture fixture) : IAsyncLi
         failed.GetProperty("status").GetString().Should().Be("Failed");
         var action = failed.GetProperty("actions")[0];
         action.GetProperty("actionType").GetString().Should().Be("Noop");
+        action.GetProperty("label").GetString().Should().Be("Tell the editor");
         action.GetProperty("error").GetString().Should().Be("It broke.");
         var ref0 = action.GetProperty("created")[0];
         ref0.GetProperty("id").GetGuid().Should().Be(created.Id);
@@ -209,6 +210,7 @@ public class ContentRunsEndpointTests(IntegrationTestFixture fixture) : IAsyncLi
                 {
                     Ordinal = 0,
                     ActionType = "Noop",
+                    Label = "Tell the editor",
                     Status = failed ? AttemptStatus.Failed : AttemptStatus.Succeeded,
                     Error = failed ? "It broke." : null,
                     Created = created is null ? null : [created],

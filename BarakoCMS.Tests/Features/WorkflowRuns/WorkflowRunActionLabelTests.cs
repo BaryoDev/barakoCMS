@@ -107,6 +107,10 @@ public class WorkflowRunActionLabelTests
     [InlineData("<b>Tell</b> the editor")]
     [InlineData("a > b")]
     [InlineData("two\nlines")]
+    [InlineData("a\u202Eb")]
+    [InlineData("a\u200Bb")]
+    [InlineData("a\u2028b")]
+    [InlineData("a\u2029b")]
     [InlineData("   ")]
     [InlineData("")]
     public void A_label_with_markup_control_characters_or_no_text_is_refused(string label)

@@ -89,13 +89,15 @@ public class WorkflowRunContentTitleTests
         return client;
     }
 
-    private static async Task<JsonElement> ListOneAsync(HttpClient client, Guid contentId)
+    private static async Task<JsonElement> ListOneAsync(HttpClient client, Guid contentId, int expected = 1)
     {
         var res = await client.GetAsync($"/api/workflow-runs?contentId={contentId}", TestContext.Current.CancellationToken);
         var body = await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         res.StatusCode.Should().Be(HttpStatusCode.OK, body);
         using var doc = JsonDocument.Parse(body);
-        return doc.RootElement.GetProperty("items").EnumerateArray().Should().ContainSingle().Subject.Clone();
+        var items = doc.RootElement.GetProperty("items").EnumerateArray().ToList();
+        items.Should().HaveCount(expected);
+        return items[0].Clone();
     }
 
     private static string? TitleOf(JsonElement run)
@@ -244,5 +246,55 @@ public class WorkflowRunContentTitleTests
 
         var entryReads = _logger.Commands.Where(c => Regex.IsMatch(c.Sql, @"\bmt_doc_contents\b")).ToList();
         entryReads.Should().HaveCount(1, "the entries of a page are read once, not once per run");
+    }
+
+    [Fact]
+    public async Task Cancelling_a_run_answers_with_the_entry_title()
+    {
+        var type = await StoreTypeAsync();
+        var run = await StoreRunAsync(await StoreEntryAsync(type, "Quarterly report"));
+        var admin = await _harness.AdminAsync();
+
+        var res = await admin.PostAsync($"/api/workflow-runs/{run}/cancel", null, Ct);
+        var body = await res.Content.ReadAsStringAsync(Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, body);
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("contentTitle").GetString().Should().Be("Quarterly report");
+    }
+
+    [Fact]
+    public async Task A_title_field_above_public_is_recorded_once_in_the_sensitive_read_audit()
+    {
+        var type = await StoreTypeAsync(SensitivityLevel.Sensitive);
+        var entry = await StoreEntryAsync(type, "Salary review");
+        var workflow = Guid.NewGuid();
+        await _harness.SeedRunAsync(workflow, entry, [WorkflowStopHarness.Waiting()]);
+        await _harness.SeedRunAsync(workflow, entry, [WorkflowStopHarness.Waiting()]);
+        var admin = await _harness.AdminAsync();
+
+        var run = await ListOneAsync(admin, entry, expected: 2);
+
+        TitleOf(run).Should().Be("Salary review", "a super admin reads a Sensitive field");
+        await using var session = _harness.Store.QuerySession();
+        var rows = await session.Query<AuditEvent>()
+            .Where(e => e.Action == "content.sensitive.read" && e.TargetId == entry.ToString())
+            .ToListAsync(Ct);
+        rows.Should().HaveCount(1, "one row for the request, naming the entry once");
+    }
+
+    [Fact]
+    public async Task A_public_title_writes_no_sensitive_read_row()
+    {
+        var type = await StoreTypeAsync();
+        var entry = await StoreEntryAsync(type, "Quarterly report");
+        await StoreRunAsync(entry);
+
+        await ListOneAsync(await _harness.AdminAsync(), entry);
+
+        await using var session = _harness.Store.QuerySession();
+        (await session.Query<AuditEvent>()
+            .Where(e => e.Action == "content.sensitive.read" && e.TargetId == entry.ToString())
+            .ToListAsync(Ct)).Should().BeEmpty();
     }
 }
