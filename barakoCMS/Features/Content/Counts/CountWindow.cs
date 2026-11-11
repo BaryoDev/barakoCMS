@@ -25,6 +25,15 @@ internal sealed record CountWindow(DateTimeOffset From, DateTimeOffset To, TimeS
 
     private const int TimeoutSeconds = 30;
 
+    /// <summary>The earliest <c>from</c> taken. Before it the previous window would run off the calendar.</summary>
+    public static readonly DateTimeOffset Earliest = new(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+    /// <summary>
+    /// How far past a cap the window of a <c>from</c> with no <c>to</c> may drift between the
+    /// validator reading the clock and the handler reading it again.
+    /// </summary>
+    public static readonly TimeSpan ClockSlack = TimeSpan.FromMinutes(1);
+
     public static readonly IReadOnlyList<string> Ranges = ["24h", "7d", "30d"];
     public static readonly IReadOnlyList<string> Series = ["hour", "day"];
 
@@ -34,7 +43,7 @@ internal sealed record CountWindow(DateTimeOffset From, DateTimeOffset To, TimeS
     public DateTimeOffset PreviousFrom => From - Length;
 
     /// <summary>The number of buckets of the series, zero when there is none.</summary>
-    public int Buckets => Bucket is { } b ? (int)Math.Ceiling(Length / b) : 0;
+    public int Buckets => Bucket is { } b ? Math.Min(MaxBuckets, (int)Math.Ceiling(Length / b)) : 0;
 
     public DateTimeOffset BucketStart(int index) => From + (Bucket ?? Length) * index;
 
@@ -49,8 +58,13 @@ internal sealed record CountWindow(DateTimeOffset From, DateTimeOffset To, TimeS
     /// The window the parameters name, or null when they name none (the count is then the one every
     /// caller had before), or the reason they cannot be used.
     /// </summary>
+    /// <remarks>
+    /// <c>from</c> and <c>to</c> are text so a value with no zone is read as UTC, not in the server's
+    /// zone. <paramref name="slack"/> lets a window run that far past the caps, for a caller that
+    /// resolves a second time with a later clock after the first read passed.
+    /// </remarks>
     public static (CountWindow? Window, string? Refusal) Resolve(
-        string? range, DateTimeOffset? from, DateTimeOffset? to, string? series, DateTimeOffset now)
+        string? range, string? from, string? to, string? series, DateTimeOffset now, TimeSpan? slack = null)
     {
         TimeSpan? bucket = null;
         if (series is not null)
@@ -69,6 +83,7 @@ internal sealed record CountWindow(DateTimeOffset From, DateTimeOffset To, TimeS
             return series is null ? (null, null) : (null, "Series needs a window: give range, or from.");
         }
 
+        var allowed = slack ?? TimeSpan.Zero;
         DateTimeOffset start, end;
         if (range is not null)
         {
@@ -80,20 +95,26 @@ internal sealed record CountWindow(DateTimeOffset From, DateTimeOffset To, TimeS
         else
         {
             if (from is null) return (null, "To needs a from.");
-            start = from.Value;
-            end = to ?? now;
+            if (!TryParse(from, out start)) return (null, "From must be a date and time such as 2026-03-10T00:00:00Z. No zone means UTC.");
+            end = now;
+            if (to is not null && !TryParse(to, out end)) return (null, "To must be a date and time such as 2026-03-13T00:00:00Z. No zone means UTC.");
+            if (start < Earliest) return (null, $"From must be on or after {Earliest:yyyy-MM-dd}.");
         }
 
         if (end <= start) return (null, "From must be before to.");
-        if (end - start > TimeSpan.FromDays(MaxWindowDays))
+        if (end - start - allowed > TimeSpan.FromDays(MaxWindowDays))
             return (null, $"The window is at most {MaxWindowDays} days.");
 
         var window = new CountWindow(start, end, bucket);
-        if (window.Buckets > MaxBuckets)
+        if (bucket is { } size && (int)Math.Ceiling((window.Length - allowed) / size) > MaxBuckets)
             return (null, $"A series is at most {MaxBuckets} buckets. Use a shorter window or a coarser series.");
 
         return (window, null);
     }
+
+    private static bool TryParse(string text, out DateTimeOffset value) =>
+        DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out value);
 
     /// <summary>
     /// How many rows of each status were created in the window and in the one before it, bucketed,

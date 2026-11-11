@@ -240,11 +240,11 @@ internal sealed class ListRunsRequest : ListRequest
     /// </summary>
     public string? Range { get; set; }
 
-    /// <summary>Count only runs created at or after this time. <c>to</c> defaults to now.</summary>
-    public DateTimeOffset? From { get; set; }
+    /// <summary>Count only runs created at or after this time, ISO 8601, read as UTC when it has no zone. <c>to</c> defaults to now.</summary>
+    public string? From { get; set; }
 
     /// <summary>Count only runs created before this time. Needs <c>from</c>.</summary>
-    public DateTimeOffset? To { get; set; }
+    public string? To { get; set; }
 
     /// <summary>
     /// <c>hour</c> or <c>day</c>: also return <c>series</c>, the window cut into buckets of that
@@ -436,15 +436,21 @@ internal sealed class ListRunsEndpoint(
         }
 
         var now = clock.GetUtcNow();
-        var (window, refusal) = CountWindow.Resolve(req.Range, req.From, req.To, req.Series, now);
-        if (refusal is not null)
+        // A poll reads what changed and carries no counts, so a window has nothing to count there,
+        // and is not checked either.
+        CountWindow? window = null;
+        if (since is null)
         {
-            ThrowError(refusal, 400);
-            return;
-        }
+            var (resolved, refusal) = CountWindow.Resolve(
+                req.Range, req.From, req.To, req.Series, now, CountWindow.ClockSlack);
+            if (refusal is not null)
+            {
+                ThrowError(refusal, 400);
+                return;
+            }
 
-        // A poll reads what changed and carries no counts, so a window has nothing to count there.
-        if (since is not null) window = null;
+            window = resolved;
+        }
 
         WindowCells? cells = null;
         Dictionary<string, int>? counts = null;
@@ -477,7 +483,7 @@ internal sealed class ListRunsEndpoint(
 
         var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, counts,
             $"{sweeping}:{windows.SucceededDays}:{windows.FailedDays}"
-            + (cells is null ? "" : $":{window!.Length.Ticks}:{window.Bucket?.Ticks}"
+            + (cells is null ? "" : $":{window!.From.UtcTicks}:{window.To.UtcTicks}:{window.Bucket?.Ticks}"
                 + $":{string.Join(',', previous!.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => p.Value))}"
                 + $":{string.Join(',', series?.Select(b => b.Total) ?? [])}"));
         HttpContext.Response.Headers.ETag = etag;

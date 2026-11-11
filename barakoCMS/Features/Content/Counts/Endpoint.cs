@@ -18,11 +18,11 @@ internal sealed class Request
     /// </summary>
     public string? Range { get; set; }
 
-    /// <summary>Count only entries created at or after this time. <c>to</c> defaults to now.</summary>
-    public DateTimeOffset? From { get; set; }
+    /// <summary>Count only entries created at or after this time, ISO 8601, read as UTC when it has no zone. <c>to</c> defaults to now.</summary>
+    public string? From { get; set; }
 
     /// <summary>Count only entries created before this time. Needs <c>from</c>.</summary>
-    public DateTimeOffset? To { get; set; }
+    public string? To { get; set; }
 
     /// <summary>
     /// <c>hour</c> or <c>day</c>: also return <c>series</c>, the window cut into buckets of that
@@ -122,7 +122,7 @@ internal sealed class Endpoint(IQuerySession session, IPermissionResolver permis
             session, permissionResolver, Resolve<barakoCMS.Infrastructure.Services.IBranchScopeGuard>(),
             User, user, req.ContentType, ct);
 
-        var (window, refusal) = CountWindow.Resolve(req.Range, req.From, req.To, req.Series, clock.GetUtcNow());
+        var (window, refusal) = CountWindow.Resolve(req.Range, req.From, req.To, req.Series, clock.GetUtcNow(), CountWindow.ClockSlack);
         if (refusal is not null)
         {
             ThrowError(refusal, 400);
