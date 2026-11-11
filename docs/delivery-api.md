@@ -291,7 +291,7 @@ GET /api/contents/counts?from=2026-03-10T00:00:00Z&to=2026-03-13T00:00:00Z
 ```
 
 - `range` is `24h`, `7d` or `30d`, counted back from now. Or give `from` (inclusive) and `to`
-  (exclusive, default now). `to` needs `from`, and `range` cannot be mixed with either.
+  (exclusive, default now), ISO 8601; a value with no zone is read as UTC, and `from` must be 2000-01-01 or later. `to` needs `from`, and `range` cannot be mixed with either.
 - `series` is `hour` or `day`. It adds `series`, one entry per bucket, oldest first, each with
   `start`, `total` and the four statuses. The number of buckets follows from the window and is the
   same however many entries there are; an empty bucket is zeros. It needs a window.
