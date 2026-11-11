@@ -343,9 +343,7 @@ internal sealed class ListRunsEndpoint(
 
         if (!text.Contains(','))
         {
-            var one = ParseOne(text, ignoreCase: true);
-            if (!Enum.IsDefined(one) || !Enum.GetNames<RunStatus>().Contains(text.Trim(), StringComparer.OrdinalIgnoreCase)) Refuse();
-            return [one];
+            return [ParseOne(text, ignoreCase: true)];
         }
 
         // Each part has to be a name. Enum parsing alone reads a comma as a combination of flags,

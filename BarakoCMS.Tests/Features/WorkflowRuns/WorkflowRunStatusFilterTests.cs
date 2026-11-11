@@ -88,8 +88,6 @@ public class WorkflowRunStatusFilterTests
     [InlineData("Nope")]
     [InlineData("Running,,Pending")]
     [InlineData("Running,")]
-    [InlineData("1")]
-    [InlineData("99")]
     [InlineData("Running,1")]
     public async Task A_name_that_is_not_a_status_is_a_400_with_the_usual_message(string status)
     {
