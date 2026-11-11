@@ -6,6 +6,8 @@ using FastEndpoints;
 using barakoCMS.Features.Workflows;
 using Marten;
 using Marten.Linq.MatchesSql;
+using System.Text.Json.Serialization;
+using barakoCMS.Features.Content.Counts;
 
 namespace barakoCMS.Features.WorkflowRuns;
 
@@ -231,6 +233,37 @@ internal sealed class ListRunsRequest : ListRequest
     /// newest first as before. Given, only runs changed after it are listed, oldest change first.
     /// </summary>
     public string? ChangedSince { get; set; }
+
+    /// <summary>
+    /// Count <c>statusCounts</c> over the runs created in the last <c>24h</c>, <c>7d</c> or <c>30d</c>.
+    /// Not with <c>from</c> or <c>to</c>. The runs listed are not narrowed by it.
+    /// </summary>
+    public string? Range { get; set; }
+
+    /// <summary>Count only runs created at or after this time. <c>to</c> defaults to now.</summary>
+    public DateTimeOffset? From { get; set; }
+
+    /// <summary>Count only runs created before this time. Needs <c>from</c>.</summary>
+    public DateTimeOffset? To { get; set; }
+
+    /// <summary>
+    /// <c>hour</c> or <c>day</c>: also return <c>series</c>, the window cut into buckets of that
+    /// size. Needs a window.
+    /// </summary>
+    public string? Series { get; set; }
+}
+
+/// <summary>One bucket of a run series.</summary>
+internal sealed class RunSeriesBucket
+{
+    /// <summary>Where the bucket starts.</summary>
+    public DateTimeOffset Start { get; set; }
+
+    /// <summary>Runs created in the bucket, of any status.</summary>
+    public int Total { get; set; }
+
+    /// <summary>Runs created in the bucket by status, every status present with zero where there are none.</summary>
+    public Dictionary<string, int> Counts { get; set; } = new();
 }
 
 // The page fields are declared here and not inherited from PaginatedResponse, because a derived
@@ -265,6 +298,26 @@ internal sealed class RunListResponse
     /// was given, since a poll reads what changed and a count would add a scan to each one.
     /// </summary>
     public Dictionary<string, int>? StatusCounts { get; set; }
+
+    /// <summary>
+    /// Only when a window was asked for: the window <c>statusCounts</c> was counted over.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WindowInfo? Window { get; set; }
+
+    /// <summary>
+    /// Only when a window was asked for: the same counts for the window of the same length that
+    /// ended where this one starts, so a delta is the difference of the two.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, int>? PreviousStatusCounts { get; set; }
+
+    /// <summary>
+    /// Only when <c>series</c> was asked for: one entry per bucket, oldest first, always the same
+    /// number for the same window.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<RunSeriesBucket>? Series { get; set; }
 
     /// <summary>
     /// Pass back as <c>changedSince</c> to read what changed after this response. Present only when
@@ -383,9 +436,27 @@ internal sealed class ListRunsEndpoint(
         }
 
         var now = clock.GetUtcNow();
-        var counts = since is null
-            ? await RunQueries.CountByStatusAsync(session, req.ContentId, req.WorkflowId, ct)
-            : null;
+        var (window, refusal) = CountWindow.Resolve(req.Range, req.From, req.To, req.Series, now);
+        if (refusal is not null)
+        {
+            ThrowError(refusal, 400);
+            return;
+        }
+
+        // A poll reads what changed and carries no counts, so a window has nothing to count there.
+        if (since is not null) window = null;
+
+        WindowCells? cells = null;
+        Dictionary<string, int>? counts = null;
+        if (window is not null)
+        {
+            cells = await RunQueries.CountWindowAsync(session, req.ContentId, req.WorkflowId, window, ct);
+            counts = RunQueries.ByStatus(s => cells.Current((int)s));
+        }
+        else if (since is null)
+        {
+            counts = await RunQueries.CountByStatusAsync(session, req.ContentId, req.WorkflowId, ct);
+        }
 
         var query = FilterRuns(session, req, status, since);
 
@@ -395,8 +466,20 @@ internal sealed class ListRunsEndpoint(
         var sweeping = WorkflowRunRetentionService.IsEnabled(config);
         var items = page.Items.Select(RunResponse.From).ToList();
 
+        var previous = cells is null ? null : RunQueries.ByStatus(s => cells.Previous((int)s));
+        var series = cells is null || window?.Bucket is null
+            ? null
+            : Enumerable.Range(0, window.Buckets).Select(i =>
+            {
+                var bucket = RunQueries.ByStatus(s => cells.At(i, (int)s));
+                return new RunSeriesBucket { Start = window.BucketStart(i), Total = bucket.Values.Sum(), Counts = bucket };
+            }).ToList();
+
         var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, counts,
-            $"{sweeping}:{windows.SucceededDays}:{windows.FailedDays}");
+            $"{sweeping}:{windows.SucceededDays}:{windows.FailedDays}"
+            + (cells is null ? "" : $":{window!.Length.Ticks}:{window.Bucket?.Ticks}"
+                + $":{string.Join(',', previous!.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => p.Value))}"
+                + $":{string.Join(',', series?.Select(b => b.Total) ?? [])}"));
         HttpContext.Response.Headers.ETag = etag;
         HttpContext.Response.Headers.CacheControl = "private, no-cache";
         if (DeliveryCache.IsNotModified(HttpContext.Request, etag, null))
@@ -414,6 +497,9 @@ internal sealed class ListRunsEndpoint(
             PageSize = page.PageSize,
             TotalItems = page.TotalItems,
             StatusCounts = counts,
+            Window = window is null ? null : new WindowInfo(window.From, window.To),
+            PreviousStatusCounts = previous,
+            Series = series,
             Cursor = since is { } input
                 ? RunCursor.Next(input, page.Items, req.Skip + page.Items.Count < page.TotalItems, now).ToString()
                 : null,
