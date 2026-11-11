@@ -180,7 +180,20 @@ internal class CreateApiKeyEndpoint(
 internal sealed record ApiKeyListItem(
     Guid Id, string Name, string Prefix, List<string> Scopes, string TenantSlug,
     DateTime? ExpiresAt, DateTime? LastUsedAt, bool Revoked, DateTime CreatedAt, List<string> ContentTypes,
-    Guid? ServicePrincipalId = null, bool ReadOnly = false);
+    Guid? ServicePrincipalId = null, bool ReadOnly = false,
+    Guid? ReplacedBy = null, Guid? Replaces = null, string Kind = ApiKeyKinds.User);
+
+/// <summary>What a key is, as the key list says it, derived from what is stored so old keys answer too.</summary>
+internal static class ApiKeyKinds
+{
+    public const string User = "user";
+    public const string ServicePrincipal = "servicePrincipal";
+    public const string ReadOnly = "readOnly";
+
+    /// <summary>A read-only key is read-only whoever it acts as, so that is the more telling answer.</summary>
+    public static string Of(ApiKey key) =>
+        key.ReadOnly ? ReadOnly : key.ServicePrincipalId is not null ? ServicePrincipal : User;
+}
 
 /// <summary>GET /api/api-keys — list the current tenant's keys (never the secret or hash).</summary>
 internal class ListApiKeysEndpoint(IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<ApiKeyListItem>>
@@ -211,7 +224,7 @@ internal class ListApiKeysEndpoint(IQuerySession session) : Endpoint<ListRequest
                 .Select(k => new ApiKeyListItem(
                     k.Id, k.Name, k.Prefix, k.Scopes, k.TenantSlug,
                     k.ExpiresAt, k.LastUsedAt, k.Revoked, k.CreatedAt, k.ContentTypes ?? new(),
-                    k.ServicePrincipalId, k.ReadOnly))
+                    k.ServicePrincipalId, k.ReadOnly, k.ReplacedByKeyId, k.ReplacesKeyId, ApiKeyKinds.Of(k)))
                 .ToList(),
             Page = page.Page,
             PageSize = page.PageSize,
@@ -326,6 +339,10 @@ internal class RotateApiKeyEndpoint(
         var cutoff = now.AddMinutes(req.OverlapMinutes);
         if (old.ExpiresAt is null || cutoff < old.ExpiresAt)
             old.ExpiresAt = cutoff;
+
+        // The link the list reads to tell an overlap from an ordinary expiry.
+        old.ReplacedByKeyId = fresh.Id;
+        fresh.ReplacesKeyId = old.Id;
 
         if (AfterLoadForTests is { } hook)
             await hook(old, ct);

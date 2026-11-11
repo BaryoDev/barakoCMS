@@ -45,12 +45,24 @@ internal class Endpoint(
             .Take(req.Take)
             .ToListAsync(ct);
 
+        // Who holds a role is a statement about people, so it goes only to a caller who may see
+        // people or manage roles. Reading the role itself does not need either on its own.
+        var counts = await MaySeeHoldersAsync(ct)
+            ? await RoleHolderCounts.ForAsync(session, tenant.Slug, roles, ct)
+            : null;
+
         await Send.ResponseAsync(new PaginatedResponse<barakoCMS.Features.Roles.RoleResponse>
         {
-            Items = roles.Select(barakoCMS.Features.Roles.RoleResponse.From).ToList(),
+            Items = roles.Select(r => barakoCMS.Features.Roles.RoleResponse.WithHolders(
+                r, counts is null ? null : counts.GetValueOrDefault(r.Id))).ToList(),
             Page = req.Page,
             PageSize = req.PageSize,
             TotalItems = totalCount
         }, cancellation: ct);
     }
+
+    private async Task<bool> MaySeeHoldersAsync(CancellationToken ct) =>
+        await CapabilityGateProcessor.HoldsAsync(HttpContext, Gate, ct)
+        || await CapabilityGateProcessor.HoldsAsync(
+            HttpContext, new RequiredCapability(SystemCapabilities.ManageUsers, ["SuperAdmin"]), ct);
 }

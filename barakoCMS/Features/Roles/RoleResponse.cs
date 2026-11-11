@@ -40,8 +40,18 @@ internal sealed class RoleResponse
     /// <summary>When the role was deleted. Null for a live role, which is every role outside the deleted list.</summary>
     public DateTimeOffset? DeletedAt { get; init; }
 
-    public static RoleResponse From(Role role) => new()
+    /// <summary>
+    /// How many people hold the role in its tenant scope, directly or through a group. Only the role
+    /// list fills it, and only for a caller who may list users or manage roles: null everywhere else.
+    /// </summary>
+    public int? HolderCount { get; init; }
+
+    public static RoleResponse From(Role role) => WithHolders(role, null);
+
+    /// <summary>Named apart from <c>From</c> so a method group over <c>From</c> still means one role.</summary>
+    public static RoleResponse WithHolders(Role role, int? holderCount) => new()
     {
+        HolderCount = holderCount,
         Id = role.Id,
         Name = role.Name,
         Description = role.Description,
