@@ -41,8 +41,9 @@ internal sealed class RoleResponse
     public DateTimeOffset? DeletedAt { get; init; }
 
     /// <summary>
-    /// How many people hold the role in its tenant scope, directly or through a group. Only the role
-    /// list fills it, and only for a caller who may list users or manage roles: null everywhere else.
+    /// How many people hold the role in this tenant: holders in this tenant, directly or through a
+    /// group, who have an Active membership in it. Returned to callers of the role list (manage_roles);
+    /// null on every other route that returns a role.
     /// </summary>
     public int? HolderCount { get; init; }
 

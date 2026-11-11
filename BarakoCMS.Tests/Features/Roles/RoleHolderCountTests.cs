@@ -148,26 +148,52 @@ public class RoleHolderCountTests
     }
 
     [Fact]
-    public async Task A_platform_role_counts_direct_group_and_membership_holders_once_each()
+    public async Task A_platform_role_counts_only_people_with_an_active_membership_in_the_callers_tenant_once_each()
     {
         var (tenant, manager) = await ManagerOfAsync();
         var role = await RoleAsync(null, platform: true);
+        var filler = await RoleAsync(tenant);
 
         var direct = await UserAsync(roles: [role.Id]);
-        var viaMembership = await UserAsync();
+        await MemberAsync(direct, tenant, filler.Id);
+        var viaMembership = await UserAsync(roles: [role.Id]);
         await MemberAsync(viaMembership, tenant, role.Id);
-        await MemberAsync(direct, tenant, role.Id);
         var listed = await UserAsync();
+        await MemberAsync(listed, tenant, filler.Id);
         await GroupAsync(tenant, role.Id, userIds: [listed]);
         var groupId = Guid.NewGuid();
         await GroupAsync(tenant, role.Id, id: groupId);
-        await UserAsync(groups: [groupId]);
-        await GroupAsync(tenant, role.Id, userIds: [await UserAsync()], deleted: true);
+        var naming = await UserAsync(groups: [groupId]);
+        await MemberAsync(naming, tenant, filler.Id);
+
+        // None of these is a holder in this tenant.
+        await UserAsync(roles: [role.Id]);
+        var deletedGroupMember = await UserAsync();
+        await MemberAsync(deletedGroupMember, tenant, filler.Id);
+        await GroupAsync(tenant, role.Id, userIds: [deletedGroupMember], deleted: true);
+        await MemberAsync(await UserAsync(roles: [role.Id]), Slug("ro"), filler.Id);
         await MemberAsync(await UserAsync(), Slug("ro"), role.Id);
 
         var roles = await ListAsync(manager);
 
-        Holders(roles, role).Should().Be(4, "direct (also a member: once), member, listed in a group, naming a group; not a deleted group or another tenant");
+        Holders(roles, role).Should().Be(4, "direct, membership (also direct: once), listed in a group, naming a group; not a user with no membership here, a deleted group, or another tenant");
+    }
+
+    [Fact]
+    public async Task A_group_member_who_no_longer_exists_is_not_counted()
+    {
+        var (tenant, manager) = await ManagerOfAsync();
+        var role = await RoleAsync(null, platform: true);
+        var filler = await RoleAsync(tenant);
+        var real = await UserAsync();
+        await MemberAsync(real, tenant, filler.Id);
+        var orphan = Guid.NewGuid();
+        await MemberAsync(orphan, tenant, filler.Id);
+        await GroupAsync(tenant, role.Id, userIds: [real, orphan]);
+
+        var roles = await ListAsync(manager);
+
+        Holders(roles, role).Should().Be(1, "the user who was deleted is not a holder");
     }
 
     [Fact]
