@@ -20,7 +20,7 @@ public class TenantListFactsTests
 {
     private readonly IntegrationTestFixture _fixture;
     private readonly CapturingMartenLogger _logger = new();
-    private readonly HttpClient _client;
+    private readonly Func<HttpClient> _newClient;
     private readonly IServiceProvider _services;
 
     public TenantListFactsTests(IntegrationTestFixture fixture)
@@ -29,7 +29,7 @@ public class TenantListFactsTests
         var derived = fixture.WithWebHostBuilder(builder =>
             builder.ConfigureServices(services =>
                 services.ConfigureMarten(options => options.Logger(_logger))));
-        _client = derived.CreateClient();
+        _newClient = derived.CreateClient;
         _services = derived.Services;
     }
 
@@ -107,7 +107,7 @@ public class TenantListFactsTests
             await session.SaveChangesAsync(Ct);
         }
 
-        var client = _fixture.CreateClient();
+        var client = _newClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", _fixture.CreateToken(roles: [$"Account Manager {userId:N}"], userId: userId.ToString()));
         return client;
@@ -115,7 +115,7 @@ public class TenantListFactsTests
 
     private async Task<HttpClient> PlatformAdminAsync()
     {
-        var client = _fixture.CreateClient();
+        var client = _newClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
         return client;
