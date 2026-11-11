@@ -336,15 +336,7 @@ internal class RotateApiKeyEndpoint(
         var generated = keys.Generate(old.ReadOnly);
         var fresh = NewKeyFrom(old, generated, now);
 
-        var cutoff = now.AddMinutes(req.OverlapMinutes);
-        if (old.ExpiresAt is null || cutoff < old.ExpiresAt)
-            old.ExpiresAt = cutoff;
-
-        // The link the list reads to tell an overlap from an ordinary expiry.
-        // A key rotated twice keeps its first successor: the list shows who took over from it, and
-        // the later key still names it through ReplacesKeyId.
-        old.ReplacedByKeyId ??= fresh.Id;
-        fresh.ReplacesKeyId = old.Id;
+        Supersede(old, fresh, now.AddMinutes(req.OverlapMinutes));
 
         if (AfterLoadForTests is { } hook)
             await hook(old, ct);
@@ -376,6 +368,20 @@ internal class RotateApiKeyEndpoint(
         await Send.OkAsync(new CreateApiKeyResponse(
             fresh.Id, generated.Secret, fresh.Prefix, fresh.Name, fresh.Scopes,
             fresh.TenantSlug, fresh.ExpiresAt, fresh.CreatedAt, fresh.ContentTypes), ct);
+    }
+
+    /// <summary>
+    /// Ends the old key at the cutoff unless it expires sooner, and links the two keys, which is what
+    /// the list reads to tell an overlap from an ordinary expiry. A key rotated twice keeps its first
+    /// successor, and the later key still names it through ReplacesKeyId.
+    /// </summary>
+    private static void Supersede(ApiKey old, ApiKey fresh, DateTime cutoff)
+    {
+        if (old.ExpiresAt is null || cutoff < old.ExpiresAt)
+            old.ExpiresAt = cutoff;
+
+        old.ReplacedByKeyId ??= fresh.Id;
+        fresh.ReplacesKeyId = old.Id;
     }
 
     // Lets a test land a revoke between the read above and the save below, which a request cannot do
