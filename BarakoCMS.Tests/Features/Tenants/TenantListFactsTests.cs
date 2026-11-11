@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using barakoCMS.Features.Tenants;
 using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
@@ -75,7 +76,11 @@ public class TenantListFactsTests
         await session.SaveChangesAsync(Ct);
     }
 
-    private async Task SiteAsync(string slug, string mode, ContentStatus status = ContentStatus.Published)
+    private Task SiteAsync(string slug, string mode, ContentStatus status = ContentStatus.Published) =>
+        SiteEntryAsync(slug, new Dictionary<string, object> { ["Mode"] = mode }, status: status);
+
+    private async Task SiteEntryAsync(
+        string slug, Dictionary<string, object> data, DateTime? createdAt = null, ContentStatus status = ContentStatus.Published)
     {
         var store = _services.GetRequiredService<IDocumentStore>();
         await using var session = store.LightweightSession(slug);
@@ -84,7 +89,8 @@ public class TenantListFactsTests
             Id = Guid.NewGuid(),
             ContentType = "site",
             Status = status,
-            Data = new Dictionary<string, object> { ["Mode"] = mode },
+            Data = data,
+            CreatedAt = createdAt ?? DateTime.UtcNow,
         });
         await session.SaveChangesAsync(Ct);
     }
@@ -261,5 +267,97 @@ public class TenantListFactsTests
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
         body.GetProperty("memberCount").GetInt32().Should().Be(4);
         body.GetProperty("siteMode").GetString().Should().Be("Private");
+    }
+
+    [Fact]
+    public async Task A_newer_site_entry_without_a_mode_answers_null_and_not_an_older_entrys_mode()
+    {
+        var account = await AccountAsync();
+        var slug = await TenantAsync(account);
+        await SiteEntryAsync(slug, new() { ["Mode"] = "Live" }, DateTime.UtcNow.AddDays(-2));
+        await SiteEntryAsync(slug, new() { ["Name"] = "Newer" }, DateTime.UtcNow.AddDays(-1));
+        var control = await TenantAsync(account);
+        await SiteAsync(control, "Live");
+
+        var rows = await ListAsync(await ManagerOfAsync(account));
+
+        rows[control].GetProperty("siteMode").GetString().Should().Be("Live", "the control: a mode is read at all");
+        rows[slug].GetProperty("siteMode").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task A_published_private_entry_wins_over_a_newer_live_one()
+    {
+        var account = await AccountAsync();
+        var slug = await TenantAsync(account);
+        await SiteEntryAsync(slug, new() { ["Mode"] = "Private" }, DateTime.UtcNow.AddDays(-2));
+        await SiteEntryAsync(slug, new() { ["Mode"] = "Live" }, DateTime.UtcNow.AddDays(-1));
+
+        var rows = await ListAsync(await ManagerOfAsync(account));
+
+        rows[slug].GetProperty("siteMode").GetString().Should().Be("Private");
+    }
+
+    [Fact]
+    public async Task The_mode_key_is_matched_without_regard_to_case_and_a_blank_mode_answers_null()
+    {
+        var account = await AccountAsync();
+        var lower = await TenantAsync(account);
+        var upper = await TenantAsync(account);
+        var blank = await TenantAsync(account);
+        await SiteEntryAsync(lower, new() { ["mode"] = "Live" });
+        await SiteEntryAsync(upper, new() { ["MODE"] = "Private" });
+        await SiteEntryAsync(blank, new() { ["Mode"] = "  " });
+
+        var rows = await ListAsync(await ManagerOfAsync(account));
+
+        rows[lower].GetProperty("siteMode").GetString().Should().Be("Live");
+        rows[upper].GetProperty("siteMode").GetString().Should().Be("Private");
+        rows[blank].GetProperty("siteMode").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task Import_answers_with_the_member_count_and_no_site_mode()
+    {
+        var platform = await PlatformAdminAsync();
+        var source = await TenantProfileSeed.TenantAsync(_fixture, Ct);
+        var exported = await platform.GetAsync($"/api/tenants/{source}/export", Ct);
+        exported.StatusCode.Should().Be(HttpStatusCode.OK, await exported.Content.ReadAsStringAsync(Ct));
+        using var bundle = JsonDocument.Parse(await exported.Content.ReadAsStringAsync(Ct));
+
+        var imported = await platform.PostAsJsonAsync("/api/tenants/import",
+            new { handle = Unique("im"), name = "Imported", bundle = bundle.RootElement.Clone() }, Ct);
+
+        imported.StatusCode.Should().Be(HttpStatusCode.OK, await imported.Content.ReadAsStringAsync(Ct));
+        var tenant = (await imported.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("tenant");
+        tenant.GetProperty("memberCount").GetInt32().Should().Be(1);
+        tenant.GetProperty("siteMode").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    /// <summary>
+    /// The per-tenant-session path taken when the database enforces the tenant filter, driven on the
+    /// shared fixture. The fixture connects as a superuser, which row level security never binds, so
+    /// this proves the path reads the same answers as the one statement, not that it survives
+    /// enforcement.
+    /// </summary>
+    [Fact]
+    public async Task The_per_tenant_path_used_under_database_enforcement_gives_the_same_answers()
+    {
+        var account = await AccountAsync();
+        var priv = await TenantAsync(account);
+        var live = await TenantAsync(account);
+        var bare = await TenantAsync(account);
+        await SiteAsync(priv, "Private");
+        await SiteAsync(live, "Live");
+        await MembersAsync(live, active: 2);
+
+        using var scope = _services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var facts = await TenantListFacts.ForAsync(session, enforced: true, [priv, live, bare], Ct);
+
+        facts.SiteMode(priv).Should().Be("Private");
+        facts.SiteMode(live).Should().Be("Live");
+        facts.SiteMode(bare).Should().BeNull();
+        facts.MemberCount(live).Should().Be(2);
     }
 }

@@ -80,7 +80,8 @@ internal sealed class TenantListFacts
 
     /// <summary>
     /// One statement over the given Marten tenant ids. A tenant with several published site entries
-    /// answers Private if any entry is, as <see cref="PrivateSite"/> does, and otherwise the newest.
+    /// answers Private if any entry is, as <see cref="PrivateSite"/> does, and otherwise the Mode of
+    /// the newest entry, null when that entry has none or it is blank.
     /// </summary>
     private static async Task<Dictionary<string, string>> SiteModesAsync(
         IQuerySession session, IReadOnlyCollection<string> tenantIds, CancellationToken ct)
@@ -88,13 +89,18 @@ internal sealed class TenantListFacts
         var schema = session.DocumentStore.Options.DatabaseSchemaName;
         var rows = await session.QueryAsync<ModeRow>(
             "select jsonb_build_object('Slug', t.tenant_id, 'Mode', t.mode) from ("
-            + "select distinct on (d.tenant_id) d.tenant_id, e.value as mode "
-            + $"from {schema}.mt_doc_contents d cross join lateral jsonb_each_text(d.data -> 'Data') e "
+            + "select distinct on (d.tenant_id) d.tenant_id, m.mode "
+            + $"from {schema}.mt_doc_contents d "
+            + "left join lateral (select e.value as mode from jsonb_each_text(d.data -> 'Data') e "
+            + "where lower(e.key) = 'mode' limit 1) m on true "
             + $"where d.tenant_id in ({Placeholders(tenantIds.Count)}) "
             + $"and d.data ->> 'ContentType' = '{TenantProfiles.SiteType}' "
             + $"and (d.data ->> 'Status')::integer = {(int)ContentStatus.Published} "
-            + "and lower(e.key) = 'mode' and e.value is not null "
-            + "order by d.tenant_id, (lower(btrim(e.value)) = 'private') desc, d.data ->> 'CreatedAt' desc) t",
+            + "order by d.tenant_id, "
+            + "(exists (select 1 from jsonb_each_text(d.data -> 'Data') p "
+            + "where lower(p.key) = 'mode' and lower(btrim(p.value)) = 'private')) desc, "
+            + "d.data ->> 'CreatedAt' desc) t "
+            + "where t.mode is not null and btrim(t.mode) <> ''",
             ct, [.. tenantIds]);
 
         return rows.ToDictionary(r => TenantScopes.SlugFor(r.Slug), r => r.Mode);
