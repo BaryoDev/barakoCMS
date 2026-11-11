@@ -280,6 +280,31 @@ GET /api/contents/counts?contentType=article
   Only a type the caller has some read rule for is named.
 - It needs a signed-in caller, or an API key with `content:read`.
 
+#### A window, a delta and a series
+
+Three optional parameters count entries by `createdAt` in a window and can cut it into buckets.
+Without them the answer is the one above, with no extra fields.
+
+```text
+GET /api/contents/counts?contentType=article&range=7d&series=day
+GET /api/contents/counts?from=2026-03-10T00:00:00Z&to=2026-03-13T00:00:00Z
+```
+
+- `range` is `24h`, `7d` or `30d`, counted back from now. Or give `from` (inclusive) and `to`
+  (exclusive, default now). `to` needs `from`, and `range` cannot be mixed with either.
+- `series` is `hour` or `day`. It adds `series`, one entry per bucket, oldest first, each with
+  `start`, `total` and the four statuses. The number of buckets follows from the window and is the
+  same however many entries there are; an empty bucket is zeros. It needs a window.
+- A windowed answer carries `window` (`from`, `to`) and `previous`, the counts of the window of the
+  same length that ends where this one starts. The delta is the difference of the two, so one call
+  is enough.
+- A window is at most 90 days and a series at most 200 buckets (`hour` fits 8 days, `day` fits 90).
+  Past either the answer is 400.
+- The same read rules apply, so the windowed numbers agree with what `GET /api/contents` lists.
+  Types named in `uncountedTypes` stay out. A key with `monitor:read` may use all of it.
+- The window, the previous window and the series come from one query over every type the caller
+  reads, so the cost does not grow with the number of types.
+
 ## Sorting
 
 ```text

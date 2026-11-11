@@ -651,6 +651,8 @@ The same response also carries the tenant's last 24 hours, whatever the page or 
 
 `outcome` is `ok` for Succeeded, `warn` for PartiallyFailed and `bad` for Failed. Pending, running and cancelled runs are listed with their own `status`, have a null `outcome`, and are left out of the rate. The verdict is `ok` at 90 percent and up, `warn` at 70 percent and up, otherwise `bad`. A tenant with no finished run in the last 24 hours is `ok`. The thresholds are `WorkflowHealthRules.OkAtOrAbovePercent` and `WarnAtOrAbovePercent`, and nothing else in the code states them. The reads group on the indexed `CreatedAt` and `Status`, so no run is loaded to count it.
 
+`GET /api/workflow-runs` also takes `range` (`24h`, `7d` or `30d`), or `from` and `to`, and `series` (`hour` or `day`), the same as `GET /api/contents/counts`. `statusCounts` then counts the runs created in that window under the same `contentId` and `workflowId` filters, and the response adds `window`, `previousStatusCounts` (the window of the same length before it, for a delta) and, with `series`, `series`: one entry per bucket with `start`, `total` and `counts` by status. The runs listed are not narrowed by the window. A window is at most 90 days and a series at most 200 buckets, 400 past either. With `changedSince` the window is ignored and no counts are returned, as before.
+
 `GET /api/workflow-runs` takes `workflowId`. `statusCounts` follow it. When you page with a `changedSince` cursor, send the same filters (`workflowId`, `contentId`, `status`) on every page: the cursor does not remember them.
 
 ## Tracing a run and what it created
