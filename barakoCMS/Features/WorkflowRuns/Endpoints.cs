@@ -409,6 +409,53 @@ internal sealed class ListRunsEndpoint(
         return query.OrderByDescending(r => r.CreatedAt);
     }
 
+    private sealed record RunTally(
+        CountWindow? Window,
+        Dictionary<string, int>? Counts,
+        Dictionary<string, int>? Previous,
+        List<RunSeriesBucket>? Series)
+    {
+        /// <summary>What a window adds to the ETag: where it is, and the counts and buckets in it.</summary>
+        public string ETagSuffix() => Window is null || Previous is null
+            ? ""
+            : $":{Window.From.UtcTicks}:{Window.To.UtcTicks}:{Window.Bucket?.Ticks}"
+              + $":{string.Join(',', Previous.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => p.Value))}"
+              + $":{string.Join(',', Series?.Select(b => b.Total) ?? [])}";
+    }
+
+    /// <summary>
+    /// The counts of the response. A poll reads what changed and carries no counts, so a window has
+    /// nothing to count there and is not checked either.
+    /// </summary>
+    private async Task<RunTally> TallyAsync(ListRunsRequest req, bool counting, DateTimeOffset now, CancellationToken ct)
+    {
+        if (!counting) return new RunTally(null, null, null, null);
+
+        var (window, refusal) = CountWindow.Resolve(req.Range, req.From, req.To, req.Series, now, CountWindow.ClockSlack);
+        if (refusal is not null) ThrowError(refusal, 400);
+
+        if (window is null)
+        {
+            var all = await RunQueries.CountByStatusAsync(session, req.ContentId, req.WorkflowId, ct);
+            return new RunTally(null, all, null, null);
+        }
+
+        var cells = await RunQueries.CountWindowAsync(session, req.ContentId, req.WorkflowId, window, ct);
+        var series = window.Bucket is null
+            ? null
+            : Enumerable.Range(0, window.Buckets).Select(i =>
+            {
+                var bucket = RunQueries.ByStatus(s => cells.At(i, (int)s));
+                return new RunSeriesBucket { Start = window.BucketStart(i), Total = bucket.Values.Sum(), Counts = bucket };
+            }).ToList();
+
+        return new RunTally(
+            window,
+            RunQueries.ByStatus(s => cells.Current((int)s)),
+            RunQueries.ByStatus(s => cells.Previous((int)s)),
+            series);
+    }
+
     public override async Task HandleAsync(ListRunsRequest req, CancellationToken ct)
     {
         var status = ParseStatus(req.Status);
@@ -436,33 +483,8 @@ internal sealed class ListRunsEndpoint(
         }
 
         var now = clock.GetUtcNow();
-        // A poll reads what changed and carries no counts, so a window has nothing to count there,
-        // and is not checked either.
-        CountWindow? window = null;
-        if (since is null)
-        {
-            var (resolved, refusal) = CountWindow.Resolve(
-                req.Range, req.From, req.To, req.Series, now, CountWindow.ClockSlack);
-            if (refusal is not null)
-            {
-                ThrowError(refusal, 400);
-                return;
-            }
-
-            window = resolved;
-        }
-
-        WindowCells? cells = null;
-        Dictionary<string, int>? counts = null;
-        if (window is not null)
-        {
-            cells = await RunQueries.CountWindowAsync(session, req.ContentId, req.WorkflowId, window, ct);
-            counts = RunQueries.ByStatus(s => cells.Current((int)s));
-        }
-        else if (since is null)
-        {
-            counts = await RunQueries.CountByStatusAsync(session, req.ContentId, req.WorkflowId, ct);
-        }
+        var tally = await TallyAsync(req, since is null, now, ct);
+        var (window, counts) = (tally.Window, tally.Counts);
 
         var query = FilterRuns(session, req, status, since);
 
@@ -472,20 +494,8 @@ internal sealed class ListRunsEndpoint(
         var sweeping = WorkflowRunRetentionService.IsEnabled(config);
         var items = page.Items.Select(RunResponse.From).ToList();
 
-        var previous = cells is null ? null : RunQueries.ByStatus(s => cells.Previous((int)s));
-        var series = cells is null || window?.Bucket is null
-            ? null
-            : Enumerable.Range(0, window.Buckets).Select(i =>
-            {
-                var bucket = RunQueries.ByStatus(s => cells.At(i, (int)s));
-                return new RunSeriesBucket { Start = window.BucketStart(i), Total = bucket.Values.Sum(), Counts = bucket };
-            }).ToList();
-
         var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, counts,
-            $"{sweeping}:{windows.SucceededDays}:{windows.FailedDays}"
-            + (cells is null ? "" : $":{window!.From.UtcTicks}:{window.To.UtcTicks}:{window.Bucket?.Ticks}"
-                + $":{string.Join(',', previous!.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => p.Value))}"
-                + $":{string.Join(',', series?.Select(b => b.Total) ?? [])}"));
+            $"{sweeping}:{windows.SucceededDays}:{windows.FailedDays}" + tally.ETagSuffix());
         HttpContext.Response.Headers.ETag = etag;
         HttpContext.Response.Headers.CacheControl = "private, no-cache";
         if (DeliveryCache.IsNotModified(HttpContext.Request, etag, null))
@@ -504,8 +514,8 @@ internal sealed class ListRunsEndpoint(
             TotalItems = page.TotalItems,
             StatusCounts = counts,
             Window = window is null ? null : new WindowInfo(window.From, window.To),
-            PreviousStatusCounts = previous,
-            Series = series,
+            PreviousStatusCounts = tally.Previous,
+            Series = tally.Series,
             Cursor = since is { } input
                 ? RunCursor.Next(input, page.Items, req.Skip + page.Items.Count < page.TotalItems, now).ToString()
                 : null,
