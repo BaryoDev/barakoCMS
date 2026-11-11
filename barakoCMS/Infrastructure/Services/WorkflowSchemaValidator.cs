@@ -768,6 +768,43 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         }
     }
 
+    /// <summary>The most characters an action label holds.</summary>
+    internal const int MaxLabelLength = 80;
+
+    /// <summary>
+    /// A label is plain text a console shows as it is: bounded, not blank, with no angle brackets and
+    /// no control characters, so it cannot carry markup into a page that forgets to escape it.
+    /// </summary>
+    private static void ValidateLabel(string? label, string fieldPrefix, WorkflowValidationResult result)
+    {
+        if (label is null)
+        {
+            return;
+        }
+
+        string? problem = null;
+        if (string.IsNullOrWhiteSpace(label))
+        {
+            problem = "A label is text, or left out";
+        }
+        else if (label.Length > MaxLabelLength)
+        {
+            problem = $"A label is at most {MaxLabelLength} characters";
+        }
+        else if (label.AsSpan().IndexOfAny('<', '>') >= 0 || label.Any(char.IsControl))
+        {
+            problem = "A label is plain text, with no markup or control characters";
+        }
+
+        if (problem is null)
+        {
+            return;
+        }
+
+        result.Errors.Add(new ValidationError { Field = $"{fieldPrefix}.label", Message = problem });
+        result.IsValid = false;
+    }
+
     private static void ValidateCapture(List<string>? capture, string fieldPrefix, WorkflowValidationResult result)
     {
         if (capture is null)
@@ -812,6 +849,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     {
         var fieldPrefix = $"actions[{index}]";
         ValidateAction(action, fieldPrefix, result);
+        ValidateLabel(action?.Label, fieldPrefix, result);
 
         if (action?.Compensate is not { } undo)
         {
