@@ -242,7 +242,7 @@ public class WorkflowRunContentTitleTests
         items.EnumerateArray().Select(i => i.GetProperty("contentTitle").GetString())
             .Should().OnlyContain(t => t != null && t.StartsWith("Entry "));
 
-        var entryReads = _logger.Commands.Where(c => Regex.IsMatch(c.Sql, @"\bmt_doc_content\b")).ToList();
+        var entryReads = _logger.Commands.Where(c => Regex.IsMatch(c.Sql, @"\bmt_doc_contents\b")).ToList();
         entryReads.Should().HaveCount(1, "the entries of a page are read once, not once per run");
     }
 }

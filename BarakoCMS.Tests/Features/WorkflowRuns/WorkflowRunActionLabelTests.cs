@@ -77,8 +77,8 @@ public class WorkflowRunActionLabelTests
         using var doc = JsonDocument.Parse(body);
         doc.RootElement.GetProperty("actions")[0].GetProperty("label").GetString().Should().Be("Tell the editor");
 
-        var definition = await admin.GetAsync($"/api/workflows/{workflow.Id}", Ct);
-        (await definition.Content.ReadAsStringAsync(Ct)).Should().Contain("Something else");
+        var renamed = await _harness.LoadWorkflowAsync(workflow.Id);
+        renamed!.Actions[0].Label.Should().Be("Something else");
     }
 
     [Fact]
