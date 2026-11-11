@@ -1,6 +1,5 @@
 using System.Globalization;
 using Marten;
-using Npgsql;
 using NpgsqlTypes;
 using barakoCMS.Features.Queries.Run;
 
