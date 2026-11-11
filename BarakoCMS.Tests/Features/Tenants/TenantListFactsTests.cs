@@ -1,0 +1,265 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
+using barakoCMS.Models;
+using FluentAssertions;
+using Marten;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+
+namespace BarakoCMS.Tests.Features.Tenants;
+
+/// <summary>
+/// The tenant list carries memberCount and siteMode for each tenant, each read with one statement
+/// for the page, inside the caller's account reach.
+/// </summary>
+[Collection("Integration1")]
+public class TenantListFactsTests
+{
+    private readonly IntegrationTestFixture _fixture;
+    private readonly CapturingMartenLogger _logger = new();
+    private readonly HttpClient _client;
+    private readonly IServiceProvider _services;
+
+    public TenantListFactsTests(IntegrationTestFixture fixture)
+    {
+        _fixture = fixture;
+        var derived = fixture.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+                services.ConfigureMarten(options => options.Logger(_logger))));
+        _client = derived.CreateClient();
+        _services = derived.Services;
+    }
+
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..16];
+
+    private async Task<Guid> AccountAsync()
+    {
+        var account = new TenantAccount { Id = Guid.NewGuid(), Slug = Unique("ac"), Name = "Account" };
+        using var scope = _services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(account);
+        await session.SaveChangesAsync(Ct);
+        return account.Id;
+    }
+
+    private async Task<string> TenantAsync(Guid accountId)
+    {
+        var slug = Unique("tn");
+        using var scope = _services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = $"Name of {slug}", AccountId = accountId });
+        await session.SaveChangesAsync(Ct);
+        return slug;
+    }
+
+    private async Task MembersAsync(string slug, int active, int removed = 0)
+    {
+        using var scope = _services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        for (var i = 0; i < active + removed; i++)
+        {
+            session.Store(new Membership
+            {
+                Id = Guid.NewGuid(),
+                UserId = Guid.NewGuid(),
+                TenantSlug = slug,
+                Status = i < active ? MembershipStatus.Active : MembershipStatus.Removed,
+            });
+        }
+
+        await session.SaveChangesAsync(Ct);
+    }
+
+    private async Task SiteAsync(string slug, string mode, ContentStatus status = ContentStatus.Published)
+    {
+        var store = _services.GetRequiredService<IDocumentStore>();
+        await using var session = store.LightweightSession(slug);
+        session.Store(new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = "site",
+            Status = status,
+            Data = new Dictionary<string, object> { ["Mode"] = mode },
+        });
+        await session.SaveChangesAsync(Ct);
+    }
+
+    /// <summary>A caller who manages exactly the one account, so the page holds that account's tenants and no others.</summary>
+    private async Task<HttpClient> ManagerOfAsync(Guid accountId)
+    {
+        var userId = Guid.NewGuid();
+        using (var scope = _services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new User
+            {
+                Id = userId,
+                Username = $"tf-{userId:N}"[..14],
+                Email = $"tf-{userId:N}@example.com",
+                RoleIds = [],
+            });
+            session.Store(new TenantAccountManager { Id = Guid.NewGuid(), AccountId = accountId, UserId = userId });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var client = _fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", _fixture.CreateToken(roles: [$"Account Manager {userId:N}"], userId: userId.ToString()));
+        return client;
+    }
+
+    private async Task<HttpClient> PlatformAdminAsync()
+    {
+        var client = _fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
+        return client;
+    }
+
+    private static async Task<Dictionary<string, JsonElement>> ListAsync(HttpClient client)
+    {
+        var response = await client.GetAsync("/api/tenants?pageSize=100", Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        return body.GetProperty("items").EnumerateArray().ToDictionary(i => i.GetProperty("slug").GetString()!, i => i.Clone());
+    }
+
+    [Fact]
+    public async Task The_list_gives_each_tenant_its_own_member_count_and_leaves_out_removed_members()
+    {
+        var account = await AccountAsync();
+        var three = await TenantAsync(account);
+        var one = await TenantAsync(account);
+        var none = await TenantAsync(account);
+        await MembersAsync(three, active: 3, removed: 2);
+        await MembersAsync(one, active: 1);
+
+        var rows = await ListAsync(await ManagerOfAsync(account));
+
+        rows.Should().HaveCount(3);
+        rows[three].GetProperty("memberCount").GetInt32().Should().Be(3);
+        rows[one].GetProperty("memberCount").GetInt32().Should().Be(1);
+        rows[none].GetProperty("memberCount").GetInt32().Should().Be(0, "a tenant nobody joined has zero, not null");
+    }
+
+    [Fact]
+    public async Task The_list_gives_the_stored_site_mode_and_null_without_a_published_site_entry()
+    {
+        var account = await AccountAsync();
+        var priv = await TenantAsync(account);
+        var live = await TenantAsync(account);
+        var bare = await TenantAsync(account);
+        var draftOnly = await TenantAsync(account);
+        await SiteAsync(priv, "Private");
+        await SiteAsync(live, "Live");
+        await SiteAsync(draftOnly, "Private", ContentStatus.Draft);
+
+        var rows = await ListAsync(await ManagerOfAsync(account));
+
+        rows.Should().HaveCount(4);
+        rows[priv].GetProperty("siteMode").GetString().Should().Be("Private");
+        rows[live].GetProperty("siteMode").GetString().Should().Be("Live");
+        rows[bare].GetProperty("siteMode").ValueKind.Should().Be(JsonValueKind.Null);
+        rows[draftOnly].GetProperty("siteMode").ValueKind.Should().Be(JsonValueKind.Null, "a draft entry is not the tenant's site");
+    }
+
+    [Fact]
+    public async Task One_site_entry_does_not_set_the_mode_of_another_tenant()
+    {
+        var account = await AccountAsync();
+        var withSite = await TenantAsync(account);
+        var other = await TenantAsync(account);
+        await SiteAsync(withSite, "Private");
+        await MembersAsync(withSite, active: 2);
+
+        var rows = await ListAsync(await ManagerOfAsync(account));
+
+        rows[withSite].GetProperty("siteMode").GetString().Should().Be("Private", "the control: the entry is read");
+        rows[other].GetProperty("siteMode").ValueKind.Should().Be(JsonValueKind.Null);
+        rows[other].GetProperty("memberCount").GetInt32().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_scoped_caller_does_not_see_the_tenants_or_counts_of_another_account()
+    {
+        var mine = await AccountAsync();
+        var theirs = await AccountAsync();
+        var own = await TenantAsync(mine);
+        var foreign = await TenantAsync(theirs);
+        await MembersAsync(own, active: 2);
+        await MembersAsync(foreign, active: 5);
+        await SiteAsync(foreign, "Private");
+
+        var rows = await ListAsync(await ManagerOfAsync(mine));
+
+        rows.Should().ContainKey(own);
+        rows[own].GetProperty("memberCount").GetInt32().Should().Be(2);
+        rows.Should().NotContainKey(foreign);
+    }
+
+    private async Task<(int Counts, int Modes)> StatementsForAListOfAsync(int tenants)
+    {
+        var account = await AccountAsync();
+        for (var i = 0; i < tenants; i++)
+        {
+            var slug = await TenantAsync(account);
+            await MembersAsync(slug, active: i + 1);
+            await SiteAsync(slug, i % 2 == 0 ? "Live" : "Private");
+        }
+
+        var client = await ManagerOfAsync(account);
+        _logger.Commands.Clear();
+        var rows = await ListAsync(client);
+        rows.Should().HaveCount(tenants);
+        rows.Values.Should().OnlyContain(r => r.GetProperty("memberCount").GetInt32() > 0);
+
+        var sql = _logger.Commands.Select(c => c.Sql).ToList();
+        return (sql.Count(s => s.Contains("mt_doc_memberships") && s.Contains("group by")),
+                sql.Count(s => s.Contains("mt_doc_contents") && s.Contains("jsonb_each_text")));
+    }
+
+    [Fact]
+    public async Task The_statements_for_counts_and_modes_stay_at_one_each_as_the_page_grows()
+    {
+        var small = await StatementsForAListOfAsync(3);
+        var large = await StatementsForAListOfAsync(9);
+
+        small.Should().Be((1, 1));
+        large.Should().Be((1, 1));
+    }
+
+    [Fact]
+    public async Task Create_answers_with_the_creators_membership_counted_and_no_site_mode()
+    {
+        var admin = await PlatformAdminAsync();
+        var handle = Unique("cr");
+
+        var response = await admin.PostAsJsonAsync("/api/tenants", new { handle, name = "Created" }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        body.GetProperty("memberCount").GetInt32().Should().Be(1);
+        body.GetProperty("siteMode").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task Update_answers_with_the_member_count_and_the_site_mode()
+    {
+        var account = await AccountAsync();
+        var slug = await TenantAsync(account);
+        await MembersAsync(slug, active: 4);
+        await SiteAsync(slug, "Private");
+
+        var response = await (await PlatformAdminAsync()).PutAsJsonAsync($"/api/tenants/{slug}", new { name = "Renamed" }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        body.GetProperty("memberCount").GetInt32().Should().Be(4);
+        body.GetProperty("siteMode").GetString().Should().Be("Private");
+    }
+}

@@ -62,7 +62,7 @@ internal class PublicTenantEndpoint(IQuerySession session, IDocumentStore store)
 }
 
 /// <summary>GET /api/tenants: list all tenants (platform admin), or the tenants of the accounts the caller manages.</summary>
-internal class ListTenantsEndpoint(IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<TenantResponse>>
+internal class ListTenantsEndpoint(IQuerySession session, IConfiguration configuration) : Endpoint<ListRequest, PaginatedResponse<TenantResponse>>
 {
     public override void Configure()
     {
@@ -80,10 +80,12 @@ internal class ListTenantsEndpoint(IQuerySession session) : Endpoint<ListRequest
             .OrderBy(t => t.Name)
             .ToPagedResponseAsync(req, ct);
 
-        var claims = await TenantDomainClaims.ForAsync(session, page.Items.Select(t => t.Slug).ToList(), ct);
+        var slugs = page.Items.Select(t => t.Slug).ToList();
+        var claims = await TenantDomainClaims.ForAsync(session, slugs, ct);
+        var facts = await TenantListFacts.ForAsync(session, TenantPartitions.Enforced(configuration), slugs, ct);
         await Send.OkAsync(new PaginatedResponse<TenantResponse>
         {
-            Items = page.Items.Select(t => TenantResponse.From(t, claims[t.Slug])).ToList(),
+            Items = page.Items.Select(t => TenantResponse.From(t, claims[t.Slug], facts)).ToList(),
             Page = page.Page,
             PageSize = page.PageSize,
             TotalItems = page.TotalItems,
@@ -399,7 +401,8 @@ internal class CreateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         if (!await TenantDomainClaims.TrySaveAsync(_session, ct))
         { ThrowError(TenantDomainClash.RaceMessage, 409); }
         _domains.Invalidate();
-        await Send.OkAsync(TenantResponse.From(tenant, (await TenantDomainClaims.ForAsync(_session, [handle], ct))[handle]), ct);
+        var facts = await TenantListFacts.ForAsync(_session, TenantPartitions.Enforced(_configuration), [handle], ct);
+        await Send.OkAsync(TenantResponse.From(tenant, (await TenantDomainClaims.ForAsync(_session, [handle], ct))[handle], facts), ct);
     }
 }
 
@@ -491,7 +494,8 @@ internal class UpdateTenantEndpoint : Endpoint<TenantWriteRequest, TenantRespons
         // Every update, not only a change of domains: switching a tenant off takes its domains out of
         // the map too, and waiting out the cache would keep routing to it for minutes.
         _domains.Invalidate();
-        await Send.OkAsync(TenantResponse.From(tenant, (await TenantDomainClaims.ForAsync(_session, [tenant.Slug], ct))[tenant.Slug]), ct);
+        var facts = await TenantListFacts.ForAsync(_session, TenantPartitions.Enforced(_configuration), [tenant.Slug], ct);
+        await Send.OkAsync(TenantResponse.From(tenant, (await TenantDomainClaims.ForAsync(_session, [tenant.Slug], ct))[tenant.Slug], facts), ct);
     }
 
     /// <summary>
