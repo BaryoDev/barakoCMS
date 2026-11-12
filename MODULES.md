@@ -207,7 +207,9 @@ not in that list.
 A module that works without a request (a background job, a digest) must resolve the capability set,
 not invent one. Use `ICapabilityResolver` from `BarakoCMS.Abstractions`: `ForPrincipalAsync` for a
 key or service principal, `ForUserAsync` for a user. It applies the same rules the gate does, so a
-disabled principal or a suspended tenant gets an empty set. Pass the result to
+disabled principal or a suspended tenant gets an empty set. One difference: it ignores
+`Auth:LegacyRoleFallback` (role names in a JWT, which it cannot see), so on a deployment with that
+flag on it can return less than the gate grants. Pass the result to
 `INeedsYouSource.ReadAsync` to read the needs-you items. See [docs/overview.md](docs/overview.md).
 
 ## Writing a module
