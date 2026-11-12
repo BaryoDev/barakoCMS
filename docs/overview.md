@@ -58,3 +58,29 @@ or a deployment with no bounce source, answers 404. A key cannot call it.
 
 Bounce data comes from `IMailBounceSource` (in `BarakoCMS.Abstractions`), which an email module
 registers. The core stores nothing. Without one, Mail and bounces are left out.
+
+## Reading the items from a module
+
+A module that wants the same needs-you items as the page (a mobile shell, a digest mailer) injects
+`INeedsYouSource` from `BarakoCMS.Abstractions` and calls
+`ReadAsync(tenant, capabilities, ct)`. It needs no request. The source opens its own session on the
+tenant and returns `NeedsYouEntry(Id, Severity, Text, RefKind, RefId, Resolvable)` in the same order
+as `GET /api/overview`. `GET /api/overview` uses the same source code, so the two cannot disagree.
+
+Each item is included only if the capabilities passed hold what the endpoint asks for:
+
+| Item | Needs |
+| --- | --- |
+| `workflows.failing` | `view_workflow_runs` |
+| `runner.stalled` | `view_monitoring` |
+| `mail.bounces` | `manage_email_settings`, and a registered `IMailBounceSource` |
+| `content.overdue` | a set that holds `*` |
+
+`content.overdue` appears only for a set that holds `*`, because the route reads it through the
+content read check that a narrower set cannot pass.
+
+Get the set from `ICapabilityResolver` (`ForPrincipalAsync` or `ForUserAsync`) rather than building
+one by hand.
+
+The reads are counts and capped lists (at most 5000 scheduled entries per source) with no writes, so
+polling every minute on every replica is safe.
