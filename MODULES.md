@@ -202,6 +202,16 @@ The default is `0`, meaning unstated. Core does not check the number. It reports
 enabled modules to callers who may read `GET /api/modules`. A module the enabled list left off is
 not in that list.
 
+### Capabilities outside a request
+
+A module that works without a request (a background job, a digest) must resolve the capability set,
+not invent one. Use `ICapabilityResolver` from `BarakoCMS.Abstractions`: `ForPrincipalAsync` for a
+key or service principal, `ForUserAsync` for a user. It applies the same rules the gate does, so a
+disabled principal or a suspended tenant gets an empty set. One difference: it ignores
+`Auth:LegacyRoleFallback` (role names in a JWT, which it cannot see), so on a deployment with that
+flag on it can return less than the gate grants. Pass the result to
+`INeedsYouSource.ReadAsync` to read the needs-you items. See [docs/overview.md](docs/overview.md).
+
 ## Writing a module
 
 The contract ships as [`BarakoCMS.Abstractions`](BarakoCMS.Abstractions): `IBarakoModule`,
