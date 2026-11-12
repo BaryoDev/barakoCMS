@@ -180,7 +180,20 @@ internal class CreateApiKeyEndpoint(
 internal sealed record ApiKeyListItem(
     Guid Id, string Name, string Prefix, List<string> Scopes, string TenantSlug,
     DateTime? ExpiresAt, DateTime? LastUsedAt, bool Revoked, DateTime CreatedAt, List<string> ContentTypes,
-    Guid? ServicePrincipalId = null, bool ReadOnly = false);
+    Guid? ServicePrincipalId = null, bool ReadOnly = false,
+    Guid? ReplacedBy = null, Guid? Replaces = null, string Kind = ApiKeyKinds.User);
+
+/// <summary>What a key is, as the key list says it, derived from what is stored so old keys answer too.</summary>
+internal static class ApiKeyKinds
+{
+    public const string User = "user";
+    public const string ServicePrincipal = "servicePrincipal";
+    public const string ReadOnly = "readOnly";
+
+    /// <summary>A read-only key is read-only whoever it acts as, so that is the more telling answer.</summary>
+    public static string Of(ApiKey key) =>
+        key.ReadOnly ? ReadOnly : key.ServicePrincipalId is not null ? ServicePrincipal : User;
+}
 
 /// <summary>GET /api/api-keys — list the current tenant's keys (never the secret or hash).</summary>
 internal class ListApiKeysEndpoint(IQuerySession session) : Endpoint<ListRequest, PaginatedResponse<ApiKeyListItem>>
@@ -211,7 +224,7 @@ internal class ListApiKeysEndpoint(IQuerySession session) : Endpoint<ListRequest
                 .Select(k => new ApiKeyListItem(
                     k.Id, k.Name, k.Prefix, k.Scopes, k.TenantSlug,
                     k.ExpiresAt, k.LastUsedAt, k.Revoked, k.CreatedAt, k.ContentTypes ?? new(),
-                    k.ServicePrincipalId, k.ReadOnly))
+                    k.ServicePrincipalId, k.ReadOnly, k.ReplacedByKeyId, k.ReplacesKeyId, ApiKeyKinds.Of(k)))
                 .ToList(),
             Page = page.Page,
             PageSize = page.PageSize,
@@ -323,9 +336,7 @@ internal class RotateApiKeyEndpoint(
         var generated = keys.Generate(old.ReadOnly);
         var fresh = NewKeyFrom(old, generated, now);
 
-        var cutoff = now.AddMinutes(req.OverlapMinutes);
-        if (old.ExpiresAt is null || cutoff < old.ExpiresAt)
-            old.ExpiresAt = cutoff;
+        Supersede(old, fresh, now.AddMinutes(req.OverlapMinutes));
 
         if (AfterLoadForTests is { } hook)
             await hook(old, ct);
@@ -357,6 +368,20 @@ internal class RotateApiKeyEndpoint(
         await Send.OkAsync(new CreateApiKeyResponse(
             fresh.Id, generated.Secret, fresh.Prefix, fresh.Name, fresh.Scopes,
             fresh.TenantSlug, fresh.ExpiresAt, fresh.CreatedAt, fresh.ContentTypes), ct);
+    }
+
+    /// <summary>
+    /// Ends the old key at the cutoff unless it expires sooner, and links the two keys, which is what
+    /// the list reads to tell an overlap from an ordinary expiry. A key rotated twice keeps its first
+    /// successor, and the later key still names it through ReplacesKeyId.
+    /// </summary>
+    private static void Supersede(ApiKey old, ApiKey fresh, DateTime cutoff)
+    {
+        if (old.ExpiresAt is null || cutoff < old.ExpiresAt)
+            old.ExpiresAt = cutoff;
+
+        old.ReplacedByKeyId ??= fresh.Id;
+        fresh.ReplacesKeyId = old.Id;
     }
 
     // Lets a test land a revoke between the read above and the save below, which a request cannot do
