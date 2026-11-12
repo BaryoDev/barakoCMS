@@ -755,7 +755,8 @@ See [api-key-service-principals.md](api-key-service-principals.md) for the desig
 
 A `cap:<capability>` scope reaches routes gated on that capability (`*` does not imply it, and a deny
 list refuses the ones that manage keys, roles, tenants and users). A `bcms_ro_` key is read-only and
-reaches a short allowlist of reads. A key made with a `servicePrincipalId` acts as a service principal
+reaches a short allowlist of reads, and refuses writes except on a route a module marks for read-only
+keys. A key made with a `servicePrincipalId` acts as a service principal
 with its own roles and survives its creator losing membership. Principals can never hold platform roles.
 Details in [api-key-service-principals.md](api-key-service-principals.md).
 

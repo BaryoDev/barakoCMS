@@ -80,15 +80,45 @@ because a leaked key must not be able to mint more access. It is checked at crea
 ## Read-only keys
 
 `readOnly: true` on `POST /api/api-keys` makes a `bcms_ro_` key. It refuses every POST, PUT, PATCH and
-DELETE with 403 ("This API key is read-only.") whatever its scopes. It reads only entries,
-`GET /api/workflows/health`, `GET /api/workflow-runs`, `GET /api/modules`, `GET /api/analytics/**` and
-`GET /api/overview`, each still needing its usual scope. Rotating one yields another `bcms_ro_` key.
+DELETE with 403 ("This API key is read-only.") whatever its scopes, except on a route a module marks
+for read-only keys (below). It reads only entries, `GET /api/workflows/health`,
+`GET /api/monitoring/health` (needs `monitor:read`), `GET /api/workflow-runs`, `GET /api/modules`,
+`GET /api/analytics/**` and `GET /api/overview`, each still needing its usual scope. Rotating one
+yields another `bcms_ro_` key. The anonymous probes `GET /health`, `/health/live`, `/health/ready` and
+`/health/build` ignore a read-only bearer, as they ignore any bearer.
+
+### Routes a module marks for read-only keys
+
+Core marks no route. A module can mark its own with one of two metadata types from
+`BarakoCMS.Abstractions`, set on the endpoint definition. A module that marks a route widens what
+every read-only key on that instance can do, so mark a route only when it is meant for them. Neither
+marker widens an unmarked route, and a revoked, expired or disabled-principal key is refused before
+the marker is looked at.
+
+- **Self-service route**, `Definition.AllowReadOnlyKeySelf()`. A key passes with any method when it is
+  bound to a service principal (a `principal_id` claim) and names no content types. No `cap:` scope is
+  needed. The rule is the same for a full key, so a read-only key is never more capable than a full
+  one. A read-only key with no principal, or with a content type limit, is refused as on any unmarked
+  route. The endpoint must filter every read and write by
+  `User.TryGetOwnerId(out var ownerId)`, which gives the principal id for a principal key and fails
+  for a read-only key with no principal (answer 403). Core cannot check that the endpoint does.
+- **Read route**, `Definition.AllowReadOnlyKeyRead()`. For a route that is a POST only to carry a
+  body and changes nothing. A key passes with any method, read-only or not, and its scopes and content
+  type limits apply as they do to a GET of that path, so a route outside the content API needs a `cap:`
+  scope for the capability that gates it.
+
+`ReadOnlyKeyMiddleware` and `ApiKeyScopeProcessor` read the same metadata and answer the same request
+the same way. The middleware still runs before the body is bound, so a refused caller gets 403 and
+not 415.
 
 ## Rolling back
 
 `migrations/5.5.0/rollback-906-service-principals.sql` revokes every read-only key and every key that
 acts as a principal before it drops the principals table. An earlier release ignores both fields, so
 without the revoke a read-only key would gain write access as its creator. Issue new keys afterwards.
+An earlier release also ignores the route markers above: a read-only key would be refused on a marked
+route there, so nothing widens, but a module that depends on the markers stops working for read-only
+keys until core is upgraded again. The script needs no change.
 
 ## Remaining
 
