@@ -77,7 +77,10 @@ Each item is included only if the capabilities passed hold what the endpoint ask
 | `content.overdue` | a set that holds `*` |
 
 `content.overdue` appears only for a set that holds `*`, because the route reads it through the
-content read check that a narrower set cannot pass.
+content read check that a narrower set cannot pass. This is deliberate. A user with a per-type read
+rule or a branch sees the item on the page and not from the source, because a capability string cannot
+carry per-type rules or branches. The source grants less than the route, never more. A set that holds
+`*` counts every type, with no branch scope.
 
 Get the set from `ICapabilityResolver` (`ForPrincipalAsync` or `ForUserAsync`) rather than building
 one by hand.

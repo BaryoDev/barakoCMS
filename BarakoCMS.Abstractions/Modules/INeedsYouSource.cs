@@ -11,7 +11,9 @@ namespace barakoCMS.Modules;
 /// <c>view_workflow_runs</c> for failing workflows, <c>view_monitoring</c> for the runner,
 /// <c>manage_email_settings</c> for bounces (and a registered bounce source). Overdue publishes need
 /// content read, which a capability set cannot express, so they are included only for a set that holds
-/// <c>*</c>. A set that holds less never sees them from here.
+/// <c>*</c>. A set that holds less never sees them from here, even a user with a per-type read
+/// rule or a branch scope, whom the route does show the overdue entries they may read. This is deliberate.
+/// A capability string cannot carry those rules, so the source grants less than the route, never more.
 /// </para>
 /// <para>
 /// Get the set from <see cref="barakoCMS.Core.Interfaces.ICapabilityResolver"/>. A module must resolve
