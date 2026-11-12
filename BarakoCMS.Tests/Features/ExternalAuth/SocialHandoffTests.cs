@@ -407,6 +407,7 @@ public class SocialHandoffTests
     {
         var code = await SignedInCodeAsync();
 
+        string storedPayload;
         using (var scope = _fixture.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
@@ -414,12 +415,17 @@ public class SocialHandoffTests
             var row = await session.LoadAsync<SocialHandoffCode>(SocialHandoff.HashOf(code), Ct);
             row.Should().NotBeNull();
             row!.Payload.Should().NotBeNullOrEmpty();
-            row.Payload.Should().NotContain("eyJ", "a JWT is not stored in the clear");
             row.DeviceHash.Should().NotBe(Device).And.Be(SocialHandoff.HashOf(Device));
             row.ExpiresAt.Should().BeCloseTo(DateTime.UtcNow.AddSeconds(60), TimeSpan.FromSeconds(10));
+            storedPayload = row.Payload;
         }
 
-        (await ExchangeAsync(code)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var exchange = await ExchangeAsync(code);
+        exchange.StatusCode.Should().Be(HttpStatusCode.OK);
+        var issued = (await exchange.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("token").GetString();
+        issued.Should().NotBeNullOrEmpty();
+        storedPayload.Should().NotContain(issued!, "a JWT is not stored in the clear");
+        storedPayload.Should().NotContain(issued!.Split('.')[1], "not even the claims part of it");
         using (var scope = _fixture.Services.CreateScope())
         {
             var used = await scope.ServiceProvider.GetRequiredService<IQuerySession>()
