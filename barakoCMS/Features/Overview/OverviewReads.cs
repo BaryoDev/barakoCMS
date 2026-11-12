@@ -30,10 +30,10 @@ internal static class OverviewReads
                 .Where(c => c.Status == ContentStatus.Scheduled && c.ScheduledPublishAt <= horizon)
                 .OrderBy(c => c.ScheduledPublishAt)
                 .Take(cap)
-                .Select(c => c.ScheduledPublishAt)
+                .Select(c => new { c.ScheduledPublishAt })
                 .ToListAsync(ct);
             due += times.Count;
-            overdue += times.Count(t => t < overdueBefore);
+            overdue += times.Count(t => t.ScheduledPublishAt < overdueBefore);
         }
 
         return (due, overdue);
