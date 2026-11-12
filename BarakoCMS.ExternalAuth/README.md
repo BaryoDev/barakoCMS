@@ -325,7 +325,7 @@ This is tested against a stub that publishes a template issuer, not against Micr
   "SignedClientSecret": {
     "KeyId": "ABC123DEFG",
     "TeamId": "TEAM456789",
-    "PrivateKey": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+    "PrivateKey": "<the contents of your AuthKey .p8 file, from a secret store>"
   }
 }
 ```
