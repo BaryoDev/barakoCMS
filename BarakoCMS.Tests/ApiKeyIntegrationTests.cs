@@ -1148,14 +1148,25 @@ public class ApiKeyIntegrationTests
             "cap:view_jobs", "cap:view_modules", "cap:view_workflow_runs");
 
         var mutating = new[] { "POST", "PUT", "PATCH", "DELETE" };
-        var routes = _factory.Services.GetRequiredService<Microsoft.AspNetCore.Routing.EndpointDataSource>().Endpoints
+        var all = _factory.Services.GetRequiredService<Microsoft.AspNetCore.Routing.EndpointDataSource>().Endpoints
             .OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>()
             .Select(e => (Pattern: e.RoutePattern.RawText ?? string.Empty,
-                          Methods: e.Metadata.GetMetadata<Microsoft.AspNetCore.Routing.HttpMethodMetadata>()?.HttpMethods ?? []))
+                          Methods: e.Metadata.GetMetadata<Microsoft.AspNetCore.Routing.HttpMethodMetadata>()?.HttpMethods ?? [],
+                          // Read off the endpoint, not the path: a module opts a route in with metadata.
+                          Marked: e.Metadata.GetMetadata<barakoCMS.Modules.ReadOnlyKeySelfRoute>() is not null
+                                  || e.Metadata.GetMetadata<barakoCMS.Modules.ReadOnlyKeyReadRoute>() is not null))
             .Where(r => r.Pattern.StartsWith("/api", StringComparison.OrdinalIgnoreCase))
-            .SelectMany(r => r.Methods.Where(m => mutating.Contains(m, StringComparer.OrdinalIgnoreCase)).Select(m => (m, r.Pattern)))
+            .SelectMany(r => r.Methods.Where(m => mutating.Contains(m, StringComparer.OrdinalIgnoreCase)).Select(m => (m, r.Pattern, r.Marked)))
             .Distinct()
             .ToList();
+
+        // A route a module marked for read-only keys is allowed to answer them; every other route is walked.
+        var skipped = all.Where(r => r.Marked).ToList();
+        skipped.Should().NotBeEmpty("the test host marks routes, and an exclusion that matches nothing cannot be told from one that grew");
+        skipped.Should().HaveCountLessThan(10, "the exclusion is for the few marked test routes, not for core routes");
+        skipped.Should().OnlyContain(r => r.Pattern.StartsWith("/api/_test/") || r.Pattern.StartsWith("/api/analytics/_test/"),
+            "core registers no marker, so only a test-only route may be skipped");
+        var routes = all.Where(r => !r.Marked).Select(r => (r.m, r.Pattern)).ToList();
 
         routes.Should().HaveCountGreaterThan(50, "the walk must find the registered routes, or it proves nothing");
 
