@@ -29,7 +29,7 @@ internal sealed class CreateApiKeyRequest
     /// </summary>
     public Guid? ServicePrincipalId { get; set; }
 
-    /// <summary>Makes a read-only key (secret prefix bcms_ro_) that refuses every write.</summary>
+    /// <summary>Makes a read-only key (secret prefix bcms_ro_) that refuses writes, except on a route a module marks for read-only keys.</summary>
     public bool ReadOnly { get; set; }
 }
 
