@@ -121,6 +121,15 @@ public class WorkflowAction
     public string Type { get; set; } = string.Empty; // "Email", "SMS", "Webhook"
     public Dictionary<string, string> Parameters { get; set; } = new(); // e.g., "To": "admin@example.com"
 
+    /// <summary>
+    /// A short name for this step, shown where a run lists its actions. Null for an action with none.
+    /// </summary>
+    /// <remarks>
+    /// Copied onto a run's action when the run is queued, like the parameters, so renaming it later
+    /// does not rewrite the runs that came before.
+    /// </remarks>
+    public string? Label { get; set; }
+
     /// <summary>What a run does with the actions after this one when this one fails.</summary>
     /// <remarks>
     /// An action stored before this existed has no such field and reads as

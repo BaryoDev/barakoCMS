@@ -6,6 +6,8 @@ using FastEndpoints;
 using barakoCMS.Features.Workflows;
 using Marten;
 using Marten.Linq.MatchesSql;
+using System.Text.Json.Serialization;
+using barakoCMS.Features.Content.Counts;
 
 namespace barakoCMS.Features.WorkflowRuns;
 
@@ -16,6 +18,14 @@ internal sealed class RunResponse
     public string WorkflowName { get; init; } = string.Empty;
     public Guid ContentId { get; init; }
     public string ContentType { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The title of the entry the run points at, as this caller may read it. Null when the caller
+    /// may not read the entry, when it was erased, when its title is masked from them, and on an
+    /// entry with no title. Untrusted text: it is an author's value with control and format
+    /// characters removed, so a console shows it as text and never as markup.
+    /// </summary>
+    public string? ContentTitle { get; init; }
     public string TriggerEvent { get; init; } = string.Empty;
 
     /// <summary>What runs it. Null for the built-in runner.</summary>
@@ -60,8 +70,17 @@ internal sealed class RunResponse
     [NJsonSchema.Annotations.JsonSchemaType(typeof(RunCompensation), IsNullable = true)]
     public string? Compensation { get; init; }
 
-    public static RunResponse From(WorkflowRun r) => new()
+    /// <summary>The run with its entry's title as the caller may read it.</summary>
+    public static async Task<RunResponse> FromWithTitleAsync(
+        WorkflowRun r, IQuerySession session, HttpContext http, System.Security.Claims.ClaimsPrincipal caller, CancellationToken ct)
     {
+        var titles = await RunContentTitles.ResolveAsync(session, http, caller, [r.ContentId], ct);
+        return From(r, titles.GetValueOrDefault(r.ContentId));
+    }
+
+    public static RunResponse From(WorkflowRun r, string? contentTitle = null) => new()
+    {
+        ContentTitle = contentTitle,
         Id = r.Id,
         WorkflowDefinitionId = r.WorkflowDefinitionId,
         WorkflowName = r.WorkflowName,
@@ -95,6 +114,13 @@ internal sealed class AttemptResponse
 {
     public int Ordinal { get; init; }
     public string ActionType { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The workflow's label for this action as it was when the run was queued, so a later rename
+    /// does not rewrite it. Null when the action had none.
+    /// </summary>
+    public string? Label { get; init; }
+
     /// <summary>The name of an <see cref="AttemptStatus"/>.</summary>
     [NJsonSchema.Annotations.JsonSchemaType(typeof(AttemptStatus))]
     public string Status { get; init; } = nameof(AttemptStatus.Pending);
@@ -140,6 +166,7 @@ internal sealed class AttemptResponse
     {
         Ordinal = a.Ordinal,
         ActionType = a.ActionType,
+        Label = a.Label,
         Status = a.Status.ToString(),
         Attempts = a.Attempts,
         NextAttemptAt = a.NextAttemptAt,
@@ -214,7 +241,10 @@ internal sealed class CompensationResponse
 
 internal sealed class ListRunsRequest : ListRequest
 {
-    /// <summary>The name of a <see cref="RunStatus"/>, in any case. Left out, every status is listed.</summary>
+    /// <summary>
+    /// The name of a <see cref="RunStatus"/>, in any case, or several separated by commas such as
+    /// <c>Running,Pending</c>. Left out, every status is listed.
+    /// </summary>
     /// <remarks>
     /// Bound as a string so the handler keeps its own refusal for a name it does not know. Nullable
     /// is said on the attribute because without it the document marks the filter as required.
@@ -231,6 +261,37 @@ internal sealed class ListRunsRequest : ListRequest
     /// newest first as before. Given, only runs changed after it are listed, oldest change first.
     /// </summary>
     public string? ChangedSince { get; set; }
+
+    /// <summary>
+    /// Count <c>statusCounts</c> over the runs created in the last <c>24h</c>, <c>7d</c> or <c>30d</c>.
+    /// Not with <c>from</c> or <c>to</c>. The runs listed are not narrowed by it.
+    /// </summary>
+    public string? Range { get; set; }
+
+    /// <summary>Count only runs created at or after this time, ISO 8601, read as UTC when it has no zone. <c>to</c> defaults to now.</summary>
+    public string? From { get; set; }
+
+    /// <summary>Count only runs created before this time. Needs <c>from</c>.</summary>
+    public string? To { get; set; }
+
+    /// <summary>
+    /// <c>hour</c> or <c>day</c>: also return <c>series</c>, the window cut into buckets of that
+    /// size. Needs a window.
+    /// </summary>
+    public string? Series { get; set; }
+}
+
+/// <summary>One bucket of a run series.</summary>
+internal sealed class RunSeriesBucket
+{
+    /// <summary>Where the bucket starts.</summary>
+    public DateTimeOffset Start { get; set; }
+
+    /// <summary>Runs created in the bucket, of any status.</summary>
+    public int Total { get; set; }
+
+    /// <summary>Runs created in the bucket by status, every status present with zero where there are none.</summary>
+    public Dictionary<string, int> Counts { get; set; } = new();
 }
 
 // The page fields are declared here and not inherited from PaginatedResponse, because a derived
@@ -265,6 +326,26 @@ internal sealed class RunListResponse
     /// was given, since a poll reads what changed and a count would add a scan to each one.
     /// </summary>
     public Dictionary<string, int>? StatusCounts { get; set; }
+
+    /// <summary>
+    /// Only when a window was asked for: the window <c>statusCounts</c> was counted over.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WindowInfo? Window { get; set; }
+
+    /// <summary>
+    /// Only when a window was asked for: the same counts for the window of the same length that
+    /// ended where this one starts, so a delta is the difference of the two.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, int>? PreviousStatusCounts { get; set; }
+
+    /// <summary>
+    /// Only when <c>series</c> was asked for: one entry per bucket, oldest first, always the same
+    /// number for the same window.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<RunSeriesBucket>? Series { get; set; }
 
     /// <summary>
     /// Pass back as <c>changedSince</c> to read what changed after this response. Present only when
@@ -305,19 +386,47 @@ internal sealed class ListRunsEndpoint(
         Definition.RequireCapability(SystemCapabilities.ViewWorkflowRuns, RunGate.LegacyRoles);
     }
 
-    private RunStatus? ParseStatus(string? text)
+    /// <summary>
+    /// The statuses asked for: none for a missing or blank value, one for a name, several for a
+    /// comma list.
+    /// </summary>
+    private IReadOnlyList<RunStatus> ParseStatuses(string? text)
     {
-        if (string.IsNullOrWhiteSpace(text)) return null;
+        if (string.IsNullOrWhiteSpace(text)) return [];
 
-        if (!Enum.TryParse<RunStatus>(text, ignoreCase: true, out var parsed))
+        if (!text.Contains(','))
         {
-            // Refused rather than ignored. A filter that is silently dropped returns more rows
-            // than the caller asked for, and they cannot tell that from "no matches".
-            ThrowError($"Status must be one of: {string.Join(", ", Enum.GetNames<RunStatus>())}.", 400);
+            return [ParseOne(text, ignoreCase: true)];
+        }
+
+        // Each part has to be a name. Enum parsing alone reads a comma as a combination of flags,
+        // which is not a list of statuses.
+        var statuses = new List<RunStatus>();
+        foreach (var part in text.Split(','))
+        {
+            var name = part.Trim();
+            if (!Enum.GetNames<RunStatus>().Contains(name, StringComparer.OrdinalIgnoreCase)) Refuse();
+            var status = ParseOne(name, ignoreCase: true);
+            if (!statuses.Contains(status)) statuses.Add(status);
+        }
+
+        return statuses;
+    }
+
+    private RunStatus ParseOne(string text, bool ignoreCase)
+    {
+        if (!Enum.TryParse<RunStatus>(text, ignoreCase, out var parsed))
+        {
+            Refuse();
         }
 
         return parsed;
     }
+
+    private void Refuse() =>
+        // Refused rather than ignored. A filter that is silently dropped returns more rows
+        // than the caller asked for, and they cannot tell that from "no matches".
+        ThrowError($"Status must be one of: {string.Join(", ", Enum.GetNames<RunStatus>())}.", 400);
 
     private RunListResponse EmptyPageAfter(ListRunsRequest req)
     {
@@ -338,10 +447,19 @@ internal sealed class ListRunsEndpoint(
     }
 
     private static IQueryable<WorkflowRun> FilterRuns(
-        IQuerySession session, ListRunsRequest req, RunStatus? status, RunCursor? since)
+        IQuerySession session, ListRunsRequest req, IReadOnlyList<RunStatus> statuses, RunCursor? since)
     {
         var query = session.Query<WorkflowRun>().AsQueryable();
-        if (status is { } s) query = query.Where(r => r.Status == s);
+        if (statuses.Count == 1)
+        {
+            var s = statuses[0];
+            query = query.Where(r => r.Status == s);
+        }
+        else if (statuses.Count > 1)
+        {
+            query = query.Where(AnyOf(statuses));
+        }
+
         if (req.ContentId is { } contentId) query = query.Where(r => r.ContentId == contentId);
         if (req.WorkflowId is { } workflowId) query = query.Where(r => r.WorkflowDefinitionId == workflowId);
 
@@ -356,9 +474,71 @@ internal sealed class ListRunsEndpoint(
         return query.OrderByDescending(r => r.CreatedAt);
     }
 
+    private sealed record RunTally(
+        CountWindow? Window,
+        Dictionary<string, int>? Counts,
+        Dictionary<string, int>? Previous,
+        List<RunSeriesBucket>? Series)
+    {
+        /// <summary>What a window adds to the ETag: where it is, and the counts and buckets in it.</summary>
+        public string ETagSuffix() => Window is null || Previous is null
+            ? ""
+            : $":{Window.From.UtcTicks}:{Window.To.UtcTicks}:{Window.Bucket?.Ticks}"
+              + $":{string.Join(',', Previous.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => p.Value))}"
+              + $":{string.Join(',', Series?.Select(b => b.Total) ?? [])}";
+    }
+
+    /// <summary>
+    /// The counts of the response. A poll reads what changed and carries no counts, so a window has
+    /// nothing to count there and is not checked either.
+    /// </summary>
+    private async Task<RunTally> TallyAsync(ListRunsRequest req, bool counting, DateTimeOffset now, CancellationToken ct)
+    {
+        if (!counting) return new RunTally(null, null, null, null);
+
+        var (window, refusal) = CountWindow.Resolve(req.Range, req.From, req.To, req.Series, now, CountWindow.ClockSlack);
+        if (refusal is not null) ThrowError(refusal, 400);
+
+        if (window is null)
+        {
+            var all = await RunQueries.CountByStatusAsync(session, req.ContentId, req.WorkflowId, ct);
+            return new RunTally(null, all, null, null);
+        }
+
+        var cells = await RunQueries.CountWindowAsync(session, req.ContentId, req.WorkflowId, window, ct);
+        var series = window.Bucket is null
+            ? null
+            : Enumerable.Range(0, window.Buckets).Select(i =>
+            {
+                var bucket = RunQueries.ByStatus(s => cells.At(i, (int)s));
+                return new RunSeriesBucket { Start = window.BucketStart(i), Total = bucket.Values.Sum(), Counts = bucket };
+            }).ToList();
+
+        return new RunTally(
+            window,
+            RunQueries.ByStatus(s => cells.Current((int)s)),
+            RunQueries.ByStatus(s => cells.Previous((int)s)),
+            series);
+    }
+
+    /// <summary>
+    /// <c>Status == a || Status == b ...</c>, written out as the comparisons a single status makes, so
+    /// the query translates the way the single-status one does.
+    /// </summary>
+    private static System.Linq.Expressions.Expression<Func<WorkflowRun, bool>> AnyOf(IReadOnlyList<RunStatus> statuses)
+    {
+        var run = System.Linq.Expressions.Expression.Parameter(typeof(WorkflowRun), "r");
+        var status = System.Linq.Expressions.Expression.Property(run, nameof(WorkflowRun.Status));
+        var any = statuses
+            .Select(s => (System.Linq.Expressions.Expression)System.Linq.Expressions.Expression.Equal(
+                status, System.Linq.Expressions.Expression.Constant(s)))
+            .Aggregate(System.Linq.Expressions.Expression.OrElse);
+        return System.Linq.Expressions.Expression.Lambda<Func<WorkflowRun, bool>>(any, run);
+    }
+
     public override async Task HandleAsync(ListRunsRequest req, CancellationToken ct)
     {
-        var status = ParseStatus(req.Status);
+        var status = ParseStatuses(req.Status);
 
         RunCursor? since = null;
         if (req.ChangedSince is not null)
@@ -383,9 +563,8 @@ internal sealed class ListRunsEndpoint(
         }
 
         var now = clock.GetUtcNow();
-        var counts = since is null
-            ? await RunQueries.CountByStatusAsync(session, req.ContentId, req.WorkflowId, ct)
-            : null;
+        var tally = await TallyAsync(req, since is null, now, ct);
+        var (window, counts) = (tally.Window, tally.Counts);
 
         var query = FilterRuns(session, req, status, since);
 
@@ -393,10 +572,12 @@ internal sealed class ListRunsEndpoint(
 
         var windows = WorkflowRunRetentionService.ReadWindows(config);
         var sweeping = WorkflowRunRetentionService.IsEnabled(config);
-        var items = page.Items.Select(RunResponse.From).ToList();
+        var titles = await RunContentTitles.ResolveAsync(
+            session, HttpContext, User, page.Items.Select(r => r.ContentId), ct);
+        var items = page.Items.Select(r => RunResponse.From(r, titles.GetValueOrDefault(r.ContentId))).ToList();
 
         var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, counts,
-            $"{sweeping}:{windows.SucceededDays}:{windows.FailedDays}");
+            $"{sweeping}:{windows.SucceededDays}:{windows.FailedDays}" + tally.ETagSuffix());
         HttpContext.Response.Headers.ETag = etag;
         HttpContext.Response.Headers.CacheControl = "private, no-cache";
         if (DeliveryCache.IsNotModified(HttpContext.Request, etag, null))
@@ -414,6 +595,9 @@ internal sealed class ListRunsEndpoint(
             PageSize = page.PageSize,
             TotalItems = page.TotalItems,
             StatusCounts = counts,
+            Window = window is null ? null : new WindowInfo(window.From, window.To),
+            PreviousStatusCounts = tally.Previous,
+            Series = tally.Series,
             Cursor = since is { } input
                 ? RunCursor.Next(input, page.Items, req.Skip + page.Items.Count < page.TotalItems, now).ToString()
                 : null,
@@ -446,7 +630,7 @@ internal sealed class GetRunEndpoint(IQuerySession session) : EndpointWithoutReq
             return;
         }
 
-        await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+        await Send.ResponseAsync(await RunResponse.FromWithTitleAsync(run, session, HttpContext, User, ct), cancellation: ct);
     }
 }
 
@@ -603,7 +787,7 @@ internal sealed class RetryAttemptEndpoint(
             return;
         }
 
-        await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+        await Send.ResponseAsync(await RunResponse.FromWithTitleAsync(run, session, HttpContext, User, ct), cancellation: ct);
     }
 
     /// <summary>Why this attempt of the run cannot be retried as it stands, or null when it can.</summary>
@@ -679,7 +863,7 @@ internal sealed class CancelRunEndpoint(
         // records nothing, and answers with the run as it stands.
         if (alreadyStopped && cancelled == 0)
         {
-            await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+            await Send.ResponseAsync(await RunResponse.FromWithTitleAsync(run, session, HttpContext, User, ct), cancellation: ct);
             return;
         }
 
@@ -709,7 +893,7 @@ internal sealed class CancelRunEndpoint(
             return;
         }
 
-        await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+        await Send.ResponseAsync(await RunResponse.FromWithTitleAsync(run, session, HttpContext, User, ct), cancellation: ct);
     }
 }
 
@@ -803,7 +987,7 @@ internal sealed class AbandonRunEndpoint(
             return;
         }
 
-        await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+        await Send.ResponseAsync(await RunResponse.FromWithTitleAsync(run, session, HttpContext, User, ct), cancellation: ct);
     }
 
     /// <summary>Why the run cannot be abandoned as it stands, or null when it can.</summary>

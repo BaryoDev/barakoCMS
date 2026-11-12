@@ -45,9 +45,12 @@ internal class Endpoint(
             .Take(req.Take)
             .ToListAsync(ct);
 
+        var counts = await RoleHolderCounts.ForAsync(session, tenant.Slug, roles, ct);
+
         await Send.ResponseAsync(new PaginatedResponse<barakoCMS.Features.Roles.RoleResponse>
         {
-            Items = roles.Select(barakoCMS.Features.Roles.RoleResponse.From).ToList(),
+            Items = roles.Select(r => barakoCMS.Features.Roles.RoleResponse.WithHolders(
+                r, counts.GetValueOrDefault(r.Id))).ToList(),
             Page = req.Page,
             PageSize = req.PageSize,
             TotalItems = totalCount

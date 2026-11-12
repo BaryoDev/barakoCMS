@@ -198,7 +198,7 @@ internal sealed class WorkflowConfigProvider(
             }
 
             held.AddRange(unreadable.Select(b => $"action {i} ({action.Type}) has a branch '{b}' that cannot be read, so it is left out."));
-            actions.Add(new WorkflowAction { Type = action.Type, Parameters = parameters, OnFailure = action.OnFailure });
+            actions.Add(new WorkflowAction { Type = action.Type, Label = action.Label, Parameters = parameters, OnFailure = action.OnFailure });
         }
 
         // A schedule workflow has no events of its own: its stored trigger is derived from its name.
