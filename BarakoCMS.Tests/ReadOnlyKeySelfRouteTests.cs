@@ -197,8 +197,9 @@ public class ReadOnlyKeySelfRouteTests
         }
     }
 
+    // Covers authentication, not the marker: these keys never authenticate, so the marker is not looked at.
     [Fact]
-    public async Task Revoked_expired_and_disabled_principal_keys_are_refused_on_a_marked_route()
+    public async Task Revoked_expired_and_disabled_principal_keys_are_refused_at_authentication_on_a_marked_route()
     {
         var creator = await UserAsync();
         var principal = await PrincipalAsync(creator);
@@ -220,15 +221,12 @@ public class ReadOnlyKeySelfRouteTests
     [Fact]
     public async Task Marked_route_sees_the_principal_id_not_the_creators_user_id()
     {
-        var (creator, principal, secret) = await PrincipalKeyAsync();
-        principal.Should().NotBe(creator);
+        var (_, principal, secret) = await PrincipalKeyAsync();
 
         var res = await SendAsync(HttpMethod.Post, SelfRoute, secret, Json());
 
         res.StatusCode.Should().Be(HttpStatusCode.OK, await TextAsync(res));
-        var owner = (await res.Content.ReadFromJsonAsync<OwnerResponse>(Ct))!.Id;
-        owner.Should().Be(principal);
-        owner.Should().NotBe(creator);
+        (await res.Content.ReadFromJsonAsync<OwnerResponse>(Ct))!.Id.Should().Be(principal);
     }
 
     [Fact]
@@ -334,6 +332,19 @@ public class ReadOnlyKeySelfRouteTests
     }
 
     [Fact]
+    public async Task A_full_principal_key_with_no_scopes_may_call_a_marked_self_route()
+    {
+        // Pins the scope skip: without it the route needs a cap: scope the key does not hold.
+        var creator = await UserAsync();
+        var principal = await PrincipalAsync(creator);
+        var secret = await KeyAsync(creator, principal, scopes: [], readOnly: false);
+
+        var res = await SendAsync(HttpMethod.Post, SelfRoute, secret, Json());
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await TextAsync(res));
+    }
+
+    [Fact]
     public async Task A_full_key_may_call_a_marked_read_route()
     {
         var creator = await UserAsync();
@@ -357,17 +368,37 @@ public class ReadOnlyKeySelfRouteTests
         res.StatusCode.Should().Be(HttpStatusCode.OK, await TextAsync(res));
     }
 
-    [Fact]
-    public async Task Health_ready_with_a_read_only_bearer_answers_as_it_does_with_none()
+    [Theory]
+    [InlineData("GET", "/health")]
+    [InlineData("GET", "/health/live")]
+    [InlineData("GET", "/health/ready")]
+    [InlineData("GET", "/health/build")]
+    [InlineData("HEAD", "/health/ready")]
+    public async Task A_health_probe_with_a_read_only_bearer_answers_as_it_does_with_none(string method, string path)
     {
         var creator = await UserAsync();
         var secret = await KeyAsync(creator, principalId: null, scopes: ["content:read"]);
 
-        var bare = await _client.GetAsync("/health/ready", Ct);
-        var withKey = await SendAsync(HttpMethod.Get, "/health/ready", secret);
+        var bare = await _client.SendAsync(new HttpRequestMessage(new HttpMethod(method), path), Ct);
+        var withKey = await SendAsync(new HttpMethod(method), path, secret);
 
         withKey.StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
         withKey.StatusCode.Should().Be(bare.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("GET", "/healthz")]
+    [InlineData("GET", "/health/foo")]
+    [InlineData("POST", "/health/ready")]
+    [InlineData("DELETE", "/health")]
+    public async Task The_health_exemption_is_exact_and_read_only(string method, string path)
+    {
+        var creator = await UserAsync();
+        var secret = await KeyAsync(creator, principalId: null, scopes: ["content:read"]);
+
+        var res = await SendAsync(new HttpMethod(method), path, secret, BodyFor(new HttpMethod(method)));
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     // ---- the middleware and the processor agree ---------------------------------
@@ -441,6 +472,9 @@ public class ReadOnlyKeySelfRouteTests
     [InlineData("none", "GET", "/api/monitoring/health", false, false, "monitor:read", true, true)]
     [InlineData("none", "POST", "/api/monitoring/health", false, false, "monitor:read", false, false)]
     [InlineData("none", "GET", "/api/monitoring/metrics", false, false, "monitor:read", false, false)]
+    [InlineData("none", "GET", "/API/Monitoring/Health", false, false, "monitor:read", true, true)]
+    [InlineData("none", "GET", "/api/monitoring/health/", false, false, "monitor:read", true, true)]
+    [InlineData("none", "GET", "/API/Monitoring/Health/", false, false, "monitor:read", true, true)]
     // A full key is never less capable than a read-only one on a marked route.
     [InlineData("self", "POST", SelfRoute, true, false, "", true, true, false)]
     [InlineData("self", "DELETE", SelfRoute, true, false, "content:write", true, true, false)]
@@ -486,8 +520,17 @@ public class ReadOnlyKeySelfRouteTests
 
         Caller().TryGetOwnerId(out _).Should().BeFalse();
 
+        // Both claims present: the principal id wins, for a full key and a read-only one.
+        Caller(("principal_id", principal.ToString()), ("UserId", user.ToString()))
+            .TryGetOwnerId(out var both).Should().BeTrue();
+        both.Should().Be(principal);
+        Caller(("principal_id", principal.ToString()), ("UserId", user.ToString()), ("apikey_readonly", "true"))
+            .TryGetOwnerId(out var bothReadOnly).Should().BeTrue();
+        bothReadOnly.Should().Be(principal);
+
         ReadOnlyKeyRoutes.PrincipalClaim.Should().Be(ApiKeyAuthenticationHandler.PrincipalClaim);
-        ApiKeyAuthenticationHandler.ReadOnlyClaim.Should().Be("apikey_readonly");
+        ReadOnlyKeyRoutes.ReadOnlyClaim.Should().Be(ApiKeyAuthenticationHandler.ReadOnlyClaim);
+        ReadOnlyKeyRoutes.UserIdClaim.Should().Be("UserId");
     }
 
     private static ClaimsPrincipal Caller(params (string Type, string Value)[] claims) =>
