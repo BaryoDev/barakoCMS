@@ -1,5 +1,6 @@
 using barakoCMS.Models;
 using Marten;
+using barakoCMS.Features.Content.Counts;
 
 namespace barakoCMS.Features.WorkflowRuns;
 
@@ -25,6 +26,26 @@ internal static class RunQueries
         var counts = Enum.GetValues<RunStatus>().ToDictionary(each => each.ToString(), _ => 0);
         foreach (var group in groups) counts[group.Status.ToString()] = group.Count;
         return counts;
+    }
+
+    /// <summary>A count for every status, zero where there is none, from a count by status.</summary>
+    internal static Dictionary<string, int> ByStatus(Func<RunStatus, int> of) =>
+        Enum.GetValues<RunStatus>().ToDictionary(each => each.ToString(), of);
+
+    /// <summary>
+    /// The runs created in a window and in the one before it, by status and bucket, under the same
+    /// content and workflow filters as <see cref="CountByStatusAsync"/>: one query.
+    /// </summary>
+    internal static Task<WindowCells> CountWindowAsync(
+        IQuerySession session, Guid? contentId, Guid? workflowId, CountWindow window, CancellationToken ct)
+    {
+        var floor = window.PreviousFrom;
+        var ceiling = window.To;
+        var q = session.Query<WorkflowRun>().Where(r => r.CreatedAt >= floor && r.CreatedAt < ceiling);
+        if (contentId is { } c) q = q.Where(r => r.ContentId == c);
+        if (workflowId is { } w) q = q.Where(r => r.WorkflowDefinitionId == w);
+
+        return CountWindow.TallyAsync(session, [q], window, ct);
     }
 
     /// <summary>
