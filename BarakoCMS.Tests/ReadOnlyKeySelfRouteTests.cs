@@ -318,6 +318,32 @@ public class ReadOnlyKeySelfRouteTests
             .Should().Be(HttpStatusCode.Forbidden);
     }
 
+    [Fact]
+    public async Task A_full_principal_key_may_call_a_marked_self_route()
+    {
+        var creator = await UserAsync();
+        var principal = await PrincipalAsync(creator);
+        var secret = await KeyAsync(creator, principal, readOnly: false);
+
+        foreach (var method in new[] { HttpMethod.Post, HttpMethod.Put, HttpMethod.Delete, HttpMethod.Get })
+        {
+            var res = await SendAsync(method, SelfRoute, secret, BodyFor(method));
+            res.StatusCode.Should().Be(HttpStatusCode.OK, $"{method}: {await TextAsync(res)}");
+            (await res.Content.ReadFromJsonAsync<OwnerResponse>(Ct))!.Id.Should().Be(principal);
+        }
+    }
+
+    [Fact]
+    public async Task A_full_key_may_call_a_marked_read_route()
+    {
+        var creator = await UserAsync();
+        var secret = await KeyAsync(creator, principalId: null, scopes: ["monitor:read"], readOnly: false);
+
+        var res = await SendAsync(HttpMethod.Post, ReadRoute, secret, Json());
+
+        res.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.NoContent);
+    }
+
     // ---- allowlist fixes -----------------------------------------------------
 
     [Fact]
@@ -349,14 +375,16 @@ public class ReadOnlyKeySelfRouteTests
     private sealed record Run(bool Refused, int Status);
 
     private static DefaultHttpContext Request(
-        string method, string path, string marker, bool principal, bool contentType, string[] scopes)
+        string method, string path, string marker, bool principal, bool contentType, string[] scopes,
+        bool readOnly = true)
     {
         var claims = new List<Claim>
         {
             new("auth_method", "apikey"),
-            new(ApiKeyAuthenticationHandler.ReadOnlyClaim, "true"),
             new("UserId", Guid.NewGuid().ToString()),
         };
+        if (readOnly)
+            claims.Add(new Claim(ApiKeyAuthenticationHandler.ReadOnlyClaim, "true"));
         if (principal)
             claims.Add(new Claim(ApiKeyAuthenticationHandler.PrincipalClaim, Guid.NewGuid().ToString()));
         if (contentType)
@@ -397,7 +425,7 @@ public class ReadOnlyKeySelfRouteTests
     }
 
     [Theory]
-    // marker, method, path, principal, contentType, scope, middleware passes, processor passes
+    // marker, method, path, principal, contentType, scope, middleware passes, processor passes, read-only
     [InlineData("self", "POST", SelfRoute, true, false, "", true, true)]
     [InlineData("self", "DELETE", SelfRoute, true, false, "", true, true)]
     [InlineData("self", "POST", SelfRoute, false, false, "", false, false)]
@@ -413,14 +441,25 @@ public class ReadOnlyKeySelfRouteTests
     [InlineData("none", "GET", "/api/monitoring/health", false, false, "monitor:read", true, true)]
     [InlineData("none", "POST", "/api/monitoring/health", false, false, "monitor:read", false, false)]
     [InlineData("none", "GET", "/api/monitoring/metrics", false, false, "monitor:read", false, false)]
+    // A full key is never less capable than a read-only one on a marked route.
+    [InlineData("self", "POST", SelfRoute, true, false, "", true, true, false)]
+    [InlineData("self", "DELETE", SelfRoute, true, false, "content:write", true, true, false)]
+    [InlineData("self", "POST", SelfRoute, false, false, "", true, false, false)]
+    [InlineData("self", "POST", SelfRoute, true, true, "", true, false, false)]
+    [InlineData("none", "POST", SelfRoute, true, false, "", true, false, false)]
+    [InlineData("read", "POST", ReadRoute, false, false, "monitor:read", true, true, false)]
+    [InlineData("read", "DELETE", ReadRoute, true, false, "monitor:read", true, true, false)]
+    [InlineData("read", "POST", ReadRoute, false, false, "content:read", true, false, false)]
+    [InlineData("read", "POST", ReadRoute, false, true, "monitor:read", true, false, false)]
+    [InlineData("none", "POST", ReadRoute, false, false, "monitor:read", true, false, false)]
     public async Task The_middleware_and_the_processor_answer_the_same_request_the_same_way(
         string marker, string method, string path, bool principal, bool contentType, string scope,
-        bool middlewarePasses, bool processorPasses)
+        bool middlewarePasses, bool processorPasses, bool readOnly = true)
     {
         string[] scopes = scope.Length == 0 ? [] : [scope];
 
-        var middleware = await ViaMiddlewareAsync(Request(method, path, marker, principal, contentType, scopes));
-        var processor = await ViaProcessorAsync(Request(method, path, marker, principal, contentType, scopes));
+        var middleware = await ViaMiddlewareAsync(Request(method, path, marker, principal, contentType, scopes, readOnly));
+        var processor = await ViaProcessorAsync(Request(method, path, marker, principal, contentType, scopes, readOnly));
 
         middleware.Refused.Should().Be(!middlewarePasses, "middleware");
         processor.Refused.Should().Be(!processorPasses, "processor");

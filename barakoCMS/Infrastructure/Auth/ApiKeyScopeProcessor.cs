@@ -32,12 +32,12 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         if (await RefuseReadOnlyAsync(http, ct))
             return;
 
-        var readOnly = user.HasClaim(ApiKeyAuthenticationHandler.ReadOnlyClaim, "true");
-        if (readOnly && MayCallSelfRoute(http))
+        // The markers apply to every API key, so a full key can call whatever a read-only key can.
+        if (MayCallSelfRoute(http))
             return;
 
         var path = http.Request.Path.Value ?? string.Empty;
-        var isWrite = IsWrite(http.Request.Method) && !(readOnly && IsReadRoute(http));
+        var isWrite = IsWrite(http.Request.Method) && !IsReadRoute(http);
 
         var contentTypes = user.FindAll(ApiKeyAuthenticationHandler.ContentTypeClaim).Select(c => c.Value).ToList();
         if (contentTypes.Count > 0 && !IsPushTo(path, contentTypes))
@@ -98,7 +98,7 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         path.TrimEnd('/').ToLowerInvariant() is "/health" or "/health/live" or "/health/ready" or "/health/build";
 
     // The route carries the self-service marker, the key is bound to a principal and names no content
-    // types. Only asked of a read-only key.
+    // types. Read-only or not, so a read-only key is never more capable than a full one.
     private static bool MayCallSelfRoute(HttpContext http) =>
         http.GetEndpoint()?.Metadata.GetMetadata<ReadOnlyKeySelfRoute>() is not null
         && ActingCaller.PrincipalIdOf(http.User) is not null

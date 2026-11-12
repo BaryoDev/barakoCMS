@@ -95,15 +95,16 @@ every read-only key on that instance can do, so mark a route only when it is mea
 marker widens an unmarked route, and a revoked, expired or disabled-principal key is refused before
 the marker is looked at.
 
-- **Self-service route**, `Definition.AllowReadOnlyKeySelf()`. A read-only key passes with any method
-  when it is bound to a service principal (a `principal_id` claim) and names no content types. No
-  `cap:` scope is needed. A read-only key with no principal, or with a content type limit, is refused
-  as on any unmarked route. The endpoint must filter every read and write by
+- **Self-service route**, `Definition.AllowReadOnlyKeySelf()`. A key passes with any method when it is
+  bound to a service principal (a `principal_id` claim) and names no content types. No `cap:` scope is
+  needed. The rule is the same for a full key, so a read-only key is never more capable than a full
+  one. A read-only key with no principal, or with a content type limit, is refused as on any unmarked
+  route. The endpoint must filter every read and write by
   `User.TryGetOwnerId(out var ownerId)`, which gives the principal id for a principal key and fails
   for a read-only key with no principal (answer 403). Core cannot check that the endpoint does.
 - **Read route**, `Definition.AllowReadOnlyKeyRead()`. For a route that is a POST only to carry a
-  body and changes nothing. A read-only key passes with any method, and its scopes and content type
-  limits apply as they do to a GET of that path, so a route outside the content API needs a `cap:`
+  body and changes nothing. A key passes with any method, read-only or not, and its scopes and content
+  type limits apply as they do to a GET of that path, so a route outside the content API needs a `cap:`
   scope for the capability that gates it.
 
 `ReadOnlyKeyMiddleware` and `ApiKeyScopeProcessor` read the same metadata and answer the same request
