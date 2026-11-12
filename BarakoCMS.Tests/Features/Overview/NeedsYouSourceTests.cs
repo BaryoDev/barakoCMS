@@ -12,6 +12,7 @@ using Marten;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Xunit;
 
 namespace BarakoCMS.Tests.Features.Overview;
@@ -59,6 +60,31 @@ public class NeedsYouSourceTests
         public IServiceProvider Services => factory.Services;
     }
 
+    private sealed class Unhealthy : IHealthCheck
+    {
+        public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default) =>
+            Task.FromResult(HealthCheckResult.Unhealthy("stopped"));
+    }
+
+    /// <summary>Host where the workflow projection check, under its own name, always reports unhealthy.</summary>
+    private Host HostWithStoppedRunner()
+    {
+        var host = _fixture.WithWebHostBuilder(b => b.ConfigureServices(s =>
+        {
+            s.AddSingleton<IMailBounceSource>(new FakeBounces());
+            s.Configure<HealthCheckServiceOptions>(o =>
+            {
+                o.Registrations.Remove(o.Registrations.Single(r =>
+                    r.Name == barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck.Name));
+                o.Registrations.Add(new HealthCheckRegistration(
+                    barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck.Name,
+                    new Unhealthy(), null, null));
+            });
+        }));
+        host.CreateClient().Dispose();
+        return new Host(host);
+    }
+
     private Host HostWith(FakeBounces bounces)
     {
         var host = _fixture.WithWebHostBuilder(b =>
@@ -98,7 +124,7 @@ public class NeedsYouSourceTests
         await session.SaveChangesAsync(Ct);
     }
 
-    private async Task SeedOverdueAsync(string tenant, int count)
+    private async Task<string> SeedOverdueAsync(string tenant, int count)
     {
         var type = "nstype_" + Guid.NewGuid().ToString("N")[..10];
         await using var session = Store.LightweightSession(tenant);
@@ -122,6 +148,35 @@ public class NeedsYouSourceTests
         }
 
         await session.SaveChangesAsync(Ct);
+        return type;
+    }
+
+    /// <summary>A user whose only grant is a read rule on one content type, no system capability.</summary>
+    private async Task<Guid> UserWithTypeReadAsync(string tenant, string contentType)
+    {
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = "ns-" + Guid.NewGuid().ToString("N"),
+            TenantSlug = tenant,
+            Permissions = [new ContentTypePermission { ContentTypeSlug = contentType, Read = new PermissionRule { Enabled = true } }],
+        };
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Username = "ns-" + Guid.NewGuid().ToString("N")[..12],
+            Email = $"{Guid.NewGuid():N}@example.com",
+        };
+        await using var session = Store.LightweightSession();
+        session.Store(role);
+        session.Store(user);
+        session.Store(new Membership
+        {
+            Id = Guid.NewGuid(), UserId = user.Id, TenantSlug = tenant,
+            Status = MembershipStatus.Active, RoleIds = [role.Id],
+        });
+        await session.SaveChangesAsync(Ct);
+        return user.Id;
     }
 
     private async Task<HttpClient> CallerAsync(Host host, string tenant, string[] capabilities)
@@ -231,11 +286,31 @@ public class NeedsYouSourceTests
     public async Task Leaves_out_the_runner_item_without_view_monitoring()
     {
         var tenant = await TenantAsync();
+        var host = HostWithStoppedRunner();
+
+        var withCapability = await host.Source.ReadAsync(tenant, Caps(SystemCapabilities.ViewMonitoring), Ct);
+        var without = await host.Source.ReadAsync(
+            tenant, Caps(Everything.Where(c => c != SystemCapabilities.ViewMonitoring).ToArray()), Ct);
+
+        withCapability.Should().ContainSingle(i => i.Id == "runner.stalled");
+        without.Select(i => i.Id).Should().NotContain("runner.stalled");
+    }
+
+    [Fact]
+    public async Task A_user_with_only_a_per_type_read_rule_gets_no_overdue_item_and_a_star_holder_does()
+    {
+        var tenant = await TenantAsync();
+        var type = await SeedOverdueAsync(tenant, 2);
+        var userId = await UserWithTypeReadAsync(tenant, type);
         var host = HostWith(new FakeBounces());
+        var resolver = host.Services.GetRequiredService<ICapabilityResolver>();
 
-        var entries = await host.Source.ReadAsync(tenant, Caps(Everything.Where(c => c != SystemCapabilities.ViewMonitoring).ToArray()), Ct);
+        var held = await resolver.ForUserAsync(userId, tenant, Ct);
+        var perType = await host.Source.ReadAsync(tenant, held, Ct);
+        var star = await host.Source.ReadAsync(tenant, Caps(SystemCapabilities.All), Ct);
 
-        entries.Select(i => i.Id).Should().NotContain("runner.stalled");
+        perType.Select(i => i.Id).Should().NotContain("content.overdue");
+        star.Should().ContainSingle(i => i.Id == "content.overdue");
     }
 
     [Fact]
