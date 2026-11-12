@@ -733,6 +733,30 @@ store.
 With no module that stores files the default throws on every call, naming the module to enable. Every member except `FindPublicAsync` and `OpenPublicAsync` has a
 default that throws `NotSupportedException`, so a store written against those two still compiles.
 
+### Routes for read-only API keys
+
+A read-only key (`bcms_ro_`) refuses every write and reads a short allowlist. A module can open its
+own route to such a key with one of two markers in `BarakoCMS.Abstractions` (namespace
+`barakoCMS.Modules`), set on the endpoint definition in `Configure()`:
+
+```csharp
+Definition.AllowReadOnlyKeySelf();   // a self-service route
+Definition.AllowReadOnlyKeyRead();   // a read route that is a POST only to carry a body
+```
+
+- `AllowReadOnlyKeySelf` lets a read-only key bound to a service principal call the route with any
+  method, when the key names no content types. The endpoint must filter every read and write by
+  `User.TryGetOwnerId(out var ownerId)`: it gives the principal id and fails for a read-only key with
+  no principal, which the endpoint answers with 403. Core cannot check that you did.
+- `AllowReadOnlyKeyRead` lets a read-only key through whatever the method, with its scopes and content
+  type limits applied as for a GET. Use it only for a route that changes nothing.
+
+Core registers neither marker on any route. **Marking a route widens what every read-only key on the
+instance can do**, and the administrator who enabled your module chose that, so say it in your
+README. A revoked, expired or disabled-principal key never reaches the route. Adding the markers does
+not move `ModuleContract.Version`: no member of `IBarakoModule` changed. Your own routes still carry
+your `HttpContractVersion`.
+
 ### Durable work
 
 **No host implements this yet.** The interfaces below are in `BarakoCMS.Abstractions` so they can be
