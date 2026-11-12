@@ -426,6 +426,9 @@ public class SocialHandoffTests
         issued.Should().NotBeNullOrEmpty();
         storedPayload.Should().NotContain(issued!, "a JWT is not stored in the clear");
         storedPayload.Should().NotContain(issued!.Split('.')[1], "not even the claims part of it");
+        // An encoding is not encryption: the payload decoded from Base64 must not hold the token either.
+        var decoded = Convert.FromBase64String(storedPayload);
+        decoded.AsSpan().IndexOf(System.Text.Encoding.ASCII.GetBytes(issued)).Should().Be(-1, "the payload is sealed, not only encoded");
         using (var scope = _fixture.Services.CreateScope())
         {
             var used = await scope.ServiceProvider.GetRequiredService<IQuerySession>()
