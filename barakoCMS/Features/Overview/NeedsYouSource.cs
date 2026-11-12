@@ -39,7 +39,7 @@ internal sealed class NeedsYouSource(IServiceProvider services) : INeedsYouSourc
 
         if (Holds(capabilities, SystemCapabilities.ViewWorkflowRuns))
         {
-            results.Add(await OverviewReads.FailedRunsAsync(session, now, cancellationToken));
+            results.Add((await OverviewReads.FailedRunsAsync(session, now, cancellationToken)).Rule);
         }
 
         if (Holds(capabilities, SystemCapabilities.ManageEmailSettings)

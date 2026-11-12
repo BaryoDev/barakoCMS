@@ -135,10 +135,9 @@ internal sealed class Endpoint(
     private async Task<(PeriodCount Failed, WorkflowOverview Workflows)> ReadWorkflowsAsync(
         DateTimeOffset now, List<RuleResult> results, CancellationToken ct)
     {
-        var day = await WorkflowHealth.Endpoint.DayHealthAsync(session, now, ct);
+        var (day, failedRule) = await OverviewReads.FailedRunsAsync(session, now, ct);
 
         var failedDay = day.Finished - day.Succeeded;
-        var finished = day.Finished;
 
         var dayStart = now.AddHours(-OverviewRules.PeriodHours);
         var priorStart = now.AddHours(-2 * OverviewRules.PeriodHours);
@@ -147,7 +146,7 @@ internal sealed class Endpoint(
                 && r.CreatedAt >= priorStart && r.CreatedAt < dayStart)
             .CountAsync(ct);
 
-        results.Add(OverviewRules.FailedRuns(day.Verdict, failedDay, finished));
+        results.Add(failedRule);
 
         return (
             new PeriodCount { Current = failedDay, Prior = priorFailed },

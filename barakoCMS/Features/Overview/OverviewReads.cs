@@ -48,10 +48,14 @@ internal static class OverviewReads
             : [session.Query<barakoCMS.Models.Content>().Where(c => c.ContentType.IsOneOf(types.ToList()))];
     }
 
-    /// <summary>The failed-runs rule, from the same day health the workflow page reads.</summary>
-    internal static async Task<RuleResult> FailedRunsAsync(IQuerySession session, DateTimeOffset now, CancellationToken ct)
+    /// <summary>
+    /// The 24 hour workflow day health and the failed-runs rule drawn from it, so the route and
+    /// <see cref="NeedsYouSource"/> read one thing and the rule cannot come to differ.
+    /// </summary>
+    internal static async Task<(Workflows.GetWorkflowHealth.Endpoint.DayHealth Day, RuleResult Rule)> FailedRunsAsync(
+        IQuerySession session, DateTimeOffset now, CancellationToken ct)
     {
         var day = await Workflows.GetWorkflowHealth.Endpoint.DayHealthAsync(session, now, ct);
-        return OverviewRules.FailedRuns(day.Verdict, day.Finished - day.Succeeded, day.Finished);
+        return (day, OverviewRules.FailedRuns(day.Verdict, day.Finished - day.Succeeded, day.Finished));
     }
 }
