@@ -18,6 +18,14 @@ internal sealed class RunResponse
     public string WorkflowName { get; init; } = string.Empty;
     public Guid ContentId { get; init; }
     public string ContentType { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The title of the entry the run points at, as this caller may read it. Null when the caller
+    /// may not read the entry, when it was erased, when its title is masked from them, and on an
+    /// entry with no title. Untrusted text: it is an author's value with control and format
+    /// characters removed, so a console shows it as text and never as markup.
+    /// </summary>
+    public string? ContentTitle { get; init; }
     public string TriggerEvent { get; init; } = string.Empty;
 
     /// <summary>What runs it. Null for the built-in runner.</summary>
@@ -62,8 +70,17 @@ internal sealed class RunResponse
     [NJsonSchema.Annotations.JsonSchemaType(typeof(RunCompensation), IsNullable = true)]
     public string? Compensation { get; init; }
 
-    public static RunResponse From(WorkflowRun r) => new()
+    /// <summary>The run with its entry's title as the caller may read it.</summary>
+    public static async Task<RunResponse> FromWithTitleAsync(
+        WorkflowRun r, IQuerySession session, HttpContext http, System.Security.Claims.ClaimsPrincipal caller, CancellationToken ct)
     {
+        var titles = await RunContentTitles.ResolveAsync(session, http, caller, [r.ContentId], ct);
+        return From(r, titles.GetValueOrDefault(r.ContentId));
+    }
+
+    public static RunResponse From(WorkflowRun r, string? contentTitle = null) => new()
+    {
+        ContentTitle = contentTitle,
         Id = r.Id,
         WorkflowDefinitionId = r.WorkflowDefinitionId,
         WorkflowName = r.WorkflowName,
@@ -97,6 +114,13 @@ internal sealed class AttemptResponse
 {
     public int Ordinal { get; init; }
     public string ActionType { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The workflow's label for this action as it was when the run was queued, so a later rename
+    /// does not rewrite it. Null when the action had none.
+    /// </summary>
+    public string? Label { get; init; }
+
     /// <summary>The name of an <see cref="AttemptStatus"/>.</summary>
     [NJsonSchema.Annotations.JsonSchemaType(typeof(AttemptStatus))]
     public string Status { get; init; } = nameof(AttemptStatus.Pending);
@@ -142,6 +166,7 @@ internal sealed class AttemptResponse
     {
         Ordinal = a.Ordinal,
         ActionType = a.ActionType,
+        Label = a.Label,
         Status = a.Status.ToString(),
         Attempts = a.Attempts,
         NextAttemptAt = a.NextAttemptAt,
@@ -216,7 +241,10 @@ internal sealed class CompensationResponse
 
 internal sealed class ListRunsRequest : ListRequest
 {
-    /// <summary>The name of a <see cref="RunStatus"/>, in any case. Left out, every status is listed.</summary>
+    /// <summary>
+    /// The name of a <see cref="RunStatus"/>, in any case, or several separated by commas such as
+    /// <c>Running,Pending</c>. Left out, every status is listed.
+    /// </summary>
     /// <remarks>
     /// Bound as a string so the handler keeps its own refusal for a name it does not know. Nullable
     /// is said on the attribute because without it the document marks the filter as required.
@@ -358,19 +386,47 @@ internal sealed class ListRunsEndpoint(
         Definition.RequireCapability(SystemCapabilities.ViewWorkflowRuns, RunGate.LegacyRoles);
     }
 
-    private RunStatus? ParseStatus(string? text)
+    /// <summary>
+    /// The statuses asked for: none for a missing or blank value, one for a name, several for a
+    /// comma list.
+    /// </summary>
+    private IReadOnlyList<RunStatus> ParseStatuses(string? text)
     {
-        if (string.IsNullOrWhiteSpace(text)) return null;
+        if (string.IsNullOrWhiteSpace(text)) return [];
 
-        if (!Enum.TryParse<RunStatus>(text, ignoreCase: true, out var parsed))
+        if (!text.Contains(','))
         {
-            // Refused rather than ignored. A filter that is silently dropped returns more rows
-            // than the caller asked for, and they cannot tell that from "no matches".
-            ThrowError($"Status must be one of: {string.Join(", ", Enum.GetNames<RunStatus>())}.", 400);
+            return [ParseOne(text, ignoreCase: true)];
+        }
+
+        // Each part has to be a name. Enum parsing alone reads a comma as a combination of flags,
+        // which is not a list of statuses.
+        var statuses = new List<RunStatus>();
+        foreach (var part in text.Split(','))
+        {
+            var name = part.Trim();
+            if (!Enum.GetNames<RunStatus>().Contains(name, StringComparer.OrdinalIgnoreCase)) Refuse();
+            var status = ParseOne(name, ignoreCase: true);
+            if (!statuses.Contains(status)) statuses.Add(status);
+        }
+
+        return statuses;
+    }
+
+    private RunStatus ParseOne(string text, bool ignoreCase)
+    {
+        if (!Enum.TryParse<RunStatus>(text, ignoreCase, out var parsed))
+        {
+            Refuse();
         }
 
         return parsed;
     }
+
+    private void Refuse() =>
+        // Refused rather than ignored. A filter that is silently dropped returns more rows
+        // than the caller asked for, and they cannot tell that from "no matches".
+        ThrowError($"Status must be one of: {string.Join(", ", Enum.GetNames<RunStatus>())}.", 400);
 
     private RunListResponse EmptyPageAfter(ListRunsRequest req)
     {
@@ -391,10 +447,19 @@ internal sealed class ListRunsEndpoint(
     }
 
     private static IQueryable<WorkflowRun> FilterRuns(
-        IQuerySession session, ListRunsRequest req, RunStatus? status, RunCursor? since)
+        IQuerySession session, ListRunsRequest req, IReadOnlyList<RunStatus> statuses, RunCursor? since)
     {
         var query = session.Query<WorkflowRun>().AsQueryable();
-        if (status is { } s) query = query.Where(r => r.Status == s);
+        if (statuses.Count == 1)
+        {
+            var s = statuses[0];
+            query = query.Where(r => r.Status == s);
+        }
+        else if (statuses.Count > 1)
+        {
+            query = query.Where(AnyOf(statuses));
+        }
+
         if (req.ContentId is { } contentId) query = query.Where(r => r.ContentId == contentId);
         if (req.WorkflowId is { } workflowId) query = query.Where(r => r.WorkflowDefinitionId == workflowId);
 
@@ -456,9 +521,24 @@ internal sealed class ListRunsEndpoint(
             series);
     }
 
+    /// <summary>
+    /// <c>Status == a || Status == b ...</c>, written out as the comparisons a single status makes, so
+    /// the query translates the way the single-status one does.
+    /// </summary>
+    private static System.Linq.Expressions.Expression<Func<WorkflowRun, bool>> AnyOf(IReadOnlyList<RunStatus> statuses)
+    {
+        var run = System.Linq.Expressions.Expression.Parameter(typeof(WorkflowRun), "r");
+        var status = System.Linq.Expressions.Expression.Property(run, nameof(WorkflowRun.Status));
+        var any = statuses
+            .Select(s => (System.Linq.Expressions.Expression)System.Linq.Expressions.Expression.Equal(
+                status, System.Linq.Expressions.Expression.Constant(s)))
+            .Aggregate(System.Linq.Expressions.Expression.OrElse);
+        return System.Linq.Expressions.Expression.Lambda<Func<WorkflowRun, bool>>(any, run);
+    }
+
     public override async Task HandleAsync(ListRunsRequest req, CancellationToken ct)
     {
-        var status = ParseStatus(req.Status);
+        var status = ParseStatuses(req.Status);
 
         RunCursor? since = null;
         if (req.ChangedSince is not null)
@@ -492,7 +572,9 @@ internal sealed class ListRunsEndpoint(
 
         var windows = WorkflowRunRetentionService.ReadWindows(config);
         var sweeping = WorkflowRunRetentionService.IsEnabled(config);
-        var items = page.Items.Select(RunResponse.From).ToList();
+        var titles = await RunContentTitles.ResolveAsync(
+            session, HttpContext, User, page.Items.Select(r => r.ContentId), ct);
+        var items = page.Items.Select(r => RunResponse.From(r, titles.GetValueOrDefault(r.ContentId))).ToList();
 
         var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, counts,
             $"{sweeping}:{windows.SucceededDays}:{windows.FailedDays}" + tally.ETagSuffix());
@@ -548,7 +630,7 @@ internal sealed class GetRunEndpoint(IQuerySession session) : EndpointWithoutReq
             return;
         }
 
-        await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+        await Send.ResponseAsync(await RunResponse.FromWithTitleAsync(run, session, HttpContext, User, ct), cancellation: ct);
     }
 }
 
@@ -705,7 +787,7 @@ internal sealed class RetryAttemptEndpoint(
             return;
         }
 
-        await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+        await Send.ResponseAsync(await RunResponse.FromWithTitleAsync(run, session, HttpContext, User, ct), cancellation: ct);
     }
 
     /// <summary>Why this attempt of the run cannot be retried as it stands, or null when it can.</summary>
@@ -781,7 +863,7 @@ internal sealed class CancelRunEndpoint(
         // records nothing, and answers with the run as it stands.
         if (alreadyStopped && cancelled == 0)
         {
-            await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+            await Send.ResponseAsync(await RunResponse.FromWithTitleAsync(run, session, HttpContext, User, ct), cancellation: ct);
             return;
         }
 
@@ -811,7 +893,7 @@ internal sealed class CancelRunEndpoint(
             return;
         }
 
-        await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+        await Send.ResponseAsync(await RunResponse.FromWithTitleAsync(run, session, HttpContext, User, ct), cancellation: ct);
     }
 }
 
@@ -905,7 +987,7 @@ internal sealed class AbandonRunEndpoint(
             return;
         }
 
-        await Send.ResponseAsync(RunResponse.From(run), cancellation: ct);
+        await Send.ResponseAsync(await RunResponse.FromWithTitleAsync(run, session, HttpContext, User, ct), cancellation: ct);
     }
 
     /// <summary>Why the run cannot be abandoned as it stands, or null when it can.</summary>

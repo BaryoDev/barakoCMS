@@ -142,7 +142,7 @@ internal sealed class Endpoint(IQuerySession session, IPermissionResolver permis
             .OrderBy(a => a.Ordinal)
             .Select(a => new RunActionSummary(
                 a.Ordinal, a.ActionType, a.Status.ToString(), own ? a.Error : null,
-                a.Created?.Where(c => c.Id == id || readable.Contains(c.Id)).ToList()))
+                a.Created?.Where(c => c.Id == id || readable.Contains(c.Id)).ToList(), a.Label))
             .ToList();
 
         return (new RunSummary(run.Id, run.WorkflowName, run.TriggerEvent, run.Status.ToString(), run.CreatedAt, run.CompletedAt, actions), own);

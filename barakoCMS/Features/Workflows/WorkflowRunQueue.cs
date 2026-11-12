@@ -364,6 +364,7 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
                 // running would otherwise change what a queued run sends, and the operator who
                 // edited it is not expecting to have rewritten yesterday's outbox.
                 Parameters = new Dictionary<string, string>(actions[i].Parameters ?? []),
+                Label = actions[i].Label,
                 OnFailure = actions[i].OnFailure ?? WorkflowFailurePolicy.Continue,
                 Capture = actions[i].Capture is { } capture ? [.. capture] : [],
                 Compensate = actions[i].Compensate is { } undo

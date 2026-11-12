@@ -320,8 +320,9 @@ public class WorkflowRunTests
         var action = doc.RootElement.GetProperty("actions")[0];
 
         action.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
-            ["ordinal", "actionType", "status", "attempts", "nextAttemptAt", "responseStatus", "error", "retryable", "completedAt", "durationMs", "history", "droppedAttempts", "onFailure", "haltedBy", "outputs", "compensation"],
-            "anything else here is a place a credential could arrive in. outputs holds only what the workflow's capture names (WorkflowOutputTests)");
+            ["ordinal", "actionType", "label", "status", "attempts", "nextAttemptAt", "responseStatus", "error", "retryable", "completedAt", "durationMs", "history", "droppedAttempts", "onFailure", "haltedBy", "outputs", "compensation"],
+            "anything else here is a place a credential could arrive in. outputs holds only what the workflow's capture names (WorkflowOutputTests). "
+            + "label is plain text the workflow's author wrote, checked on save for length and markup, and cannot carry a parameter");
 
         var history = action.GetProperty("history");
         history.GetArrayLength().Should().BeGreaterThan(0);
