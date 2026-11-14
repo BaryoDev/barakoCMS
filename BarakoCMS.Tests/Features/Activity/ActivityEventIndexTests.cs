@@ -11,7 +11,7 @@ namespace BarakoCMS.Tests.Features.Activity;
 
 /// <summary>
 /// The activity feed reads content events of one tenant by time. mt_events had no index on the
-/// timestamp, so the read scanned the tenant's events. migrations/5.6.0/event-tenant-timestamp-index.sql
+/// timestamp, so the read scanned the tenant's events. migrations/5.6.1/event-tenant-timestamp-index.sql
 /// adds one, and the two query shapes the feed uses have to be ones Postgres can walk it with.
 /// </summary>
 /// <remarks>
@@ -167,7 +167,7 @@ public class ActivityEventIndexTests
     }
 
     private static async Task<string> MigrationAsync(string file) =>
-        await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "5.6.0", file), Ct);
+        await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "5.6.1", file), Ct);
 
     private static string RepositoryRoot()
     {

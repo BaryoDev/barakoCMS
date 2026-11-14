@@ -68,7 +68,7 @@ rule masks or removes shows as `Untitled`, and an entry hidden whole gives no ro
 
 Read with no `since`, the content event kinds (`published`, `scheduled`, `edited`) look back 7 days
 only. The window stays now that the event store has an index on the tenant and timestamp
-(`migrations/5.6.0/event-tenant-timestamp-index.sql`, run by `db-migrate`): it is part of what the
+(`migrations/5.6.1/event-tenant-timestamp-index.sql`, run by `db-migrate`): it is part of what the
 route answers, and it bounds the read for a kind that is rare among a tenant's events. The index
 keeps the read cheap inside the window and for a cursor or a `since` older than it. A database
 without the index still answers, and those older reads scan the tenant's events. The other sources

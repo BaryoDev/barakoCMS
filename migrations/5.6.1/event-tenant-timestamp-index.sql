@@ -18,7 +18,7 @@
 -- name, which IF NOT EXISTS keeps: drop it with rollback-event-tenant-timestamp-index.sql and run
 -- this file again.
 --
---   psql "$DATABASE_URL" -f migrations/5.6.0/event-tenant-timestamp-index.sql
+--   psql "$DATABASE_URL" -f migrations/5.6.1/event-tenant-timestamp-index.sql
 --
 -- Safe to run twice. rollback-event-tenant-timestamp-index.sql drops the index.
 
