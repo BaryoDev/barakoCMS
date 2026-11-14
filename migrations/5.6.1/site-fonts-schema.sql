@@ -3,9 +3,9 @@
 -- barako:rerunnable
 --
 -- The site blueprint's Fonts schema used to accept only strings, one family name per key. From
--- 5.5.0 a value may also be an object with a required family and an optional url and fallback,
+-- 5.6.1 a value may also be an object with a required family and an optional url and fallback,
 -- which is the shape a site front end reads when it loads a font file. A site type applied from the
--- blueprint before 5.5.0 holds the old schema, and this file gives it the new one.
+-- blueprint before 5.6.1 holds the old schema, and this file gives it the new one.
 --
 -- WHICH TYPES. Every content type named site, in every tenant. Within one, a json field named
 -- Fonts changes only where its schema is exactly the one 5.0.0 set, so a tenant that edited the
@@ -22,7 +22,7 @@
 -- Run it with the API stopped, as part of the upgrade. With Tenancy:DatabaseEnforcement on, run it
 -- as a superuser: the tenant policy hides other tenants' rows from the application role.
 --
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.5.0/site-fonts-schema.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.6.1/site-fonts-schema.sql
 --
 -- Safe to run twice: a field that already holds the new schema is not changed again.
 -- rollback-site-fonts-schema.sql undoes it.

@@ -684,7 +684,7 @@ internal sealed partial class AggregateQuery(
     /// One command made of Marten's own commands and the parameters added here. Every parameter ends
     /// up named, so a numbered parameter of one part and a named one of another cannot mix.
     /// </summary>
-    private sealed class SqlBuilder
+    internal sealed class SqlBuilder
     {
         public NpgsqlCommand Command { get; } = new();
 

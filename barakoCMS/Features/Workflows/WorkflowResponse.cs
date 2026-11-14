@@ -106,6 +106,9 @@ internal sealed class WorkflowActionResponse
     public Dictionary<string, string> Parameters { get; init; } = new();
     public bool SecretSet { get; init; }
 
+    /// <summary>A short name for the step, or null when it has none.</summary>
+    public string? Label { get; init; }
+
     /// <summary>Continue or Halt. Continue for an action saved without the setting, or with null.</summary>
     public WorkflowFailurePolicy OnFailure { get; init; }
 
@@ -131,6 +134,7 @@ internal sealed class WorkflowActionResponse
             Type = a.Type,
             Parameters = parameters,
             SecretSet = WebhookSigning.HasSecret(a.Parameters),
+            Label = a.Label,
             OnFailure = a.OnFailure ?? WorkflowFailurePolicy.Continue,
             UnreadableBranches = unreadableBranches,
             Capture = a.Capture ?? [],

@@ -35,11 +35,23 @@ internal sealed class TenantResponse
     public TenantSignInBody SignIn { get; init; } = new();
     public DateTimeOffset CreatedAt { get; init; }
 
+    /// <summary>How many accounts hold a membership in the tenant that is not removed. Null where it was not read.</summary>
+    public int? MemberCount { get; init; }
+
+    /// <summary>
+    /// The <c>Mode</c> of the tenant's published <c>site</c> entry, as stored (for example Live or
+    /// Private). Null when the tenant has no site entry, or where it was not read.
+    /// </summary>
+    public string? SiteMode { get; init; }
+
     /// <summary>The account that owns the tenant. The default account's id when none was assigned.</summary>
     public Guid AccountId { get; init; }
 
-    public static TenantResponse From(Tenant t, IEnumerable<TenantDomain>? claims = null) => new()
+    public static TenantResponse From(
+        Tenant t, IEnumerable<TenantDomain>? claims = null, TenantListFacts? facts = null) => new()
     {
+        MemberCount = facts?.MemberCount(t.Slug),
+        SiteMode = facts?.SiteMode(t.Slug),
         DomainStates = (claims ?? []).OrderBy(c => c.Id, StringComparer.Ordinal).Select(TenantDomainState.From).ToList(),
         Id = t.Id,
         Slug = t.Slug,

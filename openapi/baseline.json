@@ -1245,6 +1245,9 @@
             "format": "guid",
             "type": "string"
           },
+          "kind": {
+            "type": "string"
+          },
           "lastUsedAt": {
             "format": "date-time",
             "nullable": true,
@@ -1258,6 +1261,16 @@
           },
           "readOnly": {
             "type": "boolean"
+          },
+          "replacedBy": {
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
+          "replaces": {
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
           },
           "revoked": {
             "type": "boolean"
@@ -1299,7 +1312,7 @@
             "type": "string"
           },
           "readOnly": {
-            "description": "Makes a read-only key (secret prefix bcms_ro_) that refuses every write.",
+            "description": "Makes a read-only key (secret prefix bcms_ro_) that refuses writes, except on a route a module marks for read-only keys.",
             "type": "boolean"
           },
           "scopes": {
@@ -3058,6 +3071,15 @@
             "format": "int32",
             "type": "integer"
           },
+          "previous": {
+            "description": "Only when a window was asked for: the same counts for the window of the same length that ended\nwhere this one starts, so a delta is the difference of the two.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesContentCountsStatusTotals"
+              }
+            ]
+          },
           "published": {
             "description": "Entries in Published.",
             "format": "int32",
@@ -3067,6 +3089,14 @@
             "description": "Entries in Scheduled, waiting for their publish time.",
             "format": "int32",
             "type": "integer"
+          },
+          "series": {
+            "description": "Only when series was asked for: one entry per bucket of the window, oldest first, always\nthe same number for the same window, with zero where nothing was created.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesContentCountsSeriesBucket"
+            },
+            "nullable": true,
+            "type": "array"
           },
           "total": {
             "description": "Every entry counted, in any status.",
@@ -3079,6 +3109,90 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "window": {
+            "description": "Only when a window was asked for: the window the numbers above were counted over.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesContentCountsWindowInfo"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentCountsSeriesBucket": {
+        "additionalProperties": false,
+        "description": "One bucket of a series: the counts of entries created from Start for the bucket's length.",
+        "properties": {
+          "archived": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "draft": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "published": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "scheduled": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "start": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "total": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentCountsStatusTotals": {
+        "additionalProperties": false,
+        "description": "Counts by status, without the list of types left out.",
+        "properties": {
+          "archived": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "draft": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "published": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "scheduled": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "total": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentCountsWindowInfo": {
+        "additionalProperties": false,
+        "description": "The window a windowed answer was counted over.",
+        "properties": {
+          "from": {
+            "description": "Inclusive.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "to": {
+            "description": "Exclusive.",
+            "format": "date-time",
+            "type": "string"
           }
         },
         "type": "object"
@@ -3481,6 +3595,11 @@
           },
           "error": {
             "description": "Why the attempt failed, or null.",
+            "nullable": true,
+            "type": "string"
+          },
+          "label": {
+            "description": "The workflow's label for the action when the run was queued, or null.",
             "nullable": true,
             "type": "string"
           },
@@ -6720,6 +6839,12 @@
           "description": {
             "type": "string"
           },
+          "holderCount": {
+            "description": "How many people hold the role in this tenant: holders in this tenant, directly or through a\ngroup, who have an Active membership in it. Returned to callers of the role list (manage_roles);\nnull on every other route that returns a role.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
           "id": {
             "format": "guid",
             "type": "string"
@@ -7916,6 +8041,12 @@
             "description": "True when Status is Active. Kept for clients written before it.",
             "type": "boolean"
           },
+          "memberCount": {
+            "description": "How many accounts hold a membership in the tenant that is not removed. Null where it was not read.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
           "name": {
             "type": "string"
           },
@@ -7927,6 +8058,11 @@
           },
           "signUpRoleId": {
             "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
+          "siteMode": {
+            "description": "The Mode of the tenant's published site entry, as stored (for example Live or\nPrivate). Null when the tenant has no site entry, or where it was not read.",
             "nullable": true,
             "type": "string"
           },
@@ -8655,6 +8791,11 @@
             },
             "type": "array"
           },
+          "label": {
+            "description": "The workflow's label for this action as it was when the run was queued, so a later rename\ndoes not rewrite it. Null when the action had none.",
+            "nullable": true,
+            "type": "string"
+          },
           "nextAttemptAt": {
             "format": "date-time",
             "nullable": true,
@@ -8790,6 +8931,23 @@
             "format": "int32",
             "type": "integer"
           },
+          "previousStatusCounts": {
+            "additionalProperties": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "description": "Only when a window was asked for: the same counts for the window of the same length that\nended where this one starts, so a delta is the difference of the two.",
+            "nullable": true,
+            "type": "object"
+          },
+          "series": {
+            "description": "Only when series was asked for: one entry per bucket, oldest first, always the same\nnumber for the same window.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowRunsRunSeriesBucket"
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "statusCounts": {
             "additionalProperties": {
               "format": "int32",
@@ -8814,6 +8972,15 @@
             "description": "Total number of pages",
             "format": "int32",
             "type": "integer"
+          },
+          "window": {
+            "description": "Only when a window was asked for: the window statusCounts was counted over.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesContentCountsWindowInfo"
+              }
+            ]
           }
         },
         "type": "object"
@@ -8854,6 +9021,11 @@
           },
           "contentId": {
             "format": "guid",
+            "type": "string"
+          },
+          "contentTitle": {
+            "description": "The title of the entry the run points at, as this caller may read it. Null when the caller\nmay not read the entry, when it was erased, when its title is masked from them, and on an\nentry with no title. Untrusted text: it is an author's value with control and format\ncharacters removed, so a console shows it as text and never as markup.",
+            "nullable": true,
             "type": "string"
           },
           "contentType": {
@@ -8906,6 +9078,31 @@
           },
           "workflowName": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesWorkflowRunsRunSeriesBucket": {
+        "additionalProperties": false,
+        "description": "One bucket of a run series.",
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "description": "Runs created in the bucket by status, every status present with zero where there are none.",
+            "type": "object"
+          },
+          "start": {
+            "description": "Where the bucket starts.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "total": {
+            "description": "Runs created in the bucket, of any status.",
+            "format": "int32",
+            "type": "integer"
           }
         },
         "type": "object"
@@ -9436,6 +9633,11 @@
                 "$ref": "#/components/schemas/BarakoCMSFeaturesWorkflowsWorkflowCompensationResponse"
               }
             ]
+          },
+          "label": {
+            "description": "A short name for the step, or null when it has none.",
+            "nullable": true,
+            "type": "string"
           },
           "onFailure": {
             "description": "Continue or Halt. Continue for an action saved without the setting, or with null.",
@@ -13359,6 +13561,11 @@
                 "$ref": "#/components/schemas/BarakoCMSModelsWorkflowCompensation"
               }
             ]
+          },
+          "label": {
+            "description": "A short name for this step, shown where a run lists its actions. Null for an action with none.",
+            "nullable": true,
+            "type": "string"
           },
           "onFailure": {
             "description": "What a run does with the actions after this one when this one fails.",
@@ -19440,13 +19647,49 @@
     },
     "/api/contents/counts": {
       "get": {
-        "description": "Each type is counted under the read predicate ReadPredicateAsync\ncompiles for the caller, the one the list endpoint pages with, so the numbers agree with what\nGET /api/contents would list. A type whose rules do not compile is named in\nUncountedTypes rather than loaded row by row: the cost of the answer stays a handful of\ncounts however large the collection is.\nTypes the caller reads unconditionally are counted together, so a caller who reads everything\ncosts four queries whatever the number of types. Across types, the types are the stored content\ntype definitions, so an entry whose type has no definition is not counted.",
+        "description": "Each type is counted under the read predicate ReadPredicateAsync\ncompiles for the caller, the one the list endpoint pages with, so the numbers agree with what\nGET /api/contents would list. A type whose rules do not compile is named in\nUncountedTypes rather than loaded row by row: the cost of the answer stays a handful of\ncounts however large the collection is.\nTypes the caller reads unconditionally are counted together, so a caller who reads everything\ncosts four queries whatever the number of types. Across types, the types are the stored content\ntype definitions, so an entry whose type has no definition is not counted.\nWith range (or from and to) the entries are counted by createdAt in\nthat window under the same predicates, and the answer carries the window and the previous window\nof the same length. With series it also carries the buckets. All of that is one more query,\nover every source at once, whatever the number of types. A window is at most 90 days and a series\nat most 200 buckets. Without these parameters the answer is the one given before they existed.",
         "operationId": "barakoCMSFeaturesContentCountsEndpoint",
         "parameters": [
           {
             "description": "One content type, or null for every type the caller may read.",
             "in": "query",
             "name": "contentType",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Count only entries created in the last 24h, 7d or 30d. Not with\nfrom or to.",
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Count only entries created at or after this time, ISO 8601, read as UTC when it has no zone. to defaults to now.",
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Count only entries created before this time. Needs from.",
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "hour or day: also return series, the window cut into buckets of that\nsize. Needs a window.",
+            "in": "query",
+            "name": "series",
             "schema": {
               "nullable": true,
               "type": "string"
@@ -19463,6 +19706,9 @@
               }
             },
             "description": "Success"
+          },
+          "400": {
+            "description": "Bad Request"
           },
           "401": {
             "description": "Unauthorized"
@@ -26906,7 +27152,7 @@
         "operationId": "barakoCMSFeaturesWorkflowRunsListRunsEndpoint",
         "parameters": [
           {
-            "description": "The name of a RunStatus, in any case. Left out, every status is listed.",
+            "description": "The name of a RunStatus, in any case, or several separated by commas such as\nRunning,Pending. Left out, every status is listed.",
             "in": "query",
             "name": "status",
             "schema": {
@@ -26941,6 +27187,42 @@
             "description": "A cursor from an earlier response, or a timestamp for the first call. Left out, the list is\nnewest first as before. Given, only runs changed after it are listed, oldest change first.",
             "in": "query",
             "name": "changedSince",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Count statusCounts over the runs created in the last 24h, 7d or 30d.\nNot with from or to. The runs listed are not narrowed by it.",
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Count only runs created at or after this time, ISO 8601, read as UTC when it has no zone. to defaults to now.",
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Count only runs created before this time. Needs from.",
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "hour or day: also return series, the window cut into buckets of that\nsize. Needs a window.",
+            "in": "query",
+            "name": "series",
             "schema": {
               "nullable": true,
               "type": "string"
@@ -26983,6 +27265,16 @@
               }
             },
             "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
           },
           "401": {
             "description": "Unauthorized"

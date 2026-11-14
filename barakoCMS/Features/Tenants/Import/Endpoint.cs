@@ -87,7 +87,8 @@ internal sealed class Endpoint(
             return;
         }
 
-        await Send.OkAsync(new Response { Tenant = TenantResponse.From(tenant), Config = result.Response }, ct);
+        var facts = await TenantListFacts.ForAsync(session, TenantPartitions.Enforced(configuration), [handle], ct);
+        await Send.OkAsync(new Response { Tenant = TenantResponse.From(tenant, facts: facts), Config = result.Response }, ct);
     }
 
     /// <summary>Stores the tenant row under the handle as Suspended, which nothing serves, or answers 409 when the handle is taken.</summary>

@@ -16,7 +16,7 @@ namespace BarakoCMS.Tests.Features.Site;
 /// <summary>
 /// The site blueprint declares a schema for its json fields and makes <c>Mode</c> a choice of
 /// <c>Live</c> and <c>Holding</c>, and <c>migrations/5.0.0/site-field-schemas.sql</c> brings a site
-/// type applied before 5.0.0 up to it (#924). <c>migrations/5.5.0/site-fonts-schema.sql</c> then
+/// type applied before 5.0.0 up to it (#924). <c>migrations/5.6.1/site-fonts-schema.sql</c> then
 /// moves <c>Fonts</c> to the schema that also takes a font object.
 /// </summary>
 [Collection("Integration1")]
@@ -140,11 +140,11 @@ public class SiteFieldSchemasTests
         var literal = Regex.Match(sql, @"schemas\s+constant jsonb := '(.*?)'::jsonb;").Groups[1].Value;
         literal.Should().NotBeEmpty();
 
-        // 5.0.0 shipped before Fonts took a font object; 5.5.0 site-fonts-schema.sql patches it.
+        // 5.0.0 shipped before Fonts took a font object; 5.6.1 site-fonts-schema.sql patches it.
         var shipped = JsonNode.Parse(literal)!.AsObject();
-        var fontsSql = File.ReadAllText(Path.Combine(RepositoryRoot(), "migrations", "5.5.0", FontsUp));
+        var fontsSql = File.ReadAllText(Path.Combine(RepositoryRoot(), "migrations", "5.6.1", FontsUp));
         JsonNode.DeepEquals(shipped["Fonts"], JsonNode.Parse(FontsSchema(fontsSql, "old_schema"))).Should().BeTrue(
-            "5.5.0 only replaces the Fonts schema 5.0.0 set");
+            "5.6.1 only replaces the Fonts schema 5.0.0 set");
         shipped["Fonts"] = JsonNode.Parse(FontsSchema(fontsSql, "new_schema"));
 
         JsonNode.DeepEquals(shipped, schemas).Should().BeTrue(
@@ -331,7 +331,7 @@ public class SiteFieldSchemasTests
 
     private async Task<List<string>> RunAsync(string file, string slug)
     {
-        var version = file.Contains("fonts") ? "5.5.0" : "5.0.0";
+        var version = file.Contains("fonts") ? "5.6.1" : "5.0.0";
         var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", version, file), Ct);
         var notices = new List<string>();
 

@@ -33,7 +33,8 @@ public class ApiKey
 
     /// <summary>
     /// A read-only key (secret prefix <c>bcms_ro_</c>). It refuses every POST, PUT, PATCH and DELETE
-    /// whatever its scopes say, and reads only the routes <c>ApiKeyScopeProcessor</c> allows it.
+    /// whatever its scopes say, except on a route a module marks for read-only keys
+    /// (<c>ReadOnlyKeyRoutes</c>), and reads only the routes <c>ApiKeyScopeProcessor</c> allows it.
     /// </summary>
     public bool ReadOnly { get; set; }
 
@@ -63,6 +64,18 @@ public class ApiKey
     public bool Revoked { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// The key a rotation issued to take this one's place, set on the old key when it is rotated.
+    /// Null for a key that was never rotated, and for every key rotated before this was recorded.
+    /// </summary>
+    public Guid? ReplacedByKeyId { get; set; }
+
+    /// <summary>
+    /// The key this one was issued to replace, set on the new key by a rotation. Null for a key that
+    /// is not the product of a rotation, and for every one made before this was recorded.
+    /// </summary>
+    public Guid? ReplacesKeyId { get; set; }
 }
 
 /// <summary>

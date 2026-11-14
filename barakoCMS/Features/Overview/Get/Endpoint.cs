@@ -38,8 +38,6 @@ internal sealed class Endpoint(
     IServiceProvider services)
     : EndpointWithoutRequest<OverviewResponse>
 {
-    private const int MaxDuePerSource = 5000;
-
     public override void Configure()
     {
         Get("/api/overview"); // authenticated by default, each part checks its own capability
@@ -128,22 +126,7 @@ internal sealed class Endpoint(
         var reach = await ReachableContent.ForAsync(session, permissionResolver, branchGuard, User, user, null, ct);
         if (reach.Sources.Count == 0) return null;
 
-        var horizon = now.UtcDateTime.AddHours(OverviewRules.PeriodHours);
-        var overdueBefore = now.UtcDateTime.AddMinutes(-OverviewRules.OverdueGraceMinutes);
-        var due = 0;
-        var overdue = 0;
-        foreach (var source in reach.Sources)
-        {
-            // One query per source: the publish times of what is due, capped, then split in memory.
-            var times = await source
-                .Where(c => c.Status == ContentStatus.Scheduled && c.ScheduledPublishAt <= horizon)
-                .OrderBy(c => c.ScheduledPublishAt)
-                .Take(MaxDuePerSource)
-                .Select(c => c.ScheduledPublishAt)
-                .ToListAsync(ct);
-            due += times.Count;
-            overdue += times.Count(t => t < overdueBefore);
-        }
+        var (due, overdue) = await OverviewReads.CountDueAsync(reach.Sources, now, ct);
 
         results.Add(OverviewRules.OverduePublishes(overdue));
         return new PeriodCount { Current = due, Prior = null };
@@ -152,10 +135,9 @@ internal sealed class Endpoint(
     private async Task<(PeriodCount Failed, WorkflowOverview Workflows)> ReadWorkflowsAsync(
         DateTimeOffset now, List<RuleResult> results, CancellationToken ct)
     {
-        var day = await WorkflowHealth.Endpoint.DayHealthAsync(session, now, ct);
+        var (day, failedRule) = await OverviewReads.FailedRunsAsync(session, now, ct);
 
         var failedDay = day.Finished - day.Succeeded;
-        var finished = day.Finished;
 
         var dayStart = now.AddHours(-OverviewRules.PeriodHours);
         var priorStart = now.AddHours(-2 * OverviewRules.PeriodHours);
@@ -164,7 +146,7 @@ internal sealed class Endpoint(
                 && r.CreatedAt >= priorStart && r.CreatedAt < dayStart)
             .CountAsync(ct);
 
-        results.Add(OverviewRules.FailedRuns(day.Verdict, failedDay, finished));
+        results.Add(failedRule);
 
         return (
             new PeriodCount { Current = failedDay, Prior = priorFailed },

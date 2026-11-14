@@ -1,4 +1,4 @@
--- Undoes migrations/5.5.0/site-fonts-schema.sql, for a rollback to a release before it.
+-- Undoes migrations/5.6.1/site-fonts-schema.sql, for a rollback to a release before it.
 --
 -- barako:rerunnable
 --
@@ -13,7 +13,7 @@
 --
 -- Data only. Run it with the API stopped, and as a superuser with Tenancy:DatabaseEnforcement on.
 --
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.5.0/rollback-site-fonts-schema.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.6.1/rollback-site-fonts-schema.sql
 
 DO $rollback$
 DECLARE

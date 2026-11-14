@@ -156,19 +156,29 @@ public class WorkflowRunnerTakeoverTests
 
         await _harness.WithHostedRunnerPausedAsync(async () =>
         {
-            // Runs left due by earlier tests are older, so the pass would claim them first and fill
-            // both slots before the second run. Drain them while nothing holds the handlers.
+            // Drain what earlier tests left due while nothing holds the handlers, so the pass below
+            // has little else to claim.
             await _harness.DrainAsync();
 
-            first = await _harness.SeedRunAsync(Guid.NewGuid(), contentId, [Abandoned("SendOnceRunner", attempts: 0)]);
-            second = await _harness.SeedRunAsync(Guid.NewGuid(), contentId, [Abandoned("SendOnceRunner", attempts: 0)]);
+            // The drain cannot stop more work arriving: retries come due, the projection and the
+            // schedule sweep queue runs, and none of them is paused. The pass reads each tenant's
+            // runs oldest first, and the default partition sorts first, so seeded a day back these
+            // two head its queue: the first is claimed in the pass's first round and the second in
+            // its second, whatever else is due.
+            var past = DateTimeOffset.UtcNow.AddDays(-1);
+            first = await _harness.SeedRunAsync(Guid.NewGuid(), contentId, [Abandoned("SendOnceRunner", attempts: 0)], createdAt: past);
+            second = await _harness.SeedRunAsync(Guid.NewGuid(), contentId, [Abandoned("SendOnceRunner", attempts: 0)], createdAt: past.AddSeconds(1));
             RecordingFailureHandler.Hold = new HeldRun(first.Id, hold.Task);
 
             try
             {
                 // A run ended by a takeover takes a slot until its handlers return, so a bound of one
-                // could not claim the second before the first handler came back.
-                var pass = _harness.NewRunner(bound: 2).RunOnceAsync(WorkflowStopHarness.Ct);
+                // could not claim the second before the first handler came back. A round gives every
+                // other tenant with a due run a slot too, and those slots are not given back while the
+                // first handler holds the pass open, so a bound of two let one stray run in another
+                // tenant take the slot the second needed. The most a runner allows leaves room for
+                // the second unless nineteen other tenants have a run due at that moment.
+                var pass = _harness.NewRunner(bound: WorkflowRunner.MaxConcurrency).RunOnceAsync(WorkflowStopHarness.Ct);
                 var deadline = DateTimeOffset.UtcNow.AddSeconds(30);
 
                 while (!(RecordingFailureHandler.Told.ContainsKey(first.Id) && RecordingFailureHandler.Told.ContainsKey(second.Id))

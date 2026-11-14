@@ -561,6 +561,9 @@ public class WorkflowActionAttempt
 
     public Dictionary<string, string> Parameters { get; set; } = new();
 
+    /// <summary>Copied from the workflow's action label when the run was queued. Null when it had none.</summary>
+    public string? Label { get; set; }
+
     /// <summary>Copied from the workflow's action when the run was queued.</summary>
     /// <remarks>An attempt stored before this existed reads as Continue.</remarks>
     public WorkflowFailurePolicy OnFailure { get; set; } = WorkflowFailurePolicy.Continue;
