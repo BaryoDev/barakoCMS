@@ -224,10 +224,7 @@ internal sealed class WorkflowConfigProvider(
     {
         if (WorkflowSchedule.Parse(workflow.Schedule) is null) return;
 
-        var same = current?.ScheduleArmedAt is not null
-            && string.Equals(current.Schedule, workflow.Schedule, StringComparison.Ordinal)
-            && string.Equals(current.ScheduleTimeZone, workflow.ScheduleTimeZone, StringComparison.OrdinalIgnoreCase);
-        workflow.ScheduleArmedAt = same ? current!.ScheduleArmedAt : DateTime.UtcNow;
+        workflow.ScheduleArmedAt = WorkflowSchedule.ArmedAt(current, workflow, DateTime.UtcNow);
     }
 
     /// <summary>The document as the definition it would store, checked the way the create endpoint checks one.</summary>

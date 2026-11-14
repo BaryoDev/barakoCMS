@@ -10,7 +10,8 @@ namespace barakoCMS.Features.Workflows;
 /// <remarks>
 /// Keyed by workflow id and due time, so a second host that reaches the same due time inserts the
 /// same id and is refused by the database. Stored in the same save as the run it started, so there
-/// is never a claim without a run or a run without a claim.
+/// is never a run without a claim. The one claim without a run is a time the <c>skip</c> policy
+/// passed over, kept so the next sweep counts from it instead of from the last run.
 /// </remarks>
 internal sealed class ScheduleClaim
 {
@@ -25,6 +26,21 @@ internal static class WorkflowSchedule
 {
     public const string TenantZone = "tenant";
     public const string CatchUpOnce = "once";
+    public const string CatchUpEach = "each";
+    public const string CatchUpSkip = "skip";
+
+    /// <summary>The most missed due times a <c>each</c> schedule fires in one sweep. Older ones are dropped.</summary>
+    public const int MaxCatchUpRuns = 24;
+
+    /// <summary>How late a due time may be and still count as on time, so <c>skip</c> fires it. The sweep runs every minute.</summary>
+    public static readonly TimeSpan OnTimeWindow = TimeSpan.FromMinutes(5);
+
+    /// <summary>Whether the setting is left out or one of the three catch-up policies.</summary>
+    public static bool IsKnownCatchUp(string? setting) =>
+        string.IsNullOrWhiteSpace(setting)
+        || string.Equals(setting, CatchUpOnce, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(setting, CatchUpEach, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(setting, CatchUpSkip, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>How many upcoming due times a save reports.</summary>
     public const int PreviewCount = 5;
@@ -109,10 +125,13 @@ internal static class WorkflowSchedule
     /// <summary>Starts one run for each schedule that has a due time since its last run.</summary>
     /// <returns>How many runs were queued.</returns>
     /// <remarks>
-    /// Catch-up is <c>once</c>: a host that was stopped across several due times queues a run for
-    /// the latest and none for the ones before it. The claim is for that latest time, so the next
-    /// sweep counts from it. Each run and its claim are saved together; if the claim already exists
-    /// another host took the time, and this one does nothing for it.
+    /// A host that was stopped across several due times follows the workflow's catch-up policy.
+    /// <c>once</c> (the default) queues a run for the latest and none for the ones before it.
+    /// <c>each</c> queues a run for every missed time, oldest first, the latest
+    /// <see cref="MaxCatchUpRuns"/> at most. <c>skip</c> queues a run only when the latest is within
+    /// <see cref="OnTimeWindow"/> of now, and none for missed times. The claim is for the latest
+    /// time queued, so the next sweep counts from it. Each run and its claim are saved together; if
+    /// the claim already exists another host took the time, and this one does nothing for it.
     /// </remarks>
     public static async Task<int> FireDueAsync(
         IDocumentSession session, DateTime nowUtc, ILogger? logger, CancellationToken ct)
@@ -146,24 +165,74 @@ internal static class WorkflowSchedule
             // Armed or claimed after this sweep's clock, which another host's faster clock can do.
             if (counted >= nowUtc) continue;
 
-            DateTime? previous = null;
-            DateTime? due = null;
+            // The last MaxCatchUpRuns + 1 due times: the extra one is the previous time of the oldest kept.
+            var window = new List<DateTime>();
             foreach (var occurrence in cron.GetOccurrences(
                 DateTime.SpecifyKind(counted, DateTimeKind.Utc), DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc),
                 zone, fromInclusive: false, toInclusive: true))
             {
-                previous = due;
-                due = occurrence;
+                window.Add(occurrence);
+                if (window.Count > MaxCatchUpRuns + 1) window.RemoveAt(0);
             }
 
-            if (due is not { } latest) continue;
+            if (window.Count == 0) continue;
 
-            previous ??= Previous(cron, zone, latest);
+            var policy = workflow.ScheduleCatchUp?.Trim().ToLowerInvariant() ?? CatchUpOnce;
+            var first = policy == CatchUpEach ? Math.Max(0, window.Count - MaxCatchUpRuns) : window.Count - 1;
 
-            if (await TryQueueAsync(session, workflow, latest, previous, nowUtc, logger, ct)) queued++;
+            for (var i = first; i < window.Count; i++)
+            {
+                if (policy == CatchUpSkip && nowUtc - window[i] > OnTimeWindow)
+                {
+                    // Nothing else moves the start past a time that starts no run, and every sweep
+                    // would list every occurrence since the last claim again.
+                    await TrySkipAsync(session, workflow, window[i], nowUtc, logger, ct);
+                    continue;
+                }
+
+                var previous = i > 0 ? window[i - 1] : Previous(cron, zone, window[i]);
+                if (await TryQueueAsync(session, workflow, window[i], previous, nowUtc, logger, ct)) queued++;
+            }
         }
 
         return queued;
+    }
+
+    private static async Task TrySkipAsync(
+        IDocumentSession session, WorkflowDefinition workflow, DateTime skipped,
+        DateTime nowUtc, ILogger? logger, CancellationToken ct)
+    {
+        session.Insert(new ScheduleClaim
+        {
+            Id = $"{workflow.Id:N}:{skipped:yyyyMMddTHHmmZ}",
+            WorkflowId = workflow.Id,
+            DueAt = skipped,
+            ClaimedAt = nowUtc,
+        });
+
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (DocumentAlreadyExistsException)
+        {
+            session.EjectAllPendingChanges();
+            logger?.LogDebug("Another host already passed over {DueAt:o} for workflow {WorkflowId}", skipped, workflow.Id);
+        }
+    }
+
+    /// <summary>
+    /// When a saved workflow's due times count from. The stored time is kept while the schedule and
+    /// zone are unchanged, except when the workflow was off and is now on: the times that passed
+    /// while it was off are not caught up.
+    /// </summary>
+    public static DateTime ArmedAt(WorkflowDefinition? stored, WorkflowDefinition next, DateTime now)
+    {
+        var same = stored?.ScheduleArmedAt is not null
+            && string.Equals(stored.Schedule, next.Schedule, StringComparison.Ordinal)
+            && string.Equals(stored.ScheduleTimeZone, next.ScheduleTimeZone, StringComparison.OrdinalIgnoreCase)
+            && !(!stored.Enabled && next.Enabled);
+        return same ? stored!.ScheduleArmedAt!.Value : now;
     }
 
     private static async Task<bool> TryQueueAsync(
@@ -188,7 +257,7 @@ internal static class WorkflowSchedule
         try
         {
             await session.SaveChangesAsync(ct);
-            WorkflowMetrics.Default.Queued(WorkflowEvents.Schedule, 1);
+            WorkflowMetrics.Default.Queued(WorkflowEvents.Schedule, 1, session.TenantId);
             return true;
         }
         catch (DocumentAlreadyExistsException)

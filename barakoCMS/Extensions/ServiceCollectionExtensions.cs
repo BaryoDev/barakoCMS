@@ -3,6 +3,7 @@ using FastEndpoints;
 using FastEndpoints.Swagger;
 using FastEndpoints.Security;
 using Marten;
+using Prometheus;
 using Marten.Events.Projections;
 using Marten.Events.Daemon;
 using Weasel.Core;
@@ -142,6 +143,11 @@ public static class ServiceCollectionExtensions
         options.Events.MetadataConfig.CorrelationIdEnabled = true;
         options.Events.MetadataConfig.CausationIdEnabled = true;
         options.Events.MetadataConfig.HeadersEnabled = true;
+
+        // migrations/5.6.1/event-tenant-timestamp-index.sql adds this index outside Marten, which has
+        // no way to declare an extra index on mt_events. Without this, db-assert reports it as extra
+        // and a CreateOrUpdate start or db-apply would drop it.
+        options.Events.IgnoreIndex("mt_events_idx_tenant_timestamp");
 
         barakoCMS.Infrastructure.Envelope.EventEnvelopeContext.SetNode(options,
             Guid.TryParse(configuration[barakoCMS.Infrastructure.Envelope.EventEnvelopeContext.NodeIdKey], out var node)
@@ -1924,11 +1930,15 @@ public static class ServiceCollectionExtensions
 
         UseMetricsScrapeGuard(app, configuration);
 
+        barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.Configure(configuration);
+
         app.UseRateLimiter();
 
         UseObservability(app);
 
         UseTenantAndAuthentication(app);
+
+        UseRequestMetrics(app);
 
         app.UseMiddleware<barakoCMS.Infrastructure.Security.RateLimitAfterAuthentication>();
 
@@ -1954,6 +1964,15 @@ public static class ServiceCollectionExtensions
 
         return app;
     }
+
+    // After TenantResolutionMiddleware so the tenant label sees the resolved tenant, and ahead of
+    // the health probes and FastEndpoints, which end the pipeline for the requests they answer.
+    // Placed after UseBarakoCMS in Program.cs it only ever saw requests nothing answered.
+    // Tenant slug when it is a registered tenant, else the default tenant; "all" when Metrics:TenantLabel is off.
+    private static void UseRequestMetrics(IApplicationBuilder app) =>
+        app.UseHttpMetrics(options => options.AddCustomLabel(
+            barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.Name,
+            context => barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.ForRequest(context)));
 
     private static void UseExceptionHandling(IApplicationBuilder app)
     {

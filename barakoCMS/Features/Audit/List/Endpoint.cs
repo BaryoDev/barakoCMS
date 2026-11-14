@@ -170,8 +170,8 @@ internal class Endpoint(
             query = query.Where(e => e.ActorUserId == actorId);
         if (!string.IsNullOrWhiteSpace(req.Action))
             query = query.Where(e => e.Action == req.Action);
-        if (req.From is { } from) { var bound = AsUtc(from); query = query.Where(e => e.CreatedAt >= bound); }
-        if (req.To is { } to) { var bound = AsUtc(to); query = query.Where(e => e.CreatedAt <= bound); }
+        if (req.From is { } from) { var bound = barakoCMS.Infrastructure.Http.QueryTimestamps.AsUtc(from); query = query.Where(e => e.CreatedAt >= bound); }
+        if (req.To is { } to) { var bound = barakoCMS.Infrastructure.Http.QueryTimestamps.AsUtc(to); query = query.Where(e => e.CreatedAt <= bound); }
 
         var (items, total) = await ReadPageAsync(query, since, req, ct);
 
@@ -216,16 +216,4 @@ internal class Endpoint(
         var items = await ordered.Skip(req.Skip).Take(req.Take).ToListAsync(ct);
         return (items.ToList(), total);
     }
-
-    /// <summary>
-    /// A query-string timestamp with an offset binds as local time, and CreatedAt is UTC, so on any
-    /// host not running in UTC the window would be shifted by the zone. One without an offset is
-    /// taken as UTC, which is what ListRequest.From and ListRequest.To already document.
-    /// </summary>
-    private static DateTime AsUtc(DateTime value) => value.Kind switch
-    {
-        DateTimeKind.Local => value.ToUniversalTime(),
-        DateTimeKind.Utc => value,
-        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
-    };
 }

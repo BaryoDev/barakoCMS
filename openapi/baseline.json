@@ -27095,6 +27095,26 @@
             }
           },
           {
+            "description": "Only deliveries at or after this instant (UTC). Null = no lower bound.",
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only deliveries at or before this instant (UTC). Null = no upper bound.",
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "format": "date-time",
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
             "in": "query",
             "name": "page",
             "required": true,

@@ -68,6 +68,7 @@ public class TenantResolutionMiddleware(RequestDelegate next)
             if (await RefusedAsync(context, tenant, domains))
                 return;
 
+            await MarkRegisteredAsync(context, tenant, domains);
             await next(context);
             return;
         }
@@ -90,7 +91,20 @@ public class TenantResolutionMiddleware(RequestDelegate next)
         if (await RefusedAsync(context, tenant, domains))
             return;
 
+        await MarkRegisteredAsync(context, tenant, domains);
         await next(context);
+    }
+
+    /// <summary>
+    /// Records on the request whether its slug is a registered tenant. In Single mode the slug is
+    /// whatever the caller sent, so the metrics label reads this rather than trusting the slug.
+    /// </summary>
+    private static async Task MarkRegisteredAsync(
+        HttpContext context, TenantContext tenant, ITenantDomainSource domains)
+    {
+        var map = await domains.GetAsync(context.RequestAborted);
+        if (tenant.IsDefault || map.IsActiveTenant(tenant.Slug) || map.PausedStatus(tenant.Slug) is not null)
+            context.Items[MetricTenantLabel.RegisteredItem] = true;
     }
 
     /// <summary>

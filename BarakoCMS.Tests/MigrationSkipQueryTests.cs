@@ -107,6 +107,14 @@ public class MigrationSkipQueryTests
             + "and tablename = 'mt_doc_contenttypedefinition' and indexname = 'mt_doc_contenttypedefinition_uidx_name' "
             + "and indexdef like '%lower(%')"),
 
+        // The event table with the columns the index names and no index on them, as 5.6.0 left it.
+        // The file adds the tenant and timestamp index the activity feed reads by.
+        ["core/5.6.1/event-tenant-timestamp-index"] = (
+            "create table public.mt_events (seq_id bigint primary key, tenant_id varchar not null default '*DEFAULT*', "
+            + "\"timestamp\" timestamptz not null default now(), data jsonb);",
+            "select exists (select 1 from pg_indexes where schemaname = 'public' and tablename = 'mt_events' "
+            + "and indexname = 'mt_events_idx_tenant_timestamp' and indexdef like '%(tenant_id, \"timestamp\", seq_id)%')"),
+
         ["Files/4.2.0/stored-files-parent-index"] = (
             "create table public.mt_doc_stored_files (id uuid primary key, data jsonb not null);",
             "select to_regclass('public.mt_doc_stored_files_idx_parent_file_id') is not null"),

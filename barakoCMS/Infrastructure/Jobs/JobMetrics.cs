@@ -1,11 +1,13 @@
+using barakoCMS.Infrastructure.Multitenancy;
 using Prometheus;
 
 namespace barakoCMS.Infrastructure.Jobs;
 
 /// <summary>What the job queue publishes on <c>/metrics</c>.</summary>
 /// <remarks>
-/// Label values are the fixed words in this file. Never a queue, a command, a tenant or an error,
-/// for the reason <c>WorkflowMetrics</c> gives: <c>/metrics</c> is read for the whole deployment.
+/// Label values are the fixed words in this file and a tenant slug from <see cref="MetricTenantLabel"/>.
+/// Never a queue, a command or an error, for the reason <c>WorkflowMetrics</c> gives: <c>/metrics</c>
+/// is read for the whole deployment.
 ///
 /// One instance per registry. The host uses <see cref="Default"/>. A test builds its own on a
 /// registry nothing else writes to.
@@ -25,7 +27,7 @@ internal sealed class JobMetrics
         Attempts = factory.CreateCounter(
             "barakocms_jobs_attempts_total",
             "Job attempts whose outcome this node recorded: succeeded, retried, or dead_lettered when it was the last allowed.",
-            new CounterConfiguration { LabelNames = ["outcome"] });
+            new CounterConfiguration { LabelNames = ["outcome", MetricTenantLabel.Name] });
 
         Due = factory.CreateGauge(
             "barakocms_jobs_due",
@@ -51,7 +53,9 @@ internal sealed class JobMetrics
 
     public Gauge DeadLetteredJobs { get; }
 
-    public void Recorded(string outcome) => Attempts.WithLabels(outcome).Inc();
+    /// <param name="tenant">The Marten tenant id or slug the job belongs to. Null is the default tenant.</param>
+    public void Recorded(string outcome, string? tenant = null) =>
+        Attempts.WithLabels(outcome, MetricTenantLabel.For(tenant)).Inc();
 
     public void Queue(int due, TimeSpan oldestDue, int deadLettered)
     {

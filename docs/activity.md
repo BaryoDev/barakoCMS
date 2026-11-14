@@ -67,7 +67,12 @@ A title is shown as the caller's sensitivity rules leave it. A title that field 
 rule masks or removes shows as `Untitled`, and an entry hidden whole gives no row.
 
 Read with no `since`, the content event kinds (`published`, `scheduled`, `edited`) look back 7 days
-only, since the event store has no index on its timestamp. The other sources have no such window.
+only. The window stays now that the event store has an index on the tenant and timestamp
+(`migrations/5.6.1/event-tenant-timestamp-index.sql`, run by `db-migrate`): it is part of what the
+route answers, and it bounds the read for a kind that is rare among a tenant's events. The index
+keeps the read cheap inside the window and for a cursor or a `since` older than it. A database
+without the index still answers, and those older reads scan the tenant's events. The other sources
+have no such window.
 
 A caller on an API key gets no content event rows. Those need a signed-in user to check read
 permission against, and a key has none. The route is not in any API key scope, so a key is turned away before this applies.

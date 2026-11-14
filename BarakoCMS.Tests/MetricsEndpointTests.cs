@@ -178,4 +178,24 @@ public class MetricsEndpointTests
 
         res.StatusCode.Should().Be(HttpStatusCode.OK, "only /metrics is behind the scrape key");
     }
+
+    [Fact]
+    public async Task An_unregistered_tenant_header_does_not_become_a_metric_label_value()
+    {
+        var client = Scrapeable();
+        client.DefaultRequestHeaders.Add(MetricsScrapeAccess.HeaderName, ScrapeKey);
+        const string forged = "forged-tenant-7d41";
+
+        using var probe = new HttpRequestMessage(HttpMethod.Get, "/health/live");
+        probe.Headers.Add("X-Tenant", forged);
+        await client.SendAsync(probe, TestContext.Current.CancellationToken);
+
+        var res = await client.GetAsync("/metrics", TestContext.Current.CancellationToken);
+        var body = await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        body.Split('\n').Should().Contain(
+            l => l.StartsWith("http_requests_received_total{") && l.Contains("tenant=\"default\""),
+            "the probe above was counted as a series under the default tenant");
+        body.Should().NotContain(forged);
+    }
 }

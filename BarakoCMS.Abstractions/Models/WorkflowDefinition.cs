@@ -63,8 +63,9 @@ public class WorkflowDefinition
     public string? ScheduleTimeZone { get; set; }
 
     /// <summary>
-    /// What a schedule does for due times that passed while no host was running. Only
-    /// <c>once</c> exists today: one run for the latest missed time. Null reads as <c>once</c>.
+    /// What a schedule does for due times that passed while no host was running: <c>once</c> fires
+    /// one run for the latest missed time, <c>each</c> fires a run for every missed time (the latest
+    /// 24 at most), <c>skip</c> fires none for a missed time. Null reads as <c>once</c>.
     /// </summary>
     public string? ScheduleCatchUp { get; set; }
 

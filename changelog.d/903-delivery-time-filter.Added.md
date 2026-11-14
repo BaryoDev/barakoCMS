@@ -1,0 +1,1 @@
+- **The webhook delivery list could not be narrowed by time.** `GET /api/webhook-deliveries` takes optional `from` and `to` query parameters (UTC, inclusive) to list the deliveries of a time window (#903).

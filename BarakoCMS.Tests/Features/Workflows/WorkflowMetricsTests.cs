@@ -1,4 +1,5 @@
 using barakoCMS.Features.Workflows;
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
@@ -80,11 +81,11 @@ public class WorkflowMetricsTests
         metrics.Finished(RunStatus.Running);
         metrics.Finished(RunStatus.PartiallyFailed);
 
-        metrics.RunsFinished.WithLabels("partially_failed").Value.Should().Be(1, "the counter does move for a run that ended");
+        metrics.RunsFinished.WithLabels("partially_failed", Tenant.DefaultSlug).Value.Should().Be(1, "the counter does move for a run that ended");
 
         foreach (var status in new[] { "succeeded", "failed", "cancelled" })
         {
-            metrics.RunsFinished.WithLabels(status).Value.Should().Be(0);
+            metrics.RunsFinished.WithLabels(status, Tenant.DefaultSlug).Value.Should().Be(0);
         }
     }
 
@@ -203,6 +204,32 @@ public class WorkflowMetricsTests
         metrics.Queued(WorkflowEvents.Published, 0);
         metrics.Queued(WorkflowEvents.Published, 2);
 
-        metrics.RunsQueued.WithLabels("published").Value.Should().Be(2);
+        metrics.RunsQueued.WithLabels("published", Tenant.DefaultSlug).Value.Should().Be(2);
+    }
+
+    [Fact]
+    public void A_recorded_metric_carries_the_tenant_slug_and_the_default_tenant_reads_as_default()
+    {
+        var metrics = NewMetrics();
+
+        metrics.Queued(WorkflowEvents.Published, 1, "acme");
+        metrics.Queued(WorkflowEvents.Published, 2, "*DEFAULT*");
+        metrics.Recorded("Email", registered: true, AttemptStatus.Succeeded, 5, "acme");
+        metrics.Finished(RunStatus.Succeeded, "acme");
+        metrics.Halted("acme");
+
+        metrics.RunsQueued.WithLabels("published", "acme").Value.Should().Be(1);
+        metrics.RunsQueued.WithLabels("published", Tenant.DefaultSlug).Value.Should().Be(2, "the Marten default id is the slug default");
+        metrics.RunsFinished.WithLabels("succeeded", "acme").Value.Should().Be(1);
+        metrics.RunsHalted.WithLabels("acme").Value.Should().Be(1);
+        metrics.RunsFinished.WithLabels("succeeded", "other-tenant").Value.Should().Be(0, "a tenant has a series of its own");
+    }
+
+    [Fact]
+    public void Switched_off_every_tenant_reads_as_all()
+    {
+        MetricTenantLabel.For("acme", enabled: true).Should().Be("acme");
+        MetricTenantLabel.For("acme", enabled: false).Should().Be(MetricTenantLabel.AllTenants);
+        MetricTenantLabel.For(null, enabled: false).Should().Be(MetricTenantLabel.AllTenants);
     }
 }

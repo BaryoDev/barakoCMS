@@ -213,9 +213,8 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         if (!WorkflowSchedule.IsKnownZone(workflow.ScheduleTimeZone))
             Refuse("scheduleTimeZone", "Schedule time zone must be 'tenant' or an IANA id such as Asia/Manila");
 
-        if (!string.IsNullOrWhiteSpace(workflow.ScheduleCatchUp)
-            && !string.Equals(workflow.ScheduleCatchUp, WorkflowSchedule.CatchUpOnce, StringComparison.OrdinalIgnoreCase))
-            Refuse("scheduleCatchUp", "Schedule catch-up must be 'once'");
+        if (!WorkflowSchedule.IsKnownCatchUp(workflow.ScheduleCatchUp))
+            Refuse("scheduleCatchUp", "Schedule catch-up must be 'once', 'each' or 'skip'");
     }
 
     private void ValidateExecutor(WorkflowDefinition workflow, WorkflowValidationResult result)
