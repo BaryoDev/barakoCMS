@@ -25,6 +25,7 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
     public async Task PreProcessAsync(IPreProcessorContext context, CancellationToken ct)
     {
         var http = context.HttpContext;
+        if (http.Response.HasStarted) return;
         var user = http.User;
         if (user.Identity?.IsAuthenticated != true) return;
         if (!user.HasClaim("auth_method", "apikey")) return;
