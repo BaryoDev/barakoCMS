@@ -33,7 +33,8 @@ public class ApiKey
 
     /// <summary>
     /// A read-only key (secret prefix <c>bcms_ro_</c>). It refuses every POST, PUT, PATCH and DELETE
-    /// whatever its scopes say, and reads only the routes <c>ApiKeyScopeProcessor</c> allows it.
+    /// whatever its scopes say, except on a route a module marks for read-only keys
+    /// (<c>ReadOnlyKeyRoutes</c>), and reads only the routes <c>ApiKeyScopeProcessor</c> allows it.
     /// </summary>
     public bool ReadOnly { get; set; }
 

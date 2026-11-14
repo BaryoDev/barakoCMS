@@ -1,4 +1,5 @@
 using barakoCMS.Models;
+using barakoCMS.Modules;
 using FastEndpoints;
 
 namespace barakoCMS.Infrastructure.Auth;
@@ -13,8 +14,9 @@ namespace barakoCMS.Infrastructure.Auth;
 /// roles, tenants, or keys themselves) stays behind human JWTs, so a leaked key can never escalate
 /// into platform administration. A <c>cap:&lt;capability&gt;</c> scope also reaches an endpoint outside
 /// the content API that is gated on that one capability (never an administrative one, see
-/// <c>CapScopes</c>). A read-only key (<c>bcms_ro_</c>) refuses every write and reads only entries,
-/// workflow health and runs, modules, analytics and the overview. A key acting as a service principal
+/// <c>CapScopes</c>). A read-only key (<c>bcms_ro_</c>) refuses every write, except on a route a module marks for it,
+/// and reads only entries, workflow health and runs, the per-check health read, modules, analytics
+/// and the overview. A key acting as a service principal
 /// passes through the same checks. Human JWT callers are untouched: they carry no scope claims and use
 /// the role gate + permission resolver as before.
 /// </summary>
@@ -30,8 +32,12 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         if (await RefuseReadOnlyAsync(http, ct))
             return;
 
+        // The markers apply to every API key, so a full key can call whatever a read-only key can.
+        if (MayCallSelfRoute(http))
+            return;
+
         var path = http.Request.Path.Value ?? string.Empty;
-        var isWrite = IsWrite(http.Request.Method);
+        var isWrite = IsWrite(http.Request.Method) && !IsReadRoute(http);
 
         var contentTypes = user.FindAll(ApiKeyAuthenticationHandler.ContentTypeClaim).Select(c => c.Value).ToList();
         if (contentTypes.Count > 0 && !IsPushTo(path, contentTypes))
@@ -62,7 +68,9 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
     /// <summary>
     /// Refuses a read-only key's write, or read outside the allowlist, with 403. Returns true when it
     /// answered. <c>ReadOnlyKeyMiddleware</c> calls it before endpoint binding so a form or multipart
-    /// route answers 403 and not 415; the processor calls it again as a second line.
+    /// route answers 403 and not 415; the processor calls it again as a second line. A route marked
+    /// with <see cref="ReadOnlyKeySelfRoute"/> or <see cref="ReadOnlyKeyReadRoute"/> is let through here,
+    /// and the processor then applies the key's content type limit and scopes.
     /// </summary>
     internal static async Task<bool> RefuseReadOnlyAsync(HttpContext http, CancellationToken ct)
     {
@@ -72,21 +80,41 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         if (!user.HasClaim(ApiKeyAuthenticationHandler.ReadOnlyClaim, "true"))
             return false;
 
+        var path = http.Request.Path.Value ?? string.Empty;
         var isWrite = IsWrite(http.Request.Method);
-        if (!isWrite && IsReadOnlyReadable(http.Request.Path.Value ?? string.Empty))
+        if (!isWrite && IsHealthProbe(path))
+            return false;
+        if (MayCallSelfRoute(http) || IsReadRoute(http))
+            return false;
+        if (!isWrite && IsReadOnlyReadable(path))
             return false;
         await Deny(http, ApiKeyRefusalReason.Scope,
             isWrite ? "This API key is read-only." : "A read-only API key reaches only the entry reads, workflow health and runs, modules, analytics and the overview.", ct);
         return true;
     }
 
+    // The health probes are anonymous. A bearer on one is ignored, as it is when there is none.
+    private static bool IsHealthProbe(string path) =>
+        path.TrimEnd('/').ToLowerInvariant() is "/health" or "/health/live" or "/health/ready" or "/health/build";
+
+    // The route carries the self-service marker, the key is bound to a principal and names no content
+    // types. Read-only or not, so a read-only key is never more capable than a full one.
+    private static bool MayCallSelfRoute(HttpContext http) =>
+        http.GetEndpoint()?.Metadata.GetMetadata<ReadOnlyKeySelfRoute>() is not null
+        && ActingCaller.PrincipalIdOf(http.User) is not null
+        && !http.User.HasClaim(c => c.Type == ApiKeyAuthenticationHandler.ContentTypeClaim);
+
+    // The route carries the read-route marker, so a read-only key is judged as if it sent a GET.
+    private static bool IsReadRoute(HttpContext http) =>
+        http.GetEndpoint()?.Metadata.GetMetadata<ReadOnlyKeyReadRoute>() is not null;
+
     private static bool GrantsByCapability(HttpContext http, List<string> granted) =>
         http.GetEndpoint()?.Metadata.GetMetadata<RequiredCapability>() is { } gate
         && CapScopes.Grants(granted, gate.Capability);
 
     /// <summary>
-    /// The reads a read-only key may make: entries, workflow health, workflow runs, modules,
-    /// analytics and the overview. Every other path is refused whatever the key's scopes say.
+    /// The reads a read-only key may make: entries, workflow health, the per-check health read, workflow
+    /// runs, modules, analytics and the overview. Every other path is refused whatever the key's scopes say.
     /// </summary>
     internal static bool IsReadOnlyReadable(string path) =>
         Match(path, "/api/contents")
@@ -94,6 +122,7 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         || Match(path, "/api/modules")
         || Match(path, "/api/analytics")
         || path.TrimEnd('/').Equals("/api/workflows/health", StringComparison.OrdinalIgnoreCase)
+        || IsMonitoringHealth(path)
         || path.TrimEnd('/').Equals("/api/overview", StringComparison.OrdinalIgnoreCase);
 
     // The scopes a request needs (any one of them), or null if API keys may not touch this path at all.

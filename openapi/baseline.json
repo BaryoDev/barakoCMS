@@ -1312,7 +1312,7 @@
             "type": "string"
           },
           "readOnly": {
-            "description": "Makes a read-only key (secret prefix bcms_ro_) that refuses every write.",
+            "description": "Makes a read-only key (secret prefix bcms_ro_) that refuses writes, except on a route a module marks for read-only keys.",
             "type": "boolean"
           },
           "scopes": {

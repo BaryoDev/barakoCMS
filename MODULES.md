@@ -202,6 +202,16 @@ The default is `0`, meaning unstated. Core does not check the number. It reports
 enabled modules to callers who may read `GET /api/modules`. A module the enabled list left off is
 not in that list.
 
+### Capabilities outside a request
+
+A module that works without a request (a background job, a digest) must resolve the capability set,
+not invent one. Use `ICapabilityResolver` from `BarakoCMS.Abstractions`: `ForPrincipalAsync` for a
+key or service principal, `ForUserAsync` for a user. It applies the same rules the gate does, so a
+disabled principal or a suspended tenant gets an empty set. One difference: it ignores
+`Auth:LegacyRoleFallback` (role names in a JWT, which it cannot see), so on a deployment with that
+flag on it can return less than the gate grants. Pass the result to
+`INeedsYouSource.ReadAsync` to read the needs-you items. See [docs/overview.md](docs/overview.md).
+
 ## Writing a module
 
 The contract ships as [`BarakoCMS.Abstractions`](BarakoCMS.Abstractions): `IBarakoModule`,
@@ -732,6 +742,37 @@ store.
 
 With no module that stores files the default throws on every call, naming the module to enable. Every member except `FindPublicAsync` and `OpenPublicAsync` has a
 default that throws `NotSupportedException`, so a store written against those two still compiles.
+
+### Routes for read-only API keys
+
+A read-only key (`bcms_ro_`) refuses every write and reads a short allowlist. A module can open its
+own route to such a key with one of two markers in `BarakoCMS.Abstractions` (namespace
+`barakoCMS.Modules`), set on the endpoint definition in `Configure()`:
+
+```csharp
+Definition.AllowReadOnlyKeySelf();   // a self-service route
+Definition.AllowReadOnlyKeyRead();   // a read route that is a POST only to carry a body
+```
+
+- `AllowReadOnlyKeySelf` lets any API key bound to a service principal call the route with any
+  method, read-only or not, when the key names no content types. It skips the key's scope check,
+  `cap:` scopes included. A read-only key with no principal is refused as on any unmarked route. The
+  endpoint must filter every read and write by `User.TryGetOwnerId(out var ownerId)` and by the
+  tenant. `TryGetOwnerId` gives the principal id, gives a full key with no principal its creator's
+  user id, and fails for a read-only key with no principal, which the endpoint answers with 403. Core
+  cannot check that you did.
+- `AllowReadOnlyKeyRead` lets an API key through whatever the method, read-only or not, with its
+  scopes and content type limits applied as for a GET. Use it only for a route that changes nothing.
+
+Both markers apply to full keys too, so a read-only key is never more capable than a full one on a
+marked route. Core registers neither marker on any route. **Marking a route widens what the API keys
+the marker covers can do on the instance** (for a self route, the principal-bound keys), and the
+administrator who enabled your module chose that, so say it in your README.
+
+A named rate-limit policy partitioned by `User` reads the `UserId` claim, which a principal key does
+not carry, so every principal key would share one bucket. Partition a self route by API key. A revoked, expired or disabled-principal key never reaches the route. Adding the markers does
+not move `ModuleContract.Version`: no member of `IBarakoModule` changed. Your own routes still carry
+your `HttpContractVersion`.
 
 ### Durable work
 
