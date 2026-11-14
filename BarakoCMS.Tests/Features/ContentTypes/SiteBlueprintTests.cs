@@ -599,6 +599,46 @@ public class SiteBlueprintTests
         fix.GetProperty("label").GetString().Should().Be("Fix");
     }
 
+    /// <summary>
+    /// barakoPress reads a font role as a family name or as an object naming the family, a
+    /// stylesheet URL and a fallback stack. Both shapes are stored; an object with no family is not.
+    /// </summary>
+    [Fact]
+    public async Task A_font_role_may_be_a_family_name_or_an_object_with_a_family()
+    {
+        var tenant = await TenantAsync();
+        var admin = await AdminInAsync(tenant);
+        (await admin.PostAsync("/api/content-types/blueprints/site", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var wrong = (Dictionary<string, object>)SiteData("Fonts club");
+        wrong["Fonts"] = new Dictionary<string, object> { ["heading"] = new Dictionary<string, object> { ["fallback"] = "serif" } };
+        (await admin.PostAsJsonAsync("/api/contents", new { contentType = "site", data = wrong }, Ct))
+            .IsSuccessStatusCode.Should().BeFalse("a role with no family has nothing for the renderer to load");
+
+        var data = (Dictionary<string, object>)SiteData("Fonts club");
+        data["Fonts"] = new Dictionary<string, object>
+        {
+            ["heading"] = new Dictionary<string, object> { ["family"] = "Source Serif 4", ["fallback"] = "serif" },
+            ["body"] = new Dictionary<string, object> { ["family"] = "Inter", ["url"] = "https://type.example/inter.css" },
+            ["mono"] = "IBM Plex Mono",
+        };
+        var created = await admin.PostAsJsonAsync("/api/contents", new { contentType = "site", data }, Ct);
+        created.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", created.StatusCode, await created.Content.ReadAsStringAsync(Ct));
+        using (var createdBody = JsonDocument.Parse(await created.Content.ReadAsStringAsync(Ct)))
+        {
+            await PublishAsync(admin, createdBody.RootElement.GetProperty("id").GetGuid());
+        }
+
+        var live = await AnonymousIn(tenant).GetAsync("/api/public/site", Ct);
+
+        live.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = JsonDocument.Parse(await live.Content.ReadAsStringAsync(Ct));
+        var fonts = body.RootElement.GetProperty("items")[0].GetProperty("data").GetProperty("Fonts");
+        fonts.GetProperty("heading").GetProperty("fallback").GetString().Should().Be("serif");
+        fonts.GetProperty("body").GetProperty("url").GetString().Should().Be("https://type.example/inter.css");
+        fonts.GetProperty("mono").GetString().Should().Be("IBM Plex Mono");
+    }
+
     [Fact]
     public async Task Applying_site_creates_the_optional_profile_fields_a_tenant_used_to_hold()
     {

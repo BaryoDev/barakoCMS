@@ -21,7 +21,7 @@
         { "name": "Favicon", "displayName": "Favicon", "type": "url" },
         { "name": "ShareImage", "displayName": "Default share image", "type": "url" },
         { "name": "Colors", "displayName": "Colours", "type": "json", "jsonSchema": {"type": "object", "additionalProperties": {"type": "string"}} },
-        { "name": "Fonts", "displayName": "Fonts", "type": "json", "jsonSchema": {"type": "object", "additionalProperties": {"type": "string"}} },
+        { "name": "Fonts", "displayName": "Fonts", "type": "json", "jsonSchema": {"type": "object", "additionalProperties": {"type": ["string", "object"], "required": ["family"], "properties": {"family": {"type": "string"}, "url": {"type": "string"}, "fallback": {"type": "string"}}}} },
         { "name": "Radii", "displayName": "Corner radii", "type": "json", "jsonSchema": {"type": "object", "additionalProperties": {"type": "string"}} },
         { "name": "Layout", "displayName": "Widths", "type": "json", "jsonSchema": {"type": "object", "additionalProperties": {"type": "string"}} },
         { "name": "Space", "displayName": "Spacing scale", "type": "json", "jsonSchema": {"type": "object", "additionalProperties": {"type": ["string", "number"]}} },
