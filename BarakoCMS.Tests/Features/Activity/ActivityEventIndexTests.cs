@@ -108,6 +108,19 @@ public class ActivityEventIndexTests
         await ExecuteAsync(connection, await MigrationAsync("event-tenant-timestamp-index.sql"));
     }
 
+    [Fact]
+    public async Task The_schema_delta_does_not_drop_the_index_once_the_migration_is_applied()
+    {
+        await using var connection = await PrepareAsync();
+
+        Store.Options.Events.IgnoredIndexes.Should().Contain(IndexName);
+
+        // The same check db-assert makes. Before the ignore, the delta held
+        // "drop index if exists public.mt_events_idx_tenant_timestamp".
+        // Throws with the delta in its message when the database differs from the configuration.
+        await Store.Storage.Database.AssertDatabaseMatchesConfigurationAsync();
+    }
+
     /// <summary>A tenant with a few hundred streams, and a second one so the tenant filter has something to exclude.</summary>
     private async Task<string> SeedAsync()
     {

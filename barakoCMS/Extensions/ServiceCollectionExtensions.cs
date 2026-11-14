@@ -144,6 +144,11 @@ public static class ServiceCollectionExtensions
         options.Events.MetadataConfig.CausationIdEnabled = true;
         options.Events.MetadataConfig.HeadersEnabled = true;
 
+        // migrations/5.6.1/event-tenant-timestamp-index.sql adds this index outside Marten, which has
+        // no way to declare an extra index on mt_events. Without this, db-assert reports it as extra
+        // and a CreateOrUpdate start or db-apply would drop it.
+        options.Events.IgnoreIndex("mt_events_idx_tenant_timestamp");
+
         barakoCMS.Infrastructure.Envelope.EventEnvelopeContext.SetNode(options,
             Guid.TryParse(configuration[barakoCMS.Infrastructure.Envelope.EventEnvelopeContext.NodeIdKey], out var node)
                 ? node

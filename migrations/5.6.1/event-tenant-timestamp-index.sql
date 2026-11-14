@@ -7,8 +7,9 @@
 -- backward scan with the tie break on the sequence in the index itself.
 --
 -- Marten has no setting for an extra index on mt_events, so core does not declare this one and a
--- fresh database does not get it from the first start. Run db-migrate after the first start of a new
--- database as well as on an upgrade. Without the index the feed still answers, and reads past the
+-- fresh database does not get it from the first start. Core tells Marten to ignore it
+-- (Events.IgnoreIndex), so db-assert passes and a schema apply does not drop it. Run db-migrate
+-- after the first start of a new database as well as on an upgrade. Without the index the feed still answers, and reads past the
 -- window scan the tenant's events.
 --
 -- CONCURRENTLY so it does not block writes to mt_events while a long history is read. That means it
