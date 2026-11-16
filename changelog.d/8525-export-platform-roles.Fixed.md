@@ -1,0 +1,1 @@
+- **Config export no longer writes platform roles, so an export applies cleanly to the system it came from.** The `roles` section now holds the tenant's own roles only, the way it already left out the seeded roles. Before, a platform role that was also invitable made the apply of that same export fail.

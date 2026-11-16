@@ -136,4 +136,50 @@ public class RoleConfigInvitableTests
         role.Invitable.Should().BeTrue();
         role.SystemCapabilities.Should().BeEmpty();
     }
+
+    private async Task<Role> SeedPlatformAsync(string name, bool invitable, params string[] capabilities)
+    {
+        var role = new Role
+        {
+            Id = Guid.NewGuid(), Name = name, TenantSlug = null, IsPlatform = true, Description = "shared",
+            Invitable = invitable, SystemCapabilities = [.. capabilities],
+        };
+        await _callers.StoreInTenantAsync(null, role);
+        return role;
+    }
+
+    [Fact]
+    public async Task Export_leaves_a_platform_role_out_and_keeps_the_tenants_own()
+    {
+        var (tenant, client) = await WriterAsync();
+        var own = Unique("Own ");
+        var platform = Unique("Shared ");
+        await SeedAsync(tenant, own, false);
+        await SeedPlatformAsync(platform, true, "view_audit_log");
+
+        var (exported, export) = await ExportAsync(client, "roles");
+
+        exported.StatusCode.Should().Be(HttpStatusCode.OK, export.ToString());
+        var roles = export.GetProperty("roles");
+        roles.TryGetProperty(own, out _).Should().BeTrue();
+        roles.TryGetProperty(platform, out _).Should().BeFalse("a platform role is not tenant configuration");
+    }
+
+    [Fact]
+    public async Task An_export_applies_cleanly_on_the_same_tenant_with_an_invitable_platform_role_present()
+    {
+        var (tenant, client) = await WriterAsync();
+        var own = Unique("Own ");
+        var platform = Unique("Shared ");
+        await SeedAsync(tenant, own, false);
+        var seeded = await SeedPlatformAsync(platform, true, "view_audit_log");
+
+        var (_, export) = await ExportAsync(client, "roles");
+        var (applied, body) = await ApplyAsync(client, new { version = 1, roles = export.GetProperty("roles") });
+
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        var kept = await _callers.InTenantAsync(null, s => s.Query<Role>().SingleOrDefaultAsync(r => r.Id == seeded.Id, Ct));
+        kept.Should().NotBeNull("apply never deletes a role the document leaves out");
+        kept!.SystemCapabilities.Should().Equal("view_audit_log");
+    }
 }

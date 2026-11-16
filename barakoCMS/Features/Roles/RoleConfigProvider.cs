@@ -23,15 +23,15 @@ internal sealed record RoleConfig(string? Description, List<string>? SystemCapab
 }
 
 /// <summary>
-/// The <c>roles</c> section: the roles the tenant reaches, its own and the platform roles, but the
-/// seeded ones, under its name.
+/// The <c>roles</c> section: the tenant's own roles, under their names. Export leaves out the seeded
+/// roles and the platform roles, which are not tenant configuration.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The same roles <c>GET /api/roles</c> lists for a caller in the tenant, and the same rules as the
 /// roles routes (<see cref="RoleScope"/>). Another tenant's role is neither exported nor written. A
 /// name is read as the tenant's own role first, then a platform role. A name the tenant does not
-/// reach creates a role of the tenant. Changing a platform role, or adding a capability that
+/// reach creates a role of the tenant. A document can still name a platform role to change it. Changing a platform role, or adding a capability that
 /// reaches past the tenant, takes <c>manage_platform_roles</c>.
 /// </para>
 /// <para>
@@ -64,7 +64,7 @@ internal sealed class RoleConfigProvider(
         return new ConfigSectionExport
         {
             Documents = roles.Values
-                .Where(r => !SystemRoles.Contains(r.Id))
+                .Where(r => !SystemRoles.Contains(r.Id) && !r.IsPlatform)
                 .ToDictionary(r => r.Name, r => ConfigJson.ToElement(RoleConfig.Of(r)), StringComparer.Ordinal),
         };
     }
