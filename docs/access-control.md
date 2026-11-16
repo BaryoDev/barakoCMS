@@ -608,6 +608,23 @@ it does not drop them. An empty list removes the set, and is stored as no set.
 The audit row for a role lists each rule's set under `fieldSets` in `permissions`,
 `permissionsBefore` and `permissionsAfter`, by name, when a rule holds one.
 
+### Previewing a role
+
+`POST /api/roles/preview` answers which entries a user would see under rules that are not saved.
+The body is `{ "userId", "contentType", "permissions", "take" }`. `permissions` has the shape of the
+`PUT /api/roles/{id}` body and is checked the same way. `take` is 20 by default and at most 50.
+
+The user is judged as holding that role alone, through the same resolver a saved role goes through,
+so `$CURRENT_USER` is the previewed user, not the caller. Each entry comes back with `id`, `title` and
+`visible`. A hidden entry has a `reason`: `no read rule`, `condition not met` (with `condition`, the
+one that failed) or `field rules hide it`. A visible entry lists `readableFields`, or null when the
+rules name no set.
+
+The route needs `manage_roles`, as `PUT /api/roles/{id}` does, and takes a JWT only. A user who is not
+a member of the current tenant answers 404. Entries the caller may not read are left out, not shown
+with a reason. Nothing is saved, and nothing the preview decides reaches the permission cache. The
+user's branch scoping is not applied.
+
 ### Caches
 
 Nothing about a set is cached across requests. The sets are read off the caller's roles, which the

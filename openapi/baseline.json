@@ -6809,6 +6809,80 @@
           }
         ]
       },
+      "BarakoCMSFeaturesRolesPreviewEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "condition": {
+            "description": "The condition the read rule failed on, as the JSON object the rule holds it in. Set with\ncondition not met.",
+            "type": "string"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "readableFields": {
+            "description": "The fields the user could read on a visible entry. Null when the rules name no set, which\nmeans every field.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reason": {
+            "description": "Why the user would not see the entry: no read rule, condition not met or\nfield rules hide it. Null when visible.",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "visible": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesRolesPreviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "contentType": {
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          },
+          "permissions": {
+            "description": "The draft rules, in the shape the role save takes. Nothing is stored.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSModelsContentTypePermission"
+            },
+            "type": "array"
+          },
+          "take": {
+            "description": "How many entries to return. 20 when absent, 50 at most.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
+          "userId": {
+            "description": "The user whose view is previewed. Must belong to the current tenant.",
+            "format": "guid",
+            "minLength": 1,
+            "nullable": false,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesRolesPreviewResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesRolesPreviewEntry"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesRolesRestoreRequest": {
         "additionalProperties": false,
         "type": "object"
@@ -23782,6 +23856,59 @@
           }
         ],
         "summary": "GET /api/roles/deleted: the roles that were deleted and not yet erased, within the caller's reach.",
+        "tags": [
+          "Roles"
+        ]
+      }
+    },
+    "/api/roles/preview": {
+      "post": {
+        "description": "The draft is judged by a PermissionResolver made for the request and pinned to it,\nso the rule logic is the one a saved role runs through. It is never the cached resolver: nothing\nthe draft decides may reach the shared cache. Nothing is stored. The user is judged as holding\nthe draft alone, so the answer is what the role would grant that user, not a merge with the\nroles the user holds now. The user's branch scoping is not applied.\nThe caller only sees entries the caller may read, so the preview cannot be used to list what the\ncaller cannot open. Those are left out, not shown with a reason.",
+        "operationId": "barakoCMSFeaturesRolesPreviewEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesRolesPreviewRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesRolesPreviewResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/roles/preview, which entries a user would see under rules that are not saved yet.",
         "tags": [
           "Roles"
         ]

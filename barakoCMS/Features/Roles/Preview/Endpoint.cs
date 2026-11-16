@@ -1,0 +1,194 @@
+using barakoCMS.Core;
+using barakoCMS.Core.Interfaces;
+using barakoCMS.Features.Activity;
+using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Services;
+using barakoCMS.Models;
+using FastEndpoints;
+using Marten;
+
+namespace barakoCMS.Features.Roles.Preview;
+
+/// <summary>
+/// POST /api/roles/preview, which entries a user would see under rules that are not saved yet.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The draft is judged by a <see cref="PermissionResolver"/> made for the request and pinned to it,
+/// so the rule logic is the one a saved role runs through. It is never the cached resolver: nothing
+/// the draft decides may reach the shared cache. Nothing is stored. The user is judged as holding
+/// the draft alone, so the answer is what the role would grant that user, not a merge with the
+/// roles the user holds now. The user's branch scoping is not applied.
+/// </para>
+/// <para>
+/// The caller only sees entries the caller may read, so the preview cannot be used to list what the
+/// caller cannot open. Those are left out, not shown with a reason.
+/// </para>
+/// </remarks>
+internal sealed class Endpoint(
+    IDocumentSession session,
+    IConditionEvaluator conditions,
+    IPermissionResolver callerPermissions,
+    IBranchScopeGuard branchGuard,
+    ISensitivityService sensitivity,
+    TenantContext tenant,
+    IEventEnvelopeContext envelope,
+    ILoggerFactory loggers) : Endpoint<Request, Response>
+{
+    internal const int DefaultTake = 20;
+    internal const int MaxTake = 50;
+
+    // How many stored entries are looked at while filling a page, so a caller who can read little
+    // cannot make one request scan a whole type.
+    private const int ScanLimit = 500;
+    private const int BatchSize = 100;
+
+    public override void Configure()
+    {
+        Post("/api/roles/preview");
+        Definition.RequireCapability(SystemCapabilities.ManageRoles, "SuperAdmin");
+    }
+
+    public override async Task HandleAsync(Request req, CancellationToken ct)
+    {
+        foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, null, ct))
+            AddError(r => r.Permissions, error);
+        foreach (var error in FieldSetRules.DuplicateTypeErrors(req.Permissions, null))
+            AddError(r => r.Permissions, error);
+        FieldSetRules.Normalise(req.Permissions);
+        foreach (var error in await RoleSaveRules.CheckAsync(session, req.Permissions, null, ct))
+            AddError(r => r.Permissions, error);
+        ThrowIfAnyErrors();
+
+        var previewed = await session.LoadAsync<User>(req.UserId, ct);
+        if (previewed is null || !await InTenantAsync(previewed.Id, ct))
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        var named = await session.Query<ContentTypeDefinition>()
+            .Where(ContentTypeName.Named(req.ContentType)).ToListAsync(ct);
+        ContentTypeDefinition? definition;
+        try
+        {
+            definition = ContentTypeName.Pick(named, req.ContentType);
+        }
+        catch (AmbiguousContentTypeException ambiguous)
+        {
+            AddError(r => r.ContentType, ambiguous.Message);
+            ThrowIfAnyErrors();
+            return;
+        }
+
+        if (definition is null)
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        var caller = await ActingCaller.LoadAsync(session, User, ct);
+        if (caller is null)
+        {
+            await Send.ForbiddenAsync(ct);
+            return;
+        }
+
+        var draft = new Role { Id = Guid.NewGuid(), Name = "preview", Permissions = req.Permissions };
+        var resolver = new PermissionResolver(session, conditions, tenant, envelope, loggers.CreateLogger<PermissionResolver>());
+        await resolver.PinRolesAsync(previewed, [draft], ct);
+
+        var take = Math.Clamp(req.Take ?? DefaultTake, 1, MaxTake);
+        var typeName = definition.Name;
+        var items = new List<Entry>();
+        var scanned = 0;
+
+        while (items.Count < take && scanned < ScanLimit)
+        {
+            var skip = scanned;
+            var batch = await session.Query<barakoCMS.Models.Content>()
+                .Where(c => c.ContentType == typeName)
+                .OrderBy(c => c.CreatedAt).ThenBy(c => c.Id)
+                .Skip(skip).Take(BatchSize)
+                .ToListAsync(ct);
+            if (batch.Count == 0) break;
+            scanned += batch.Count;
+
+            foreach (var entry in batch)
+            {
+                if (items.Count >= take) break;
+
+                var scrubbed = await CallerTitleDataAsync(caller, entry, ct);
+                if (scrubbed is null) continue;
+
+                items.Add(await JudgeAsync(resolver, req.Permissions, previewed, typeName, entry, scrubbed, ct));
+            }
+        }
+
+        await Send.OkAsync(new Response { Items = items }, ct);
+    }
+
+    private async Task<Entry> JudgeAsync(
+        PermissionResolver resolver, List<ContentTypePermission> draft, User previewed, string typeName, barakoCMS.Models.Content entry,
+        IDictionary<string, object> scrubbed, CancellationToken ct)
+    {
+        var result = new Entry { Id = entry.Id, Title = ActivitySources.TitleOf(entry.Data, scrubbed) };
+
+        var reads = await resolver.CanPerformActionAsync(previewed, typeName, "read", entry, ct);
+        if (!reads)
+        {
+            result.Visible = false;
+            if (PermissionResolver.PermissionFor(draft, typeName)?.Read is { Enabled: true })
+            {
+                result.Reason = "condition not met";
+                result.Condition = await resolver.FirstFailedReadConditionAsync(previewed, typeName, entry, ct);
+            }
+            else
+            {
+                result.Reason = "no read rule";
+            }
+
+            return result;
+        }
+
+        var fields = await resolver.FieldSetAsync(previewed, typeName, "read", entry, ct);
+        if (!fields.IsAll && entry.Data.Count > 0 && !entry.Data.Keys.Any(fields.Allows))
+        {
+            result.Visible = false;
+            result.Reason = "field rules hide it";
+            return result;
+        }
+
+        result.Visible = true;
+        result.ReadableFields = fields.IsAll ? null : fields.Names!.Order(StringComparer.Ordinal).ToList();
+        return result;
+    }
+
+    /// <summary>
+    /// The entry's data as the caller may see it, or null when the caller may not read the entry or
+    /// sensitivity hides it whole. The caller's check is an entry decision, which the cached
+    /// resolver never stores.
+    /// </summary>
+    private async Task<IDictionary<string, object>?> CallerTitleDataAsync(User caller, barakoCMS.Models.Content entry, CancellationToken ct)
+    {
+        if (!await branchGuard.MayAccessAsync(User, entry, ct)
+            || !await callerPermissions.CanPerformActionAsync(caller, entry.ContentType, "read", entry, ct))
+        {
+            return null;
+        }
+
+        var scrubbed = new Dictionary<string, object>(entry.Data);
+        return await sensitivity.ApplyAsync(entry, scrubbed, HttpContext, ct) ? null : scrubbed;
+    }
+
+    private async Task<bool> InTenantAsync(Guid userId, CancellationToken ct)
+    {
+        // The default tenant records no memberships, so any existing user belongs to it.
+        if (tenant.IsDefault) return true;
+
+        var slug = tenant.Slug;
+        return await session.Query<Membership>()
+            .AnyAsync(m => m.UserId == userId && m.TenantSlug == slug && m.Status != MembershipStatus.Removed, ct);
+    }
+}

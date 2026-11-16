@@ -55,9 +55,6 @@ public partial class PermissionResolver(
             return _roles;
         }
 
-        // What was read while following references was read as the previous user.
-        ForgetReferences();
-
         // Roles come from the user's membership in the current tenant (falling back to the user's
         // legacy roles when there's no membership).
         var (roleIds, membership) = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
@@ -69,13 +66,65 @@ public partial class PermissionResolver(
                 .Where(r => r.DeletedAt == null && r.Id.In(roleIds))
                 .ToListAsync(cancellationToken);
 
+        Pin(user, roles, membership);
+        return roles;
+    }
+
+    /// <summary>
+    /// Makes <paramref name="roles"/> the roles this resolver judges <paramref name="user"/> by, in
+    /// place of the ones stored. The roles need not be saved, which is what lets a draft be asked
+    /// the same questions the stored ones are.
+    /// </summary>
+    /// <remarks>
+    /// The one place roles and profile are set, so the stored path and a draft cannot differ in
+    /// how they are read. Use it on an instance made for the purpose, never on the request's
+    /// resolver, and never through <see cref="CachedPermissionResolver"/>: nothing a pinned
+    /// resolver answers may reach the shared cache.
+    /// </remarks>
+    internal async Task PinRolesAsync(Models.User user, IReadOnlyList<Models.Role> roles, CancellationToken cancellationToken)
+    {
+        var (_, membership) = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
+            .ResolveAsync(session, user, tenant.Slug, cancellationToken);
+        Pin(user, roles, membership);
+    }
+
+    private void Pin(Models.User user, IReadOnlyList<Models.Role> roles, Models.Membership? membership)
+    {
+        // What was read while following references was read as the previous user.
+        ForgetReferences();
+
         _rolesFor = user.Id;
         _roles = roles;
         // The request's branch joins the profile as "branch" only when the member holds it, so
         // $CURRENT_BRANCH reads the same place in both evaluators.
         _profile = CallerBranches.WithRequestBranch(membership?.Profile, envelope.BranchId);
+    }
 
-        return roles;
+    /// <summary>
+    /// The first condition of the read rule that grants nothing on this entry, as the JSON object
+    /// the rule holds it in, or null when the type has no enabled read rule with conditions or
+    /// every condition holds. Each key is asked through <see cref="GrantsAsync"/>, the call the
+    /// grant itself makes, so the name given is the one the grant failed on.
+    /// </summary>
+    internal async Task<string?> FirstFailedReadConditionAsync(
+        Models.User user, string contentTypeSlug, Models.Content content, CancellationToken cancellationToken)
+    {
+        var roles = await RolesForAsync(user, cancellationToken);
+        foreach (var role in roles)
+        {
+            var rule = PermissionFor(role.Permissions, contentTypeSlug)?.Read;
+            if (rule is not { Enabled: true, Conditions: { Count: > 0 } conditions })
+                continue;
+
+            foreach (var (key, value) in conditions)
+            {
+                var single = new Dictionary<string, object> { [key] = value };
+                if (!await GrantsAsync(single, content, user, cancellationToken))
+                    return System.Text.Json.JsonSerializer.Serialize(single);
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
