@@ -504,4 +504,98 @@ public class ConfigSectionsTests
         plan.GetProperty("sections")[0].GetProperty("refusals").GetArrayLength().Should().BeGreaterThan(0, plan.ToString());
         plan.ToString().Should().NotContain(theirs, "a tenant admin refused the rules does not learn which tenants have the type");
     }
+
+    private async Task<(string Tenant, string Role, string Type, HttpClient Client)> PlatformRuleAsync()
+    {
+        var tenant = await _callers.TenantAsync();
+        var type = Unique("ledger");
+        await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")));
+        var role = Unique("Shared Clerk ");
+        await _callers.StoreInTenantAsync(null, new Role
+        {
+            Id = Guid.NewGuid(), Name = role, IsPlatform = true,
+            Permissions = [new ContentTypePermission { ContentTypeSlug = type, Read = new PermissionRule { Enabled = true } }],
+        });
+        return (tenant, role, type, await _callers.SuperAdminAsync(tenant));
+    }
+
+    [Fact]
+    public async Task A_platform_roles_rule_is_exported_with_the_platform_marker_and_a_tenant_roles_is_not()
+    {
+        var (tenant, role, type, client) = await PlatformRuleAsync();
+        var own = Unique("Own Clerk ");
+        await _callers.StoreInTenantAsync(tenant, new Role
+        {
+            Id = Guid.NewGuid(), Name = own, TenantSlug = tenant,
+            Permissions = [new ContentTypePermission { ContentTypeSlug = type, Read = new PermissionRule { Enabled = true } }],
+        });
+
+        var (_, export) = await ExportAsync(client, "permissionRules");
+
+        var rules = export.GetProperty("permissionRules");
+        rules.GetProperty($"{role}/{type}").GetProperty("platform").GetBoolean().Should().BeTrue();
+        rules.GetProperty($"{own}/{type}").TryGetProperty("platform", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task An_export_with_a_platform_roles_rule_applies_to_the_same_tenant_as_no_change()
+    {
+        var (_, role, type, client) = await PlatformRuleAsync();
+
+        var (_, export) = await ExportAsync(client);
+        var document = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(export.GetRawText())!;
+        var (_, plan) = await PlanAsync(client, document);
+        Changes(plan).Should().NotContain(c => c.StartsWith("permissionRules/"), "the marker is not a change on a round trip");
+
+        var (applied, body) = await ApplyAsync(client, document);
+
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        var stored = await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role, Ct));
+        stored!.Permissions.Select(p => p.ContentTypeSlug).Should().Equal(type);
+    }
+
+    [Fact]
+    public async Task A_marked_rule_for_a_platform_role_the_install_lacks_is_skipped_with_a_warning()
+    {
+        var type = Unique("ledger");
+        var fresh = await _callers.TenantAsync();
+        var target = await _callers.SuperAdminAsync(fresh);
+        var missing = Unique("Absent Clerk ");
+        var document = new
+        {
+            version = 1,
+            contentTypes = new Dictionary<string, object> { [type] = Type(type, ("Title", "string")) },
+            permissionRules = new Dictionary<string, object> { [$"{missing}/{type}"] = new { read = new { enabled = true }, platform = true } },
+        };
+
+        var (applied, plan) = await ApplyAsync(target, document);
+
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, plan.ToString());
+        var notes = plan.GetProperty("sections").EnumerateArray()
+            .First(x => x.GetProperty("section").GetString() == "permissionRules")
+            .GetProperty("notes").EnumerateArray().Select(n => n.GetString()!).ToList();
+        notes.Should().ContainSingle(n => n.Contains($"'{missing}/{type}'") && n.Contains("does not exist here") && n.Contains("skipped"));
+        (await _callers.InTenantAsync(fresh, s => s.Query<ContentTypeDefinition>().AnyAsync(t => t.Name == type, Ct)))
+            .Should().BeTrue("the other sections still applied");
+    }
+
+    [Fact]
+    public async Task An_unmarked_rule_for_a_role_that_does_not_exist_still_errors()
+    {
+        var type = Unique("ledger");
+        var fresh = await _callers.TenantAsync();
+        var target = await _callers.SuperAdminAsync(fresh);
+        var missing = Unique("Typo Clerk ");
+        var document = new
+        {
+            version = 1,
+            contentTypes = new Dictionary<string, object> { [type] = Type(type, ("Title", "string")) },
+            permissionRules = new Dictionary<string, object> { [$"{missing}/{type}"] = new { read = new { enabled = true } } },
+        };
+
+        var (applied, body) = await ApplyAsync(target, document);
+
+        applied.StatusCode.Should().Be(HttpStatusCode.BadRequest, body.ToString());
+        body.ToString().Should().Contain("there is no role");
+    }
 }

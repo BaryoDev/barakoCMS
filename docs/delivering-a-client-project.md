@@ -380,7 +380,12 @@ never reaches another client's roles. The exception is a platform role every ten
 `Admin`: changing it, or its rules, takes `manage_platform_roles`, and since a rule names a content
 type by its name, a rule removed from a platform role is removed for every tenant with a type of that
 name; the plan names those tenants in a note. Export one tenant with `GET /api/config/export` to
-start the file: it lists that tenant's roles and the platform roles, never another tenant's.
+start the file: it holds that tenant's own roles and leaves out the seeded roles and the platform
+roles, which are not tenant configuration. The rules a platform role holds are still exported, marked
+`"platform": true`. On an install that has no role of that name, apply skips such a rule and the plan
+says so in a note; an unmarked rule for a missing role is still an error. The same goes for a
+tenant moved with the tenant export: create its platform roles on the target first, then apply the
+config again to bring those rules in.
 
 The Portability module's routes did this before the config engine and are obsolete, with removal
 planned for 6.0. `POST /api/config/apply` accepts their bundle unchanged. Until the removal:
