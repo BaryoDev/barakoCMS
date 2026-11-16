@@ -557,7 +557,7 @@ public class ConfigSectionsTests
     [Fact]
     public async Task A_marked_rule_for_a_platform_role_the_install_lacks_is_skipped_with_a_warning()
     {
-        var (_, _, type, client) = await PlatformRuleAsync();
+        var type = Unique("ledger");
         var fresh = await _callers.TenantAsync();
         var target = await _callers.SuperAdminAsync(fresh);
         var missing = Unique("Absent Clerk ");
@@ -582,7 +582,7 @@ public class ConfigSectionsTests
     [Fact]
     public async Task An_unmarked_rule_for_a_role_that_does_not_exist_still_errors()
     {
-        var (_, _, type, _) = await PlatformRuleAsync();
+        var type = Unique("ledger");
         var fresh = await _callers.TenantAsync();
         var target = await _callers.SuperAdminAsync(fresh);
         var missing = Unique("Typo Clerk ");
