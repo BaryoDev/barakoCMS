@@ -20,7 +20,8 @@ internal class Request
     /// <summary>
     /// The capabilities the role will hold, in the shape the role save takes. Optional. They decide
     /// whether the user sees Sensitive and Hidden fields (<c>view_sensitive</c>, <c>view_hidden</c>).
-    /// Nothing is stored.
+    /// When absent, the draft holds the stored role's capabilities if <c>roleId</c> is set, and none
+    /// otherwise. An empty list holds none. Nothing is stored.
     /// </summary>
     public List<string>? SystemCapabilities { get; set; }
 

@@ -118,7 +118,7 @@ internal sealed class Endpoint(
             Id = draftId,
             Name = !string.IsNullOrWhiteSpace(req.Name) ? req.Name : stored?.Name ?? draftId.ToString(),
             Permissions = req.Permissions,
-            SystemCapabilities = req.SystemCapabilities ?? [],
+            SystemCapabilities = req.SystemCapabilities ?? [.. stored?.SystemCapabilities ?? []],
         };
         var resolver = new PermissionResolver(session, conditions, tenant, envelope, loggers.CreateLogger<PermissionResolver>());
         await resolver.PinRolesAsync(previewed, [draft], ct);

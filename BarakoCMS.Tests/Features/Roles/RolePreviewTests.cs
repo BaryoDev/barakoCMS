@@ -505,7 +505,7 @@ public class RolePreviewTests
     }
 
     [Fact]
-    public async Task A_role_id_that_is_unknown_or_belongs_to_another_tenant_answers_404()
+    public async Task A_role_id_that_is_unknown_deleted_or_in_another_tenant_answers_404_and_one_of_its_own_tenant_is_found()
     {
         var type = await TypeAsync();
         var user = await UserAsync();
@@ -514,14 +514,57 @@ public class RolePreviewTests
         {
             Id = foreign, Name = $"Foreign_{Guid.NewGuid():n}", TenantSlug = $"other{Guid.NewGuid():n}"[..14], Permissions = [],
         });
+        var own = Guid.NewGuid();
+        await StoreAsync(new Role { Id = own, Name = $"Own_{Guid.NewGuid():n}", TenantSlug = Tenant.DefaultSlug, Permissions = [] });
+        var deleted = Guid.NewGuid();
+        await StoreAsync(new Role
+        {
+            Id = deleted, Name = $"Gone_{Guid.NewGuid():n}", TenantSlug = Tenant.DefaultSlug, Permissions = [], DeletedAt = DateTime.UtcNow,
+        });
         var caller = await ManageRolesCallerAsync(type);
 
-        foreach (var id in new[] { foreign, Guid.NewGuid() })
+        async Task<HttpStatusCode> StatusAsync(Guid id) => (await caller.PostAsJsonAsync("/api/roles/preview",
+            new { userId = user, contentType = type, permissions = ReadRule(type), roleId = id }, Ct)).StatusCode;
+
+        // The control: a role of the caller's own tenant is found, so the 404s below come from the lookup.
+        (await StatusAsync(own)).Should().Be(HttpStatusCode.OK);
+        foreach (var id in new[] { foreign, deleted, Guid.NewGuid() })
+            (await StatusAsync(id)).Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_platform_role_cannot_be_previewed_by_a_caller_who_is_not_a_platform_administrator()
+    {
+        var type = await TypeAsync();
+        var user = await UserAsync();
+        var shared = Guid.NewGuid();
+        await StoreAsync(new Role { Id = shared, Name = $"Shared_{Guid.NewGuid():n}", IsPlatform = true, Permissions = [] });
+        var caller = await ManageRolesCallerAsync(type);
+
+        var response = await caller.PostAsJsonAsync("/api/roles/preview",
+            new { userId = user, contentType = type, permissions = ReadRule(type), roleId = shared }, Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task A_draft_that_edits_a_stored_role_keeps_its_capabilities_unless_the_request_sets_them()
+    {
+        var admin = await SuperAdminAsync();
+        var roleId = Guid.NewGuid();
+        await StoreAsync(new Role
         {
-            var response = await caller.PostAsJsonAsync("/api/roles/preview",
-                new { userId = user, contentType = type, permissions = ReadRule(type), roleId = id }, Ct);
-            response.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        }
+            Id = roleId, Name = $"Sensitive_{Guid.NewGuid():n}", Permissions = [], SystemCapabilities = [SystemCapabilities.ViewSensitive],
+        });
+        var type = await TypeAsync(gradeSensitivity: SensitivityLevel.Sensitive);
+        var user = await UserAsync();
+        var entry = await EntryAsync(type, "Row", user);
+        var rule = ReadRule(type, readable: ["Title", "Grade"]);
+
+        var absent = ItemFor(await PreviewAsync(admin, user, type, rule, roleId: roleId), entry);
+        ReadableFieldsOf(absent).Should().BeEquivalentTo(["Title", "Grade"]);
+
+        var empty = ItemFor(await PreviewAsync(admin, user, type, rule, systemCapabilities: [], roleId: roleId), entry);
+        ReadableFieldsOf(empty).Should().BeEquivalentTo(["Title"]);
     }
 
     // ---- what the caller may see ----

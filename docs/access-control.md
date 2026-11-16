@@ -619,7 +619,8 @@ platform capability needs a platform administrator, and a reserved role name is 
 an existing role has is fine, since editing that role is the normal case.
 
 To preview an edit to a stored role, send its `roleId`. The draft then carries that role's id, which is
-how a field lists a role in `visibleToRoles`, and its stored name when `name` is blank. The checks
+how a field lists a role in `visibleToRoles`, its stored name when `name` is blank, and its stored
+capabilities when `systemCapabilities` is absent. An empty `systemCapabilities` list holds none. The checks
 are the update's: a role that is not in the current tenant, or does not exist, answers 404; a
 platform role needs `manage_platform_roles`; a seeded role may keep its reserved name; and a
 platform capability the stored role already holds is kept. Without `roleId` the draft is a new role,

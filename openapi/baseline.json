@@ -6881,7 +6881,7 @@
             "type": "string"
           },
           "systemCapabilities": {
-            "description": "The capabilities the role will hold, in the shape the role save takes. Optional. They decide\nwhether the user sees Sensitive and Hidden fields (view_sensitive, view_hidden).\nNothing is stored.",
+            "description": "The capabilities the role will hold, in the shape the role save takes. Optional. They decide\nwhether the user sees Sensitive and Hidden fields (view_sensitive, view_hidden).\nWhen absent, the draft holds the stored role's capabilities if roleId is set, and none\notherwise. An empty list holds none. Nothing is stored.",
             "items": {
               "type": "string"
             },
