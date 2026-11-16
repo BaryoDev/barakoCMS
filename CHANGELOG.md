@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.7.1] - 2026-11-17
+
+This patch fixes the sign-in code route with only the mock email service, platform roles in a config export, and the test host's Postgres start. No API contract change: the contract stays at 15 and the delivery contract at 10. There are no migrations.
+
+### Fixed
+
+- **Requesting a sign-in code answered 200 and sent nothing when only the mock email service was registered.** Outside Development, `POST /api/auth/otp/request` now answers 503, before any address is read, so it does not reveal whether an account exists. A password sign-in that needs a device approval code answers 503 in the same case. Development is unchanged.
+- **Config export no longer writes platform roles, so an export applies cleanly to the system it came from and to another one.** The `roles` section holds the tenant's own roles only, the way it already left out the seeded roles. Before, a platform role that was also invitable made the apply of that same export fail. The rules a platform role holds are still exported, marked `"platform": true`, and apply skips one with a warning in the plan when the install has no role of that name. An unmarked rule for a missing role is still an error.
+- **`BarakoTestHost` sometimes failed to start its Postgres container with "address already in use".** Docker picks the host port at random and late in a long run it can land on a port already taken. The host now builds a fresh container and starts again, up to three attempts, and a container that never started no longer throws a second error on dispose.
+
 ## [5.7.0] - 2026-11-16
 
 This release adds role preview, an activity index, module hooks for needs-you items and read-only API key routes, and moves to Marten 9.59.0. The API contract version moves from 14 to 15 (`ApiContract.Version`, for role preview). The delivery contract stays at 10. Run `db-migrate` after upgrading: the migrations are under `migrations/5.6.1`.
