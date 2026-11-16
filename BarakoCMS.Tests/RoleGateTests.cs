@@ -100,6 +100,7 @@ public class RoleGateTests
         new("GET", "/api/roles/{id}", $"/api/roles/{NotAGuid}"),
         new("PUT", "/api/roles/{id}", $"/api/roles/{NotAGuid}"),
         new("DELETE", "/api/roles/{id}", $"/api/roles/{NotAGuid}"),
+        new("POST", "/api/roles/preview", "/api/roles/preview"),
         new("GET", "/api/settings", "/api/settings"),
         new("POST", "/api/settings", "/api/settings"),
         new("GET", "/api/requests", "/api/requests"),
