@@ -75,11 +75,25 @@ internal class ContentResponse
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public Dictionary<string, barakoCMS.Infrastructure.Services.ResolvedFile>? Files { get; set; }
+
+    /// <summary>
+    /// Who last saved the entry: a user id or a service principal id. Null when none is recorded
+    /// and for a row shown as hidden.
+    /// </summary>
+    public Guid? LastModifiedBy { get; set; }
+
+    /// <summary>
+    /// The last editor's display name (the username when none is set), or a service principal's
+    /// name. Null when the editor is not a member of the caller's tenant, is gone, or the caller
+    /// authenticated with a read-only API key.
+    /// </summary>
+    public string? LastModifiedByName { get; set; }
 }
 
 internal class Endpoint(
     IQuerySession session,
     barakoCMS.Infrastructure.Services.IPermissionResolver permissionResolver,
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
     ILogger<Endpoint> logger) : Endpoint<Request, PaginatedResponse<ContentResponse>>
 {
     public override void Configure()
@@ -290,6 +304,68 @@ internal class Endpoint(
         await FillLifecycleStatesAsync(page, stored, ct);
         await FillVersionsAsync(page, ct);
         await FillFilesAsync(page, ct);
+        await FillEditorsAsync(page, stored, ct);
+    }
+
+    /// <summary>
+    /// Sets each row's last editor. The names of the whole page come from one batched round trip
+    /// over the distinct ids, and none when there are no ids or the caller holds a read-only key.
+    /// </summary>
+    /// <remarks>
+    /// A name is given only for a person with a membership in the caller's tenant or a service
+    /// principal of it, because users are global and a name from another tenant is not this
+    /// caller's to read. The default tenant records no memberships, so there any existing user
+    /// counts. Anyone else gets the id and no name.
+    /// </remarks>
+    private async Task FillEditorsAsync(
+        List<ContentResponse> page,
+        IReadOnlyDictionary<Guid, barakoCMS.Models.Content> stored,
+        CancellationToken ct)
+    {
+        var shown = page.Where(i => i.ContentType != "HIDDEN").ToList();
+        foreach (var item in shown)
+        {
+            item.LastModifiedBy = stored[item.Id].LastModifiedBy is var by && by != Guid.Empty ? by : null;
+        }
+
+        var ids = shown.Where(i => i.LastModifiedBy is not null).Select(i => i.LastModifiedBy!.Value).Distinct().ToArray();
+        if (ids.Length == 0 || User.HasClaim(barakoCMS.Infrastructure.Auth.ApiKeyAuthenticationHandler.ReadOnlyClaim, "true"))
+        {
+            return;
+        }
+
+        var slug = tenant.Slug;
+        var batch = session.CreateBatchQuery();
+        var users = batch.Query<barakoCMS.Models.User>().Where(u => ids.Contains(u.Id)).ToList();
+        var members = tenant.IsDefault
+            ? null
+            : batch.Query<barakoCMS.Models.Membership>()
+                .Where(m => m.TenantSlug == slug && m.Status != barakoCMS.Models.MembershipStatus.Removed && ids.Contains(m.UserId))
+                .ToList();
+        var principals = batch.Query<barakoCMS.Models.ServicePrincipal>()
+            .Where(p => p.TenantSlug == slug && ids.Contains(p.Id))
+            .ToList();
+        await batch.Execute(ct);
+
+        var memberIds = members is null ? null : (await members).Select(m => m.UserId).ToHashSet();
+        var names = new Dictionary<Guid, string>();
+        foreach (var p in await principals)
+        {
+            names[p.Id] = p.Name;
+        }
+
+        foreach (var u in await users)
+        {
+            if (memberIds is null || memberIds.Contains(u.Id))
+            {
+                names[u.Id] = string.IsNullOrWhiteSpace(u.DisplayName) ? u.Username : u.DisplayName;
+            }
+        }
+
+        foreach (var item in shown)
+        {
+            item.LastModifiedByName = item.LastModifiedBy is { } id ? names.GetValueOrDefault(id) : null;
+        }
     }
 
     /// <summary>
