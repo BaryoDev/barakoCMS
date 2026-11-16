@@ -315,7 +315,8 @@ internal class Endpoint(
     /// A name is given only for a person with a membership in the caller's tenant or a service
     /// principal of it, because users are global and a name from another tenant is not this
     /// caller's to read. The default tenant records no memberships, so there any existing user
-    /// counts. Anyone else gets the id and no name.
+    /// counts. Anyone else gets the id and no name. A suspended member is still named, like the
+    /// members roster; only a removed one is not.
     /// </remarks>
     private async Task FillEditorsAsync(
         List<ContentResponse> page,

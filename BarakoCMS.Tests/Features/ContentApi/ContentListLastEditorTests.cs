@@ -52,13 +52,19 @@ public class ContentListLastEditorTests
             Email = $"le-{Guid.NewGuid():N}@example.com",
             DisplayName = displayName,
         };
-        if (!store) return user;
+        if (!store)
+        {
+            return user;
+        }
 
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         session.Store(user);
         if (tenant is not null)
+        {
             session.Store(new Membership { Id = Guid.NewGuid(), UserId = user.Id, TenantSlug = tenant, Status = MembershipStatus.Active });
+        }
+
         await session.SaveChangesAsync(Ct);
         return user;
     }
@@ -80,7 +86,10 @@ public class ContentListLastEditorTests
         return name;
     }
 
-    private async Task<List<Guid>> EntriesAsync(string? tenant, string type, params Guid[] editors)
+    private Task<List<Guid>> EntriesAsync(string? tenant, string type, params Guid[] editors) =>
+        EntriesAsync(tenant, type, SensitivityLevel.Public, editors);
+
+    private async Task<List<Guid>> EntriesAsync(string? tenant, string type, SensitivityLevel sensitivity, params Guid[] editors)
     {
         using var scope = _factory.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
@@ -96,7 +105,7 @@ public class ContentListLastEditorTests
                 ContentType = type,
                 LastModifiedBy = editor,
                 Status = ContentStatus.Published,
-                Sensitivity = SensitivityLevel.Public,
+                Sensitivity = sensitivity,
                 Data = new Dictionary<string, object> { ["Title"] = "T" },
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
@@ -134,7 +143,10 @@ public class ContentListLastEditorTests
     {
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
-        if (tenant is not null) client.DefaultRequestHeaders.Add("X-Tenant", tenant);
+        if (tenant is not null)
+        {
+            client.DefaultRequestHeaders.Add("X-Tenant", tenant);
+        }
         client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
         return client;
     }
@@ -237,8 +249,14 @@ public class ContentListLastEditorTests
                     d.ImplementationType == typeof(barakoCMS.Infrastructure.Services.StoredValidationRulesNotice)
                     || d.ImplementationType == typeof(barakoCMS.Infrastructure.Services.StoredReferenceConditionsNotice)).ToList();
                 if (notices.Count != 2)
+                {
                     throw new InvalidOperationException("The startup notices are no longer registered the way this test expects.");
-                foreach (var notice in notices) services.Remove(notice);
+                }
+
+                foreach (var notice in notices)
+                {
+                    services.Remove(notice);
+                }
             });
             builder.ConfigureServices(services => services.ConfigureMarten(options => options.Logger(_logger)));
         });
@@ -346,5 +364,78 @@ public class ContentListLastEditorTests
         var items = await ListAsync(client, type);
 
         Name(Item(items, ids[0])).Should().Be("Maria Santos");
+    }
+
+    [Fact]
+    public async Task A_hidden_row_has_no_editor_while_a_normal_row_on_the_page_is_named()
+    {
+        var editor = await UserAsync("Maria Santos", tenant: null);
+        var type = await TypeAsync(null);
+        var shown = (await EntriesAsync(null, type, editor.Id))[0];
+        var hidden = (await EntriesAsync(null, type, SensitivityLevel.Hidden, editor.Id))[0];
+
+        var role = new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = $"le-reader-{Guid.NewGuid():N}"[..20],
+            Permissions = [new ContentTypePermission { ContentTypeSlug = type, Read = new PermissionRule { Enabled = true } }],
+        };
+        var reader = await UserAsync(null, tenant: null, store: false);
+        reader.RoleIds = [role.Id];
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(role);
+            session.Store(reader);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var items = await ListAsync(Client(_factory, _factory.CreateToken([role.Name], reader.Id.ToString()), null), type);
+
+        Item(items, hidden).GetProperty("contentType").GetString().Should().Be("HIDDEN");
+        EditorId(Item(items, hidden)).Should().BeNull();
+        Name(Item(items, hidden)).Should().BeNull();
+        Name(Item(items, shown)).Should().Be("Maria Santos");
+    }
+
+    [Fact]
+    public async Task An_editor_whose_membership_was_removed_gives_the_id_and_a_null_name()
+    {
+        var tenant = await TenantAsync();
+        var gone = await UserAsync("Removed Member", tenant);
+        var suspended = await UserAsync("Suspended Member", tenant);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            foreach (var (user, status) in new[] { (gone, MembershipStatus.Removed), (suspended, MembershipStatus.Suspended) })
+            {
+                var membership = await session.Query<Membership>().FirstAsync(m => m.UserId == user.Id && m.TenantSlug == tenant, Ct);
+                membership.Status = status;
+                session.Store(membership);
+            }
+
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var type = await TypeAsync(tenant);
+        var ids = await EntriesAsync(tenant, type, gone.Id, suspended.Id);
+
+        var items = await ListAsync(await AdminAsync(tenant), type);
+
+        EditorId(Item(items, ids[0])).Should().Be(gone.Id);
+        Name(Item(items, ids[0])).Should().BeNull();
+        Name(Item(items, ids[1])).Should().Be("Suspended Member", "a suspended member is named like the members roster does");
+    }
+
+    [Fact]
+    public async Task An_entry_saved_with_an_empty_editor_id_has_a_null_last_modified_by()
+    {
+        var type = await TypeAsync(null);
+        var ids = await EntriesAsync(null, type, Guid.Empty);
+
+        var items = await ListAsync(await AdminAsync(null), type);
+
+        EditorId(Item(items, ids[0])).Should().BeNull();
+        Name(Item(items, ids[0])).Should().BeNull();
     }
 }
