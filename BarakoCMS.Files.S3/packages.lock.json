@@ -719,7 +719,7 @@
       "barakocms.files": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[5.7.0, )",
+          "BarakoCMS": "[5.7.1, )",
           "BarakoCMS.Abstractions": "[5.7.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "SkiaSharp": "[4.153.1, )",

@@ -1,1 +1,0 @@
-- **Requesting a sign-in code answered 200 and sent nothing when only the mock email service was registered.** Outside Development, `POST /api/auth/otp/request` now answers 503, before any address is read, so it does not reveal whether an account exists. A password sign-in that needs a device approval code answers 503 in the same case. Development is unchanged.
