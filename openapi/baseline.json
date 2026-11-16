@@ -6825,6 +6825,7 @@
         "properties": {
           "condition": {
             "description": "The condition the read rule failed on, as the JSON object the rule holds it in. Set with\ncondition not met.",
+            "nullable": true,
             "type": "string"
           },
           "id": {
@@ -6836,10 +6837,12 @@
             "items": {
               "type": "string"
             },
+            "nullable": true,
             "type": "array"
           },
           "reason": {
             "description": "Why the user would not see the entry: no read rule, condition not met or\nfield rules hide it. Null when visible.",
+            "nullable": true,
             "type": "string"
           },
           "title": {
@@ -6880,6 +6883,10 @@
             "type": "string"
           }
         },
+        "required": [
+          "userId",
+          "contentType"
+        ],
         "type": "object"
       },
       "BarakoCMSFeaturesRolesPreviewResponse": {
