@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.7.0] - 2026-11-16
+
+This release adds role preview, an activity index, module hooks for needs-you items and read-only API key routes, and moves to Marten 9.59.0. The API contract version moves from 14 to 15 (`ApiContract.Version`, for role preview). The delivery contract stays at 10. Run `db-migrate` after upgrading: the migrations are under `migrations/5.6.1`.
+
+### Added
+
+- **The activity feed's event read had no index to use.** `mt_events` was indexed on the sequence and the stream only, so reading content events by time scanned every event of the tenant. `migrations/5.6.1/event-tenant-timestamp-index.sql` adds `mt_events_idx_tenant_timestamp` on the tenant, timestamp and sequence, built `CONCURRENTLY`, and the feed's cursor read now states a plain lower bound on the timestamp so Postgres can walk the index. The 7 day lookback stays. Marten cannot declare an index on `mt_events`, so a new database does not get it on first start: run `db-migrate` after the first start of a new install as well as on an upgrade. Without it the feed still answers, and reads past the window scan the tenant's events. Core marks the index as ignored (`Events.IgnoreIndex`), so `db-assert` passes and a schema apply does not drop it.
+- **A role can be previewed before it is saved.** `POST /api/roles/preview` takes `userId`, `contentType`, `permissions` (the shape `PUT /api/roles/{id}` takes) and an optional `take` (20 by default, 50 at most), and lists entries of that type with whether the user would see each one under those rules. A hidden entry carries a reason: `no read rule`, `condition not met` (with the condition that failed) or `field rules hide it`. A visible one carries the fields the user could read. It needs `manage_roles`, answers 404 for a user outside the current tenant, and refuses an API key. The rules run through the same resolver a saved role does, nothing is stored and nothing reaches the permission cache. Entries the caller cannot read themselves are left out, and a draft condition on a field the caller cannot read is refused with 400. Sensitivity is not applied for the previewed user. The API contract version is now 15.
+- **Each item in `GET /api/contents` names its last editor.** Items gain `lastModifiedBy` (the id) and `lastModifiedByName` (display name, or username when none is set; a service principal's name for a principal key). Names for a page come from one batched lookup, never one per row. The name is given only for a member of the caller's tenant or a principal of it (in the default tenant, any existing user), so a deleted user or one from another tenant gives the id and a null name. A caller on a read-only API key always gets a null name. The change is additive.
+- **A workflow schedule can catch up on every missed time or skip them.** `scheduleCatchUp` takes `each` (a run per missed due time, the latest 24 at most) and `skip` (none for a missed time) as well as `once`, which stays the default. Daylight saving changes give one run for a skipped or repeated local time.
+- **The webhook delivery list could not be narrowed by time.** `GET /api/webhook-deliveries` takes optional `from` and `to` query parameters (UTC, inclusive) to list the deliveries of a time window (#903).
+- **A module can read the needs-you items without a request.** `INeedsYouSource` returns the same
+  items as `GET /api/overview` for a tenant and a set of capabilities, and `ICapabilityResolver`
+  gives a module the capabilities of a user or a service principal to pass it. The overview route
+  and its response are unchanged.
+  BarakoCMS.Abstractions moves to 5.7.0 for the two new interfaces.
+- **A module can open a route to API keys, read-only ones included.** `Definition.AllowReadOnlyKeySelf()` lets any API key bound to a service principal, `bcms_ro_` or not, call a self-service route with any method and with no scope check (`cap:` scopes included) when the key names no content types. `Definition.AllowReadOnlyKeyRead()` lets any API key call a route that is a POST only to carry a body, with its scopes and content type limits applied as for a GET. Both markers apply to full keys too, so a read-only key is never more capable than a full one. `User.TryGetOwnerId` gives a self-service endpoint the principal id to filter by, and the endpoint must filter by tenant as well. Core marks no route and an unmarked route is refused as before. Read-only keys now get 200 instead of 403 on `GET /health`, `/health/live`, `/health/ready` and `/health/build` (a bearer is ignored like any bearer), on `GET /api/monitoring/health` with `monitor:read`, and on routes a module marks. This loosens refusals only: tightening is what the public contract rule counts as breaking, so `ModuleContract.Version` and the HTTP contract numbers do not move. Rolling back to an earlier release ignores the markers (see `docs/api-key-service-principals.md`).
+
+### Changed
+
+- **Metrics could not be split by tenant.** Request, workflow run and job metrics carry a `tenant` label with the tenant slug (#903). On requests the label is the slug only for a registered tenant, and `default` for anything else a caller sends. A dashboard query that matches on the full label set needs the new label, or an aggregation over it. Set `Metrics:TenantLabel` to `false` for a deployment with many tenants and every series reads `tenant="all"`.
+- **The site blueprint's `Fonts` field takes a font object as well as a family name.** A value is a string or an object with a required `family` and optional `url` and `fallback`. A site type applied from the blueprint before this holds the string-only schema, and `db-migrate` moves it to the new one (5.6.1 `site-fonts-schema`). A tenant that edited the `Fonts` schema keeps its own.
+
+### Fixed
+
+- **Switching a paused workflow schedule back on fired the times it was off.** It counts due times from the moment it is switched on now, so a schedule paused for a week does not catch up on resume.
+- **An API key without a scope could throw instead of answering 403 after another check had already answered.** The scope check now stops when the response has started, like the other auth checks.
+
+**Package changes.** BarakoCMS, BarakoCMS.Templates and BarakoCMS.Testing are at 5.7.0. BarakoCMS.Abstractions is at 5.7.0 for the new `INeedsYouSource`, `ICapabilityResolver` and `ReadOnlyKeyRoutes` types. No module's own code changed, but each one now compiles against Abstractions 5.7, so they move by a patch: BarakoCMS.Accounting and BarakoCMS.AI are at 4.8.1, BarakoCMS.Diagnostics at 4.5.3, BarakoCMS.Email.Smtp at 4.6.1, BarakoCMS.ExternalAuth at 4.9.2, BarakoCMS.FeatureFlags at 4.6.3, BarakoCMS.Files and BarakoCMS.Files.S3 at 5.2.1, BarakoCMS.Import and BarakoCMS.Portability at 4.7.3, and BarakoCMS.Pages at 4.5.2.
+
 ## [5.6.0] - 2026-11-11
 
 This release adds list fields and counts the Brew console reads, and a doc fix for the Apple key placeholder. No contract number moves.

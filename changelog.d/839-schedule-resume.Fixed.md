@@ -1,1 +1,0 @@
-- **Switching a paused workflow schedule back on fired the times it was off.** It counts due times from the moment it is switched on now, so a schedule paused for a week does not catch up on resume.
