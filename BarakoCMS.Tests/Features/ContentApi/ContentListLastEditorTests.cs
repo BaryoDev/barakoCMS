@@ -23,7 +23,7 @@ public class ContentListLastEditorTests
     private static int _ip;
 
     private readonly IntegrationTestFixture _factory;
-    private readonly CapturingMartenLogger _logger = new();
+    private readonly HookLogger _logger = new();
 
     public ContentListLastEditorTests(IntegrationTestFixture factory) => _factory = factory;
 
@@ -294,7 +294,7 @@ public class ContentListLastEditorTests
         var seenWith = _logger.Commands.Count;
 
         (with - without).Should().Be(1,
-            $"the names of the whole page come from one query, not one per row (users {without}/{with}, commands {seenWithout}/{seenWith})");
+            $"the names of the whole page come from one query, not one per row (users {without}/{with}, commands {seenWithout}/{seenWith}, hooks: {string.Join(" | ", _logger.Commands.Where(c => c.Sql.Contains("mt_doc_users", StringComparison.OrdinalIgnoreCase)).Select(c => c.Hook + ":" + c.Sql[..Math.Min(90, c.Sql.Length)]))})");
     }
 
     [Fact]
@@ -438,4 +438,20 @@ public class ContentListLastEditorTests
         EditorId(Item(items, ids[0])).Should().BeNull();
         Name(Item(items, ids[0])).Should().BeNull();
     }
+}
+
+/// <summary>Records the SQL of every Marten hook with the hook's name, to see where a batched query is reported.</summary>
+internal sealed class HookLogger : Marten.IMartenLogger, Marten.IMartenSessionLogger
+{
+    public System.Collections.Concurrent.ConcurrentQueue<(string Hook, string Sql)> Commands { get; } = new();
+    public Marten.IMartenSessionLogger StartSession(Marten.IQuerySession session) => this;
+    public void SchemaChange(string sql) { }
+    public void LogSuccess(Npgsql.NpgsqlCommand command) => Commands.Enqueue(("ok", command.CommandText));
+    public void LogFailure(Npgsql.NpgsqlCommand command, Exception ex) => Commands.Enqueue(("fail", command.CommandText));
+    public void LogSuccess(Npgsql.NpgsqlBatch batch) { foreach (var c in batch.BatchCommands) Commands.Enqueue(("batch-ok", c.CommandText)); }
+    public void LogFailure(Npgsql.NpgsqlBatch batch, Exception ex) { foreach (var c in batch.BatchCommands) Commands.Enqueue(("batch-fail", c.CommandText)); }
+    public void LogFailure(Exception ex, string message) { }
+    public void RecordSavedChanges(Marten.IDocumentSession session, Marten.Services.IChangeSet commit) { }
+    public void OnBeforeExecute(Npgsql.NpgsqlCommand command) => Commands.Enqueue(("before", command.CommandText));
+    public void OnBeforeExecute(Npgsql.NpgsqlBatch batch) { foreach (var c in batch.BatchCommands) Commands.Enqueue(("batch-before", c.CommandText)); }
 }
