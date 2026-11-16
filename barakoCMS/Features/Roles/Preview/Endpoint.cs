@@ -290,22 +290,8 @@ internal sealed class Endpoint(
             return result;
         }
 
-        var reads = await resolver.CanPerformActionAsync(previewed, typeName, "read", entry, ct);
-        if (!reads)
-        {
-            result.Visible = false;
-            if (PermissionResolver.PermissionFor(draft, typeName)?.Read is { Enabled: true })
-            {
-                result.Reason = "condition not met";
-                result.Condition = await resolver.FirstFailedReadConditionAsync(previewed, typeName, entry, ct);
-            }
-            else
-            {
-                result.Reason = "no read rule";
-            }
-
-            return result;
-        }
+        if (!await resolver.CanPerformActionAsync(previewed, typeName, "read", entry, ct))
+            return await RefusedAsync(result, resolver, draft, previewed, typeName, entry, ct);
 
         // An entry whose own level the user may not see comes back with its data cleared.
         if (!await judged.Sensitivity.MaySeeDocumentAsync(entry.Sensitivity, judged.Principal, ct))
@@ -319,13 +305,7 @@ internal sealed class Endpoint(
 
         // The read the scrub applies: a field is shown when sensitivity, owner hiding and the
         // rule's set all allow it.
-        // Case-insensitive, as the scrub matches keys: a stored key can differ from the field by case.
-        var masked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var field in judged.Definition.Fields)
-        {
-            if (!await judged.Sensitivity.MayReadFieldAsync(typeName, field, entry, judged.Principal, ct))
-                masked.Add(field.Name);
-        }
+        var masked = await MaskedFieldsAsync(judged, entry, ct);
 
         bool Readable(string name) => fields.Allows(name) && !masked.Contains(name);
 
@@ -350,6 +330,42 @@ internal sealed class Endpoint(
         }
 
         return result;
+    }
+
+    /// <summary>Marks an entry the draft does not let the user read, with why.</summary>
+    private static async Task<Entry> RefusedAsync(
+        Entry result, PermissionResolver resolver, List<ContentTypePermission> draft, User previewed,
+        string typeName, barakoCMS.Models.Content entry, CancellationToken ct)
+    {
+        result.Visible = false;
+        if (PermissionResolver.PermissionFor(draft, typeName)?.Read is { Enabled: true })
+        {
+            result.Reason = "condition not met";
+            result.Condition = await resolver.FirstFailedReadConditionAsync(previewed, typeName, entry, ct);
+        }
+        else
+        {
+            result.Reason = "no read rule";
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// The fields sensitivity masks or hides for the previewed user. Case-insensitive, as the scrub
+    /// matches keys: a stored key can differ from the field by case.
+    /// </summary>
+    private static async Task<HashSet<string>> MaskedFieldsAsync(
+        Judged judged, barakoCMS.Models.Content entry, CancellationToken ct)
+    {
+        var masked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var field in judged.Definition.Fields)
+        {
+            if (!await judged.Sensitivity.MayReadFieldAsync(judged.Definition.Name, field, entry, judged.Principal, ct))
+                masked.Add(field.Name);
+        }
+
+        return masked;
     }
 
     /// <summary>What judging the previewed user takes, made once for the request.</summary>
