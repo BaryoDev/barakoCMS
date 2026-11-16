@@ -446,8 +446,11 @@ POST /api/auth/otp/verify    { "email": "editor@acme.example.com", "code": "1234
 
 The admin's login screen has this as **Email me a sign-in code**. `otp/request` always answers the
 same way whether or not the address exists, so a failure to send shows up in the logs and not in the
-response. The one exception is a deployment outside Development with no email provider configured (only the
-mock is registered): every request gets a 503, whatever the address, since nothing would be sent. Verify mints the same token pair password login does, and the token issuer still checks
+response. The one exception is a deployment outside Development with no email provider configured
+(only the mock is registered): every request gets a 503, whatever the address, since nothing would
+be sent.
+
+Verify mints the same token pair password login does, and the token issuer still checks
 membership, so proving control of the mailbox says who you are and not which tenants you may enter.
 
 Two things follow from this that you should tell the client up front:

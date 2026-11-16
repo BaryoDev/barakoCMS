@@ -4,7 +4,8 @@ using barakoCMS.Core.Interfaces;
 using barakoCMS.Features.Settings.Email;
 using barakoCMS.Infrastructure.Services;
 using FluentAssertions;
-using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
+using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -28,15 +29,44 @@ public class OtpRequestMockMailTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private HttpClient MockMailClient(string environment)
+    private sealed class StubEnvironment : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = Environments.Production;
+        public string ApplicationName { get; set; } = "BarakoCMS.Tests";
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+        public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } =
+            new Microsoft.Extensions.FileProviders.NullFileProvider();
+    }
+
+    private sealed class ApprovalRequiredGate : IDeviceGate
+    {
+        public Task<IReadOnlyList<System.Security.Claims.Claim>> TrustOnOtpAsync(
+            barakoCMS.Models.User user, barakoCMS.Infrastructure.DeviceContext device, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<System.Security.Claims.Claim>>([]);
+
+        public Task<DeviceGateResult> EvaluatePasswordAsync(
+            barakoCMS.Models.User user, barakoCMS.Infrastructure.DeviceContext device, CancellationToken ct) =>
+            Task.FromResult(new DeviceGateResult(DeviceDecision.ApprovalRequired, []));
+    }
+
+    private HttpClient MockMailClient(string environment, bool unknownDevice = false)
     {
         var host = _fixture.WithWebHostBuilder(b =>
         {
-            b.UseEnvironment(environment);
-            b.ConfigureServices(s =>
+            // Not UseEnvironment: which environment a derived host resolves to depends on the order
+            // hosts were built in (see RefreshCookieTests). The endpoint reads IHostEnvironment
+            // from DI, so that is what gets replaced.
+            b.ConfigureTestServices(s =>
             {
                 s.RemoveAll<IEmailService>();
                 s.AddSingleton<IEmailService, MockEmailService>();
+                s.RemoveAll<IHostEnvironment>();
+                s.AddSingleton<IHostEnvironment>(new StubEnvironment { EnvironmentName = environment });
+                if (unknownDevice)
+                {
+                    s.RemoveAll<IDeviceGate>();
+                    s.AddScoped<IDeviceGate, ApprovalRequiredGate>();
+                }
             });
         });
         var client = host.CreateClient();
@@ -64,6 +94,37 @@ public class OtpRequestMockMailTests
         var response = await client.PostAsJsonAsync("/api/auth/otp/request", new { email = "nobody@example.com" }, Ct);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Device_approval_answers_503_and_stores_no_code_outside_Development_with_only_the_mock()
+    {
+        const string password = "ValidPassword123!";
+        var id = Guid.NewGuid();
+        var user = new barakoCMS.Models.User
+        {
+            Id = id,
+            Username = $"dv{id:N}"[..20],
+            Email = $"dv{id:N}@example.com",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
+        };
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(user);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        using var client = MockMailClient("Production", unknownDevice: true);
+        var response = await client.PostAsJsonAsync("/api/auth/login", new { username = user.Username, password }, Ct);
+        var body = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct)).RootElement;
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        body.GetProperty("requiresDeviceApproval").GetBoolean().Should().BeTrue();
+        using var check = _fixture.Services.CreateScope();
+        var stored = await check.ServiceProvider.GetRequiredService<IQuerySession>()
+            .Query<barakoCMS.Models.OtpCode>().Where(o => o.Email == user.Email).ToListAsync(Ct);
+        stored.Should().BeEmpty("no code is issued when nothing can send it");
     }
 
     [Theory]
