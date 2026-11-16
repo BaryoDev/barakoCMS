@@ -50,12 +50,11 @@ internal sealed class PermissionRuleConfigProvider(
         var (roles, types) = await ReadAsync(ct);
         var documents = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
 
-        // A platform role and its rules are not tenant configuration, so they are left out as the roles section leaves the role out.
-        foreach (var role in roles.Where(r => !r.IsPlatform))
+        foreach (var role in roles)
         {
             foreach (var permission in Managed(role, types))
             {
-                documents[Key(role.Name, permission.ContentTypeSlug)] = Body(permission);
+                documents[Key(role.Name, permission.ContentTypeSlug)] = role.IsPlatform ? MarkedPlatform(Body(permission)) : Body(permission);
             }
         }
 
@@ -68,7 +67,8 @@ internal sealed class PermissionRuleConfigProvider(
         var errors = new List<string>();
         var changes = new List<ConfigChange>();
         var (roles, types) = await ReadAsync(ct);
-        var wanted = Wanted(desired, roles, types, errors);
+        var warnings = new List<string>();
+        var wanted = Wanted(desired, roles, types, errors, warnings);
         var platform = false;
 
         foreach (var role in roles)
@@ -91,8 +91,7 @@ internal sealed class PermissionRuleConfigProvider(
                 }
             }
 
-            // A platform role the document does not name is left alone: an export leaves it out, so its absence is not a removal.
-            changes.AddRange(held.Where(h => !mine.ContainsKey(h.Key) && !(role.IsPlatform && mine.Count == 0)).OrderBy(h => h.Key, StringComparer.Ordinal).Select(h => new ConfigChange
+            changes.AddRange(held.Where(h => !mine.ContainsKey(h.Key)).OrderBy(h => h.Key, StringComparer.Ordinal).Select(h => new ConfigChange
             {
                 Key = Key(role.Name, h.Value.ContentTypeSlug), Kind = ConfigChangeKind.Destructive,
                 Summary = $"remove role '{role.Name}' rules on '{h.Key}', taking away what they grant",
@@ -113,6 +112,7 @@ internal sealed class PermissionRuleConfigProvider(
         var notes = refusals.Count == 0
             ? await SharedRemovalsAsync(changes.Where(c => platformNames.Contains(SplitKey(c.Key).Role)).ToList(), ct)
             : [];
+        notes.AddRange(warnings);
         return new ConfigSectionPlan { Section = Section, Changes = changes, Errors = errors, Refusals = refusals, Notes = notes };
     }
 
@@ -164,7 +164,7 @@ internal sealed class PermissionRuleConfigProvider(
             .Select(SplitKey)
             .Select(k => Key(k.Role, barakoCMS.Core.ContentTypeName.Normalize(k.Slug)))
             .ToHashSet(StringComparer.Ordinal);
-        var wanted = Wanted(desired, roles, types, errors);
+        var wanted = Wanted(desired, roles, types, errors, []);
 
         foreach (var role in roles)
         {
@@ -213,7 +213,7 @@ internal sealed class PermissionRuleConfigProvider(
 
     /// <summary>The document's rules by role and type, each read and named by its normalised type.</summary>
     private static Dictionary<string, Dictionary<string, (string Key, ContentTypePermission Permission, JsonElement Document)>> Wanted(
-        IReadOnlyDictionary<string, JsonElement> desired, List<Role> roles, HashSet<string> types, List<string> errors)
+        IReadOnlyDictionary<string, JsonElement> desired, List<Role> roles, HashSet<string> types, List<string> errors, List<string> warnings)
     {
         var wanted = new Dictionary<string, Dictionary<string, (string, ContentTypePermission, JsonElement)>>(StringComparer.Ordinal);
 
@@ -229,6 +229,14 @@ internal sealed class PermissionRuleConfigProvider(
 
             if (!roles.Any(r => r.Name == roleName))
             {
+                // An export marks a rule a platform role holds. An install without that role skips it, since
+                // platform roles are not tenant configuration. An unmarked key is still a typo and an error.
+                if (IsMarkedPlatform(document))
+                {
+                    warnings.Add($"'{key}': platform role '{roleName}' does not exist here, the rule was skipped.");
+                    continue;
+                }
+
                 errors.Add($"'{key}': there is no role '{roleName}' to hold it, here or earlier in the document.");
                 continue;
             }
@@ -293,6 +301,19 @@ internal sealed class PermissionRuleConfigProvider(
     }
 
     /// <summary>A rule as its document: everything but the type it names, which is in the key.</summary>
+    /// <summary>The body an export writes for a rule a platform role holds: the rule and <c>"platform": true</c>.</summary>
+    private static JsonElement MarkedPlatform(JsonElement body)
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(body.GetRawText())!.AsObject();
+        node["platform"] = true;
+        return JsonSerializer.SerializeToElement(node, ConfigJson.Options);
+    }
+
+    private static bool IsMarkedPlatform(JsonElement document) =>
+        document.ValueKind == JsonValueKind.Object
+        && document.TryGetProperty("platform", out var marker)
+        && marker.ValueKind == JsonValueKind.True;
+
     private static JsonElement Body(ContentTypePermission permission)
     {
         var copy = JsonSerializer.Deserialize<ContentTypePermission>(ConfigJson.ToElement(permission), ConfigJson.Options)!;
