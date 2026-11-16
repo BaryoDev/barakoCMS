@@ -22,12 +22,16 @@ internal class OtpRequestResponse
 /// </summary>
 /// <remarks>
 /// A tenant that does not allow sign-in codes answers 403 to everybody, before any address is read.
+/// Outside Development it answers 503 to everybody when only the mock email service is registered,
+/// since nothing would be sent. The check runs before any address is read.
 /// The code a password sign-in sends to approve a new device does not come through here, so it
 /// still works on such a tenant.
 /// </remarks>
 internal class RequestEndpoint(
     IDocumentSession session,
     IOtpService otp,
+    IEmailService emailService,
+    IHostEnvironment env,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<OtpRequest, OtpRequestResponse>
 {
     public override void Configure()
@@ -42,6 +46,13 @@ internal class RequestEndpoint(
         if (!await barakoCMS.Infrastructure.Auth.TenantSignIn.AllowsAsync(session, tenant.Slug, TenantSignInPolicy.Otp, ct))
         {
             ThrowError(barakoCMS.Infrastructure.Auth.TenantSignIn.RefusedMessage(TenantSignInPolicy.Otp), 403);
+            return;
+        }
+
+        // Same answer for every caller, so it comes before any address is read or looked up.
+        if (barakoCMS.Features.Settings.Email.EmailProvider.CannotSendCodes(emailService, env))
+        {
+            ThrowError(barakoCMS.Features.Settings.Email.EmailProvider.NoProviderMessage, 503);
             return;
         }
 

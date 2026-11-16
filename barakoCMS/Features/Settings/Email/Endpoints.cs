@@ -254,4 +254,11 @@ internal static class EmailProvider
 {
     internal static bool IsMock(IEmailService email) =>
         email is barakoCMS.Infrastructure.Services.MockEmailService;
+
+    /// <summary>Outside Development, a sign-in code cannot be sent when only the mock is registered.</summary>
+    internal static bool CannotSendCodes(IEmailService email, IHostEnvironment env) =>
+        !env.IsDevelopment() && IsMock(email);
+
+    internal const string NoProviderMessage =
+        "Email sign-in codes are unavailable: no email provider is configured.";
 }

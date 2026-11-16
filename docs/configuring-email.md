@@ -18,6 +18,10 @@ decides whether it runs; see `MODULES.md`.
 Without one, the core registers a mock that logs and delivers nothing. The admin says so, and the
 test send refuses rather than reporting success.
 
+Outside Development, with only the mock registered, `POST /api/auth/otp/request` answers 503 to every
+caller, and a password sign-in that needs a device approval code answers 503 too. In Development they
+keep answering as before, so local work does not need a provider.
+
 `BarakoCMS.Email.Smtp` registers itself only once `Modules:Email.Smtp:Host` is set. Adding the
 package and configuring nothing leaves whatever was sending before still sending, so an upgrade
 cannot quietly hand email to a provider that has nowhere to send it.
