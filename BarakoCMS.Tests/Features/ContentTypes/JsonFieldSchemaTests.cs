@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
+using barakoCMS.Core.Validation;
 using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
@@ -132,11 +134,23 @@ public class JsonFieldSchemaTests : IAsyncLifetime
         })).StatusCode.Should().Be(HttpStatusCode.OK);
         var slow = Enumerable.Repeat(new string('a', 40) + "!", 50).ToArray();
 
-        var clock = System.Diagnostics.Stopwatch.StartNew();
         var body = await RefusedAsync(await WriteAsync(name, new() { ["Codes"] = slow }));
-        clock.Stop();
 
         body.Should().Contain("could not be checked against its patterns in time");
+    }
+
+    [Fact]
+    public void Fifty_strings_checked_against_one_pattern_share_one_budget_and_do_not_each_spend_the_match_timeout()
+    {
+        using var schema = JsonDocument.Parse("{\"type\":\"array\",\"items\":{\"type\":\"string\",\"pattern\":\"^(a+)+$\"}}");
+        using var value = JsonSerializer.SerializeToDocument(
+            Enumerable.Repeat(new string('a', 40) + "!", 50).ToArray());
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var errors = JsonFieldSchemas.Errors(schema.RootElement, value.RootElement, "Codes");
+        clock.Stop();
+
+        errors.Should().Contain(e => e.Contains("could not be checked against its patterns in time"));
         clock.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5), "fifty strings must not each spend the per-match timeout");
     }
 
