@@ -1,7 +1,9 @@
 using barakoCMS.Core;
 using barakoCMS.Core.Interfaces;
+using System.Security.Claims;
 using barakoCMS.Features.Activity;
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Envelope;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
@@ -19,8 +21,20 @@ namespace barakoCMS.Features.Roles.Preview;
 /// so the rule logic is the one a saved role runs through. It is never the cached resolver: nothing
 /// the draft decides may reach the shared cache. Nothing is stored. The user is judged as holding
 /// the draft alone, so the answer is what the role would grant that user, not a merge with the
-/// roles the user holds now. The user's branch scoping is not applied, and neither is sensitivity:
-/// a field the user would see masked or hidden still counts in a condition.
+/// roles the user holds now.
+/// </para>
+/// <para>
+/// The user's branch scope and field sensitivity are applied, by the services the real read uses,
+/// judged for the previewed user and not the caller. An entry outside the user's branches is hidden
+/// with <c>outside branch scope</c>. A field sensitivity masks or hides for the user, judged as
+/// the draft alone, is left out of the readable fields. The draft holds the capabilities and the
+/// name the request gives it, and none when it gives none. With a <c>roleId</c> the draft is an edit
+/// of that stored role: it takes the role's id, which is how a field lists a role, and its name when
+/// the request gives none, and the update's checks apply (a role the caller does not reach is 404,
+/// a platform role needs a platform administrator, a seeded role may keep its reserved name, a
+/// platform capability the role already holds is kept). A read condition is still judged on the
+/// stored value, as the real read judges it: the permission check runs on the stored entry and the
+/// mask is applied afterwards.
 /// </para>
 /// <para>
 /// The caller only sees entries the caller may read, so the preview cannot be used to list what the
@@ -34,7 +48,10 @@ internal sealed class Endpoint(
     IConditionEvaluator conditions,
     IPermissionResolver callerPermissions,
     IBranchScopeGuard branchGuard,
+    IBranchMembership branchMembership,
     ISensitivityService sensitivity,
+    IConfiguration configuration,
+    CapabilityVocabulary vocabulary,
     TenantContext tenant,
     IEventEnvelopeContext envelope,
     ILoggerFactory loggers) : Endpoint<Request, Response>
@@ -55,7 +72,18 @@ internal sealed class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        await CheckDraftAsync(req, ct);
+        // The role being edited, found the way the save finds it: one the caller does not reach
+        // answers as if it did not exist.
+        var platformCaller = await RoleScope.IsPlatformCallerAsync(HttpContext, ct);
+        var stored = await LoadStoredAsync(req, platformCaller, ct);
+
+        await CheckDraftAsync(req, stored, platformCaller, ct);
+
+        if (req.RoleId is not null && stored is null)
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
 
         var previewed = await session.LoadAsync<User>(req.UserId, ct);
         if (previewed is null || !await InTenantAsync(previewed.Id, ct))
@@ -80,27 +108,91 @@ internal sealed class Endpoint(
 
         await RefuseUnreadableConditionAsync(req, definition, ct);
 
-        var draft = new Role { Id = Guid.NewGuid(), Name = "preview", Permissions = req.Permissions };
+        // An edit of a stored role carries that role's id, which is how a field lists a role, and
+        // its name when the request gives none. A new role gets a fresh id and, with no name, its
+        // own id as text, which no stored role or field list can hold. The id is only read by this
+        // request's own resolver and sensitivity service, which are made here and never shared.
+        var draftId = stored?.Id ?? Guid.NewGuid();
+        var draft = new Role
+        {
+            Id = draftId,
+            Name = !string.IsNullOrWhiteSpace(req.Name) ? req.Name : stored?.Name ?? draftId.ToString(),
+            Permissions = req.Permissions,
+            SystemCapabilities = req.SystemCapabilities ?? [.. stored?.SystemCapabilities ?? []],
+        };
         var resolver = new PermissionResolver(session, conditions, tenant, envelope, loggers.CreateLogger<PermissionResolver>());
         await resolver.PinRolesAsync(previewed, [draft], ct);
 
+        // The services the real read uses, made for this request and judging the previewed user.
+        // The guard is a new instance so the caller's branches, which the request's own guard
+        // holds, are not swapped out. The sensitivity service reads its rule sets from the pinned
+        // resolver and the roles from the draft, so nothing here touches the shared cache.
+        var judged = new Judged(
+            resolver,
+            new BranchScopeGuard(session, branchMembership),
+            new SensitivityService(session, configuration, tenant, resolver) { PinnedRoles = [draft] },
+            new ClaimsPrincipal(new ClaimsIdentity([new Claim("UserId", previewed.Id.ToString())], "role-preview")),
+            definition);
+
         var take = Math.Clamp(req.Take ?? DefaultTake, 1, MaxTake);
-        var items = await CollectAsync(resolver, req.Permissions, previewed, caller, definition.Name, take, ct);
+        var items = await CollectAsync(judged, req.Permissions, previewed, caller, take, ct);
 
         await Send.OkAsync(new Response { Items = items }, ct);
     }
 
-    /// <summary>The checks the role save makes on its rules, so a draft the save would refuse is refused here.</summary>
-    private async Task CheckDraftAsync(Request req, CancellationToken ct)
+    private async Task<Role?> LoadStoredAsync(Request req, bool platformCaller, CancellationToken ct)
     {
-        foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, null, ct))
+        if (req.RoleId is not { } id)
+            return null;
+
+        var role = await session.LoadAsync<Role>(id, ct);
+        return role is not null && role.DeletedAt is null && (RoleScope.Reaches(role, tenant.Slug) || platformCaller)
+            ? role
+            : null;
+    }
+
+    /// <summary>
+    /// The checks the role save makes, so a draft it would refuse is refused here. With a stored
+    /// role they are the update's, which passes over what that role already holds. Without one they
+    /// are the create's.
+    /// </summary>
+    private async Task CheckDraftAsync(Request req, Role? stored, bool platformCaller, CancellationToken ct)
+    {
+        foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, stored?.Permissions, ct))
             AddError(r => r.Permissions, error);
-        foreach (var error in FieldSetRules.DuplicateTypeErrors(req.Permissions, null))
+        foreach (var error in FieldSetRules.DuplicateTypeErrors(req.Permissions, stored?.Permissions))
             AddError(r => r.Permissions, error);
+        FieldSetRules.CarryOver(req.Permissions, stored?.Permissions);
         FieldSetRules.Normalise(req.Permissions);
-        foreach (var error in await RoleSaveRules.CheckAsync(session, req.Permissions, null, ct))
+        foreach (var error in await RoleSaveRules.CheckAsync(session, req.Permissions, stored?.Permissions, ct))
             AddError(r => r.Permissions, error);
+
+        // A seeded role keeps its own name, as on the update.
+        if (!string.IsNullOrWhiteSpace(req.Name) && SystemRoles.IsReservedName(req.Name)
+            && !(stored is not null && SystemRoles.Contains(stored.Id)))
+            AddError(r => r.Name, SystemRoles.ReservedNameMessage(req.Name));
+
+        if (req.SystemCapabilities is { Count: > 0 } capabilities
+            && configuration.GetValue(CapabilityVocabulary.RefuseUnknownKey, false))
+        {
+            foreach (var name in vocabulary.Unknown(capabilities))
+                AddError(r => r.SystemCapabilities, CapabilityVocabulary.UnknownMessage(name));
+        }
+
         ThrowIfAnyErrors();
+
+        // A platform role is changed by a platform administrator only.
+        if (stored is { IsPlatform: true } && !platformCaller)
+            ThrowError(RoleScope.PlatformRoleMessage, 403);
+
+        // Only a platform administrator hands out a platform capability. One the stored role
+        // already holds is kept, as on the update.
+        if (!platformCaller && (req.SystemCapabilities ?? [])
+                .Except(stored?.SystemCapabilities ?? [], StringComparer.OrdinalIgnoreCase)
+                .Any(c => barakoCMS.Features.Users.PlatformRoles.PlatformCapabilities.Contains(c)))
+        {
+            ThrowError(RoleScope.PlatformCapabilityMessage, 403);
+        }
     }
 
     private async Task<ContentTypeDefinition?> FindTypeAsync(Request req, CancellationToken ct)
@@ -150,9 +242,10 @@ internal sealed class Endpoint(
     /// are collected or the scan limit is reached. Entries the caller may not read are skipped.
     /// </summary>
     private async Task<List<Entry>> CollectAsync(
-        PermissionResolver resolver, List<ContentTypePermission> draft, User previewed, User caller,
-        string typeName, int take, CancellationToken ct)
+        Judged judged, List<ContentTypePermission> draft, User previewed, User caller,
+        int take, CancellationToken ct)
     {
+        var typeName = judged.Definition.Name;
         var items = new List<Entry>();
         var scanned = 0;
 
@@ -174,7 +267,7 @@ internal sealed class Endpoint(
                 var scrubbed = await CallerTitleDataAsync(caller, entry, ct);
                 if (scrubbed is null) continue;
 
-                items.Add(await JudgeAsync(resolver, draft, previewed, typeName, entry, scrubbed, ct));
+                items.Add(await JudgeAsync(judged, draft, previewed, entry, scrubbed, ct));
             }
         }
 
@@ -182,30 +275,41 @@ internal sealed class Endpoint(
     }
 
     private async Task<Entry> JudgeAsync(
-        PermissionResolver resolver, List<ContentTypePermission> draft, User previewed, string typeName, barakoCMS.Models.Content entry,
+        Judged judged, List<ContentTypePermission> draft, User previewed, barakoCMS.Models.Content entry,
         IDictionary<string, object> scrubbed, CancellationToken ct)
     {
+        var resolver = judged.Resolver;
+        var typeName = judged.Definition.Name;
         var result = new Entry { Id = entry.Id, Title = ActivitySources.TitleOf(entry.Data, scrubbed) };
 
-        var reads = await resolver.CanPerformActionAsync(previewed, typeName, "read", entry, ct);
-        if (!reads)
+        // The list narrows to the user's branches before it asks any read rule, so this comes first.
+        if (!await judged.Branches.MayAccessAsync(judged.Principal, entry, ct))
         {
             result.Visible = false;
-            if (PermissionResolver.PermissionFor(draft, typeName)?.Read is { Enabled: true })
-            {
-                result.Reason = "condition not met";
-                result.Condition = await resolver.FirstFailedReadConditionAsync(previewed, typeName, entry, ct);
-            }
-            else
-            {
-                result.Reason = "no read rule";
-            }
+            result.Reason = "outside branch scope";
+            return result;
+        }
 
+        if (!await resolver.CanPerformActionAsync(previewed, typeName, "read", entry, ct))
+            return await RefusedAsync(result, resolver, draft, previewed, typeName, entry, ct);
+
+        // An entry whose own level the user may not see comes back with its data cleared.
+        if (!await judged.Sensitivity.MaySeeDocumentAsync(entry.Sensitivity, judged.Principal, ct))
+        {
+            result.Visible = false;
+            result.Reason = "field rules hide it";
             return result;
         }
 
         var fields = await resolver.FieldSetAsync(previewed, typeName, "read", entry, ct);
-        if (!fields.IsAll && entry.Data.Count > 0 && !entry.Data.Keys.Any(fields.Allows))
+
+        // The read the scrub applies: a field is shown when sensitivity, owner hiding and the
+        // rule's set all allow it.
+        var masked = await MaskedFieldsAsync(judged, entry, ct);
+
+        bool Readable(string name) => fields.Allows(name) && !masked.Contains(name);
+
+        if (entry.Data.Count > 0 && !entry.Data.Keys.Any(Readable))
         {
             result.Visible = false;
             result.Reason = "field rules hide it";
@@ -213,9 +317,64 @@ internal sealed class Endpoint(
         }
 
         result.Visible = true;
-        result.ReadableFields = fields.IsAll ? null : fields.Names!.Order(StringComparer.Ordinal).ToList();
+        if (fields.IsAll && masked.Count == 0)
+        {
+            result.ReadableFields = null;
+        }
+        else
+        {
+            IEnumerable<string> names = fields.IsAll
+                ? judged.Definition.Fields.Select(f => f.Name).Concat(entry.Data.Keys).Distinct(StringComparer.Ordinal)
+                : fields.Names!;
+            result.ReadableFields = names.Where(n => !masked.Contains(n)).Order(StringComparer.Ordinal).ToList();
+        }
+
         return result;
     }
+
+    /// <summary>Marks an entry the draft does not let the user read, with why.</summary>
+    private static async Task<Entry> RefusedAsync(
+        Entry result, PermissionResolver resolver, List<ContentTypePermission> draft, User previewed,
+        string typeName, barakoCMS.Models.Content entry, CancellationToken ct)
+    {
+        result.Visible = false;
+        if (PermissionResolver.PermissionFor(draft, typeName)?.Read is { Enabled: true })
+        {
+            result.Reason = "condition not met";
+            result.Condition = await resolver.FirstFailedReadConditionAsync(previewed, typeName, entry, ct);
+        }
+        else
+        {
+            result.Reason = "no read rule";
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// The fields sensitivity masks or hides for the previewed user. Case-insensitive, as the scrub
+    /// matches keys: a stored key can differ from the field by case.
+    /// </summary>
+    private static async Task<HashSet<string>> MaskedFieldsAsync(
+        Judged judged, barakoCMS.Models.Content entry, CancellationToken ct)
+    {
+        var masked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var field in judged.Definition.Fields)
+        {
+            if (!await judged.Sensitivity.MayReadFieldAsync(judged.Definition.Name, field, entry, judged.Principal, ct))
+                masked.Add(field.Name);
+        }
+
+        return masked;
+    }
+
+    /// <summary>What judging the previewed user takes, made once for the request.</summary>
+    private sealed record Judged(
+        PermissionResolver Resolver,
+        IBranchScopeGuard Branches,
+        ISensitivityService Sensitivity,
+        ClaimsPrincipal Principal,
+        ContentTypeDefinition Definition);
 
     /// <summary>
     /// The entry's data as the caller may see it, or null when the caller may not read the entry or

@@ -34,6 +34,12 @@ public class SensitivityService : ISensitivityService
     private readonly SensitivityMode _mode;
     private readonly IPermissionResolver? _permissions;
     private readonly Dictionary<string, ContentTypeDefinition?> _schemaCache = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Roles the caller is judged by in place of the stored ones. Set only on an instance made for
+    /// one role preview, so a draft that is not saved can be asked the same questions.
+    /// </summary>
+    internal IReadOnlyList<Role>? PinnedRoles { get; init; }
+
     private System.Security.Claims.ClaimsPrincipal? _storedCaller;
     private string? _storedCallerFor;
     private User? _storedUser;
@@ -93,7 +99,11 @@ public class SensitivityService : ISensitivityService
             return _storedCaller;
 
         IReadOnlyList<Role> roles = [];
-        if (await StoredUserAsync(user, ct) is { } stored)
+        if (PinnedRoles is not null)
+        {
+            roles = PinnedRoles;
+        }
+        else if (await StoredUserAsync(user, ct) is { } stored)
         {
             var roleIds = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
                 .EffectiveRoleIdsAsync(_session, stored, _tenant.Slug, ct);

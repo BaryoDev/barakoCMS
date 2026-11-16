@@ -50,16 +50,16 @@ public class RolePreviewTests
         await session.SaveChangesAsync(Ct);
     }
 
-    private async Task<string> TypeAsync()
+    private async Task<string> TypeAsync(bool branchScoped = false, SensitivityLevel gradeSensitivity = SensitivityLevel.Public, List<string>? gradeVisibleTo = null)
     {
         var type = $"preview{Guid.NewGuid().ToString("n")[..10]}";
         await StoreAsync(new ContentTypeDefinition
         {
-            Id = Guid.NewGuid(), Name = type, DisplayName = type,
+            Id = Guid.NewGuid(), Name = type, DisplayName = type, BranchScoped = branchScoped,
             Fields =
             [
                 new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" },
-                new FieldDefinition { Name = "Grade", DisplayName = "Grade", Type = "string" },
+                new FieldDefinition { Name = "Grade", DisplayName = "Grade", Type = "string", Sensitivity = gradeSensitivity, VisibleToRoles = gradeVisibleTo },
                 new FieldDefinition { Name = "Owner", DisplayName = "Owner", Type = "string" },
             ],
         });
@@ -76,14 +76,16 @@ public class RolePreviewTests
         return id;
     }
 
-    private async Task<Guid> EntryAsync(string type, string title, Guid createdBy, bool withOwnerField = false)
+    private async Task<Guid> EntryAsync(
+        string type, string title, Guid createdBy, bool withOwnerField = false, Guid? branchId = null, string grade = "A")
     {
         var id = Guid.NewGuid();
-        var data = new Dictionary<string, object> { ["Title"] = title, ["Grade"] = "A" };
+        var data = new Dictionary<string, object> { ["Title"] = title, ["Grade"] = grade };
         if (withOwnerField) data["Owner"] = "someone";
         await StoreAsync(new Content
         {
             Id = id, ContentType = type, Data = data, CreatedBy = createdBy, Status = ContentStatus.Published,
+            BranchId = branchId,
         });
         return id;
     }
@@ -108,9 +110,11 @@ public class RolePreviewTests
     ];
 
     private async Task<JsonElement> PreviewAsync(
-        HttpClient client, Guid userId, string type, object permissions, int? take = null)
+        HttpClient client, Guid userId, string type, object permissions, int? take = null,
+        string[]? systemCapabilities = null, string? name = null, Guid? roleId = null)
     {
-        var response = await client.PostAsJsonAsync("/api/roles/preview", new { userId, contentType = type, permissions, take }, Ct);
+        var response = await client.PostAsJsonAsync(
+            "/api/roles/preview", new { userId, contentType = type, permissions, take, systemCapabilities, name, roleId }, Ct);
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
         return document.RootElement.Clone();
@@ -289,6 +293,278 @@ public class RolePreviewTests
 
         ItemFor(result, byPreviewed).GetProperty("visible").GetBoolean().Should().BeTrue();
         ItemFor(result, byCaller).GetProperty("visible").GetBoolean().Should().BeFalse();
+    }
+
+    // ---- branch scope and sensitivity of the previewed user ----
+
+    private async Task<Guid> MemberOfBranchesAsync(params Guid[] branches)
+    {
+        var user = await UserAsync();
+        await StoreAsync(new Membership
+        {
+            Id = Guid.NewGuid(), UserId = user, TenantSlug = Tenant.DefaultSlug, Status = MembershipStatus.Active,
+            RoleIds = [], Profile = new Dictionary<string, string> { ["branches"] = string.Join(",", branches) },
+        });
+        return user;
+    }
+
+    [Fact]
+    public async Task An_entry_on_a_branch_the_previewed_user_does_not_hold_says_outside_branch_scope()
+    {
+        var type = await TypeAsync(branchScoped: true);
+        Guid a = Guid.NewGuid(), b = Guid.NewGuid();
+        var previewed = await MemberOfBranchesAsync(a);
+        var onA = await EntryAsync(type, "On A", previewed, branchId: a);
+        var onB = await EntryAsync(type, "On B", previewed, branchId: b);
+
+        // The caller holds both branches, so both entries are theirs to see and neither is left out.
+        var role = new Role
+        {
+            Id = Guid.NewGuid(), Name = $"BranchPreviewer_{Guid.NewGuid():n}",
+            SystemCapabilities = [SystemCapabilities.ManageRoles],
+            Permissions = [new ContentTypePermission { ContentTypeSlug = type, Read = new PermissionRule { Enabled = true } }],
+        };
+        var callerId = await MemberOfBranchesAsync(a, b);
+        await StoreAsync(role);
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var caller = (await session.LoadAsync<User>(callerId, Ct))!;
+            caller.RoleIds = [role.Id];
+            session.Store(caller);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var client = _fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", _fixture.CreateToken(roles: [role.Name], userId: callerId.ToString()));
+
+        var result = await PreviewAsync(client, previewed, type, ReadRule(type));
+
+        ItemFor(result, onA).GetProperty("visible").GetBoolean().Should().BeTrue();
+        var hidden = ItemFor(result, onB);
+        hidden.GetProperty("visible").GetBoolean().Should().BeFalse();
+        Text(hidden, "reason").Should().Be("outside branch scope");
+    }
+
+    [Fact]
+    public async Task A_field_that_is_sensitive_for_the_user_is_not_readable_and_a_condition_on_it_agrees_with_the_real_list()
+    {
+        var admin = await SuperAdminAsync();
+        var type = await TypeAsync(gradeSensitivity: SensitivityLevel.Sensitive);
+        var roleId = Guid.NewGuid();
+        var holder = await UserAsync(roleId);
+        var gradeA = await EntryAsync(type, "Grade A", holder, grade: "A");
+        var gradeB = await EntryAsync(type, "Grade B", holder, grade: "B");
+
+        // The same rule, saved as a role the user holds, so the real list can answer for them.
+        await StoreAsync(new Role
+        {
+            Id = roleId, Name = $"Graded_{Guid.NewGuid():n}",
+            Permissions =
+            [
+                new ContentTypePermission
+                {
+                    ContentTypeSlug = type,
+                    Read = new PermissionRule { Enabled = true, Conditions = new Dictionary<string, object>(GradeIsA) },
+                },
+            ],
+        });
+
+        var preview = await PreviewAsync(admin, holder, type, ReadRule(type, GradeIsA));
+
+        var shown = ItemFor(preview, gradeA);
+        shown.GetProperty("visible").GetBoolean().Should().BeTrue();
+        var readable = shown.GetProperty("readableFields").EnumerateArray().Select(f => f.GetString()).ToList();
+        readable.Should().Contain("Title").And.NotContain("Grade");
+        ItemFor(preview, gradeB).GetProperty("visible").GetBoolean().Should().BeFalse();
+
+        var asHolder = _fixture.CreateClient();
+        asHolder.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", _fixture.CreateToken(roles: [], userId: holder.ToString()));
+        var list = await asHolder.GetAsync($"/api/contents?contentType={type}&pageSize=50", Ct);
+        list.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var listed = JsonDocument.Parse(await list.Content.ReadAsStringAsync(Ct));
+        var real = listed.RootElement.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetGuid()).ToList();
+
+        var previewed = preview.GetProperty("items").EnumerateArray()
+            .Where(i => i.GetProperty("visible").GetBoolean()).Select(i => i.GetProperty("id").GetGuid()).ToList();
+        previewed.Should().BeEquivalentTo(real);
+        real.Should().Equal(gradeA);
+    }
+
+    [Fact]
+    public async Task A_key_that_differs_from_a_sensitive_field_only_by_case_is_not_readable()
+    {
+        var admin = await SuperAdminAsync();
+        var type = await TypeAsync(gradeSensitivity: SensitivityLevel.Sensitive);
+        var roleId = Guid.NewGuid();
+        var holder = await UserAsync(roleId);
+        var id = Guid.NewGuid();
+        // Stored through the session, so the key keeps its own spelling.
+        await StoreAsync(
+            new Content
+            {
+                Id = id, ContentType = type, CreatedBy = holder, Status = ContentStatus.Published,
+                Data = new Dictionary<string, object> { ["grade"] = "A" },
+            },
+            new Role { Id = roleId, Name = $"Cased_{Guid.NewGuid():n}", Permissions = [new ContentTypePermission { ContentTypeSlug = type, Read = new PermissionRule { Enabled = true } }] });
+
+        var item = ItemFor(await PreviewAsync(admin, holder, type, ReadRule(type)), id);
+
+        item.GetProperty("visible").GetBoolean().Should().BeFalse();
+        Text(item, "reason").Should().Be("field rules hide it");
+    }
+
+    private static string[] ReadableFieldsOf(JsonElement item) =>
+        item.GetProperty("readableFields").EnumerateArray().Select(f => f.GetString()!).ToArray();
+
+    [Fact]
+    public async Task A_draft_holding_view_sensitive_can_read_a_sensitive_field()
+    {
+        var admin = await SuperAdminAsync();
+        var type = await TypeAsync(gradeSensitivity: SensitivityLevel.Sensitive);
+        var user = await UserAsync();
+        var entry = await EntryAsync(type, "Row", user);
+        var rule = ReadRule(type, readable: ["Title", "Grade"]);
+
+        var without = ItemFor(await PreviewAsync(admin, user, type, rule), entry);
+        ReadableFieldsOf(without).Should().BeEquivalentTo(["Title"]);
+
+        var with = ItemFor(
+            await PreviewAsync(admin, user, type, rule, systemCapabilities: [SystemCapabilities.ViewSensitive]), entry);
+        ReadableFieldsOf(with).Should().BeEquivalentTo(["Title", "Grade"]);
+    }
+
+    [Fact]
+    public async Task A_draft_named_in_a_fields_visible_to_roles_can_read_that_field()
+    {
+        var admin = await SuperAdminAsync();
+        var type = await TypeAsync(gradeSensitivity: SensitivityLevel.Sensitive, gradeVisibleTo: ["Auditors"]);
+        var user = await UserAsync();
+        var entry = await EntryAsync(type, "Row", user);
+        var rule = ReadRule(type, readable: ["Title", "Grade"]);
+
+        var unnamed = ItemFor(await PreviewAsync(admin, user, type, rule), entry);
+        ReadableFieldsOf(unnamed).Should().BeEquivalentTo(["Title"]);
+
+        var named = ItemFor(await PreviewAsync(admin, user, type, rule, name: "Auditors"), entry);
+        ReadableFieldsOf(named).Should().BeEquivalentTo(["Title", "Grade"]);
+    }
+
+    [Fact]
+    public async Task A_capability_or_name_the_save_would_refuse_is_refused_by_the_preview()
+    {
+        var type = await TypeAsync();
+        var user = await UserAsync();
+        var caller = await ManageRolesCallerAsync(type);
+
+        // A platform capability needs a platform administrator, as on the role save.
+        var platform = await caller.PostAsJsonAsync("/api/roles/preview",
+            new { userId = user, contentType = type, permissions = ReadRule(type), systemCapabilities = new[] { SystemCapabilities.ManageTenants } }, Ct);
+        platform.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        // A reserved role name is a 400, as on the role save.
+        var reserved = await caller.PostAsJsonAsync("/api/roles/preview",
+            new { userId = user, contentType = type, permissions = ReadRule(type), name = "Admin" }, Ct);
+        reserved.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task A_draft_that_edits_a_stored_role_is_listed_by_that_roles_id()
+    {
+        var admin = await SuperAdminAsync();
+        var roleId = Guid.NewGuid();
+        await StoreAsync(new Role { Id = roleId, Name = $"Listed_{Guid.NewGuid():n}", Permissions = [] });
+        // A list stores role ids, not names.
+        var type = await TypeAsync(gradeSensitivity: SensitivityLevel.Sensitive, gradeVisibleTo: [roleId.ToString()]);
+        var user = await UserAsync();
+        var entry = await EntryAsync(type, "Row", user);
+        var rule = ReadRule(type, readable: ["Title", "Grade"]);
+
+        var fresh = ItemFor(await PreviewAsync(admin, user, type, rule), entry);
+        ReadableFieldsOf(fresh).Should().BeEquivalentTo(["Title"]);
+
+        var editing = ItemFor(await PreviewAsync(admin, user, type, rule, roleId: roleId), entry);
+        ReadableFieldsOf(editing).Should().BeEquivalentTo(["Title", "Grade"]);
+    }
+
+    [Fact]
+    public async Task A_seeded_role_may_keep_its_reserved_name_and_a_new_role_may_not()
+    {
+        var admin = await SuperAdminAsync();
+        var type = await TypeAsync();
+        var user = await UserAsync();
+        await EntryAsync(type, "Row", user);
+
+        await PreviewAsync(admin, user, type, ReadRule(type), name: "Admin", roleId: SystemRoles.AdminRoleId);
+
+        var refused = await admin.PostAsJsonAsync("/api/roles/preview",
+            new { userId = user, contentType = type, permissions = ReadRule(type), name = "Admin" }, Ct);
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task A_role_id_that_is_unknown_deleted_or_in_another_tenant_answers_404_and_one_of_its_own_tenant_is_found()
+    {
+        var type = await TypeAsync();
+        var user = await UserAsync();
+        var foreign = Guid.NewGuid();
+        await StoreAsync(new Role
+        {
+            Id = foreign, Name = $"Foreign_{Guid.NewGuid():n}", TenantSlug = $"other{Guid.NewGuid():n}"[..14], Permissions = [],
+        });
+        var own = Guid.NewGuid();
+        await StoreAsync(new Role { Id = own, Name = $"Own_{Guid.NewGuid():n}", TenantSlug = Tenant.DefaultSlug, Permissions = [] });
+        var deleted = Guid.NewGuid();
+        await StoreAsync(new Role
+        {
+            Id = deleted, Name = $"Gone_{Guid.NewGuid():n}", TenantSlug = Tenant.DefaultSlug, Permissions = [], DeletedAt = DateTime.UtcNow,
+        });
+        var caller = await ManageRolesCallerAsync(type);
+
+        async Task<HttpStatusCode> StatusAsync(Guid id) => (await caller.PostAsJsonAsync("/api/roles/preview",
+            new { userId = user, contentType = type, permissions = ReadRule(type), roleId = id }, Ct)).StatusCode;
+
+        // The control: a role of the caller's own tenant is found, so the 404s below come from the lookup.
+        (await StatusAsync(own)).Should().Be(HttpStatusCode.OK);
+        foreach (var id in new[] { foreign, deleted, Guid.NewGuid() })
+            (await StatusAsync(id)).Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_platform_role_cannot_be_previewed_by_a_caller_who_is_not_a_platform_administrator()
+    {
+        var type = await TypeAsync();
+        var user = await UserAsync();
+        var shared = Guid.NewGuid();
+        await StoreAsync(new Role { Id = shared, Name = $"Shared_{Guid.NewGuid():n}", IsPlatform = true, Permissions = [] });
+        var caller = await ManageRolesCallerAsync(type);
+
+        var response = await caller.PostAsJsonAsync("/api/roles/preview",
+            new { userId = user, contentType = type, permissions = ReadRule(type), roleId = shared }, Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task A_draft_that_edits_a_stored_role_keeps_its_capabilities_unless_the_request_sets_them()
+    {
+        var admin = await SuperAdminAsync();
+        var roleId = Guid.NewGuid();
+        await StoreAsync(new Role
+        {
+            Id = roleId, Name = $"Sensitive_{Guid.NewGuid():n}", Permissions = [], SystemCapabilities = [SystemCapabilities.ViewSensitive],
+        });
+        var type = await TypeAsync(gradeSensitivity: SensitivityLevel.Sensitive);
+        var user = await UserAsync();
+        var entry = await EntryAsync(type, "Row", user);
+        var rule = ReadRule(type, readable: ["Title", "Grade"]);
+
+        var absent = ItemFor(await PreviewAsync(admin, user, type, rule, roleId: roleId), entry);
+        ReadableFieldsOf(absent).Should().BeEquivalentTo(["Title", "Grade"]);
+
+        var empty = ItemFor(await PreviewAsync(admin, user, type, rule, systemCapabilities: [], roleId: roleId), entry);
+        ReadableFieldsOf(empty).Should().BeEquivalentTo(["Title"]);
     }
 
     // ---- what the caller may see ----
@@ -471,6 +747,9 @@ public class RolePreviewTests
         }
 
         var before = await RealReadAsync();
+        int rolesBefore;
+        using (var scope = _fixture.Services.CreateScope())
+            rolesBefore = await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<Role>().CountAsync(Ct);
 
         var preview = await PreviewAsync(admin, user, type, ReadRule(type));
         ItemFor(preview, entry).GetProperty("visible").GetBoolean().Should().BeTrue();
@@ -482,8 +761,8 @@ public class RolePreviewTests
         {
             var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
 
-            // The draft is named "preview", so a saved one would show up under that name.
-            (await session.Query<Role>().Where(r => r.Name == "preview").CountAsync(Ct)).Should().Be(0);
+            // The draft is named by a fresh id, so compare the count of saved roles instead.
+            (await session.Query<Role>().CountAsync(Ct)).Should().Be(rolesBefore);
             (await session.LoadAsync<User>(user, Ct))!.RoleIds.Should().BeEmpty();
         }
 

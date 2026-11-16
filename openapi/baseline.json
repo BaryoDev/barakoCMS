@@ -6833,7 +6833,7 @@
             "type": "string"
           },
           "readableFields": {
-            "description": "The fields the user could read on a visible entry. Null when the rules name no set, which\nmeans every field.",
+            "description": "The fields the user could read on a visible entry, after the rules' set and the sensitivity\nof each field. Null when the rules name no set and no field is masked or hidden, which means\nevery field.",
             "items": {
               "type": "string"
             },
@@ -6841,7 +6841,7 @@
             "type": "array"
           },
           "reason": {
-            "description": "Why the user would not see the entry: no read rule, condition not met or\nfield rules hide it. Null when visible.",
+            "description": "Why the user would not see the entry: outside branch scope, no read rule,\ncondition not met or field rules hide it. Null when visible.",
             "nullable": true,
             "type": "string"
           },
@@ -6862,11 +6862,30 @@
             "nullable": false,
             "type": "string"
           },
+          "name": {
+            "description": "The name the role will be saved under. Optional. A field that lists roles by name in\nvisibleToRoles matches it. When blank, the draft gets a name nothing can match.",
+            "nullable": true,
+            "type": "string"
+          },
           "permissions": {
             "description": "The draft rules, in the shape the role save takes. Nothing is stored.",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSModelsContentTypePermission"
             },
+            "type": "array"
+          },
+          "roleId": {
+            "description": "The stored role this draft edits. Optional. The draft then takes the role's id, which is how a\nfield lists a role in visibleToRoles, and its name when name is blank. A role\noutside the current tenant, or none, answers 404.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
+          "systemCapabilities": {
+            "description": "The capabilities the role will hold, in the shape the role save takes. Optional. They decide\nwhether the user sees Sensitive and Hidden fields (view_sensitive, view_hidden).\nWhen absent, the draft holds the stored role's capabilities if roleId is set, and none\notherwise. An empty list holds none. Nothing is stored.",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
             "type": "array"
           },
           "take": {

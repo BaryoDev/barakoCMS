@@ -611,21 +611,44 @@ The audit row for a role lists each rule's set under `fieldSets` in `permissions
 ### Previewing a role
 
 `POST /api/roles/preview` answers which entries a user would see under rules that are not saved.
-The body is `{ "userId", "contentType", "permissions", "take" }`. `permissions` has the shape of the
-`PUT /api/roles/{id}` body and is checked the same way. `take` is 20 by default and at most 50.
+The body is `{ "userId", "contentType", "permissions", "systemCapabilities", "name", "roleId", "take" }`.
+`permissions` has the shape of the `PUT /api/roles/{id}` body and is checked the same way.
+`systemCapabilities` and `name` are optional and have the shape the save takes. They are checked as the
+save checks them: an unknown capability is refused when `Roles:RefuseUnknownCapabilities` is on, a
+platform capability needs a platform administrator, and a reserved role name is refused. A name that
+an existing role has is fine, since editing that role is the normal case.
+
+To preview an edit to a stored role, send its `roleId`. The draft then carries that role's id, which is
+how a field lists a role in `visibleToRoles`, its stored name when `name` is blank, and its stored
+capabilities when `systemCapabilities` is absent. An empty `systemCapabilities` list holds none. The checks
+are the update's: a role that is not in the current tenant, or does not exist, answers 404; a
+platform role needs `manage_platform_roles`; a seeded role may keep its reserved name; and a
+platform capability the stored role already holds is kept. Without `roleId` the draft is a new role,
+with a fresh id, and the create's checks apply. `take` is 20 by default and at most 50.
 
 The user is judged as holding that role alone, through the same resolver a saved role goes through,
 so `$CURRENT_USER` is the previewed user, not the caller. Each entry comes back with `id`, `title` and
-`visible`. A hidden entry has a `reason`: `no read rule`, `condition not met` (with `condition`, the
-one that failed) or `field rules hide it`. A visible entry lists `readableFields`, or null when the
-rules name no set.
+`visible`. A hidden entry has a `reason`: `outside branch scope`, `no read rule`, `condition not met`
+(with `condition`, the one that failed) or `field rules hide it`. A visible entry lists
+`readableFields`, or null when the rules name no set and no field is masked or hidden for the user.
 
 The route needs `manage_roles`, as `PUT /api/roles/{id}` does, and takes a JWT only. A user who is not
 a member of the current tenant answers 404. Entries the caller may not read are left out, not shown
-with a reason. Nothing is saved, and nothing the preview decides reaches the permission cache. The
-user's branch scoping is not applied, and neither is sensitivity: a field the user would see masked
-or hidden still counts in a condition. A draft read condition on a field the caller may not read
-is refused with 400, since which entries match would tell the caller the field's value.
+with a reason. Nothing is saved, and nothing the preview decides reaches the permission cache. A
+draft read condition on a field the caller may not read is refused with 400, since which entries
+match would tell the caller the field's value.
+
+Branch scope and sensitivity are applied for the previewed user, through the same services the list
+and get routes use. An entry of a branch scoped type outside the user's branches is hidden with
+`outside branch scope`, checked before any read rule, as the list narrows to the user's branches
+first. A field that sensitivity masks or hides for the user is left out of `readableFields`. Because
+the user is judged as holding the draft alone, a field that is not Public is readable only when the
+draft's `systemCapabilities` carry `view_sensitive` or `view_hidden` for its level, or the field's
+`visibleToRoles` names the draft's `roleId` or `name`. A request with neither sends a draft that grants no
+capability and has a name nothing matches, so only Public fields count as readable. An
+entry whose own level the user may not see answers `field rules hide it`. A read condition is judged
+on the stored value, as the real read judges it: the permission check runs on the stored entry and
+the mask is applied after, so a condition on a masked field still decides who sees the entry.
 
 ### Caches
 
