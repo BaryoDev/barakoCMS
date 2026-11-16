@@ -67,7 +67,7 @@ namespace BarakoCMS.Testing;
 public class BarakoTestHost : IAsyncLifetime
 {
     private readonly BarakoTestHostOptions _options;
-    private readonly PostgreSqlContainer _postgres;
+    private PostgreSqlContainer _postgres;
     private const string JwtIssuer = "BarakoCMS.Testing";
     private const string JwtAudience = "BarakoCMS.Testing";
     private readonly string _jwtKey;
@@ -107,12 +107,40 @@ public class BarakoTestHost : IAsyncLifetime
             ? configuredKey
             : Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
 
-        _postgres = new PostgreSqlBuilder()
-            .WithImage(_options.PostgresImage)
-            .WithDatabase("barako_module_tests")
-            .WithUsername("postgres")
-            .WithPassword("postgres")
-            .Build();
+        _postgres = BuildPostgres();
+    }
+
+    private PostgreSqlContainer BuildPostgres() => new PostgreSqlBuilder()
+        .WithImage(_options.PostgresImage)
+        .WithDatabase("barako_module_tests")
+        .WithUsername("postgres")
+        .WithPassword("postgres")
+        .Build();
+
+    private static bool IsHostPortBindFailure(Exception e) =>
+        e is Docker.DotNet.DockerApiException
+        && (e.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase)
+            || e.Message.Contains("port is already allocated", StringComparison.OrdinalIgnoreCase));
+
+    // Docker picks the container's host port at random, from the same range the kernel uses for
+    // outbound connections. Late in a long run many of those local ports are in use, so the bind
+    // now and then fails. A fresh container gets a fresh port, so try again, three times at most.
+    private async Task StartPostgresAsync()
+    {
+        const int maxAttempts = 3;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await _postgres.StartAsync();
+                return;
+            }
+            catch (Exception e) when (attempt < maxAttempts && IsHostPortBindFailure(e))
+            {
+                await _postgres.DisposeAsync();
+                _postgres = BuildPostgres();
+            }
+        }
     }
 
     /// <summary>The host's service provider. Create a scope before resolving anything scoped.</summary>
@@ -149,7 +177,7 @@ public class BarakoTestHost : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        await _postgres.StartAsync();
+        await StartPostgresAsync();
 
         // Core reads the process variable in a few places (HTTPS redirection, the schema policy,
         // the demo accounts), so an unset one is filled in to match the host environment. One
@@ -230,8 +258,12 @@ public class BarakoTestHost : IAsyncLifetime
         }
 
         // Idle connections to the database about to be removed would otherwise stay in the pool.
-        using (var pooled = new Npgsql.NpgsqlConnection(ConnectionString))
+        // A container that never started has no mapped port, so there is no pool to clear.
+        if (_postgres.State == DotNet.Testcontainers.Containers.TestcontainersStates.Running)
+        {
+            using var pooled = new Npgsql.NpgsqlConnection(ConnectionString);
             Npgsql.NpgsqlConnection.ClearPool(pooled);
+        }
 
         await _postgres.DisposeAsync();
         GC.SuppressFinalize(this);
