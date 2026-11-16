@@ -270,7 +270,7 @@ public class ConfigSectionsTests
         Changes(plan).Should().Contain($"permissionRules/{role}/{myType} destructive");
 
         var stored = await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role, Ct));
-        stored!.Permissions.Select(p => p.ContentTypeSlug).Should().Equal(new[] { theirType }, "the rule on the other tenant's type is left alone");
+        stored!.Permissions.Select(p => p.ContentTypeSlug).Should().BeEquivalentTo(new[] { theirType, keepType }, "the rule the file names stays and the rule on the other tenant's type is left alone");
     }
 
     [Fact]
