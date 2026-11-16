@@ -210,21 +210,23 @@ public class RolePreviewTests
         var admin = await SuperAdminAsync();
         var type = await TypeAsync();
         var other = await TypeAsync();
-        var user = await UserAsync();
+        var roleId = Guid.NewGuid();
+        var holder = await UserAsync(roleId);
 
+        // The rule asks for entries the holder created, so the holder owns some and not others.
         var entries = new List<Guid>
         {
-            await EntryAsync(type, "Own 1", user),
-            await EntryAsync(type, "Own 2", user),
+            await EntryAsync(type, "Own 1", holder),
+            await EntryAsync(type, "Own 2", holder),
             await EntryAsync(type, "Foreign 1", Guid.NewGuid()),
             await EntryAsync(type, "Foreign 2", Guid.NewGuid()),
         };
-        var elsewhere = await EntryAsync(other, "Other type", user);
+        var elsewhere = await EntryAsync(other, "Other type", holder);
 
         // The same rules the request carries, saved as a role the user holds.
         var role = new Role
         {
-            Id = Guid.NewGuid(),
+            Id = roleId,
             Name = $"Agree_{Guid.NewGuid():n}",
             Permissions =
             [
@@ -242,7 +244,6 @@ public class RolePreviewTests
                 },
             ],
         };
-        var holder = await UserAsync(role.Id);
         await StoreAsync(role);
 
         var previewOfHolder = await PreviewAsync(admin, holder, type, ReadRule(type, OwnRecords));
@@ -292,7 +293,7 @@ public class RolePreviewTests
 
     // ---- what the caller may see ----
 
-    private async Task<HttpClient> ManageRolesCallerAsync(string? type)
+    private async Task<HttpClient> ManageRolesCallerAsync(string? type, List<string>? readable = null)
     {
         var role = new Role
         {
@@ -301,7 +302,7 @@ public class RolePreviewTests
             SystemCapabilities = [SystemCapabilities.ManageRoles],
             Permissions = type is null
                 ? []
-                : [new ContentTypePermission { ContentTypeSlug = type, Read = new PermissionRule { Enabled = true } }],
+                : [new ContentTypePermission { ContentTypeSlug = type, Read = new PermissionRule { Enabled = true, ReadableFields = readable } }],
         };
         var userId = await UserAsync(role.Id);
         await StoreAsync(role);
@@ -327,6 +328,41 @@ public class RolePreviewTests
         ItemFor(sighted, entry).GetProperty("visible").GetBoolean().Should().BeTrue();
     }
 
+    // ---- the draft may not ask about fields the caller cannot read ----
+
+    private static readonly Dictionary<string, object> GradeIsA = new()
+    {
+        ["Grade"] = new Dictionary<string, object> { ["_eq"] = "A" },
+    };
+
+    [Fact]
+    public async Task A_condition_on_a_field_the_caller_may_not_read_is_refused_with_400_naming_it()
+    {
+        var type = await TypeAsync();
+        var user = await UserAsync();
+        await EntryAsync(type, "Row", user);
+
+        var caller = await ManageRolesCallerAsync(type, ["Title"]);
+        var response = await caller.PostAsJsonAsync("/api/roles/preview",
+            new { userId = user, contentType = type, permissions = ReadRule(type, GradeIsA) }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(Ct)).Should().Contain("Grade");
+    }
+
+    [Fact]
+    public async Task A_condition_on_a_field_the_caller_may_read_still_previews()
+    {
+        var type = await TypeAsync();
+        var user = await UserAsync();
+        var entry = await EntryAsync(type, "Row", user);
+
+        var caller = await ManageRolesCallerAsync(type, ["Title", "Grade"]);
+        var result = await PreviewAsync(caller, user, type, ReadRule(type, GradeIsA));
+
+        ItemFor(result, entry).GetProperty("visible").GetBoolean().Should().BeTrue();
+    }
+
     // ---- tenant ----
 
     [Fact]
@@ -334,7 +370,8 @@ public class RolePreviewTests
     {
         var home = $"home{Guid.NewGuid():n}"[..14];
         var away = $"away{Guid.NewGuid():n}"[..14];
-        var type = await TypeAsync();
+        // Content types are stored per tenant, so this one lives in the caller's tenant.
+        var type = $"preview{Guid.NewGuid().ToString("n")[..10]}";
 
         var role = new Role
         {
@@ -346,6 +383,7 @@ public class RolePreviewTests
         var caller = await UserAsync();
         var local = await UserAsync();
         var foreigner = await UserAsync();
+        var suspended = await UserAsync();
 
         await StoreAsync(
             role,
@@ -353,7 +391,19 @@ public class RolePreviewTests
             new Tenant { Id = Guid.NewGuid(), Slug = away, Name = away },
             new Membership { Id = Guid.NewGuid(), UserId = caller, TenantSlug = home, Status = MembershipStatus.Active, RoleIds = [role.Id] },
             new Membership { Id = Guid.NewGuid(), UserId = local, TenantSlug = home, Status = MembershipStatus.Active, RoleIds = [] },
-            new Membership { Id = Guid.NewGuid(), UserId = foreigner, TenantSlug = away, Status = MembershipStatus.Active, RoleIds = [] });
+            new Membership { Id = Guid.NewGuid(), UserId = foreigner, TenantSlug = away, Status = MembershipStatus.Active, RoleIds = [] },
+            new Membership { Id = Guid.NewGuid(), UserId = suspended, TenantSlug = home, Status = MembershipStatus.Suspended, RoleIds = [] });
+
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            await using var inHome = scope.ServiceProvider.GetRequiredService<IDocumentStore>().LightweightSession(home);
+            inHome.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = type, DisplayName = type,
+                Fields = [new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" }],
+            });
+            await inHome.SaveChangesAsync(Ct);
+        }
 
         var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
@@ -365,6 +415,11 @@ public class RolePreviewTests
         var refused = await client.PostAsJsonAsync("/api/roles/preview",
             new { userId = foreigner, contentType = type, permissions = ReadRule(type) }, Ct);
         refused.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        // Role resolution counts only Active memberships, so a suspended member is not previewed.
+        var held = await client.PostAsJsonAsync("/api/roles/preview",
+            new { userId = suspended, contentType = type, permissions = ReadRule(type) }, Ct);
+        held.StatusCode.Should().Be(HttpStatusCode.NotFound);
 
         var allowed = await client.PostAsJsonAsync("/api/roles/preview",
             new { userId = local, contentType = type, permissions = ReadRule(type) }, Ct);
@@ -381,23 +436,30 @@ public class RolePreviewTests
         var user = await UserAsync();
         var entry = await EntryAsync(type, "Stays closed", user);
 
-        int RolesNow()
+        // The real resolver caches item-less decisions, so ask once to warm it, then compare.
+        async Task<bool> RealReadAsync()
         {
             using var scope = _fixture.Services.CreateScope();
             var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
-            return session.Query<Role>().Count();
+            var stored = (await session.LoadAsync<User>(user, Ct))!;
+            return await scope.ServiceProvider.GetRequiredService<IPermissionResolver>()
+                .CanPerformActionAsync(stored, type, "read", null, Ct);
         }
 
-        var rolesBefore = RolesNow();
+        var before = await RealReadAsync();
 
         var preview = await PreviewAsync(admin, user, type, ReadRule(type));
         ItemFor(preview, entry).GetProperty("visible").GetBoolean().Should().BeTrue();
 
-        RolesNow().Should().Be(rolesBefore);
+        (await RealReadAsync()).Should().Be(before, "the draft must not reach the cached resolver");
+        before.Should().BeFalse();
 
         using (var scope = _fixture.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+
+            // The draft is named "preview", so a saved one would show up under that name.
+            (await session.Query<Role>().Where(r => r.Name == "preview").CountAsync(Ct)).Should().Be(0);
             (await session.LoadAsync<User>(user, Ct))!.RoleIds.Should().BeEmpty();
         }
 

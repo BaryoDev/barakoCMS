@@ -19,11 +19,14 @@ namespace barakoCMS.Features.Roles.Preview;
 /// so the rule logic is the one a saved role runs through. It is never the cached resolver: nothing
 /// the draft decides may reach the shared cache. Nothing is stored. The user is judged as holding
 /// the draft alone, so the answer is what the role would grant that user, not a merge with the
-/// roles the user holds now. The user's branch scoping is not applied.
+/// roles the user holds now. The user's branch scoping is not applied, and neither is sensitivity:
+/// a field the user would see masked or hidden still counts in a condition.
 /// </para>
 /// <para>
 /// The caller only sees entries the caller may read, so the preview cannot be used to list what the
-/// caller cannot open. Those are left out, not shown with a reason.
+/// caller cannot open. Those are left out, not shown with a reason. A draft read condition on a
+/// field the caller may not read is refused with 400, since which entries match would tell the
+/// caller the field's value.
 /// </para>
 /// </remarks>
 internal sealed class Endpoint(
@@ -52,14 +55,7 @@ internal sealed class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, null, ct))
-            AddError(r => r.Permissions, error);
-        foreach (var error in FieldSetRules.DuplicateTypeErrors(req.Permissions, null))
-            AddError(r => r.Permissions, error);
-        FieldSetRules.Normalise(req.Permissions);
-        foreach (var error in await RoleSaveRules.CheckAsync(session, req.Permissions, null, ct))
-            AddError(r => r.Permissions, error);
-        ThrowIfAnyErrors();
+        await CheckDraftAsync(req, ct);
 
         var previewed = await session.LoadAsync<User>(req.UserId, ct);
         if (previewed is null || !await InTenantAsync(previewed.Id, ct))
@@ -68,20 +64,7 @@ internal sealed class Endpoint(
             return;
         }
 
-        var named = await session.Query<ContentTypeDefinition>()
-            .Where(ContentTypeName.Named(req.ContentType)).ToListAsync(ct);
-        ContentTypeDefinition? definition;
-        try
-        {
-            definition = ContentTypeName.Pick(named, req.ContentType);
-        }
-        catch (AmbiguousContentTypeException ambiguous)
-        {
-            AddError(r => r.ContentType, ambiguous.Message);
-            ThrowIfAnyErrors();
-            return;
-        }
-
+        var definition = await FindTypeAsync(req, ct);
         if (definition is null)
         {
             await Send.NotFoundAsync(ct);
@@ -95,12 +78,81 @@ internal sealed class Endpoint(
             return;
         }
 
+        await RefuseUnreadableConditionAsync(req, definition, ct);
+
         var draft = new Role { Id = Guid.NewGuid(), Name = "preview", Permissions = req.Permissions };
         var resolver = new PermissionResolver(session, conditions, tenant, envelope, loggers.CreateLogger<PermissionResolver>());
         await resolver.PinRolesAsync(previewed, [draft], ct);
 
         var take = Math.Clamp(req.Take ?? DefaultTake, 1, MaxTake);
-        var typeName = definition.Name;
+        var items = await CollectAsync(resolver, req.Permissions, previewed, caller, definition.Name, take, ct);
+
+        await Send.OkAsync(new Response { Items = items }, ct);
+    }
+
+    /// <summary>The checks the role save makes on its rules, so a draft the save would refuse is refused here.</summary>
+    private async Task CheckDraftAsync(Request req, CancellationToken ct)
+    {
+        foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, null, ct))
+            AddError(r => r.Permissions, error);
+        foreach (var error in FieldSetRules.DuplicateTypeErrors(req.Permissions, null))
+            AddError(r => r.Permissions, error);
+        FieldSetRules.Normalise(req.Permissions);
+        foreach (var error in await RoleSaveRules.CheckAsync(session, req.Permissions, null, ct))
+            AddError(r => r.Permissions, error);
+        ThrowIfAnyErrors();
+    }
+
+    private async Task<ContentTypeDefinition?> FindTypeAsync(Request req, CancellationToken ct)
+    {
+        var named = await session.Query<ContentTypeDefinition>()
+            .Where(ContentTypeName.Named(req.ContentType)).ToListAsync(ct);
+        try
+        {
+            return ContentTypeName.Pick(named, req.ContentType);
+        }
+        catch (AmbiguousContentTypeException ambiguous)
+        {
+            AddError(r => r.ContentType, ambiguous.Message);
+            ThrowIfAnyErrors();
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Refuses a draft read condition on a field the caller may not read. Whether an entry is
+    /// visible under a condition says something about the field's value, so a caller who may not
+    /// read the field must not be able to ask. A path through a reference field asks about that
+    /// reference field on this type. A document property (<c>$createdBy</c> and the like) is not a
+    /// field and is not checked.
+    /// </summary>
+    private async Task RefuseUnreadableConditionAsync(Request req, ContentTypeDefinition definition, CancellationToken ct)
+    {
+        var rule = PermissionResolver.PermissionFor(req.Permissions, definition.Name)?.Read;
+        if (rule?.Conditions is not { Count: > 0 } held)
+            return;
+
+        foreach (var key in held.Keys.Where(k => !k.StartsWith('$')))
+        {
+            var name = ReferenceConditions.TrySplit(key, out var reference, out _) ? reference : key.Split('.')[0];
+            var field = definition.Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.Ordinal));
+            if (field is not null && !await sensitivity.MayReadFieldAsync(definition.Name, field, null, User, ct))
+                AddError(r => r.Permissions,
+                    $"The read condition on '{name}' is refused: you may not read '{name}' on {definition.Name}, "
+                    + "and which entries match would tell you its value.");
+        }
+
+        ThrowIfAnyErrors();
+    }
+
+    /// <summary>
+    /// Pages through the type's entries, in the order they were made, until <paramref name="take"/>
+    /// are collected or the scan limit is reached. Entries the caller may not read are skipped.
+    /// </summary>
+    private async Task<List<Entry>> CollectAsync(
+        PermissionResolver resolver, List<ContentTypePermission> draft, User previewed, User caller,
+        string typeName, int take, CancellationToken ct)
+    {
         var items = new List<Entry>();
         var scanned = 0;
 
@@ -122,11 +174,11 @@ internal sealed class Endpoint(
                 var scrubbed = await CallerTitleDataAsync(caller, entry, ct);
                 if (scrubbed is null) continue;
 
-                items.Add(await JudgeAsync(resolver, req.Permissions, previewed, typeName, entry, scrubbed, ct));
+                items.Add(await JudgeAsync(resolver, draft, previewed, typeName, entry, scrubbed, ct));
             }
         }
 
-        await Send.OkAsync(new Response { Items = items }, ct);
+        return items;
     }
 
     private async Task<Entry> JudgeAsync(
@@ -184,11 +236,12 @@ internal sealed class Endpoint(
 
     private async Task<bool> InTenantAsync(Guid userId, CancellationToken ct)
     {
-        // The default tenant records no memberships, so any existing user belongs to it.
+        // The default tenant records no memberships, so any existing user belongs to it. Elsewhere
+        // only an active member counts, as it does when the user's roles are resolved.
         if (tenant.IsDefault) return true;
 
         var slug = tenant.Slug;
         return await session.Query<Membership>()
-            .AnyAsync(m => m.UserId == userId && m.TenantSlug == slug && m.Status != MembershipStatus.Removed, ct);
+            .AnyAsync(m => m.UserId == userId && m.TenantSlug == slug && m.Status == MembershipStatus.Active, ct);
     }
 }

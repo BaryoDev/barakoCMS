@@ -623,7 +623,9 @@ rules name no set.
 The route needs `manage_roles`, as `PUT /api/roles/{id}` does, and takes a JWT only. A user who is not
 a member of the current tenant answers 404. Entries the caller may not read are left out, not shown
 with a reason. Nothing is saved, and nothing the preview decides reaches the permission cache. The
-user's branch scoping is not applied.
+user's branch scoping is not applied, and neither is sensitivity: a field the user would see masked
+or hidden still counts in a condition. A draft read condition on a field the caller may not read
+is refused with 400, since which entries match would tell the caller the field's value.
 
 ### Caches
 

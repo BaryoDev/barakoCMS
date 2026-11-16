@@ -23863,7 +23863,7 @@
     },
     "/api/roles/preview": {
       "post": {
-        "description": "The draft is judged by a PermissionResolver made for the request and pinned to it,\nso the rule logic is the one a saved role runs through. It is never the cached resolver: nothing\nthe draft decides may reach the shared cache. Nothing is stored. The user is judged as holding\nthe draft alone, so the answer is what the role would grant that user, not a merge with the\nroles the user holds now. The user's branch scoping is not applied.\nThe caller only sees entries the caller may read, so the preview cannot be used to list what the\ncaller cannot open. Those are left out, not shown with a reason.",
+        "description": "The draft is judged by a PermissionResolver made for the request and pinned to it,\nso the rule logic is the one a saved role runs through. It is never the cached resolver: nothing\nthe draft decides may reach the shared cache. Nothing is stored. The user is judged as holding\nthe draft alone, so the answer is what the role would grant that user, not a merge with the\nroles the user holds now. The user's branch scoping is not applied, and neither is sensitivity:\na field the user would see masked or hidden still counts in a condition.\nThe caller only sees entries the caller may read, so the preview cannot be used to list what the\ncaller cannot open. Those are left out, not shown with a reason. A draft read condition on a\nfield the caller may not read is refused with 400, since which entries match would tell the\ncaller the field's value.",
         "operationId": "barakoCMSFeaturesRolesPreviewEndpoint",
         "requestBody": {
           "content": {
