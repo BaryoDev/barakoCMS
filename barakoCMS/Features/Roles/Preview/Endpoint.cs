@@ -105,11 +105,10 @@ internal sealed class Endpoint(
 
     private async Task<ContentTypeDefinition?> FindTypeAsync(Request req, CancellationToken ct)
     {
-        var named = await session.Query<ContentTypeDefinition>()
-            .Where(ContentTypeName.Named(req.ContentType)).ToListAsync(ct);
+        // The resolution the read routes use, so an account-owned type is judged by its own fields.
         try
         {
-            return ContentTypeName.Pick(named, req.ContentType);
+            return await AccountContentTypes.ResolveAsync(session, req.ContentType, ct);
         }
         catch (AmbiguousContentTypeException ambiguous)
         {
@@ -136,9 +135,10 @@ internal sealed class Endpoint(
         {
             var name = ReferenceConditions.TrySplit(key, out var reference, out _) ? reference : key.Split('.')[0];
             var field = definition.Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.Ordinal));
-            if (field is not null && !await sensitivity.MayReadFieldAsync(definition.Name, field, null, User, ct))
+            // A key the type does not declare can still be in older entries, so it fails closed.
+            if (field is null || !await sensitivity.MayReadFieldAsync(definition.Name, field, null, User, ct))
                 AddError(r => r.Permissions,
-                    $"The read condition on '{name}' is refused: you may not read '{name}' on {definition.Name}, "
+                    $"The read condition on '{name}' is refused: '{name}' is not a field you may read on {definition.Name}, "
                     + "and which entries match would tell you its value.");
         }
 

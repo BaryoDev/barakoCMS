@@ -351,6 +351,30 @@ public class RolePreviewTests
     }
 
     [Fact]
+    public async Task A_condition_on_a_key_the_type_does_not_declare_is_refused_even_when_the_data_holds_it()
+    {
+        var type = await TypeAsync();
+        var user = await UserAsync();
+        var id = Guid.NewGuid();
+        await StoreAsync(new Content
+        {
+            Id = id, ContentType = type, CreatedBy = user, Status = ContentStatus.Published,
+            Data = new Dictionary<string, object> { ["Title"] = "Row", ["Removed"] = "secret" },
+        });
+
+        var caller = await ManageRolesCallerAsync(type);
+        var conditions = new Dictionary<string, object>
+        {
+            ["Removed"] = new Dictionary<string, object> { ["_eq"] = "secret" },
+        };
+        var response = await caller.PostAsJsonAsync("/api/roles/preview",
+            new { userId = user, contentType = type, permissions = ReadRule(type, conditions) }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(Ct)).Should().Contain("Removed");
+    }
+
+    [Fact]
     public async Task A_condition_on_a_field_the_caller_may_read_still_previews()
     {
         var type = await TypeAsync();
