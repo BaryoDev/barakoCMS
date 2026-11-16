@@ -27,9 +27,14 @@ namespace barakoCMS.Features.Roles.Preview;
 /// The user's branch scope and field sensitivity are applied, by the services the real read uses,
 /// judged for the previewed user and not the caller. An entry outside the user's branches is hidden
 /// with <c>outside branch scope</c>. A field sensitivity masks or hides for the user, judged as
-/// the draft alone (it grants no capability and is named by no field), is left out of the readable
-/// fields. A read condition is still judged on the stored value, as the real read judges it: the
-/// permission check runs on the stored entry and the mask is applied afterwards.
+/// the draft alone, is left out of the readable fields. The draft holds the capabilities and the
+/// name the request gives it, and none when it gives none. With a <c>roleId</c> the draft is an edit
+/// of that stored role: it takes the role's id, which is how a field lists a role, and its name when
+/// the request gives none, and the update's checks apply (a role the caller does not reach is 404,
+/// a platform role needs a platform administrator, a seeded role may keep its reserved name, a
+/// platform capability the role already holds is kept). A read condition is still judged on the
+/// stored value, as the real read judges it: the permission check runs on the stored entry and the
+/// mask is applied afterwards.
 /// </para>
 /// <para>
 /// The caller only sees entries the caller may read, so the preview cannot be used to list what the
@@ -46,6 +51,7 @@ internal sealed class Endpoint(
     IBranchMembership branchMembership,
     ISensitivityService sensitivity,
     IConfiguration configuration,
+    CapabilityVocabulary vocabulary,
     TenantContext tenant,
     IEventEnvelopeContext envelope,
     ILoggerFactory loggers) : Endpoint<Request, Response>
@@ -66,7 +72,18 @@ internal sealed class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        await CheckDraftAsync(req, ct);
+        // The role being edited, found the way the save finds it: one the caller does not reach
+        // answers as if it did not exist.
+        var platformCaller = await RoleScope.IsPlatformCallerAsync(HttpContext, ct);
+        var stored = await LoadStoredAsync(req, platformCaller, ct);
+
+        await CheckDraftAsync(req, stored, platformCaller, ct);
+
+        if (req.RoleId is not null && stored is null)
+        {
+            await Send.NotFoundAsync(ct);
+            return;
+        }
 
         var previewed = await session.LoadAsync<User>(req.UserId, ct);
         if (previewed is null || !await InTenantAsync(previewed.Id, ct))
@@ -91,10 +108,18 @@ internal sealed class Endpoint(
 
         await RefuseUnreadableConditionAsync(req, definition, ct);
 
-        // Named by its own id, which no stored role or field list can hold, so a visibleToRoles entry
-        // never matches it by name.
-        var draftId = Guid.NewGuid();
-        var draft = new Role { Id = draftId, Name = draftId.ToString(), Permissions = req.Permissions };
+        // An edit of a stored role carries that role's id, which is how a field lists a role, and
+        // its name when the request gives none. A new role gets a fresh id and, with no name, its
+        // own id as text, which no stored role or field list can hold. The id is only read by this
+        // request's own resolver and sensitivity service, which are made here and never shared.
+        var draftId = stored?.Id ?? Guid.NewGuid();
+        var draft = new Role
+        {
+            Id = draftId,
+            Name = !string.IsNullOrWhiteSpace(req.Name) ? req.Name : stored?.Name ?? draftId.ToString(),
+            Permissions = req.Permissions,
+            SystemCapabilities = req.SystemCapabilities ?? [],
+        };
         var resolver = new PermissionResolver(session, conditions, tenant, envelope, loggers.CreateLogger<PermissionResolver>());
         await resolver.PinRolesAsync(previewed, [draft], ct);
 
@@ -115,17 +140,59 @@ internal sealed class Endpoint(
         await Send.OkAsync(new Response { Items = items }, ct);
     }
 
-    /// <summary>The checks the role save makes on its rules, so a draft the save would refuse is refused here.</summary>
-    private async Task CheckDraftAsync(Request req, CancellationToken ct)
+    private async Task<Role?> LoadStoredAsync(Request req, bool platformCaller, CancellationToken ct)
     {
-        foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, null, ct))
+        if (req.RoleId is not { } id)
+            return null;
+
+        var role = await session.LoadAsync<Role>(id, ct);
+        return role is not null && role.DeletedAt is null && (RoleScope.Reaches(role, tenant.Slug) || platformCaller)
+            ? role
+            : null;
+    }
+
+    /// <summary>
+    /// The checks the role save makes, so a draft it would refuse is refused here. With a stored
+    /// role they are the update's, which passes over what that role already holds. Without one they
+    /// are the create's.
+    /// </summary>
+    private async Task CheckDraftAsync(Request req, Role? stored, bool platformCaller, CancellationToken ct)
+    {
+        foreach (var error in await ReferenceConditionRules.CheckAsync(session, req.Permissions, stored?.Permissions, ct))
             AddError(r => r.Permissions, error);
-        foreach (var error in FieldSetRules.DuplicateTypeErrors(req.Permissions, null))
+        foreach (var error in FieldSetRules.DuplicateTypeErrors(req.Permissions, stored?.Permissions))
             AddError(r => r.Permissions, error);
+        FieldSetRules.CarryOver(req.Permissions, stored?.Permissions);
         FieldSetRules.Normalise(req.Permissions);
-        foreach (var error in await RoleSaveRules.CheckAsync(session, req.Permissions, null, ct))
+        foreach (var error in await RoleSaveRules.CheckAsync(session, req.Permissions, stored?.Permissions, ct))
             AddError(r => r.Permissions, error);
+
+        // A seeded role keeps its own name, as on the update.
+        if (!string.IsNullOrWhiteSpace(req.Name) && SystemRoles.IsReservedName(req.Name)
+            && !(stored is not null && SystemRoles.Contains(stored.Id)))
+            AddError(r => r.Name, SystemRoles.ReservedNameMessage(req.Name));
+
+        if (req.SystemCapabilities is { Count: > 0 } capabilities
+            && configuration.GetValue(CapabilityVocabulary.RefuseUnknownKey, false))
+        {
+            foreach (var name in vocabulary.Unknown(capabilities))
+                AddError(r => r.SystemCapabilities, CapabilityVocabulary.UnknownMessage(name));
+        }
+
         ThrowIfAnyErrors();
+
+        // A platform role is changed by a platform administrator only.
+        if (stored is { IsPlatform: true } && !platformCaller)
+            ThrowError(RoleScope.PlatformRoleMessage, 403);
+
+        // Only a platform administrator hands out a platform capability. One the stored role
+        // already holds is kept, as on the update.
+        if (!platformCaller && (req.SystemCapabilities ?? [])
+                .Except(stored?.SystemCapabilities ?? [], StringComparer.OrdinalIgnoreCase)
+                .Any(c => barakoCMS.Features.Users.PlatformRoles.PlatformCapabilities.Contains(c)))
+        {
+            ThrowError(RoleScope.PlatformCapabilityMessage, 403);
+        }
     }
 
     private async Task<ContentTypeDefinition?> FindTypeAsync(Request req, CancellationToken ct)
