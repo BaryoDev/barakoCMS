@@ -760,6 +760,13 @@ keys. A key made with a `servicePrincipalId` acts as a service principal
 with its own roles and survives its creator losing membership. Principals can never hold platform roles.
 Details in [api-key-service-principals.md](api-key-service-principals.md).
 
+Each item of `GET /api/contents` carries `lastModifiedBy` (the id of whoever last saved it) and
+`lastModifiedByName`. The name is set only for a user who is a member of the caller's tenant (in the
+default tenant, any existing user) or a service principal of it, and it is the display name, or the
+username when none is set. A deleted user or one outside the tenant gives the id and a null name. A
+caller on a read-only key always gets a null name. A signed-in user who may only read the entry still
+gets the name. Both fields are null on a row shown as hidden.
+
 ## Administrative endpoints: system capabilities
 
 Everything above is about content. Administrative endpoints (roles, tenants, users,
