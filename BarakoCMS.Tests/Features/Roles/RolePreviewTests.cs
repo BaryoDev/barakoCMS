@@ -391,6 +391,29 @@ public class RolePreviewTests
         real.Should().Equal(gradeA);
     }
 
+    [Fact]
+    public async Task A_key_that_differs_from_a_sensitive_field_only_by_case_is_not_readable()
+    {
+        var admin = await SuperAdminAsync();
+        var type = await TypeAsync(gradeSensitivity: SensitivityLevel.Sensitive);
+        var roleId = Guid.NewGuid();
+        var holder = await UserAsync(roleId);
+        var id = Guid.NewGuid();
+        // Stored through the session, so the key keeps its own spelling.
+        await StoreAsync(
+            new Content
+            {
+                Id = id, ContentType = type, CreatedBy = holder, Status = ContentStatus.Published,
+                Data = new Dictionary<string, object> { ["grade"] = "A" },
+            },
+            new Role { Id = roleId, Name = $"Cased_{Guid.NewGuid():n}", Permissions = [new ContentTypePermission { ContentTypeSlug = type, Read = new PermissionRule { Enabled = true } }] });
+
+        var item = ItemFor(await PreviewAsync(admin, holder, type, ReadRule(type)), id);
+
+        item.GetProperty("visible").GetBoolean().Should().BeFalse();
+        Text(item, "reason").Should().Be("field rules hide it");
+    }
+
     // ---- what the caller may see ----
 
     private async Task<HttpClient> ManageRolesCallerAsync(string? type, List<string>? readable = null)
@@ -571,6 +594,9 @@ public class RolePreviewTests
         }
 
         var before = await RealReadAsync();
+        int rolesBefore;
+        using (var scope = _fixture.Services.CreateScope())
+            rolesBefore = await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<Role>().CountAsync(Ct);
 
         var preview = await PreviewAsync(admin, user, type, ReadRule(type));
         ItemFor(preview, entry).GetProperty("visible").GetBoolean().Should().BeTrue();
@@ -582,8 +608,8 @@ public class RolePreviewTests
         {
             var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
 
-            // The draft is named "preview", so a saved one would show up under that name.
-            (await session.Query<Role>().Where(r => r.Name == "preview").CountAsync(Ct)).Should().Be(0);
+            // The draft is named by a fresh id, so compare the count of saved roles instead.
+            (await session.Query<Role>().CountAsync(Ct)).Should().Be(rolesBefore);
             (await session.LoadAsync<User>(user, Ct))!.RoleIds.Should().BeEmpty();
         }
 

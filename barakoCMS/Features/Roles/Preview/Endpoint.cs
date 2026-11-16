@@ -91,7 +91,10 @@ internal sealed class Endpoint(
 
         await RefuseUnreadableConditionAsync(req, definition, ct);
 
-        var draft = new Role { Id = Guid.NewGuid(), Name = "preview", Permissions = req.Permissions };
+        // Named by its own id, which no stored role or field list can hold, so a visibleToRoles entry
+        // never matches it by name.
+        var draftId = Guid.NewGuid();
+        var draft = new Role { Id = draftId, Name = draftId.ToString(), Permissions = req.Permissions };
         var resolver = new PermissionResolver(session, conditions, tenant, envelope, loggers.CreateLogger<PermissionResolver>());
         await resolver.PinRolesAsync(previewed, [draft], ct);
 
@@ -249,7 +252,8 @@ internal sealed class Endpoint(
 
         // The read the scrub applies: a field is shown when sensitivity, owner hiding and the
         // rule's set all allow it.
-        var masked = new HashSet<string>(StringComparer.Ordinal);
+        // Case-insensitive, as the scrub matches keys: a stored key can differ from the field by case.
+        var masked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var field in judged.Definition.Fields)
         {
             if (!await judged.Sensitivity.MayReadFieldAsync(typeName, field, entry, judged.Principal, ct))
