@@ -28,8 +28,8 @@ internal class Entry
     public bool Visible { get; set; }
 
     /// <summary>
-    /// Why the user would not see the entry: <c>no read rule</c>, <c>condition not met</c> or
-    /// <c>field rules hide it</c>. Null when visible.
+    /// Why the user would not see the entry: <c>outside branch scope</c>, <c>no read rule</c>,
+    /// <c>condition not met</c> or <c>field rules hide it</c>. Null when visible.
     /// </summary>
     public string? Reason { get; set; }
 
@@ -40,8 +40,9 @@ internal class Entry
     public string? Condition { get; set; }
 
     /// <summary>
-    /// The fields the user could read on a visible entry. Null when the rules name no set, which
-    /// means every field.
+    /// The fields the user could read on a visible entry, after the rules' set and the sensitivity
+    /// of each field. Null when the rules name no set and no field is masked or hidden, which means
+    /// every field.
     /// </summary>
     public List<string>? ReadableFields { get; set; }
 }

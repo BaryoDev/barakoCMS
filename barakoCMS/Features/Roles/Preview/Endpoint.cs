@@ -1,7 +1,9 @@
 using barakoCMS.Core;
 using barakoCMS.Core.Interfaces;
+using System.Security.Claims;
 using barakoCMS.Features.Activity;
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Envelope;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
@@ -19,8 +21,15 @@ namespace barakoCMS.Features.Roles.Preview;
 /// so the rule logic is the one a saved role runs through. It is never the cached resolver: nothing
 /// the draft decides may reach the shared cache. Nothing is stored. The user is judged as holding
 /// the draft alone, so the answer is what the role would grant that user, not a merge with the
-/// roles the user holds now. The user's branch scoping is not applied, and neither is sensitivity:
-/// a field the user would see masked or hidden still counts in a condition.
+/// roles the user holds now.
+/// </para>
+/// <para>
+/// The user's branch scope and field sensitivity are applied, by the services the real read uses,
+/// judged for the previewed user and not the caller. An entry outside the user's branches is hidden
+/// with <c>outside branch scope</c>. A field sensitivity masks or hides for the user, judged as
+/// the draft alone (it grants no capability and is named by no field), is left out of the readable
+/// fields. A read condition is still judged on the stored value, as the real read judges it: the
+/// permission check runs on the stored entry and the mask is applied afterwards.
 /// </para>
 /// <para>
 /// The caller only sees entries the caller may read, so the preview cannot be used to list what the
@@ -34,7 +43,9 @@ internal sealed class Endpoint(
     IConditionEvaluator conditions,
     IPermissionResolver callerPermissions,
     IBranchScopeGuard branchGuard,
+    IBranchMembership branchMembership,
     ISensitivityService sensitivity,
+    IConfiguration configuration,
     TenantContext tenant,
     IEventEnvelopeContext envelope,
     ILoggerFactory loggers) : Endpoint<Request, Response>
@@ -84,8 +95,19 @@ internal sealed class Endpoint(
         var resolver = new PermissionResolver(session, conditions, tenant, envelope, loggers.CreateLogger<PermissionResolver>());
         await resolver.PinRolesAsync(previewed, [draft], ct);
 
+        // The services the real read uses, made for this request and judging the previewed user.
+        // The guard is a new instance so the caller's branches, which the request's own guard
+        // holds, are not swapped out. The sensitivity service reads its rule sets from the pinned
+        // resolver and the roles from the draft, so nothing here touches the shared cache.
+        var judged = new Judged(
+            resolver,
+            new BranchScopeGuard(session, branchMembership),
+            new SensitivityService(session, configuration, tenant, resolver) { PinnedRoles = [draft] },
+            new ClaimsPrincipal(new ClaimsIdentity([new Claim("UserId", previewed.Id.ToString())], "role-preview")),
+            definition);
+
         var take = Math.Clamp(req.Take ?? DefaultTake, 1, MaxTake);
-        var items = await CollectAsync(resolver, req.Permissions, previewed, caller, definition.Name, take, ct);
+        var items = await CollectAsync(judged, req.Permissions, previewed, caller, take, ct);
 
         await Send.OkAsync(new Response { Items = items }, ct);
     }
@@ -150,9 +172,10 @@ internal sealed class Endpoint(
     /// are collected or the scan limit is reached. Entries the caller may not read are skipped.
     /// </summary>
     private async Task<List<Entry>> CollectAsync(
-        PermissionResolver resolver, List<ContentTypePermission> draft, User previewed, User caller,
-        string typeName, int take, CancellationToken ct)
+        Judged judged, List<ContentTypePermission> draft, User previewed, User caller,
+        int take, CancellationToken ct)
     {
+        var typeName = judged.Definition.Name;
         var items = new List<Entry>();
         var scanned = 0;
 
@@ -174,7 +197,7 @@ internal sealed class Endpoint(
                 var scrubbed = await CallerTitleDataAsync(caller, entry, ct);
                 if (scrubbed is null) continue;
 
-                items.Add(await JudgeAsync(resolver, draft, previewed, typeName, entry, scrubbed, ct));
+                items.Add(await JudgeAsync(judged, draft, previewed, entry, scrubbed, ct));
             }
         }
 
@@ -182,10 +205,20 @@ internal sealed class Endpoint(
     }
 
     private async Task<Entry> JudgeAsync(
-        PermissionResolver resolver, List<ContentTypePermission> draft, User previewed, string typeName, barakoCMS.Models.Content entry,
+        Judged judged, List<ContentTypePermission> draft, User previewed, barakoCMS.Models.Content entry,
         IDictionary<string, object> scrubbed, CancellationToken ct)
     {
+        var resolver = judged.Resolver;
+        var typeName = judged.Definition.Name;
         var result = new Entry { Id = entry.Id, Title = ActivitySources.TitleOf(entry.Data, scrubbed) };
+
+        // The list narrows to the user's branches before it asks any read rule, so this comes first.
+        if (!await judged.Branches.MayAccessAsync(judged.Principal, entry, ct))
+        {
+            result.Visible = false;
+            result.Reason = "outside branch scope";
+            return result;
+        }
 
         var reads = await resolver.CanPerformActionAsync(previewed, typeName, "read", entry, ct);
         if (!reads)
@@ -204,8 +237,28 @@ internal sealed class Endpoint(
             return result;
         }
 
+        // An entry whose own level the user may not see comes back with its data cleared.
+        if (!await judged.Sensitivity.MaySeeDocumentAsync(entry.Sensitivity, judged.Principal, ct))
+        {
+            result.Visible = false;
+            result.Reason = "field rules hide it";
+            return result;
+        }
+
         var fields = await resolver.FieldSetAsync(previewed, typeName, "read", entry, ct);
-        if (!fields.IsAll && entry.Data.Count > 0 && !entry.Data.Keys.Any(fields.Allows))
+
+        // The read the scrub applies: a field is shown when sensitivity, owner hiding and the
+        // rule's set all allow it.
+        var masked = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var field in judged.Definition.Fields)
+        {
+            if (!await judged.Sensitivity.MayReadFieldAsync(typeName, field, entry, judged.Principal, ct))
+                masked.Add(field.Name);
+        }
+
+        bool Readable(string name) => fields.Allows(name) && !masked.Contains(name);
+
+        if (entry.Data.Count > 0 && !entry.Data.Keys.Any(Readable))
         {
             result.Visible = false;
             result.Reason = "field rules hide it";
@@ -213,9 +266,28 @@ internal sealed class Endpoint(
         }
 
         result.Visible = true;
-        result.ReadableFields = fields.IsAll ? null : fields.Names!.Order(StringComparer.Ordinal).ToList();
+        if (fields.IsAll && masked.Count == 0)
+        {
+            result.ReadableFields = null;
+        }
+        else
+        {
+            IEnumerable<string> names = fields.IsAll
+                ? judged.Definition.Fields.Select(f => f.Name).Concat(entry.Data.Keys).Distinct(StringComparer.Ordinal)
+                : fields.Names!;
+            result.ReadableFields = names.Where(n => !masked.Contains(n)).Order(StringComparer.Ordinal).ToList();
+        }
+
         return result;
     }
+
+    /// <summary>What judging the previewed user takes, made once for the request.</summary>
+    private sealed record Judged(
+        PermissionResolver Resolver,
+        IBranchScopeGuard Branches,
+        ISensitivityService Sensitivity,
+        ClaimsPrincipal Principal,
+        ContentTypeDefinition Definition);
 
     /// <summary>
     /// The entry's data as the caller may see it, or null when the caller may not read the entry or

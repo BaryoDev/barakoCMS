@@ -6833,7 +6833,7 @@
             "type": "string"
           },
           "readableFields": {
-            "description": "The fields the user could read on a visible entry. Null when the rules name no set, which\nmeans every field.",
+            "description": "The fields the user could read on a visible entry, after the rules' set and the sensitivity\nof each field. Null when the rules name no set and no field is masked or hidden, which means\nevery field.",
             "items": {
               "type": "string"
             },
@@ -6841,7 +6841,7 @@
             "type": "array"
           },
           "reason": {
-            "description": "Why the user would not see the entry: no read rule, condition not met or\nfield rules hide it. Null when visible.",
+            "description": "Why the user would not see the entry: outside branch scope, no read rule,\ncondition not met or field rules hide it. Null when visible.",
             "nullable": true,
             "type": "string"
           },
