@@ -3544,6 +3544,17 @@
             "format": "guid",
             "type": "string"
           },
+          "lastModifiedBy": {
+            "description": "Who last saved the entry: a user id or a service principal id. Null when none is recorded\nand for a row shown as hidden.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
+          "lastModifiedByName": {
+            "description": "The last editor's display name (the username when none is set), or a service principal's\nname. Null when the editor is not a member of the caller's tenant, is gone, or the caller\nauthenticated with a read-only API key.",
+            "nullable": true,
+            "type": "string"
+          },
           "lifecycleState": {
             "description": "The lifecycle state, the same value the single-item GET returns: the stored state, or the\ntype's initial state for an entry not yet moved. Null for a type with no lifecycle and for a\nrow shown as hidden.",
             "nullable": true,
