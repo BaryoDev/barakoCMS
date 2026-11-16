@@ -245,7 +245,8 @@ public class ConfigSectionsTests
         var theirs = await _callers.TenantAsync();
         var myType = Unique("chart");
         var theirType = Unique("ledger");
-        await _callers.StoreInTenantAsync(mine, Type(myType, ("Title", "string")));
+        var keepType = Unique("keep");
+        await _callers.StoreInTenantAsync(mine, Type(myType, ("Title", "string")), Type(keepType, ("Title", "string")));
         await _callers.StoreInTenantAsync(theirs, Type(theirType, ("Title", "string")));
         var role = Unique("Shared Clerk ");
         await _callers.StoreInTenantAsync(null, new Role
@@ -255,15 +256,16 @@ public class ConfigSectionsTests
             [
                 new ContentTypePermission { ContentTypeSlug = myType, Read = new PermissionRule { Enabled = true } },
                 new ContentTypePermission { ContentTypeSlug = theirType, Read = new PermissionRule { Enabled = true } },
+                new ContentTypePermission { ContentTypeSlug = keepType, Read = new PermissionRule { Enabled = true } },
             ],
         });
         var client = await _callers.SuperAdminAsync(mine);
 
         var (_, export) = await ExportAsync(client, "permissionRules");
         var keys = export.GetProperty("permissionRules").EnumerateObject().Select(p => p.Name).ToList();
-        keys.Should().Contain($"{role}/{myType}").And.NotContain($"{role}/{theirType}", "another tenant's type is not this tenant's to export");
+        keys.Should().NotContain(k => k.StartsWith($"{role}/"), "a platform role and its rules are not tenant configuration");
 
-        var (applied, plan) = await ApplyAsync(client, new { version = 1, permissionRules = new Dictionary<string, object>() }, allowDestructive: true);
+        var (applied, plan) = await ApplyAsync(client, new { version = 1, permissionRules = new Dictionary<string, object> { [$"{role}/{keepType}"] = new { read = new { enabled = true } } } }, allowDestructive: true);
         applied.StatusCode.Should().Be(HttpStatusCode.OK, plan.ToString());
         Changes(plan).Should().Contain($"permissionRules/{role}/{myType} destructive");
 
@@ -462,16 +464,22 @@ public class ConfigSectionsTests
         var mine = await _callers.TenantAsync();
         var theirs = await _callers.TenantAsync();
         var shared = Unique("shared");
+        var keep = Unique("keep");
+        await _callers.StoreInTenantAsync(mine, Type(keep, ("Title", "string")));
         await _callers.StoreInTenantAsync(mine, Type(shared, ("Title", "string")));
         await _callers.StoreInTenantAsync(theirs, Type(shared, ("Title", "string")));
         var role = Unique("Both Clerk ");
         await _callers.StoreInTenantAsync(null, new Role
         {
             Id = Guid.NewGuid(), Name = role, IsPlatform = true,
-            Permissions = [new ContentTypePermission { ContentTypeSlug = shared, Read = new PermissionRule { Enabled = true } }],
+            Permissions =
+            [
+                new ContentTypePermission { ContentTypeSlug = shared, Read = new PermissionRule { Enabled = true } },
+                new ContentTypePermission { ContentTypeSlug = keep, Read = new PermissionRule { Enabled = true } },
+            ],
         });
 
-        var (_, plan) = await PlanAsync(await _callers.SuperAdminAsync(mine), new { version = 1, permissionRules = new Dictionary<string, object>() });
+        var (_, plan) = await PlanAsync(await _callers.SuperAdminAsync(mine), new { version = 1, permissionRules = new Dictionary<string, object> { [$"{role}/{keep}"] = new { read = new { enabled = true } } } });
 
         Changes(plan).Should().Contain($"permissionRules/{role}/{shared} destructive");
         var notes = plan.GetProperty("sections")[0].GetProperty("notes").EnumerateArray().Select(n => n.GetString()!).ToList();
@@ -484,17 +492,23 @@ public class ConfigSectionsTests
         var mine = await _callers.TenantAsync();
         var theirs = await _callers.TenantAsync();
         var shared = Unique("probe");
+        var keep = Unique("keep");
+        await _callers.StoreInTenantAsync(mine, Type(keep, ("Title", "string")));
         await _callers.StoreInTenantAsync(mine, Type(shared, ("Title", "string")));
         await _callers.StoreInTenantAsync(theirs, Type(shared, ("Title", "string")));
         var role = Unique("Probed ");
         await _callers.StoreInTenantAsync(null, new Role
         {
             Id = Guid.NewGuid(), Name = role, IsPlatform = true,
-            Permissions = [new ContentTypePermission { ContentTypeSlug = shared, Read = new PermissionRule { Enabled = true } }],
+            Permissions =
+            [
+                new ContentTypePermission { ContentTypeSlug = shared, Read = new PermissionRule { Enabled = true } },
+                new ContentTypePermission { ContentTypeSlug = keep, Read = new PermissionRule { Enabled = true } },
+            ],
         });
         var grants = await _callers.RoleAsync(SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles);
         var platformGrants = await _callers.RoleAsync(SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles, SystemCapabilities.ManagePlatformRoles);
-        var document = new { version = 1, permissionRules = new Dictionary<string, object>() };
+        var document = new { version = 1, permissionRules = new Dictionary<string, object> { [$"{role}/{keep}"] = new { read = new { enabled = true } } } };
 
         var (_, allowed) = await PlanAsync(await _callers.ClientAsync(mine, [platformGrants]), document);
         allowed.ToString().Should().Contain(theirs, "the control: a caller who may write the platform role is told");
@@ -503,5 +517,32 @@ public class ConfigSectionsTests
 
         plan.GetProperty("sections")[0].GetProperty("refusals").GetArrayLength().Should().BeGreaterThan(0, plan.ToString());
         plan.ToString().Should().NotContain(theirs, "a tenant admin refused the rules does not learn which tenants have the type");
+    }
+
+    [Fact]
+    public async Task An_export_leaves_a_platform_roles_rules_out_and_applies_without_removing_them()
+    {
+        var tenant = await _callers.TenantAsync();
+        var type = Unique("ledger");
+        await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")));
+        var role = Unique("Shared Clerk ");
+        await _callers.StoreInTenantAsync(null, new Role
+        {
+            Id = Guid.NewGuid(), Name = role, IsPlatform = true,
+            Permissions = [new ContentTypePermission { ContentTypeSlug = type, Read = new PermissionRule { Enabled = true } }],
+        });
+        var client = await _callers.SuperAdminAsync(tenant);
+
+        var (exported, export) = await ExportAsync(client);
+        exported.StatusCode.Should().Be(HttpStatusCode.OK, export.ToString());
+        export.GetProperty("permissionRules").EnumerateObject().Select(p => p.Name)
+            .Should().NotContain(k => k.StartsWith($"{role}/"));
+
+        var document = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(export.GetRawText())!;
+        var (applied, body) = await ApplyAsync(client, document, allowDestructive: true);
+
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        var stored = await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role, Ct));
+        stored!.Permissions.Select(p => p.ContentTypeSlug).Should().Equal(type);
     }
 }

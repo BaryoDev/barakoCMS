@@ -31,7 +31,8 @@ internal sealed record RoleConfig(string? Description, List<string>? SystemCapab
 /// The same roles <c>GET /api/roles</c> lists for a caller in the tenant, and the same rules as the
 /// roles routes (<see cref="RoleScope"/>). Another tenant's role is neither exported nor written. A
 /// name is read as the tenant's own role first, then a platform role. A name the tenant does not
-/// reach creates a role of the tenant. A document can still name a platform role to change it. Changing a platform role, or adding a capability that
+/// reach creates a role of the tenant. A document can still name a platform role to change it.
+/// Changing a platform role, or adding a capability that
 /// reaches past the tenant, takes <c>manage_platform_roles</c>.
 /// </para>
 /// <para>

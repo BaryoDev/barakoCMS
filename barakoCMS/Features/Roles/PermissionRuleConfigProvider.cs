@@ -50,7 +50,8 @@ internal sealed class PermissionRuleConfigProvider(
         var (roles, types) = await ReadAsync(ct);
         var documents = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
 
-        foreach (var role in roles)
+        // A platform role and its rules are not tenant configuration, so they are left out as the roles section leaves the role out.
+        foreach (var role in roles.Where(r => !r.IsPlatform))
         {
             foreach (var permission in Managed(role, types))
             {
@@ -90,7 +91,8 @@ internal sealed class PermissionRuleConfigProvider(
                 }
             }
 
-            changes.AddRange(held.Where(h => !mine.ContainsKey(h.Key)).OrderBy(h => h.Key, StringComparer.Ordinal).Select(h => new ConfigChange
+            // A platform role the document does not name is left alone: an export leaves it out, so its absence is not a removal.
+            changes.AddRange(held.Where(h => !mine.ContainsKey(h.Key) && !(role.IsPlatform && mine.Count == 0)).OrderBy(h => h.Key, StringComparer.Ordinal).Select(h => new ConfigChange
             {
                 Key = Key(role.Name, h.Value.ContentTypeSlug), Kind = ConfigChangeKind.Destructive,
                 Summary = $"remove role '{role.Name}' rules on '{h.Key}', taking away what they grant",

@@ -379,9 +379,10 @@ tenant it is applied to, and its `permissionRules` land on that tenant's roles, 
 never reaches another client's roles. The exception is a platform role every tenant shares, such as
 `Admin`: changing it, or its rules, takes `manage_platform_roles`, and since a rule names a content
 type by its name, a rule removed from a platform role is removed for every tenant with a type of that
-name; the plan names those tenants in a note. Export one tenant with `GET /api/config/export` to
-start the file: its `roles` are that tenant's own roles only, with no seeded role and no platform role (those are not
-tenant configuration), and never another tenant's.
+name; the plan names those tenants in a note. A document that does not name a platform role leaves
+it and its rules alone. Export one tenant with `GET /api/config/export` to start the file: it holds
+that tenant's own roles and their rules, never another tenant's, and leaves out the seeded roles and
+the platform roles with the rules they hold, because those are not tenant configuration.
 
 The Portability module's routes did this before the config engine and are obsolete, with removal
 planned for 6.0. `POST /api/config/apply` accepts their bundle unchanged. Until the removal:
