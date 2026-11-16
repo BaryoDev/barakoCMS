@@ -246,7 +246,10 @@ internal class Endpoint : Endpoint<Request, Response>
         var gate = await _deviceGate.EvaluatePasswordAsync(user, device, ct);
         if (gate.Decision == barakoCMS.Core.Interfaces.DeviceDecision.ApprovalRequired)
         {
-            var sent = await _otp.SendCodeAsync(user.Email, device, ct);
+            // Outside Development, a mock-only email service would report success and send nothing.
+            var sent = !barakoCMS.Features.Settings.Email.EmailProvider.CannotSendCodes(
+                    Resolve<barakoCMS.Core.Interfaces.IEmailService>(), Resolve<IHostEnvironment>())
+                && await _otp.SendCodeAsync(user.Email, device, ct);
             if (!sent)
             {
                 // Safe to say so here: the password was already correct, so there is nothing left
