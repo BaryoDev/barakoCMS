@@ -271,9 +271,12 @@ public class ContentListLastEditorTests
         }
 
         var without = await UsersQueriesAsync(unnamed);
+        var seenWithout = _logger.Commands.Count;
         var with = await UsersQueriesAsync(named);
+        var seenWith = _logger.Commands.Count;
 
-        (with - without).Should().Be(1, "the names of the whole page come from one query, not one per row");
+        (with - without).Should().Be(1,
+            $"the names of the whole page come from one query, not one per row (users {without}/{with}, commands {seenWithout}/{seenWith})");
     }
 
     [Fact]
