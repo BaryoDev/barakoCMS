@@ -1,0 +1,1 @@
+- **`BarakoTestHost` sometimes failed to start its Postgres container with "address already in use".** Docker picks the host port at random and late in a long run it can land on a port already taken. The host now builds a fresh container and starts again, up to three attempts, and a container that never started no longer throws a second error on dispose.
