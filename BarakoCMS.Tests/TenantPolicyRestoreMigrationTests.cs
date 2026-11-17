@@ -182,15 +182,6 @@ public class TenantPolicyRestoreMigrationTests
     }
 
     private static async Task<string> MigrationAsync(string version, string file) =>
-        await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", version, file), Ct);
+        await File.ReadAllTextAsync(Path.Combine(RepoPaths.Root, "migrations", version, file), Ct);
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-            directory = directory.Parent;
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 }

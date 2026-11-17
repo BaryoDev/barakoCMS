@@ -790,13 +790,8 @@ public class RequestTests
 
     private string _connectorSlug = string.Empty;
 
-    private async Task<HttpClient> AdminClient()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin", "Admin"));
-        return client;
-    }
+    private Task<HttpClient> AdminClient() =>
+        _factory.CreateClientAsync("SuperAdmin", "Admin");
 
     private static string NewSlug(string prefix) => prefix + Guid.NewGuid().ToString("n")[..10];
 

@@ -804,13 +804,8 @@ public class WebhookDeliveryTests
         return port;
     }
 
-    private async Task<HttpClient> AdminClientAsync()
-    {
-        var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin", "Admin"));
-        return client;
-    }
+    private Task<HttpClient> AdminClientAsync() =>
+        _fixture.CreateClientAsync("SuperAdmin", "Admin");
 
     /// <summary>A role invented here, so only the capability can be what admits it.</summary>
     private async Task<HttpClient> CallerHoldingAsync(params string[] capabilities)

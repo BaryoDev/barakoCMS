@@ -46,7 +46,7 @@ public class StoredFilesIndexMigrationTests
             "the module declares .Index(x => x.ParentFileId), so a database built from the model has it");
 
         var sql = await File.ReadAllTextAsync(
-            Path.Combine(RepositoryRoot(), "migrations", "4.2.0", "stored-files-parent-index.sql"),
+            Path.Combine(RepoPaths.Root, "migrations", "4.2.0", "stored-files-parent-index.sql"),
             TestContext.Current.CancellationToken);
 
         NameIn(actual!).Should().Be(NameIn(sql),
@@ -79,15 +79,4 @@ public class StoredFilesIndexMigrationTests
         return match.Groups[1].Value;
     }
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-        {
-            directory = directory.Parent;
-        }
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 }

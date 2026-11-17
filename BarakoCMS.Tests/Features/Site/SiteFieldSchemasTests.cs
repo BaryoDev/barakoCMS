@@ -126,7 +126,7 @@ public class SiteFieldSchemasTests
     [Fact]
     public void The_migration_carries_the_blueprints_schemas_and_mode_options_exactly()
     {
-        var blueprint = JsonNode.Parse(File.ReadAllText(Path.Combine(RepositoryRoot(), "barakoCMS", "Blueprints", "site.json")))!;
+        var blueprint = JsonNode.Parse(File.ReadAllText(Path.Combine(RepoPaths.Root, "barakoCMS", "Blueprints", "site.json")))!;
         var fields = blueprint["contentTypes"]![0]!["fields"]!.AsArray();
         var schemas = new JsonObject();
         foreach (var field in fields.Where(f => f!["jsonSchema"] is not null))
@@ -136,13 +136,13 @@ public class SiteFieldSchemasTests
 
         schemas.Count.Should().BeGreaterThan(10);
 
-        var sql = File.ReadAllText(Path.Combine(RepositoryRoot(), "migrations", "5.0.0", Up));
+        var sql = File.ReadAllText(Path.Combine(RepoPaths.Root, "migrations", "5.0.0", Up));
         var literal = Regex.Match(sql, @"schemas\s+constant jsonb := '(.*?)'::jsonb;").Groups[1].Value;
         literal.Should().NotBeEmpty();
 
         // 5.0.0 shipped before Fonts took a font object; 5.6.1 site-fonts-schema.sql patches it.
         var shipped = JsonNode.Parse(literal)!.AsObject();
-        var fontsSql = File.ReadAllText(Path.Combine(RepositoryRoot(), "migrations", "5.6.1", FontsUp));
+        var fontsSql = File.ReadAllText(Path.Combine(RepoPaths.Root, "migrations", "5.6.1", FontsUp));
         JsonNode.DeepEquals(shipped["Fonts"], JsonNode.Parse(FontsSchema(fontsSql, "old_schema"))).Should().BeTrue(
             "5.6.1 only replaces the Fonts schema 5.0.0 set");
         shipped["Fonts"] = JsonNode.Parse(FontsSchema(fontsSql, "new_schema"));
@@ -229,7 +229,7 @@ public class SiteFieldSchemasTests
 
         await RunAsync(FontsUp, slug);
 
-        var blueprint = JsonNode.Parse(File.ReadAllText(Path.Combine(RepositoryRoot(), "barakoCMS", "Blueprints", "site.json")))!;
+        var blueprint = JsonNode.Parse(File.ReadAllText(Path.Combine(RepoPaths.Root, "barakoCMS", "Blueprints", "site.json")))!;
         var expected = blueprint["contentTypes"]![0]!["fields"]!.AsArray()
             .Single(f => f!["name"]!.GetValue<string>() == "Fonts")!["jsonSchema"]!;
         JsonNode.DeepEquals(JsonNode.Parse(Field(await SiteTypeAsync(slug), "Fonts").JsonSchema!.Value.GetRawText()), expected)
@@ -332,7 +332,7 @@ public class SiteFieldSchemasTests
     private async Task<List<string>> RunAsync(string file, string slug)
     {
         var version = file.Contains("fonts") ? "5.6.1" : "5.0.0";
-        var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", version, file), Ct);
+        var sql = await File.ReadAllTextAsync(Path.Combine(RepoPaths.Root, "migrations", version, file), Ct);
         var notices = new List<string>();
 
         await using var connection = new NpgsqlConnection(_fixture.ConnectionString);
@@ -358,15 +358,4 @@ public class SiteFieldSchemasTests
 
     private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-        {
-            directory = directory.Parent;
-        }
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 }

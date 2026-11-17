@@ -80,13 +80,8 @@ public class PublicStructuredDataIntegrationTests
         return (parsed.RootElement.Clone(), raw);
     }
 
-    private async Task<HttpClient> AdminAsync()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", await _factory.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> AdminAsync() =>
+        _factory.CreateClientAsync("SuperAdmin");
 
     [Fact]
     public async Task A_read_by_slug_carries_the_block_and_a_masked_field_is_not_in_it()

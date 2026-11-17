@@ -29,8 +29,6 @@ public class PublicDeliveryAudienceTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static string Unique(string prefix) => $"{prefix}{Guid.NewGuid():n}"[..(prefix.Length + 10)];
-
     private static Dictionary<string, object> RowLimit() => new()
     {
         ["Title"] = new Dictionary<string, object> { ["_eq"] = "x" },
@@ -39,7 +37,7 @@ public class PublicDeliveryAudienceTests
     private static Role RoleReading(string type, Dictionary<string, object>? conditions, string? tenant = null) => new()
     {
         Id = Guid.NewGuid(),
-        Name = Unique("Aud "),
+        Name = TestNames.Compact("Aud "),
         TenantSlug = tenant,
         Permissions =
         [
@@ -51,13 +49,8 @@ public class PublicDeliveryAudienceTests
         ],
     };
 
-    private async Task<HttpClient> AdminAsync()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> AdminAsync() =>
+        _factory.CreateClientAsync("SuperAdmin");
 
     private async Task StoreAsync(params object[] documents)
     {
@@ -89,7 +82,7 @@ public class PublicDeliveryAudienceTests
     [Fact]
     public async Task Creating_a_public_type_is_refused_when_a_role_already_reads_only_part_of_it()
     {
-        var type = Unique("cpd");
+        var type = TestNames.Compact("cpd");
         await StoreAsync(RoleReading(type, RowLimit()));
         var client = await AdminAsync();
 
@@ -123,8 +116,8 @@ public class PublicDeliveryAudienceTests
     [InlineData(false, HttpStatusCode.OK)]
     public async Task Applying_a_blueprint_with_a_public_type_a_role_reads_only_part_of_is_refused(bool limited, HttpStatusCode expected)
     {
-        var type = Unique("bpd");
-        var name = Unique("bpn");
+        var type = TestNames.Compact("bpd");
+        var name = TestNames.Compact("bpn");
         if (limited)
         {
             await StoreAsync(RoleReading(type, RowLimit()));
@@ -169,7 +162,7 @@ public class PublicDeliveryAudienceTests
 
     private async Task<string> DeliverableTypeAsync()
     {
-        var type = Unique("rpd");
+        var type = TestNames.Compact("rpd");
         await StoreAsync(new ContentTypeDefinition
         {
             Id = Guid.NewGuid(), Name = type, DisplayName = type, IsPubliclyDeliverable = true,
@@ -184,12 +177,12 @@ public class PublicDeliveryAudienceTests
         var type = await DeliverableTypeAsync();
         var client = await AdminAsync();
 
-        var refused = await client.PostAsJsonAsync("/api/roles", RoleBody(Unique("Aud "), type, RowLimit()), Ct);
+        var refused = await client.PostAsJsonAsync("/api/roles", RoleBody(TestNames.Compact("Aud "), type, RowLimit()), Ct);
 
         refused.StatusCode.Should().Be(HttpStatusCode.BadRequest, await refused.Content.ReadAsStringAsync(Ct));
         (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("publicly deliverable").And.Contain(type);
 
-        var whole = await client.PostAsJsonAsync("/api/roles", RoleBody(Unique("Aud "), type, null), Ct);
+        var whole = await client.PostAsJsonAsync("/api/roles", RoleBody(TestNames.Compact("Aud "), type, null), Ct);
         whole.StatusCode.Should().Be(HttpStatusCode.OK, "a role that reads every row of the type does not limit it");
     }
 
@@ -226,7 +219,7 @@ public class PublicDeliveryAudienceTests
     public async Task A_config_document_that_turns_on_delivery_beside_a_role_that_limits_rows_is_refused()
     {
         var tenant = await _callers.TenantAsync();
-        var type = Unique("cfd");
+        var type = TestNames.Compact("cfd");
         await _callers.StoreInTenantAsync(tenant, ConfigCallers.Type(type, ("Title", "string")));
         await _callers.StoreInTenantAsync(null, RoleReading(type, RowLimit(), tenant));
         var deliverable = ConfigCallers.Type(type, ("Title", "string"));
@@ -248,7 +241,7 @@ public class PublicDeliveryAudienceTests
     public async Task A_config_document_may_turn_on_delivery_and_drop_the_row_limit_together()
     {
         var tenant = await _callers.TenantAsync();
-        var type = Unique("cfe");
+        var type = TestNames.Compact("cfe");
         var role = RoleReading(type, RowLimit(), tenant);
         await _callers.StoreInTenantAsync(tenant, ConfigCallers.Type(type, ("Title", "string")));
         await _callers.StoreInTenantAsync(null, role);
@@ -271,7 +264,7 @@ public class PublicDeliveryAudienceTests
     public async Task A_config_document_that_gives_a_row_limit_on_a_public_type_is_refused()
     {
         var tenant = await _callers.TenantAsync();
-        var type = Unique("cff");
+        var type = TestNames.Compact("cff");
         var published = ConfigCallers.Type(type, ("Title", "string"));
         published.IsPubliclyDeliverable = true;
         var role = RoleReading(type, null, tenant);

@@ -142,7 +142,7 @@ public class ArchitectureTests
             .Where(n => n.StartsWith("BarakoCMS.", StringComparison.OrdinalIgnoreCase) && n != "BarakoCMS.Abstractions")
             .Should().BeEmpty("modules depend on the core, never the reverse (CLAUDE.md section 1)");
 
-        var csproj = Path.Combine(ComposeDefaultsTests.RepoRoot(), "barakoCMS", "barakoCMS.csproj");
+        var csproj = Path.Combine(RepoPaths.Root, "barakoCMS", "barakoCMS.csproj");
         var projectReferences = XDocument.Load(csproj)
             .Descendants("ProjectReference")
             .Select(e => Path.GetFileNameWithoutExtension((e.Attribute("Include")?.Value ?? string.Empty).Replace('\\', '/')))
@@ -177,7 +177,7 @@ public class ArchitectureTests
             .Where(n => n!.Split('.').Any(segment => segment is "Services" or "Handlers"))
             .Should().BeEmpty("slices hold their own logic; a Services or Handlers folder every feature reaches into is what section 1a rules out");
 
-        var root = Path.Combine(ComposeDefaultsTests.RepoRoot(), "barakoCMS", "Features");
+        var root = Path.Combine(RepoPaths.Root, "barakoCMS", "Features");
         Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories)
             .Where(d => Path.GetFileName(d) is "Services" or "Handlers")
             .Select(d => Path.GetRelativePath(root, d))
