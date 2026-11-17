@@ -4,12 +4,17 @@ using System.Text;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;
 using Marten;
+using Microsoft.Extensions.Logging;
 
 namespace barakoCMS.Infrastructure.Services;
 
 /// <summary>The core <see cref="IInboundWebhookVerifier"/>.</summary>
-public sealed class InboundWebhookVerifier(IDocumentSession session) : IInboundWebhookVerifier
+public sealed class InboundWebhookVerifier(IDocumentSession session, ILogger<InboundWebhookVerifier>? logger = null)
+    : IInboundWebhookVerifier
 {
+    // Warn once per provider, so a second misconfigured receiver is not hidden behind the first.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> BodyOnlyRefusalLogged = new(StringComparer.Ordinal);
+
     /// <summary>
     /// Five minutes either way, which is what the Svix spec suggests. Symmetric because the clocks
     /// on both machines can be wrong.
@@ -18,8 +23,22 @@ public sealed class InboundWebhookVerifier(IDocumentSession session) : IInboundW
 
     public TimeSpan Tolerance => DefaultTolerance;
 
-    public InboundWebhookOutcome Verify(InboundWebhookRequest request, DateTimeOffset now) =>
-        Check(request, now);
+    public InboundWebhookOutcome Verify(InboundWebhookRequest request, DateTimeOffset now)
+    {
+        var outcome = Check(request, now);
+        if (RefusedForNoTimestamp(request)
+            && BodyOnlyRefusalLogged.TryAdd(request.Provider, true))
+            logger?.LogWarning(
+                "Inbound webhook {Provider} is configured with a plain HMAC and no timestamp header, so its requests are refused. "
+                + "Name a timestamp header, or set AllowBodyOnlySignature for a sender that cannot send one.",
+                request.Provider);
+        return outcome;
+    }
+
+    private static bool RefusedForNoTimestamp(InboundWebhookRequest request) =>
+        request.Scheme == InboundWebhookScheme.Hmac
+        && request.TimestampHeader is null
+        && !request.AllowBodyOnlySignature;
 
     /// <summary>The same check without a session, for callers that only need the signature.</summary>
     public static InboundWebhookOutcome Check(InboundWebhookRequest request, DateTimeOffset now)
@@ -32,6 +51,9 @@ public sealed class InboundWebhookVerifier(IDocumentSession session) : IInboundW
 
             var headers = new Dictionary<string, string>(request.Headers, StringComparer.OrdinalIgnoreCase);
             string Header(string? name) => name is not null && headers.TryGetValue(name, out var v) ? v : "";
+
+            if (RefusedForNoTimestamp(request))
+                return InboundWebhookOutcome.BadSignature;
 
             var isSvix = request.Scheme == InboundWebhookScheme.Svix;
             var timestampHeader = isSvix ? "svix-timestamp" : request.TimestampHeader;

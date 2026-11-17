@@ -4,8 +4,11 @@ namespace barakoCMS.Core.Interfaces;
 public enum InboundWebhookScheme
 {
     /// <summary>
-    /// HMAC-SHA256 of the body (or of <c>{timestamp}.{body}</c> when a timestamp header is named),
-    /// hex encoded in <see cref="InboundWebhookRequest.SignatureHeader"/>, optionally prefixed
+    /// HMAC-SHA256 of <c>{timestamp}.{body}</c>, where the timestamp comes from
+    /// <see cref="InboundWebhookRequest.TimestampHeader"/> and must be inside the replay window. A
+    /// request with no timestamp header is refused unless
+    /// <see cref="InboundWebhookRequest.AllowBodyOnlySignature"/> is set, which signs the body alone.
+    /// The signature is hex encoded in <see cref="InboundWebhookRequest.SignatureHeader"/>, optionally prefixed
     /// <c>sha256=</c>. The secret is used as UTF-8 text.
     /// </summary>
     Hmac,
@@ -33,8 +36,17 @@ public sealed record InboundWebhookRequest(
     /// <summary>Hmac only: the header holding the signature.</summary>
     public string SignatureHeader { get; init; } = "X-Signature";
 
-    /// <summary>Hmac only: the header holding a unix timestamp, or null when the provider sends none.</summary>
+    /// <summary>
+    /// Hmac only: the header holding a unix timestamp. Required unless
+    /// <see cref="AllowBodyOnlySignature"/> is set.
+    /// </summary>
     public string? TimestampHeader { get; init; }
+
+    /// <summary>
+    /// Hmac only: accept a signature over the body alone when <see cref="TimestampHeader"/> is null,
+    /// for a sender that cannot send a timestamp. There is no replay window then. Defaults to false.
+    /// </summary>
+    public bool AllowBodyOnlySignature { get; init; }
 
     /// <summary>Hmac only: the header holding the provider's event id, or null for no deduplication.</summary>
     public string? EventIdHeader { get; init; }
@@ -71,7 +83,8 @@ public interface IInboundWebhookVerifier
 
     /// <summary>
     /// Checks the signature and the timestamp window only. Returns <see cref="InboundWebhookOutcome.Processed"/>
-    /// when both pass. Does not touch the database.
+    /// when both pass. Does not touch the database. A plain <see cref="InboundWebhookScheme.Hmac"/> request with no
+    /// timestamp header is refused unless <see cref="InboundWebhookRequest.AllowBodyOnlySignature"/> is set.
     /// </summary>
     InboundWebhookOutcome Verify(InboundWebhookRequest request, DateTimeOffset now);
 
