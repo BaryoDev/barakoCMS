@@ -145,8 +145,8 @@
       },
       "FastExpressionCompiler": {
         "type": "Transitive",
-        "resolved": "5.4.1",
-        "contentHash": "nqMykMspK5cQd35Y8ulQzAujxCcCwZVUne32pC5xNpXqrbPCuKOPMWkKHJ3LveAZPm6dsVvump0TJ1SZ9RzfTQ=="
+        "resolved": "6.0.0",
+        "contentHash": "EvY3eiWFnSYAUd4F4zvt3VTe8z75XxfqEUW3Fp2SsM1El4rfSNzah49/DLk6VlkL5yOLHZXf6XL19HQrcgTDxg=="
       },
       "FluentValidation": {
         "type": "Transitive",
@@ -155,8 +155,8 @@
       },
       "Fractions": {
         "type": "Transitive",
-        "resolved": "7.3.0",
-        "contentHash": "2bETFWLBc8b7Ut2SVi+bxhGVwiSpknHYGBh2PADyGWONLkTxT7bKyDRhF8ao+XUv90tq8Fl7GTPxSI5bacIRJw=="
+        "resolved": "8.3.2",
+        "contentHash": "q0Xzg9nmBd1Y0fTn/EEG84dWqd02EogojtdBh/MUmtHhwIJBMJk3jo+4MRDCdLfi6lVDXD8UZBA0QkBH3FUh8A=="
       },
       "Humanizer.Core": {
         "type": "Transitive",
@@ -767,10 +767,10 @@
       },
       "YamlDotNet": {
         "type": "Transitive",
-        "resolved": "16.3.0",
-        "contentHash": "SgMOdxbz8X65z8hraIs6hOEdnkH6hESTAIUa7viEngHOYaH+6q5XJmwr1+yb9vJpNQ19hCQY69xbFsLtXpobQA=="
+        "resolved": "18.0.0",
+        "contentHash": "ptHVgcYmLejGuWXV7RMFoEqFKYMXnieOlWLPzEslfDtzZ9ngMhjYwykfqjBN2+fMEAEyobozkj07lKEpR4dssA=="
       },
-      "barakocms": {
+      "BarakoCMS": {
         "type": "Project",
         "dependencies": {
           "AspNetCore.HealthChecks.Npgsql": "[9.0.0, )",
@@ -785,8 +785,8 @@
           "FastEndpoints.Security": "[8.3.0, )",
           "FastEndpoints.Swagger": "[8.3.0, )",
           "IdentityModel": "[7.0.0, )",
-          "JasperFx": "[2.102.0, )",
-          "KubernetesClient": "[18.0.13, )",
+          "JasperFx": "[3.4.0, )",
+          "KubernetesClient": "[21.0.8, )",
           "Markdig": "[1.6.0, )",
           "Marten": "[9.60.0, )",
           "Microsoft.Extensions.DependencyModel": "[10.0.15, )",
@@ -809,7 +809,7 @@
         "type": "Project",
         "dependencies": {
           "FastEndpoints": "[8.3.0, )",
-          "JasperFx": "[2.102.0, )",
+          "JasperFx": "[3.4.0, )",
           "Marten": "[9.60.0, )",
           "Microsoft.Extensions.DependencyModel": "[10.0.15, )"
         }
@@ -905,11 +905,11 @@
       },
       "JasperFx": {
         "type": "CentralTransitive",
-        "requested": "[2.102.0, )",
-        "resolved": "2.102.0",
-        "contentHash": "C0d8tXlR1avOvaBpYWri0VzJtpgfmVkK8opXAu2A7fVxsxPVof1xIQj+s0qAOSN8uav7E18iMA6Xhfamh267jg==",
+        "requested": "[3.4.0, )",
+        "resolved": "3.4.0",
+        "contentHash": "+mQIAy2Px4esK3EeayNaZqQBaRmnPFulIz7hMgan/hXeWpNcE1tbJ1TiNyXAnYfhewH0YMztmKA50EB/Xbn9Sw==",
         "dependencies": {
-          "FastExpressionCompiler": "5.4.1",
+          "FastExpressionCompiler": "6.0.0",
           "ImTools": "4.0.0",
           "Microsoft.Bcl.TimeProvider": "10.0.0",
           "Polly.Core": "8.6.5",
@@ -919,12 +919,12 @@
       },
       "KubernetesClient": {
         "type": "CentralTransitive",
-        "requested": "[18.0.13, )",
-        "resolved": "18.0.13",
-        "contentHash": "X5IuxmydftB148XeULtc7rD5/RvqLuW5SzkIjFovPgJpvV4RAoRqNPruVB7GEFu1Xg+zHVIk88WqdV8JjbgHbA==",
+        "requested": "[21.0.8, )",
+        "resolved": "21.0.8",
+        "contentHash": "oAu5gvmEktdVH6yQ3lwumP/G+4x1S7OQahn97MAfJMa+KNM/tLOrmHJPEZ3sI6yh1o0XS+U/3jYtp+6dRafJQQ==",
         "dependencies": {
-          "Fractions": "7.3.0",
-          "YamlDotNet": "16.3.0"
+          "Fractions": "8.3.2",
+          "YamlDotNet": "18.0.0"
         }
       },
       "Markdig": {

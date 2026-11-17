@@ -23,13 +23,17 @@
       },
       "AWSSDK.Core": {
         "type": "Transitive",
-        "resolved": "3.7.501.1",
-        "contentHash": "VZR0LRAawpn5FQwXNPzhOO8DHhfffhBSvcSZT1d0ctcZ+kmsz3tzTArZnTQ9Haf/TNEqNLzKupHfjV2ndWAL4A=="
+        "resolved": "4.1.1",
+        "contentHash": "MGURtuvtalMXUaRKCTJv4f3XrwLTcZgrIGfthnOt1Qqol6rTtNKoF0ZusQc12+Z7V9e/UsarZ7AXhh8vMIm76A==",
+        "dependencies": {
+          "AWSSDK.Extensions.Numerics": "[4.1.0, 5.0.0)",
+          "System.IO.Hashing": "11.0.0"
+        }
       },
-      "BouncyCastle.Cryptography": {
+      "AWSSDK.Extensions.Numerics": {
         "type": "Transitive",
-        "resolved": "2.7.0",
-        "contentHash": "U+12df8UEWHgBi04YVf/Lgi2dy3SItlIYvHjjEVa/BngCQIzDCDRBk50DDByCfDvSbe5pRNFr3b7UrVK2kMcLw=="
+        "resolved": "4.1.0",
+        "contentHash": "hhoiXT1aUyVgIiQbQoqG3L1EEneqXDh2GKyH5izUlO6Rzi9GAAi8S6mlLiVwow23+EGg77zHjdmUi+ia3RSUTg=="
       },
       "FastEndpoints.Attributes": {
         "type": "Transitive",
@@ -65,8 +69,8 @@
       },
       "FastExpressionCompiler": {
         "type": "Transitive",
-        "resolved": "5.4.1",
-        "contentHash": "nqMykMspK5cQd35Y8ulQzAujxCcCwZVUne32pC5xNpXqrbPCuKOPMWkKHJ3LveAZPm6dsVvump0TJ1SZ9RzfTQ=="
+        "resolved": "6.0.0",
+        "contentHash": "EvY3eiWFnSYAUd4F4zvt3VTe8z75XxfqEUW3Fp2SsM1El4rfSNzah49/DLk6VlkL5yOLHZXf6XL19HQrcgTDxg=="
       },
       "FluentValidation": {
         "type": "Transitive",
@@ -75,8 +79,8 @@
       },
       "Fractions": {
         "type": "Transitive",
-        "resolved": "7.3.0",
-        "contentHash": "2bETFWLBc8b7Ut2SVi+bxhGVwiSpknHYGBh2PADyGWONLkTxT7bKyDRhF8ao+XUv90tq8Fl7GTPxSI5bacIRJw=="
+        "resolved": "8.3.2",
+        "contentHash": "q0Xzg9nmBd1Y0fTn/EEG84dWqd02EogojtdBh/MUmtHhwIJBMJk3jo+4MRDCdLfi6lVDXD8UZBA0QkBH3FUh8A=="
       },
       "Humanizer.Core": {
         "type": "Transitive",
@@ -289,14 +293,10 @@
         "resolved": "3.0.1",
         "contentHash": "s/s20YTVY9r9TPfTrN5g8zPF1YhwxyqO6PxUkrYTGI2B+OGPe9AdajWZrLhFqXIvqIW23fnUE4+ztrUWNU1+9g=="
       },
-      "MimeKit": {
+      "MimeKit.Core": {
         "type": "Transitive",
-        "resolved": "4.18.2",
-        "contentHash": "aYnwCCq+ZgQIsnHSJd3TMeGqf/Rz/9jYEItXpOoG3E2REOCZtLishwBSDFl2wQ/W2SB5wBsvE38DgHZ0IEyz4Q==",
-        "dependencies": {
-          "BouncyCastle.Cryptography": "2.7.0",
-          "System.Security.Cryptography.Pkcs": "10.0.13"
-        }
+        "resolved": "5.0.0",
+        "contentHash": "0RLaVyex/BjUGqiw9xtGwzyCMaBcsu33Rth61bDCeVeQaaQK7tjcy4TA+nHKTqwUdp4OGd+gnhuq2fuR+c20qA=="
       },
       "Namotion.Reflection": {
         "type": "Transitive",
@@ -611,6 +611,11 @@
         "resolved": "11.0.0",
         "contentHash": "+boRR9uSKiIPtFeRLGwO5xylhDF80xpwM+dmk5jgIqqeUKLbujGkGICMTKqQrBzKO6fIp8BU8DV6YZkQukqo3A=="
       },
+      "System.IO.Hashing": {
+        "type": "Transitive",
+        "resolved": "11.0.0",
+        "contentHash": "U+Bv2qCYt6eONi+arSP0QIp4uTO6os6uceBsqiAwruZ+Wo2HrRhO/0tj38M9URJtS+4DhAtT3ka2TGNFYsnhyQ=="
+      },
       "System.Linq.Dynamic.Core": {
         "type": "Transitive",
         "resolved": "1.7.4",
@@ -682,10 +687,10 @@
       },
       "YamlDotNet": {
         "type": "Transitive",
-        "resolved": "16.3.0",
-        "contentHash": "SgMOdxbz8X65z8hraIs6hOEdnkH6hESTAIUa7viEngHOYaH+6q5XJmwr1+yb9vJpNQ19hCQY69xbFsLtXpobQA=="
+        "resolved": "18.0.0",
+        "contentHash": "ptHVgcYmLejGuWXV7RMFoEqFKYMXnieOlWLPzEslfDtzZ9ngMhjYwykfqjBN2+fMEAEyobozkj07lKEpR4dssA=="
       },
-      "barakocms": {
+      "BarakoCMS": {
         "type": "Project",
         "dependencies": {
           "AspNetCore.HealthChecks.Npgsql": "[9.0.0, )",
@@ -700,8 +705,8 @@
           "FastEndpoints.Security": "[8.3.0, )",
           "FastEndpoints.Swagger": "[8.3.0, )",
           "IdentityModel": "[7.0.0, )",
-          "JasperFx": "[2.102.0, )",
-          "KubernetesClient": "[18.0.13, )",
+          "JasperFx": "[3.4.0, )",
+          "KubernetesClient": "[21.0.8, )",
           "Markdig": "[1.6.0, )",
           "Marten": "[9.60.0, )",
           "Microsoft.Extensions.DependencyModel": "[10.0.15, )",
@@ -724,7 +729,7 @@
         "type": "Project",
         "dependencies": {
           "FastEndpoints": "[8.3.0, )",
-          "JasperFx": "[2.102.0, )",
+          "JasperFx": "[3.4.0, )",
           "Marten": "[9.60.0, )",
           "Microsoft.Extensions.DependencyModel": "[10.0.15, )"
         }
@@ -752,7 +757,7 @@
         "dependencies": {
           "BarakoCMS": "[5.7.1, )",
           "BarakoCMS.Abstractions": "[5.7.0, )",
-          "MailKit": "[4.18.2, )"
+          "MailKit": "[5.0.0, )"
         }
       },
       "barakocms.externalauth": {
@@ -787,7 +792,7 @@
       "barakocms.files.s3": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.S3": "[3.7.511.8, )",
+          "AWSSDK.S3": "[4.1.0.1, )",
           "BarakoCMS.Abstractions": "[5.7.0, )",
           "BarakoCMS.Files": "[5.2.1, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
@@ -842,11 +847,11 @@
       },
       "AWSSDK.S3": {
         "type": "CentralTransitive",
-        "requested": "[3.7.511.8, )",
-        "resolved": "3.7.511.8",
-        "contentHash": "QLHt7ucegMurWnwB3GomMeP6DiCG033aEittRiabMGnTOMZ5xyu7tbmTkqs3ZU5tBz4AK53Ak8WJkF+kk+s4Tw==",
+        "requested": "[4.1.0.1, )",
+        "resolved": "4.1.0.1",
+        "contentHash": "ZgNjIc7GwxRvkKbbZVjzEm7Q2H5ZDCAWxsryGahq1/xF292U4UTUEwoiqsSAAPG2kvfmejI1cuVj3VMkKnXJKg==",
         "dependencies": {
-          "AWSSDK.Core": "[3.7.501.1, 4.0.0)"
+          "AWSSDK.Core": "[4.1.1, 5.0.0)"
         }
       },
       "BCrypt.Net-Next": {
@@ -922,11 +927,11 @@
       },
       "JasperFx": {
         "type": "CentralTransitive",
-        "requested": "[2.102.0, )",
-        "resolved": "2.102.0",
-        "contentHash": "C0d8tXlR1avOvaBpYWri0VzJtpgfmVkK8opXAu2A7fVxsxPVof1xIQj+s0qAOSN8uav7E18iMA6Xhfamh267jg==",
+        "requested": "[3.4.0, )",
+        "resolved": "3.4.0",
+        "contentHash": "+mQIAy2Px4esK3EeayNaZqQBaRmnPFulIz7hMgan/hXeWpNcE1tbJ1TiNyXAnYfhewH0YMztmKA50EB/Xbn9Sw==",
         "dependencies": {
-          "FastExpressionCompiler": "5.4.1",
+          "FastExpressionCompiler": "6.0.0",
           "ImTools": "4.0.0",
           "Microsoft.Bcl.TimeProvider": "10.0.0",
           "Polly.Core": "8.6.5",
@@ -936,21 +941,21 @@
       },
       "KubernetesClient": {
         "type": "CentralTransitive",
-        "requested": "[18.0.13, )",
-        "resolved": "18.0.13",
-        "contentHash": "X5IuxmydftB148XeULtc7rD5/RvqLuW5SzkIjFovPgJpvV4RAoRqNPruVB7GEFu1Xg+zHVIk88WqdV8JjbgHbA==",
+        "requested": "[21.0.8, )",
+        "resolved": "21.0.8",
+        "contentHash": "oAu5gvmEktdVH6yQ3lwumP/G+4x1S7OQahn97MAfJMa+KNM/tLOrmHJPEZ3sI6yh1o0XS+U/3jYtp+6dRafJQQ==",
         "dependencies": {
-          "Fractions": "7.3.0",
-          "YamlDotNet": "16.3.0"
+          "Fractions": "8.3.2",
+          "YamlDotNet": "18.0.0"
         }
       },
       "MailKit": {
         "type": "CentralTransitive",
-        "requested": "[4.18.2, )",
-        "resolved": "4.18.2",
-        "contentHash": "ofqddpSbdrD00NqTD0ZyVfKvrl/ZZ70VFFEQ+DuR8r8CdbY3U02/sdb0CSQBNUqJifsXfVHIwRe1ToR2MvJJkw==",
+        "requested": "[5.0.0, )",
+        "resolved": "5.0.0",
+        "contentHash": "PG6hnsklTzd/iK9A6j03OxDOas9mh8zOBkbPzcsLmFOODE8Hw3HTy7HAKiJvVHXNpKc3/KMVG/4QvOAKCBbGhA==",
         "dependencies": {
-          "MimeKit": "4.18.2"
+          "MimeKit.Core": "5.0.0"
         }
       },
       "Markdig": {
@@ -1077,12 +1082,6 @@
         "requested": "[4.156.1, )",
         "resolved": "4.156.1",
         "contentHash": "p7LcHVbwsLOmvugPySgjA/ncq/BFap1MMbRs1u119PD8ZYFZYWaFS7MIT1e6ObwJGkJ9HVV9lEvugt30IjmFOA=="
-      },
-      "System.Security.Cryptography.Pkcs": {
-        "type": "CentralTransitive",
-        "requested": "[10.0.15, )",
-        "resolved": "10.0.15",
-        "contentHash": "4jEv/lXDuQkh60lPU3hlwASErXdv1ZMKmsxVuBfZWiVKT5Q2QGo58kTa6rN519+PU+m4Hsj1m3yT8fN+Xw0XZw=="
       },
       "Talaan": {
         "type": "CentralTransitive",

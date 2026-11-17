@@ -16,11 +16,11 @@
       },
       "JasperFx": {
         "type": "Direct",
-        "requested": "[2.102.0, )",
-        "resolved": "2.102.0",
-        "contentHash": "C0d8tXlR1avOvaBpYWri0VzJtpgfmVkK8opXAu2A7fVxsxPVof1xIQj+s0qAOSN8uav7E18iMA6Xhfamh267jg==",
+        "requested": "[3.4.0, )",
+        "resolved": "3.4.0",
+        "contentHash": "+mQIAy2Px4esK3EeayNaZqQBaRmnPFulIz7hMgan/hXeWpNcE1tbJ1TiNyXAnYfhewH0YMztmKA50EB/Xbn9Sw==",
         "dependencies": {
-          "FastExpressionCompiler": "5.4.1",
+          "FastExpressionCompiler": "6.0.0",
           "ImTools": "4.0.0",
           "Microsoft.Bcl.TimeProvider": "10.0.0",
           "Polly.Core": "8.6.5",
@@ -81,8 +81,8 @@
       },
       "FastExpressionCompiler": {
         "type": "Transitive",
-        "resolved": "5.4.1",
-        "contentHash": "nqMykMspK5cQd35Y8ulQzAujxCcCwZVUne32pC5xNpXqrbPCuKOPMWkKHJ3LveAZPm6dsVvump0TJ1SZ9RzfTQ=="
+        "resolved": "6.0.0",
+        "contentHash": "EvY3eiWFnSYAUd4F4zvt3VTe8z75XxfqEUW3Fp2SsM1El4rfSNzah49/DLk6VlkL5yOLHZXf6XL19HQrcgTDxg=="
       },
       "FluentValidation": {
         "type": "Transitive",
