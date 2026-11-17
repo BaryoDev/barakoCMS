@@ -575,4 +575,169 @@ public class MemberProfileApiTests
         var row = rows.Single(r => r.GetProperty("userId").GetGuid() == member);
         row.GetProperty("profile").GetProperty("region").GetString().Should().Be("north");
     }
+    // The profile hold check: a profile value a member's role reads widens that role, so the caller
+    // must hold the value. The roles here read region and branches through a condition.
+
+    private async Task<Role> ConditionalRoleAsync(string slug, string attribute)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var role = new Role
+        {
+            Id = Guid.NewGuid(), Name = $"cond-{Guid.NewGuid():N}"[..14], TenantSlug = slug,
+            Permissions = [new ContentTypePermission
+            {
+                ContentTypeSlug = "ProfileHoldType",
+                Read = new PermissionRule
+                {
+                    Enabled = true,
+                    Conditions = new Dictionary<string, object>
+                    {
+                        ["Area"] = new Dictionary<string, object> { ["_eq"] = $"$CURRENT_USER.{attribute}" },
+                    },
+                },
+            }],
+        };
+        session.Store(role);
+        await session.SaveChangesAsync();
+        return role;
+    }
+
+    /// <summary>A members manager who also holds the conditional role, with the profile given.</summary>
+    private async Task<HttpClient> ManagerAsync(string slug, Role conditional, Dictionary<string, string> profile)
+    {
+        Role manager;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            manager = new Role
+            {
+                Id = Guid.NewGuid(), Name = $"mgr-{Guid.NewGuid():N}"[..14], TenantSlug = slug,
+                SystemCapabilities = [SystemCapabilities.ManageTenantMembers],
+            };
+            session.Store(manager);
+            await session.SaveChangesAsync();
+        }
+
+        var userId = await UserAsync();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new Membership
+            {
+                Id = Guid.NewGuid(), UserId = userId, TenantSlug = slug, Status = MembershipStatus.Active,
+                RoleIds = [manager.Id, conditional.Id], Profile = profile,
+            });
+            await session.SaveChangesAsync();
+        }
+
+        return ClientFor(userId, slug, manager.Name);
+    }
+
+    private async Task<Guid> MemberWithRoleAsync(string slug, Role role, Dictionary<string, string> profile)
+    {
+        var userId = await UserAsync();
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new Membership
+        {
+            Id = Guid.NewGuid(), UserId = userId, TenantSlug = slug, Status = MembershipStatus.Active,
+            RoleIds = [role.Id], Profile = profile,
+        });
+        await session.SaveChangesAsync();
+        return userId;
+    }
+
+    private static object KeepRole(Role role, Dictionary<string, string> profile) =>
+        new { roleIds = new[] { role.Id }, status = "Active", profile };
+
+    [Fact]
+    public async Task A_caller_who_does_not_hold_the_value_a_kept_role_reads_is_refused()
+    {
+        var slug = await TenantAsync();
+        var role = await ConditionalRoleAsync(slug, "region");
+        var manager = await ManagerAsync(slug, role, Branch("north"));
+        var member = await MemberWithRoleAsync(slug, role, Branch("north"));
+
+        var response = await manager.PutAsJsonAsync($"/api/tenants/members/{member}", KeepRole(role, Branch("south")));
+
+        NotRateLimited(response);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden, await response.Content.ReadAsStringAsync());
+        (await response.Content.ReadAsStringAsync()).Should().Contain("'region'");
+        (await RowAsync(member, slug)).Profile.Should().Contain("region", "north");
+    }
+
+    [Fact]
+    public async Task A_caller_cannot_add_a_branch_they_do_not_hold_for_a_kept_role()
+    {
+        var slug = await TenantAsync();
+        var role = await ConditionalRoleAsync(slug, "branches");
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        var manager = await ManagerAsync(slug, role, new() { ["branches"] = a.ToString() });
+        var member = await MemberWithRoleAsync(slug, role, new() { ["branches"] = a.ToString() });
+
+        var refused = await manager.PutAsJsonAsync($"/api/tenants/members/{member}",
+            KeepRole(role, new() { ["branches"] = $"{a},{b}" }));
+
+        NotRateLimited(refused);
+        refused.StatusCode.Should().Be(HttpStatusCode.Forbidden, await refused.Content.ReadAsStringAsync());
+        (await RowAsync(member, slug)).Profile["branches"].Should().Be(a.ToString());
+
+        var narrowed = await manager.PutAsJsonAsync($"/api/tenants/members/{member}",
+            KeepRole(role, new() { ["branches"] = a.ToString(), ["note"] = "x" }));
+        narrowed.StatusCode.Should().Be(HttpStatusCode.OK, "a branch the caller holds widens nothing for them");
+    }
+
+    [Fact]
+    public async Task A_caller_cannot_add_a_member_with_a_profile_they_do_not_hold()
+    {
+        var slug = await TenantAsync();
+        var role = await ConditionalRoleAsync(slug, "region");
+        var manager = await ManagerAsync(slug, role, Branch("north"));
+
+        var refused = await manager.PostAsJsonAsync("/api/tenants/members", new
+        {
+            email = NewEmail(), roleIds = new[] { role.Id }, profile = Branch("south"),
+        });
+        NotRateLimited(refused);
+        refused.StatusCode.Should().Be(HttpStatusCode.Forbidden, await refused.Content.ReadAsStringAsync());
+
+        var allowed = await manager.PostAsJsonAsync("/api/tenants/members", new
+        {
+            email = NewEmail(), roleIds = new[] { role.Id }, profile = Branch("north"),
+        });
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK, await allowed.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task An_administrator_may_set_any_value_a_role_reads()
+    {
+        var slug = await TenantAsync();
+        var role = await ConditionalRoleAsync(slug, "region");
+        var admin = await AdminOfAsync(slug);
+        var member = await MemberWithRoleAsync(slug, role, Branch("north"));
+
+        var response = await admin.PutAsJsonAsync($"/api/tenants/members/{member}", KeepRole(role, Branch("south")));
+
+        NotRateLimited(response);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        (await RowAsync(member, slug)).Profile.Should().Contain("region", "south");
+    }
+
+    [Fact]
+    public async Task A_profile_change_no_role_reads_needs_no_hold()
+    {
+        var slug = await TenantAsync();
+        var role = await ConditionalRoleAsync(slug, "region");
+        var manager = await ManagerAsync(slug, role, Branch("north"));
+        var member = await MemberWithRoleAsync(slug, role, Branch("north"));
+
+        var response = await manager.PutAsJsonAsync($"/api/tenants/members/{member}",
+            KeepRole(role, new() { ["region"] = "north", ["ward"] = "9" }));
+
+        NotRateLimited(response);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        (await RowAsync(member, slug)).Profile.Should().Contain("ward", "9");
+    }
 }

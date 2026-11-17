@@ -497,6 +497,13 @@ internal sealed class AddMemberEndpoint(
 
         await RefuseUnheldRolesAsync(roleIds, membership, slug, ct);
 
+        // A profile this request sets widens the member's roles, so it is held to the same rule.
+        var held = membership is { Status: MembershipStatus.Active } ? membership.Profile : null;
+        var profileNotHeld = await barakoCMS.Features.Roles.RoleGrantRules.ProfileNotHeldAsync(
+            session, User, roleIds, held, req.Profile, slug, ct);
+        if (profileNotHeld is not null)
+            ThrowError(profileNotHeld, 403);
+
         var details = new Dictionary<string, object> { ["invited"] = invited };
 
         if (membership is null)
@@ -632,6 +639,12 @@ internal sealed class UpdateMemberEndpoint(
             slug, ct);
         if (notHeld is not null)
             ThrowError(notHeld, 403);
+
+        // A profile change can widen the roles the member keeps, so the caller must hold that too.
+        var profileNotHeld = await barakoCMS.Features.Roles.RoleGrantRules.ProfileNotHeldAsync(
+            session, User, roleIds, membership.Profile, req.Profile, slug, ct);
+        if (profileNotHeld is not null)
+            ThrowError(profileNotHeld, 403);
 
         await Members.ChangeAsync(session, User, "tenant.member.updated", membership, roleIds, req.Status,
             req.Profile is null ? null : Members.CopyOf(req.Profile),

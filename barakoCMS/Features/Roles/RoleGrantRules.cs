@@ -69,6 +69,80 @@ internal static class RoleGrantRules
         return null;
     }
 
+    /// <summary>
+    /// The first reason the caller cannot make this profile change, or null. A condition such as
+    /// <c>Branch eq $CURRENT_USER.branches</c> reads the member's profile, so setting a value a
+    /// member's role reads widens what the role allows, and the caller must hold what the member
+    /// would newly be allowed, as for a role grant. Only a value that is added or changed counts, and
+    /// only when a role the member ends up with reads that attribute. <c>branches</c> is held when
+    /// each branch the change adds is one of the caller's own; any other attribute is held when the
+    /// caller's own value is the same. A SuperAdmin passes, and so does the tenant's Admin for roles
+    /// owned by the tenant, as for a role grant.
+    /// </summary>
+    public static async Task<string?> ProfileNotHeldAsync(
+        IQuerySession session, System.Security.Claims.ClaimsPrincipal user, IEnumerable<Guid> roleIds,
+        IReadOnlyDictionary<string, string>? before, IReadOnlyDictionary<string, string>? after,
+        string tenant, CancellationToken ct)
+    {
+        var ids = roleIds.ToList();
+        if (after is null || ids.Count == 0)
+            return null;
+
+        var touched = after
+            .Where(pair => !(before is not null && before.TryGetValue(pair.Key, out var old)
+                             && string.Equals(old, pair.Value, StringComparison.Ordinal)))
+            .Select(pair => pair.Key)
+            .ToList();
+        if (touched.Count == 0 || await PlatformRoles.IsSuperAdminAsync(session, user, ct))
+            return null;
+
+        var roles = await session.Query<Role>().Where(r => r.DeletedAt == null && ids.Contains(r.Id)).ToListAsync(ct);
+
+        Guid.TryParse(user.FindFirst("UserId")?.Value, out var callerId);
+        var caller = callerId == Guid.Empty ? null : await session.LoadAsync<User>(callerId, ct);
+        var tenantAdmin = false;
+        if (caller is not null)
+        {
+            var (callerRoleIds, _) = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
+                .ResolveAsync(session, caller, tenant, ct);
+            tenantAdmin = callerRoleIds.Contains(SystemRoles.AdminRoleId);
+        }
+
+        var read = roles
+            .Where(r => !(tenantAdmin && !r.IsPlatform && string.Equals(r.TenantSlug, tenant, StringComparison.OrdinalIgnoreCase)))
+            .SelectMany(r => ContentRights(r).SelectMany(x => CallerAttributes.NamesRead(x.Rule.Conditions)))
+            .ToHashSet(StringComparer.Ordinal);
+        touched = touched.Where(read.Contains).ToList();
+        if (touched.Count == 0)
+            return null;
+
+        var own = caller is null
+            ? null
+            : (await session.Query<Membership>()
+                .FirstOrDefaultAsync(m => m.UserId == callerId && m.TenantSlug == tenant && m.Status == MembershipStatus.Active, ct))?.Profile;
+
+        foreach (var name in touched)
+        {
+            bool held;
+            if (name == CallerBranches.BranchesAttribute)
+            {
+                var kept = CallerBranches.Of(before).ToHashSet();
+                var mine = CallerBranches.Of(own).ToHashSet();
+                held = CallerBranches.Of(after).All(b => kept.Contains(b) || mine.Contains(b));
+            }
+            else
+            {
+                held = own is not null && own.TryGetValue(name, out var value)
+                    && string.Equals(value.Trim(), after[name].Trim(), StringComparison.Ordinal);
+            }
+
+            if (!held)
+                return $"You cannot set '{name}' because you do not hold that value and a role of this member reads it.";
+        }
+
+        return null;
+    }
+
     public const string GlobalRoleWithRightsMessage =
         "This role carries capabilities or content rights and would apply in every tenant, so only a platform administrator (SuperAdmin) can grant it globally.";
 
