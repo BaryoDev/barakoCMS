@@ -68,6 +68,35 @@ internal class Endpoint(
         Definition.RefusesWhileFieldChangeRuns();
     }
 
+    /// <summary>
+    /// The computed-field check create and update run, on the field list this change would leave.
+    /// Only what the change introduces is refused, so a type with an older problem elsewhere can
+    /// still have a leaking field masked. Errors are matched by their text, which names both levels,
+    /// so a change that widens a field that already has an error reads as a new one and is refused.
+    /// </summary>
+    private static List<string> IntroducedComputedErrors(ContentTypeDefinition def, FieldDefinition field, Request req, List<string> roles)
+    {
+        var proposedField = System.Text.Json.JsonSerializer.Deserialize<FieldDefinition>(System.Text.Json.JsonSerializer.Serialize(field))!;
+        proposedField.Sensitivity = req.Sensitivity;
+        proposedField.VisibleToRoles = [.. roles];
+        proposedField.Mask = barakoCMS.Core.Validation.SensitivityRank.IsUniform(req.Sensitivity) ? FieldMask.Default : req.Mask ?? FieldMask.Default;
+        var proposed = def.Fields.Select(f => f == field ? proposedField : f).ToList();
+        var already = barakoCMS.Core.Validation.ComputedFields.DefinitionErrors(def.Fields).ToHashSet();
+        return barakoCMS.Core.Validation.ComputedFields.DefinitionErrors(proposed).Where(e => !already.Contains(e)).ToList();
+    }
+
+    private async Task<string> DisclosureErrorAsync(ContentTypeDefinition def, FieldDefinition field, SensitivityLevel from, SensitivityLevel to, CancellationToken ct)
+    {
+        var affected = await session.Query<ContentDoc>().CountAsync(c => c.ContentType == def.Name, ct);
+        var reach = def.IsPubliclyDeliverable
+            ? "everyone who can read this type, and anonymous callers through the public delivery API"
+            : "everyone who can read this type";
+
+        return $"Lowering '{field.Name}' from {from} to {to} makes its value readable by {reach}, "
+            + $"for {affected} existing {(affected == 1 ? "entry" : "entries")} as well as new "
+            + "ones. Resend with acknowledgeDisclosure set to true.";
+    }
+
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var name = Route<string>("name") ?? string.Empty;
@@ -147,15 +176,7 @@ internal class Endpoint(
 
         if (lowering && !req.AcknowledgeDisclosure)
         {
-            var affected = await session.Query<ContentDoc>().CountAsync(c => c.ContentType == def.Name, ct);
-            var reach = def.IsPubliclyDeliverable
-                ? "everyone who can read this type, and anonymous callers through the public delivery API"
-                : "everyone who can read this type";
-
-            AddError(
-                $"Lowering '{field.Name}' from {from} to {to} makes its value readable by {reach}, "
-                + $"for {affected} existing {(affected == 1 ? "entry" : "entries")} as well as new "
-                + "ones. Resend with acknowledgeDisclosure set to true.");
+            AddError(await DisclosureErrorAsync(def, field, from, to, ct));
             await Send.ErrorsAsync(400, ct);
             return;
         }
@@ -173,17 +194,7 @@ internal class Endpoint(
         var answered = new FieldDefinition { VisibleToRoles = [.. target.VisibleToRoles] };
         var roles = await RoleAudit.RoleListsAsync(session, [field.VisibleToRoles?.ToList() ?? new List<string>(), target.VisibleToRoles], [answered], ct);
 
-        // The same computed-field check create and update run, on the field list this change would
-        // leave. Only what the change introduces is refused, so a type with an older problem elsewhere
-        // can still have a leaking field masked.
-        var proposedField = System.Text.Json.JsonSerializer.Deserialize<FieldDefinition>(System.Text.Json.JsonSerializer.Serialize(field))!;
-        proposedField.Sensitivity = req.Sensitivity;
-        proposedField.VisibleToRoles = [.. target.VisibleToRoles];
-        proposedField.Mask = barakoCMS.Core.Validation.SensitivityRank.IsUniform(req.Sensitivity) ? FieldMask.Default : req.Mask ?? FieldMask.Default;
-        var proposed = def.Fields.Select(f => f == field ? proposedField : f).ToList();
-        var already = barakoCMS.Core.Validation.ComputedFields.DefinitionErrors(def.Fields).ToHashSet();
-        var introduced = barakoCMS.Core.Validation.ComputedFields.DefinitionErrors(proposed).Where(e => !already.Contains(e)).ToList();
-        if (introduced.Count > 0)
+        if (IntroducedComputedErrors(def, field, req, target.VisibleToRoles) is { Count: > 0 } introduced)
         {
             foreach (var error in introduced)
                 AddError(error);

@@ -486,6 +486,40 @@ public class FieldSensitivityChangeTests
     }
 
     [Fact]
+    public async Task Widening_a_computed_field_that_already_lacks_the_inputs_role_list_is_refused()
+    {
+        var type = $"fc{Guid.NewGuid().ToString("N")[..8]}";
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+            using var session = store.LightweightSession();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = "Computed probe",
+                Fields = new List<FieldDefinition>
+                {
+                    new() { Name = "Holder", Type = "string" },
+                    new() { Name = "Card", Type = "string", Sensitivity = SensitivityLevel.Sensitive, VisibleToRoles = ["HR"] },
+                    new()
+                    {
+                        Name = "Label", Type = "string", Sensitivity = SensitivityLevel.Hidden,
+                        Computed = new ComputedDefinition { Fn = "concat", Args = ["Holder", "Card"] },
+                    },
+                },
+            });
+            await session.SaveChangesAsync();
+        }
+
+        var res = await SetSensitivityAsync(await Client("Admin"), type, "Label", new { sensitivity = "Sensitive", acknowledgeDisclosure = true });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync()).Should().Contain("'Label'").And.Contain("no role list");
+        (await StoredLevelAsync(type, "Label")).Should().Be(SensitivityLevel.Hidden, "a refused request changes nothing");
+    }
+
+    [Fact]
     public async Task Only_an_admin_can_change_a_field_s_sensitivity()
     {
         var seed = await SeedAsync();

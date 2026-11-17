@@ -87,6 +87,89 @@ public class ComputedFieldTests
     }
 
     [Fact]
+    public void A_computed_field_with_a_role_list_over_a_listless_sensitive_input_is_refused()
+    {
+        var (isValid, errors) = Save(
+            Guarded(Plain("Salary", "decimal"), SensitivityLevel.Sensitive),
+            Plain("Bonus", "decimal"),
+            Guarded(Computed("Total", "decimal", "add", null, "Salary", "Bonus"), SensitivityLevel.Sensitive, FieldMask.Default, "HR"));
+
+        isValid.Should().BeFalse();
+        errors.Should().ContainSingle(e => e.Contains("'Total'") && e.Contains("'Salary'") && e.Contains("no role list") && e.Contains("'HR'"));
+    }
+
+    [Fact]
+    public void A_role_list_over_a_hidden_input_without_one_is_refused()
+    {
+        var (isValid, errors) = Save(
+            Guarded(Plain("Salary", "decimal"), SensitivityLevel.Hidden),
+            Plain("Bonus", "decimal"),
+            Guarded(Computed("Total", "decimal", "add", null, "Salary", "Bonus"), SensitivityLevel.Hidden, FieldMask.Default, "HR"));
+
+        isValid.Should().BeFalse();
+        errors.Should().ContainSingle(e => e.Contains("'Total'") && e.Contains("'Salary'"));
+    }
+
+    [Fact]
+    public void A_leftover_role_list_over_a_public_input_is_not_refused()
+    {
+        var (isValid, errors) = Save(
+            Plain("Salary", "decimal"),
+            Plain("Bonus", "decimal"),
+            Computed("Total", "decimal", "add", null, "Salary", "Bonus"));
+        errors.Should().BeEmpty();
+
+        var input = Guarded(Plain("Net", "decimal"), SensitivityLevel.Public, FieldMask.Default, "HR");
+        (isValid, errors) = Save(input, Plain("Tax", "decimal"), Computed("Due", "decimal", "add", null, "Net", "Tax"));
+
+        errors.Should().BeEmpty();
+        isValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Role_names_are_compared_exactly()
+    {
+        var (isValid, errors) = Save(
+            Guarded(Plain("Salary", "decimal"), SensitivityLevel.Sensitive, FieldMask.Default, "HR"),
+            Plain("Bonus", "decimal"),
+            Guarded(Computed("Total", "decimal", "add", null, "Salary", "Bonus"), SensitivityLevel.Sensitive, FieldMask.Default, "hr"));
+
+        isValid.Should().BeFalse();
+        errors.Should().ContainSingle(e => e.Contains("'hr'"));
+    }
+
+    [Fact]
+    public void A_stored_type_that_breaks_the_audience_rule_still_accepts_an_unrelated_new_field()
+    {
+        var salary = Guarded(Plain("Salary", "decimal"), SensitivityLevel.Sensitive, FieldMask.Default, "HR");
+        var bonus = Plain("Bonus", "decimal");
+        var total = Guarded(Computed("Total", "decimal", "add", null, "Salary", "Bonus"), SensitivityLevel.Sensitive);
+        var stored = new List<FieldDefinition> { salary, bonus, total };
+        var merged = stored.Concat([Plain("Notes", "string")]).ToList();
+
+        Validator.Validate("timeEntry", "Time entry", stored).IsValid.Should().BeFalse("the stored type does break the rule");
+
+        var (isValid, errors) = Validator.Validate("timeEntry", "Time entry", merged, stored);
+
+        errors.Should().BeEmpty();
+        isValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_new_computed_field_over_a_stored_input_is_still_checked()
+    {
+        var salary = Guarded(Plain("Salary", "decimal"), SensitivityLevel.Sensitive, FieldMask.Default, "HR");
+        var bonus = Plain("Bonus", "decimal");
+        var stored = new List<FieldDefinition> { salary, bonus };
+        var merged = stored.Concat([Guarded(Computed("Total", "decimal", "add", null, "Salary", "Bonus"), SensitivityLevel.Sensitive)]).ToList();
+
+        var (isValid, errors) = Validator.Validate("timeEntry", "Time entry", merged, stored);
+
+        isValid.Should().BeFalse();
+        errors.Should().ContainSingle(e => e.Contains("'Total'") && e.Contains("no role list"));
+    }
+
+    [Fact]
     public void A_computed_field_masked_and_listed_like_its_input_is_accepted()
     {
         var (isValid, errors) = Save(
