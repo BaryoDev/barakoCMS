@@ -239,17 +239,8 @@ public class MembershipUniqueIndexMigrationTests
     }
 
     private static async Task<string> MigrationAsync(string file) =>
-        await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "4.7.0", file), Ct);
+        await File.ReadAllTextAsync(Path.Combine(RepoPaths.Root, "migrations", "4.7.0", file), Ct);
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-            directory = directory.Parent;
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 
     private async Task<IReadOnlyList<Membership>> MembershipsAsync(Guid userId, string slug)
     {

@@ -36,8 +36,6 @@ public class SeedFileTests
         public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
-    private static string Unique(string prefix) => $"{prefix}{Guid.NewGuid():n}"[..(prefix.Length + 10)];
-
     private async Task<string> FileAsync(object document)
     {
         var path = Path.Combine(Path.GetTempPath(), $"seed-{Guid.NewGuid():n}.json");
@@ -76,11 +74,11 @@ public class SeedFileTests
     [Fact]
     public async Task A_seed_file_creates_its_tenant_domain_and_member_and_a_second_start_changes_nothing()
     {
-        var slug = Unique("seed-");
+        var slug = TestNames.Compact("seed-");
         var domain = $"{slug}.example.com";
         var email = $"{slug}@example.com";
-        var role = Unique("Seed Desk ");
-        var type = Unique("customer");
+        var role = TestNames.Compact("Seed Desk ");
+        var type = TestNames.Compact("customer");
         var path = await FileAsync(Document(slug, domain, email, role, type));
 
         await StartAsync(path);
@@ -109,9 +107,9 @@ public class SeedFileTests
     [Fact]
     public async Task A_second_start_does_not_undo_a_change_made_since()
     {
-        var slug = Unique("seed-");
+        var slug = TestNames.Compact("seed-");
         var email = $"{slug}@example.com";
-        var path = await FileAsync(Document(slug, $"{slug}.example.com", email, Unique("Seed Desk "), Unique("visit")));
+        var path = await FileAsync(Document(slug, $"{slug}.example.com", email, TestNames.Compact("Seed Desk "), TestNames.Compact("visit")));
         await StartAsync(path);
 
         await using (var session = _fixture.Services.GetRequiredService<IDocumentStore>().LightweightSession())
@@ -131,7 +129,7 @@ public class SeedFileTests
     [Fact]
     public async Task A_file_that_cannot_be_applied_stops_the_seed_and_writes_nothing()
     {
-        var slug = Unique("seed-");
+        var slug = TestNames.Compact("seed-");
         var path = await FileAsync(new
         {
             version = 1,
@@ -147,9 +145,9 @@ public class SeedFileTests
     [Fact]
     public async Task A_domain_at_the_deployment_host_is_refused_before_any_tenant_is_written()
     {
-        var first = Unique("seed-");
-        var second = Unique("seed-");
-        var host = $"{Unique("edge")}.example.net";
+        var first = TestNames.Compact("seed-");
+        var second = TestNames.Compact("seed-");
+        var host = $"{TestNames.Compact("edge")}.example.net";
         var path = await FileAsync(new
         {
             version = 1,
@@ -197,12 +195,12 @@ public class SeedFileTests
     [Fact]
     public async Task An_edited_file_whose_change_is_destructive_skips_that_change_and_applies_the_rest()
     {
-        var slug = Unique("seed-");
-        var type = Unique("intake");
-        var kept = Unique("keep-");
+        var slug = TestNames.Compact("seed-");
+        var type = TestNames.Compact("intake");
+        var kept = TestNames.Compact("keep-");
         await StartAsync(await FileAsync(WorkflowFile(slug, type, new() { [kept] = Hook(type) })));
 
-        var added = Unique("added");
+        var added = TestNames.Compact("added");
         var edited = await FileAsync(WorkflowFile(slug, type, new(), new() { [added] = Type(added, ("Title", "string")) }));
         await StartAsync(edited);
 
@@ -216,8 +214,8 @@ public class SeedFileTests
     [Fact]
     public async Task A_section_written_for_a_signed_in_caller_is_skipped_and_the_rest_applied()
     {
-        var slug = Unique("seed-");
-        var type = Unique("ward");
+        var slug = TestNames.Compact("seed-");
+        var type = TestNames.Compact("ward");
         var path = await FileAsync(new
         {
             version = 1,
@@ -245,9 +243,9 @@ public class SeedFileTests
     [Fact]
     public async Task A_section_relying_on_a_skipped_destructive_change_stops_the_seed_and_says_why()
     {
-        var slug = Unique("seed-");
-        var type = Unique("chart");
-        var role = Unique("Seed Reader ");
+        var slug = TestNames.Compact("seed-");
+        var type = TestNames.Compact("chart");
+        var role = TestNames.Compact("Seed Reader ");
         Dictionary<string, object> Roles() => new() { [role] = new { description = "Reads charts" } };
         object File(string field, object? rules) => new
         {
@@ -283,10 +281,10 @@ public class SeedFileTests
     [Fact]
     public async Task A_refusal_in_the_middle_keeps_what_went_before_records_no_hash_and_a_fixed_file_converges()
     {
-        var first = Unique("seed-");
-        var second = Unique("seed-");
-        var good = Unique("good");
-        var bad = new ContentTypeDefinition { Id = Guid.NewGuid(), Name = Unique("bad"), DisplayName = "Bad", Fields = [new FieldDefinition { Name = "lowercase", Type = "string" }] };
+        var first = TestNames.Compact("seed-");
+        var second = TestNames.Compact("seed-");
+        var good = TestNames.Compact("good");
+        var bad = new ContentTypeDefinition { Id = Guid.NewGuid(), Name = TestNames.Compact("bad"), DisplayName = "Bad", Fields = [new FieldDefinition { Name = "lowercase", Type = "string" }] };
         object File(object secondTypes) => new
         {
             version = 1,
@@ -337,9 +335,9 @@ public class SeedFileTests
     [Fact]
     public async Task A_member_naming_a_role_only_another_tenant_has_stops_the_seed()
     {
-        var owner = Unique("seed-");
-        var slug = Unique("seed-");
-        var role = Unique("Elsewhere ");
+        var owner = TestNames.Compact("seed-");
+        var slug = TestNames.Compact("seed-");
+        var role = TestNames.Compact("Elsewhere ");
         await _callers.StoreInTenantAsync(null, new Role { Id = Guid.NewGuid(), Name = role, TenantSlug = owner });
         var email = $"{slug}@example.com";
         var path = await FileAsync(new
@@ -359,8 +357,8 @@ public class SeedFileTests
     [Fact]
     public async Task A_member_naming_a_role_the_tenant_and_the_platform_both_have_gets_the_tenants()
     {
-        var slug = Unique("seed-");
-        var name = Unique("Front Desk ");
+        var slug = TestNames.Compact("seed-");
+        var name = TestNames.Compact("Front Desk ");
         var platform = new Role { Id = Guid.NewGuid(), Name = name, IsPlatform = true };
         var own = new Role { Id = Guid.NewGuid(), Name = name, TenantSlug = slug };
         await _callers.StoreInTenantAsync(null, platform, own);

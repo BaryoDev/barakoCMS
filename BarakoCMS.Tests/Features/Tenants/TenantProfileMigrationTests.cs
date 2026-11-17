@@ -81,7 +81,7 @@ public class TenantProfileMigrationTests
     /// <summary>Runs one of the two files as written, for one tenant, and returns the notices it raised.</summary>
     private async Task<List<string>> RunAsync(string file, string slug)
     {
-        var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "4.6.0", file), Ct);
+        var sql = await File.ReadAllTextAsync(Path.Combine(RepoPaths.Root, "migrations", "4.6.0", file), Ct);
         var notices = new List<string>();
 
         await using var connection = new NpgsqlConnection(_fixture.ConnectionString);
@@ -102,17 +102,6 @@ public class TenantProfileMigrationTests
         return notices;
     }
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-        {
-            directory = directory.Parent;
-        }
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 
     [Fact]
     public async Task The_migration_moves_a_tenants_profile_into_its_published_site_entry()

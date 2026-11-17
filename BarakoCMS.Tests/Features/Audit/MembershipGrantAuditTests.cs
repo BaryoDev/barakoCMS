@@ -20,13 +20,8 @@ public class MembershipGrantAuditTests
 
     public MembershipGrantAuditTests(IntegrationTestFixture factory) => _factory = factory;
 
-    private async Task<HttpClient> SuperAdminAsync()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> SuperAdminAsync() =>
+        _factory.CreateClientAsync("SuperAdmin");
 
     private async Task<Guid> UserAsync()
     {

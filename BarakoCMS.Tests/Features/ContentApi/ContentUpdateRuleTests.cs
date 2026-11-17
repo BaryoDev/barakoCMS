@@ -51,13 +51,8 @@ public class ContentUpdateRuleTests
         return type;
     }
 
-    private async Task<HttpClient> SuperAdminAsync()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> SuperAdminAsync() =>
+        _factory.CreateClientAsync("SuperAdmin");
 
     /// <summary>A stored user holding one stored role with these rules on the type.</summary>
     private async Task<HttpClient> MemberAsync(

@@ -648,13 +648,8 @@ public class CollectionPushTests
         return client;
     }
 
-    private async Task<HttpClient> AdminAsync()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin", "Admin"));
-        return client;
-    }
+    private Task<HttpClient> AdminAsync() =>
+        _factory.CreateClientAsync("SuperAdmin", "Admin");
 
     private static async Task<(HttpStatusCode Status, JsonElement Body)> PushAsync(HttpClient client, string type, object body)
     {

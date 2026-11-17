@@ -18,14 +18,6 @@ namespace BarakoCMS.Tests;
 /// </summary>
 public class PackagingTests
 {
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Directory.Build.props")))
-            dir = dir.Parent;
-        dir.Should().NotBeNull("the tests must be able to find the repository root");
-        return dir!.FullName;
-    }
 
     /// <summary>Every project that produces a NuGet package, with its parsed csproj.</summary>
     public static TheoryData<string> PackableProjects()
@@ -59,7 +51,7 @@ public class PackagingTests
     private static List<(string Path, XDocument Doc)> Packable()
     {
         var found = new List<(string, XDocument)>();
-        var root = RepoRoot();
+        var root = RepoPaths.Root;
         foreach (var proj in Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories))
         {
             if (proj.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")) continue;
@@ -170,7 +162,7 @@ public class PackagingTests
     [Fact]
     public void The_shared_props_carry_the_packaging_metadata()
     {
-        var props = XDocument.Load(Path.Combine(RepoRoot(), "Directory.Build.props"));
+        var props = XDocument.Load(Path.Combine(RepoPaths.Root, "Directory.Build.props"));
 
         foreach (var required in new[]
                  {
@@ -191,7 +183,7 @@ public class PackagingTests
     [Fact]
     public void The_icon_referenced_by_the_shared_props_exists_and_is_a_real_png()
     {
-        var icon = Path.Combine(RepoRoot(), "assets", "icon.png");
+        var icon = Path.Combine(RepoPaths.Root, "assets", "icon.png");
         File.Exists(icon).Should().BeTrue("every package references assets/icon.png");
 
         // NuGet rejects an icon over 1MB and does not accept SVG, so check it is genuinely a PNG

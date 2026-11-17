@@ -102,13 +102,8 @@ public class FileFieldAccessTests
         return new Editor(user.Id, client);
     }
 
-    private async Task<HttpClient> AdminAsync()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _factory.StoredUserTokenAsync("Admin", "SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> AdminAsync() =>
+        _factory.CreateClientAsync("Admin", "SuperAdmin");
 
     private async Task<Guid> FileAsync(bool isPublic, Guid owner, string name = "cover.png", IServiceScope? inScope = null)
     {

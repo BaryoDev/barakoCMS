@@ -313,7 +313,7 @@ public class NumberingRuleTests : IAsyncLifetime
     }
 
     private static string Migration(string file) =>
-        File.ReadAllText(Path.Combine(RepositoryRoot(), "migrations", "5.0.0", file));
+        File.ReadAllText(Path.Combine(RepoPaths.Root, "migrations", "5.0.0", file));
 
     [Fact]
     public async Task Journal_entry_numbering_continues_from_the_modules_own_count_after_the_migration()
@@ -403,14 +403,4 @@ public class NumberingRuleTests : IAsyncLifetime
         legacy.Should().Be("JE-2034-000002", "a post through a legacy constructor counts on from the endpoint's number");
     }
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-        {
-            directory = directory.Parent;
-        }
-
-        return directory!.FullName;
-    }
 }

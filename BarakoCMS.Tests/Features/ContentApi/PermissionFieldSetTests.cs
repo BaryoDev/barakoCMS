@@ -100,13 +100,8 @@ public class PermissionFieldSetTests
         return (client, user.Id);
     }
 
-    private async Task<HttpClient> SuperAdminAsync()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> SuperAdminAsync() =>
+        _factory.CreateClientAsync("SuperAdmin");
 
     /// <summary>Stores an entry directly, so a test can say who created it.</summary>
     private async Task<Guid> StoreAsync(string type, Guid createdBy, Dictionary<string, object> data)

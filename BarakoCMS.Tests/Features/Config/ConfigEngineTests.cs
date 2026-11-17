@@ -18,14 +18,12 @@ public class ConfigEngineTests
 
     public ConfigEngineTests(IntegrationTestFixture fixture) => _callers = new ConfigCallers(fixture);
 
-    private static string Unique(string prefix) => $"{prefix}{Guid.NewGuid():n}"[..(prefix.Length + 10)];
-
     [Fact]
     public async Task An_exported_type_applied_to_an_empty_tenant_is_reproduced_and_a_second_plan_is_empty()
     {
         var source = await _callers.TenantAsync();
         var target = await _callers.TenantAsync();
-        var type = Type(Unique("article"), ("Title", "string"), ("Body", "text"));
+        var type = Type(TestNames.Compact("article"), ("Title", "string"), ("Body", "text"));
         type.IsPubliclyDeliverable = true;
         type.RouteTemplate = "/articles/{slug}";
         await _callers.StoreInTenantAsync(source, type);
@@ -52,8 +50,8 @@ public class ConfigEngineTests
     public async Task A_plan_names_what_it_would_create_and_writes_nothing()
     {
         var tenant = await _callers.TenantAsync();
-        var name = Unique("event");
-        var role = Unique("Planner ");
+        var name = TestNames.Compact("event");
+        var role = TestNames.Compact("Planner ");
         var document = new Dictionary<string, object>
         {
             ["version"] = 1,
@@ -76,7 +74,7 @@ public class ConfigEngineTests
     public async Task A_removed_field_is_a_destructive_change_that_apply_refuses_without_the_flag()
     {
         var tenant = await _callers.TenantAsync();
-        var name = Unique("ticket");
+        var name = TestNames.Compact("ticket");
         await _callers.StoreInTenantAsync(tenant, Type(name, ("Title", "string"), ("Notes", "text")));
         var client = await _callers.SuperAdminAsync(tenant);
         var document = new
@@ -124,7 +122,7 @@ public class ConfigEngineTests
     public async Task Each_section_also_takes_its_own_capability()
     {
         var tenant = await _callers.TenantAsync();
-        var name = Unique("gated");
+        var name = TestNames.Compact("gated");
         var document = new
         {
             version = 1,
@@ -149,7 +147,7 @@ public class ConfigEngineTests
     public async Task Turning_public_delivery_on_for_a_stored_type_takes_manage_public_delivery()
     {
         var tenant = await _callers.TenantAsync();
-        var name = Unique("private");
+        var name = TestNames.Compact("private");
         await _callers.StoreInTenantAsync(tenant, Type(name, ("Title", "string")));
         var exposed = Type(name, ("Title", "string"));
         exposed.IsPubliclyDeliverable = true;
@@ -176,8 +174,8 @@ public class ConfigEngineTests
     {
         var mine = await _callers.TenantAsync();
         var theirs = await _callers.TenantAsync();
-        var myType = Unique("mine");
-        var theirType = Unique("theirs");
+        var myType = TestNames.Compact("mine");
+        var theirType = TestNames.Compact("theirs");
         await _callers.StoreInTenantAsync(mine, Type(myType, ("Title", "string")));
         await _callers.StoreInTenantAsync(theirs, Type(theirType, ("Title", "string")));
         var client = await _callers.SuperAdminAsync(mine);
@@ -187,7 +185,7 @@ public class ConfigEngineTests
         exported.Should().NotBeEmpty();
         exported.Should().Contain(myType).And.NotContain(theirType);
 
-        var created = Unique("created");
+        var created = TestNames.Compact("created");
         var (applied, plan) = await ApplyAsync(client, new
         {
             version = 1,
@@ -202,7 +200,7 @@ public class ConfigEngineTests
     [Fact]
     public async Task A_role_is_created_and_a_second_plan_against_it_is_empty()
     {
-        var name = Unique("Shop Clerk ");
+        var name = TestNames.Compact("Shop Clerk ");
         var document = new
         {
             version = 1,
@@ -224,7 +222,7 @@ public class ConfigEngineTests
     public async Task A_role_written_with_manage_roles_from_a_membership_belongs_to_that_tenant()
     {
         var tenant = await _callers.TenantAsync();
-        var name = Unique("Tenant Made ");
+        var name = TestNames.Compact("Tenant Made ");
         var document = new { version = 1, roles = new Dictionary<string, object> { [name] = new { description = "x" } } };
         var grants = await _callers.RoleAsync(SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles);
 
@@ -242,7 +240,7 @@ public class ConfigEngineTests
     public async Task A_role_can_be_applied_under_the_name_of_a_deleted_one_in_the_same_tenant()
     {
         var tenant = await _callers.TenantAsync();
-        var name = Unique("Was Deleted ");
+        var name = TestNames.Compact("Was Deleted ");
         var deleted = new Role { Id = Guid.NewGuid(), Name = name, TenantSlug = tenant, DeletedAt = DateTime.UtcNow };
         await _callers.StoreInTenantAsync(null, deleted);
         var document = new { version = 1, roles = new Dictionary<string, object> { [name] = new { description = "fresh" } } };
@@ -262,8 +260,8 @@ public class ConfigEngineTests
     {
         var mine = await _callers.TenantAsync();
         var other = await _callers.TenantAsync();
-        var shared = Unique("Front Desk ");
-        var own = Unique("Own Desk ");
+        var shared = TestNames.Compact("Front Desk ");
+        var own = TestNames.Compact("Own Desk ");
         var theirs = new Role { Id = Guid.NewGuid(), Name = shared, TenantSlug = other, Description = "theirs", SystemCapabilities = ["view_audit_log"] };
         await _callers.StoreInTenantAsync(null, theirs,
             new Role { Id = Guid.NewGuid(), Name = own, TenantSlug = mine, Description = "mine" });
@@ -296,13 +294,13 @@ public class ConfigEngineTests
     [Fact]
     public async Task A_role_carrying_a_platform_capability_is_written_only_by_a_platform_role_administrator()
     {
-        var name = Unique("Escalator ");
+        var name = TestNames.Compact("Escalator ");
         var document = new { version = 1, roles = new Dictionary<string, object> { [name] = new { systemCapabilities = new[] { "manage_users" } } } };
 
         var roleWriter = await _callers.ClientAsync(null,
             [await _callers.RoleAsync(SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles)]);
 
-        var plain = Unique("Plain ");
+        var plain = TestNames.Compact("Plain ");
         var (control, controlBody) = await ApplyAsync(roleWriter,
             new { version = 1, roles = new Dictionary<string, object> { [plain] = new { systemCapabilities = new[] { "view_audit_log" } } } });
         control.StatusCode.Should().Be(HttpStatusCode.OK, "the positive control: the same caller writes a role with no platform capability. " + controlBody);
@@ -338,9 +336,9 @@ public class ConfigEngineTests
     private async Task<(string Tenant, string Role, object Document)> RuleChangeAsync(bool platform = false)
     {
         var tenant = await _callers.TenantAsync();
-        var type = Unique("ledger");
+        var type = TestNames.Compact("ledger");
         await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")));
-        var role = Unique("Ruled ");
+        var role = TestNames.Compact("Ruled ");
         await _callers.StoreInTenantAsync(null, new Role { Id = Guid.NewGuid(), Name = role, TenantSlug = platform ? null : tenant, IsPlatform = platform });
         var document = new
         {
@@ -362,7 +360,7 @@ public class ConfigEngineTests
         (await _callers.InTenantAsync(null, s => s.Query<Role>().SingleAsync(r => r.Name == role, Ct)))!.Permissions.Should().ContainSingle();
 
         var (_, otherRole, _) = await RuleChangeAsync();
-        var mineType = Unique("ledger");
+        var mineType = TestNames.Compact("ledger");
         await _callers.StoreInTenantAsync(tenant, Type(mineType, ("Title", "string")));
         var (refused, plan) = await ApplyAsync(memberOnly, new
         {
@@ -383,7 +381,7 @@ public class ConfigEngineTests
     public async Task A_role_writer_from_a_membership_is_refused_a_platform_role_and_it_is_unchanged()
     {
         var tenant = await _callers.TenantAsync();
-        var platform = new Role { Id = Guid.NewGuid(), Name = Unique("Shared Desk "), Description = "before", IsPlatform = true };
+        var platform = new Role { Id = Guid.NewGuid(), Name = TestNames.Compact("Shared Desk "), Description = "before", IsPlatform = true };
         await _callers.StoreInTenantAsync(null, platform);
 
         var (applied, body) = await ApplyAsync(await MemberRoleWriterAsync(tenant),
@@ -398,7 +396,7 @@ public class ConfigEngineTests
     public async Task A_role_writer_from_a_membership_is_refused_a_new_role_carrying_manage_roles_and_none_is_made()
     {
         var tenant = await _callers.TenantAsync();
-        var name = Unique("Widened ");
+        var name = TestNames.Compact("Widened ");
 
         var (applied, body) = await ApplyAsync(await MemberRoleWriterAsync(tenant), new
         {
@@ -427,8 +425,8 @@ public class ConfigEngineTests
     public async Task A_platform_callers_change_to_a_platform_role_says_it_changes_every_tenant()
     {
         var tenant = await _callers.TenantAsync();
-        var platform = new Role { Id = Guid.NewGuid(), Name = Unique("Shared Desk "), Description = "before", IsPlatform = true };
-        var own = new Role { Id = Guid.NewGuid(), Name = Unique("Own Desk "), Description = "before", TenantSlug = tenant };
+        var platform = new Role { Id = Guid.NewGuid(), Name = TestNames.Compact("Shared Desk "), Description = "before", IsPlatform = true };
+        var own = new Role { Id = Guid.NewGuid(), Name = TestNames.Compact("Own Desk "), Description = "before", TenantSlug = tenant };
         await _callers.StoreInTenantAsync(null, platform, own);
 
         var (_, plan) = await PlanAsync(await _callers.SuperAdminAsync(tenant), new
@@ -461,7 +459,7 @@ public class ConfigEngineTests
     [Fact]
     public async Task Taking_a_capability_away_from_a_role_is_destructive()
     {
-        var name = Unique("Shrinking ");
+        var name = TestNames.Compact("Shrinking ");
         await _callers.StoreInTenantAsync(null, new Role { Id = Guid.NewGuid(), Name = name, SystemCapabilities = ["view_audit_log", "view_jobs"] });
         var client = await _callers.SuperAdminAsync(null);
 

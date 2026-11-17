@@ -46,13 +46,8 @@ public class IntFieldRangeIntegrationTests
         return type;
     }
 
-    private async Task<HttpClient> AdminAsync()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", await _factory.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> AdminAsync() =>
+        _factory.CreateClientAsync("SuperAdmin");
 
     private static Task<HttpResponseMessage> CreateAsync(HttpClient client, string type, string title, string views) =>
         client.PostAsync("/api/contents", new StringContent(

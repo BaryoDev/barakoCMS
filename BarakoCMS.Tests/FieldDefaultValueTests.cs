@@ -19,13 +19,8 @@ public class FieldDefaultValueTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private async Task<HttpClient> AdminAsync()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", await _factory.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> AdminAsync() =>
+        _factory.CreateClientAsync("SuperAdmin");
 
     private async Task<string> SeedTypeAsync(string suffix)
     {

@@ -181,7 +181,7 @@ public class MigrationHostTests
         // Started since, so the run below cannot take the new-database path.
         await database.ExecuteAsync("create table public.mt_doc_users (id uuid primary key)");
 
-        var removed = Path.Combine(RepositoryRoot(), "migrations", "removed");
+        var removed = Path.Combine(RepoPaths.Root, "migrations", "removed");
         var owners = new Dictionary<string, string>
         {
             ["Forms"] = "4.2.0/forms-public-forms",
@@ -238,13 +238,6 @@ public class MigrationHostTests
             .Should().BeTrue("the rows of the removed modules are left in the ledger");
     }
 
-    private static string RepositoryRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Directory.Build.props")))
-            dir = dir.Parent;
-        return dir?.FullName ?? throw new InvalidOperationException("The repository root was not found.");
-    }
 
     // JasperFx opens every dll next to the host looking for its extension attribute. The test
     // output holds the xunit assemblies, which barakoCMS.deps.json does not list, so on macOS the

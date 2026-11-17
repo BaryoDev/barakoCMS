@@ -24,8 +24,6 @@ public class ConfigTransactionTests
         _callers = new ConfigCallers(fixture);
     }
 
-    private static string Unique(string prefix) => $"{prefix}{Guid.NewGuid():n}"[..(prefix.Length + 10)];
-
     private static ContentTypeDefinition DeliveredSite()
     {
         var site = Type("site", ("Name", "string"), ("Tagline", "string"));
@@ -105,9 +103,9 @@ public class ConfigTransactionTests
     public async Task A_committed_apply_writes_the_routes_audit_entries_and_a_refused_one_is_recorded()
     {
         var tenant = await _callers.TenantAsync();
-        var type = Unique("record");
+        var type = TestNames.Compact("record");
         await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string"), ("Notes", "text")));
-        var role = Unique("Audited ");
+        var role = TestNames.Compact("Audited ");
         var roleId = Guid.NewGuid();
         await _callers.StoreInTenantAsync(null, new Role { Id = roleId, Name = role, TenantSlug = tenant });
         var client = await _callers.SuperAdminAsync(tenant);
@@ -231,10 +229,10 @@ public class ConfigTransactionTests
     public async Task An_apply_touching_two_roles_keeps_the_audit_chain_unbroken()
     {
         var tenant = await _callers.TenantAsync();
-        var type = Unique("chain");
+        var type = TestNames.Compact("chain");
         await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")));
-        var first = Unique("Chain One ");
-        var second = Unique("Chain Two ");
+        var first = TestNames.Compact("Chain One ");
+        var second = TestNames.Compact("Chain Two ");
         await _callers.StoreInTenantAsync(null,
             new Role { Id = Guid.NewGuid(), Name = first, TenantSlug = tenant }, new Role { Id = Guid.NewGuid(), Name = second, TenantSlug = tenant });
         var client = await _callers.SuperAdminAsync(tenant);
