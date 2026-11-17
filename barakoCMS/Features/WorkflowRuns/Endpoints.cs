@@ -579,7 +579,6 @@ internal sealed class ListRunsEndpoint(
 
         var now = clock.GetUtcNow();
         var tally = await TallyAsync(req, since is null, now, ct);
-        var (window, counts) = (tally.Window, tally.Counts);
 
         var query = FilterRuns(session, req, status, since);
 
@@ -591,7 +590,7 @@ internal sealed class ListRunsEndpoint(
             session, HttpContext, User, page.Items.Select(r => r.ContentId), ct);
         var items = page.Items.Select(r => RunResponse.From(r, titles.GetValueOrDefault(r.ContentId))).ToList();
 
-        var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, counts, tally.Cap, tally.Capped,
+        var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, tally.Counts, tally.Cap, tally.Capped,
             $"{sweeping}:{windows.SucceededDays}:{windows.FailedDays}" + tally.ETagSuffix());
         HttpContext.Response.Headers.ETag = etag;
         HttpContext.Response.Headers.CacheControl = "private, no-cache";
@@ -609,8 +608,8 @@ internal sealed class ListRunsEndpoint(
             Page = page.Page,
             PageSize = page.PageSize,
             TotalItems = page.TotalItems,
-            StatusCounts = counts,
-            Window = window is null ? null : new WindowInfo(window.From, window.To),
+            StatusCounts = tally.Counts,
+            Window = tally.Window is { } window ? new WindowInfo(window.From, window.To) : null,
             PreviousStatusCounts = tally.Previous,
             Series = tally.Series,
             StatusCountCap = tally.Cap,
