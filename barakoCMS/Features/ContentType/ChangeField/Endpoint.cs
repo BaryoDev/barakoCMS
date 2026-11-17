@@ -47,7 +47,7 @@ internal sealed class Endpoint(
         var lowered = (Route<string>("name") ?? string.Empty).ToLower();
         var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
         var fieldName = Route<string>("field") ?? string.Empty;
-        var field = definition?.Fields.FirstOrDefault(f => string.Equals(f.Name, fieldName, StringComparison.OrdinalIgnoreCase));
+        var field = definition?.Fields.FieldNamed(fieldName);
         if (definition is null || field is null)
         {
             await Send.NotFoundAsync(ct);

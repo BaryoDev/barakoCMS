@@ -361,7 +361,7 @@ internal static class FieldChanges
     {
         // Thrown rather than skipped: a change completing without its definition step would report
         // a sensitivity raise or a rename that never happened.
-        var field = definition.Fields.FirstOrDefault(f => string.Equals(f.Name, change.Field, StringComparison.OrdinalIgnoreCase))
+        var field = definition.Fields.FieldNamed(change.Field)
             ?? throw new InvalidOperationException($"'{definition.Name}' has no field '{change.Field}' left to change.");
 
         switch (change.Kind)

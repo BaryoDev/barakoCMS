@@ -59,7 +59,7 @@ internal static class EntryResponse
 
         if (await sensitivity.ApplyAsync(content, response.Data, http, ct))
         {
-            response.ContentType = "HIDDEN";
+            response.ContentType = barakoCMS.Core.HiddenContentType.Name;
             response.LifecycleState = null;
         }
 

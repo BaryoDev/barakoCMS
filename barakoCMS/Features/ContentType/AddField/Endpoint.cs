@@ -197,7 +197,7 @@ internal sealed class Endpoint(
         }
 
         var clash = definition.Fields
-            .FirstOrDefault(f => string.Equals(f.Name, req.FieldName, StringComparison.OrdinalIgnoreCase));
+            .FieldNamed(req.FieldName);
 
         if (clash is not null)
         {
