@@ -140,12 +140,12 @@ public interface IFileStore
     /// answers in one read however many ids it is given, so the caller bounds how many it asks for.
     /// The default asks <see cref="FindPublicAsync"/> once for each distinct id.
     /// </remarks>
-    Task<IReadOnlyDictionary<Guid, StoredFileInfo>> FindPublicManyAsync(
+    async Task<IReadOnlyDictionary<Guid, StoredFileInfo>> FindPublicManyAsync(
         IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(ids);
 
-        return LookUpAsync(ids, id => FindPublicAsync(id, cancellationToken));
+        return await LookUpAsync(ids, id => FindPublicAsync(id, cancellationToken));
     }
 
     /// <summary>
@@ -157,12 +157,12 @@ public interface IFileStore
     /// The same bound as <see cref="FindPublicManyAsync"/>. The default asks
     /// <see cref="FindAsync"/> once for each distinct id.
     /// </remarks>
-    Task<IReadOnlyDictionary<Guid, StoredFileInfo>> FindManyAsync(
+    async Task<IReadOnlyDictionary<Guid, StoredFileInfo>> FindManyAsync(
         IReadOnlyCollection<Guid> ids, ClaimsPrincipal caller, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(ids);
 
-        return LookUpAsync(ids, id => FindAsync(id, caller, cancellationToken));
+        return await LookUpAsync(ids, id => FindAsync(id, caller, cancellationToken));
     }
 
     private static async Task<IReadOnlyDictionary<Guid, StoredFileInfo>> LookUpAsync(

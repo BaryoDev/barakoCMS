@@ -17,18 +17,27 @@ public static class PaginationExtensions
         PaginatedRequest request,
         CancellationToken ct)
     {
+        // Stats marks the query it is called on and a count from that query is refused, so the
+        // fallback count comes from a copy made before Stats. It only runs for an empty page.
+        var uncounted = query.Provider.CreateQuery<T>(query.Expression);
+
         var items = await query
             .Stats(out var stats)
             .Skip(request.Skip)
             .Take(request.Take)
             .ToListAsync(ct);
 
+        // A page past the end has no row to carry the total, so Stats reports 0. Count it on its own.
+        var total = items.Count == 0 && request.Skip > 0
+            ? await uncounted.CountAsync(ct)
+            : (int)stats.TotalResults;
+
         return new PaginatedResponse<T>
         {
             Items = items,
             Page = request.Page,
             PageSize = request.PageSize,
-            TotalItems = (int)stats.TotalResults,
+            TotalItems = total,
         };
     }
 
