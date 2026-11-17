@@ -20,8 +20,6 @@ public class LocaleSettingsTests
 
     public LocaleSettingsTests(IntegrationTestFixture factory) => _factory = factory;
 
-    private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..20].ToLowerInvariant();
-
     private static UpdateLocaleSettingsRequest Valid() => new()
     {
         DefaultLocale = "en",
@@ -144,7 +142,7 @@ public class LocaleSettingsTests
 
     private async Task<string> TenantAsync()
     {
-        var slug = Unique("loc");
+        var slug = TestNames.Slug("loc");
         await StoreAsync(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
         return slug;
     }
@@ -152,9 +150,9 @@ public class LocaleSettingsTests
     private async Task<HttpClient> ClientAsync(string slug, Guid roleId, string roleName)
     {
         var userId = Guid.NewGuid();
-        var username = Unique("u");
+        var username = TestNames.Slug("u");
         await StoreAsync(
-            new User { Id = userId, Username = username, Email = $"{Unique("m")}@example.com" },
+            new User { Id = userId, Username = username, Email = $"{TestNames.Slug("m")}@example.com" },
             new Membership
             {
                 Id = Guid.NewGuid(), UserId = userId, TenantSlug = slug,

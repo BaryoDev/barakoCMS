@@ -20,7 +20,10 @@
 
 set -uo pipefail
 
-OUT_DIR="$(realpath -m "${OPENAPI_OUT:-$(mktemp -d)}")"
+# shellcheck source=scripts/lib-path.sh
+. "$(dirname "$0")/lib-path.sh"
+
+OUT_DIR="$(resolve_path "${OPENAPI_OUT:-$(mktemp -d)}")"
 
 cd "$(dirname "$0")/.."
 

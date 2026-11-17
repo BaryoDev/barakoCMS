@@ -12,20 +12,12 @@ namespace BarakoCMS.Tests;
 /// </summary>
 public class ModuleTemplateTests
 {
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Directory.Build.props")))
-            dir = dir.Parent;
-        dir.Should().NotBeNull("the tests must be able to find the repository root");
-        return dir!.FullName;
-    }
 
     private static string TemplateDir() =>
-        Path.Combine(RepoRoot(), "BarakoCMS.Templates", "templates", "barakocms-module");
+        Path.Combine(RepoPaths.Root, "BarakoCMS.Templates", "templates", "barakocms-module");
 
     private static string ProjectVersion(string project) =>
-        XDocument.Load(Path.Combine(RepoRoot(), project, $"{project}.csproj"))
+        XDocument.Load(Path.Combine(RepoPaths.Root, project, $"{project}.csproj"))
             .Descendants("Version").Single().Value;
 
     private static string TemplateDefault(string symbol)

@@ -28,7 +28,10 @@
 
 set -euo pipefail
 
-OUT="$(realpath -m "${1:?usage: scripts/perf-measure.sh <output json>}")"
+# shellcheck source=scripts/lib-path.sh
+. "$(dirname "$0")/lib-path.sh"
+
+OUT="$(resolve_path "${1:?usage: scripts/perf-measure.sh <output json>}")"
 
 cd "$(dirname "$0")/.."
 

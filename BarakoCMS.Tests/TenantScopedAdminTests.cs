@@ -36,8 +36,6 @@ public class TenantScopedAdminTests
     private static string NextIp() =>
         $"198.51.100.{Interlocked.Increment(ref _ipCounter) % 250 + 1}";
 
-    private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..20].ToLowerInvariant();
-
     private async Task StoreAsync(params object[] documents)
     {
         using var scope = _factory.Services.CreateScope();
@@ -48,7 +46,7 @@ public class TenantScopedAdminTests
 
     private async Task<string> TenantAsync()
     {
-        var slug = Unique("scope");
+        var slug = TestNames.Slug("scope");
         await StoreAsync(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
         return slug;
     }
@@ -77,9 +75,9 @@ public class TenantScopedAdminTests
     private async Task<(Guid Id, string Email)> MemberAsync(string slug, params Guid[] roleIds)
     {
         var id = Guid.NewGuid();
-        var email = $"{Unique("m")}@example.com";
+        var email = $"{TestNames.Slug("m")}@example.com";
         await StoreAsync(
-            new User { Id = id, Username = Unique("u"), Email = email },
+            new User { Id = id, Username = TestNames.Slug("u"), Email = email },
             new Membership
             {
                 Id = Guid.NewGuid(), UserId = id, TenantSlug = slug,
@@ -156,7 +154,7 @@ public class TenantScopedAdminTests
         var roleId = Guid.NewGuid();
         var user = await UserByEmailAsync(email);
         user.RoleIds = [roleId];
-        await StoreAsync(new Role { Id = roleId, Name = Unique("nocaps"), SystemCapabilities = null! }, user);
+        await StoreAsync(new Role { Id = roleId, Name = TestNames.Slug("nocaps"), SystemCapabilities = null! }, user);
 
         (await admin.GetAsync("/api/settings")).StatusCode.Should().Be(HttpStatusCode.Forbidden,
             "a role document written without the list holds no capability, and must not fail the check");
@@ -183,7 +181,7 @@ public class TenantScopedAdminTests
         var tenantA = await TenantAsync();
         var tenantB = await TenantAsync();
         var (admin, _) = await TenantAdminAsync(tenantA);
-        var key = Unique("flag");
+        var key = TestNames.Slug("flag");
         await StoreAsync(new FeatureFlag { Key = key, Enabled = true, TenantSlugs = [tenantB] });
 
         (await admin.GetAsync("/api/feature-flags/admin")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
@@ -207,7 +205,7 @@ public class TenantScopedAdminTests
         foreach (var role in new[] { "Admin", "SuperAdmin" })
         {
             var client = await GlobalAsync(role);
-            var key = Unique("flag");
+            var key = TestNames.Slug("flag");
 
             (await client.PostAsJsonAsync("/api/feature-flags/admin", new { key, enabled = true }))
                 .StatusCode.Should().Be(HttpStatusCode.OK, role);
@@ -228,11 +226,11 @@ public class TenantScopedAdminTests
         var tenantA = await TenantAsync();
         var tenantB = await TenantAsync();
         var (admin, _) = await TenantAdminAsync(tenantA);
-        var marker = Unique("err");
+        var marker = TestNames.Slug("err");
         await StoreAsync(
-            new ClientError { Fingerprint = Unique("fp"), Message = $"{marker} in A", Tenant = tenantA },
-            new ClientError { Fingerprint = Unique("fp"), Message = $"{marker} in B", Tenant = tenantB },
-            new ClientError { Fingerprint = Unique("fp"), Message = $"{marker} unattributed", Tenant = null });
+            new ClientError { Fingerprint = TestNames.Slug("fp"), Message = $"{marker} in A", Tenant = tenantA },
+            new ClientError { Fingerprint = TestNames.Slug("fp"), Message = $"{marker} in B", Tenant = tenantB },
+            new ClientError { Fingerprint = TestNames.Slug("fp"), Message = $"{marker} unattributed", Tenant = null });
 
         var mine = await ItemsAsync(await admin.GetAsync($"/api/client-errors?q={marker}"));
         mine.Should().ContainSingle()
@@ -248,8 +246,8 @@ public class TenantScopedAdminTests
         var tenantA = await TenantAsync();
         var tenantB = await TenantAsync();
         var (admin, _) = await TenantAdminAsync(tenantA);
-        var own = new ClientError { Fingerprint = Unique("fp"), Message = "own", Tenant = tenantA };
-        var other = new ClientError { Fingerprint = Unique("fp"), Message = "other", Tenant = tenantB };
+        var own = new ClientError { Fingerprint = TestNames.Slug("fp"), Message = "own", Tenant = tenantA };
+        var other = new ClientError { Fingerprint = TestNames.Slug("fp"), Message = "other", Tenant = tenantB };
         await StoreAsync(own, other);
 
         (await admin.PostAsJsonAsync($"/api/client-errors/{other.Id}/resolve", new { resolved = true }))
@@ -268,9 +266,9 @@ public class TenantScopedAdminTests
     [Fact]
     public async Task The_same_fault_from_two_tenants_is_recorded_once_per_tenant()
     {
-        var tenantA = Unique("ta");
-        var tenantB = Unique("tb");
-        var message = Unique("same fault");
+        var tenantA = TestNames.Slug("ta");
+        var tenantB = TestNames.Slug("tb");
+        var message = TestNames.Slug("same fault");
 
         using (var scope = _factory.Services.CreateScope())
         {
@@ -296,7 +294,7 @@ public class TenantScopedAdminTests
     public async Task An_error_reported_without_a_tenant_is_kept_on_the_tenant_the_request_resolved_to()
     {
         var tenantA = await TenantAsync();
-        var message = Unique("pre sign-in");
+        var message = TestNames.Slug("pre sign-in");
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Tenant", tenantA);
         client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
@@ -355,7 +353,7 @@ public class TenantScopedAdminTests
     {
         var tenantA = await TenantAsync();
         var (admin, _) = await TenantAdminAsync(tenantA);
-        var message = Unique("mixed");
+        var message = TestNames.Slug("mixed");
         var reporter = _factory.CreateClient();
         reporter.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
         reporter.DefaultRequestHeaders.Add("X-Tenant", tenantA.ToUpperInvariant());
@@ -373,7 +371,7 @@ public class TenantScopedAdminTests
         var tenantB = await TenantAsync();
         var (adminA, _) = await TenantAdminAsync(tenantA);
         var (adminB, _) = await TenantAdminAsync(tenantB);
-        var message = Unique("named");
+        var message = TestNames.Slug("named");
         var reporter = _factory.CreateClient();
         reporter.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
         reporter.DefaultRequestHeaders.Add("X-Tenant", tenantA);

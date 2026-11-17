@@ -492,7 +492,7 @@ public class UserIdentityUniquenessTests
         _client.PostAsJsonAsync("/api/auth/register/verify", new { Token = token, Password }, Ct);
 
     private static Task<string> MigrationAsync() =>
-        File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "4.2.0", "user-normalized-identity.sql"));
+        File.ReadAllTextAsync(Path.Combine(RepoPaths.Root, "migrations", "4.2.0", "user-normalized-identity.sql"));
 
     private static string Collapse(string expression) => Regex.Replace(expression, @"\s+", " ").Trim();
 
@@ -509,15 +509,4 @@ public class UserIdentityUniquenessTests
         return false;
     }
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-        {
-            directory = directory.Parent;
-        }
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 }

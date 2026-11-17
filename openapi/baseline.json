@@ -2930,6 +2930,10 @@
       "BarakoCMSFeaturesContentBatchBatchRequest": {
         "additionalProperties": false,
         "properties": {
+          "dryRun": {
+            "description": "Run every step through the checks, in the batch's transaction, and roll it back: the answer\nsays what each step would do and nothing is stored.",
+            "type": "boolean"
+          },
           "steps": {
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFeaturesContentBatchBatchStep"
@@ -2947,6 +2951,10 @@
       "BarakoCMSFeaturesContentBatchBatchResponse": {
         "additionalProperties": false,
         "properties": {
+          "dryRun": {
+            "description": "True when this answers a dry run: nothing was stored.",
+            "type": "boolean"
+          },
           "steps": {
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFeaturesContentBatchBatchStepResult"
@@ -3001,6 +3009,14 @@
         "additionalProperties": false,
         "description": "What one step did. State is the lifecycle state after it, or null for a type with none.",
         "properties": {
+          "changes": {
+            "description": "For a create in a dry run, the fields the entry would hold. Null otherwise.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSCoreValidationFieldDiff"
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "id": {
             "format": "guid",
             "type": "string"
@@ -4089,6 +4105,10 @@
             "nullable": true,
             "type": "string"
           },
+          "dryRun": {
+            "description": "Check the change with everything the real one runs and answer with what it would do, starting\nno job and storing nothing.",
+            "type": "boolean"
+          },
           "mapping": {
             "additionalProperties": {
               "type": "string"
@@ -4136,9 +4156,27 @@
               }
             ]
           },
+          "changes": {
+            "description": "For a dry run, the field before and after: its name for a rename, its type for a convert, its label for a label. Null otherwise.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSCoreValidationFieldDiff"
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "classification": {
             "description": "additive, applied at once, or rename, convert or destructive,\napplied by the job in Change.",
             "type": "string"
+          },
+          "dryRun": {
+            "description": "True when this answers a dry run: nothing was changed and no job started.",
+            "type": "boolean"
+          },
+          "valuesLost": {
+            "description": "For a dry run of a convert or a remove, how many entries hold a value the change drops.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
           }
         },
         "type": "object"
@@ -9064,9 +9102,23 @@
               "format": "int32",
               "type": "integer"
             },
-            "description": "How many runs have each status under the content and workflow filters, whatever the status filter and\nthe page. Every status is present, with zero where there are none. Null when changedSince\nwas given, since a poll reads what changed and a count would add a scan to each one.",
+            "description": "How many runs have each status under the content and workflow filters, whatever the status filter\nand the page, each counted up to StatusCountCap. Every status is present, with zero\nwhere there are none. Null when changedSince was given, since a poll reads what changed and\na count would add a scan to each one.",
             "nullable": true,
             "type": "object"
+          },
+          "statusCountCap": {
+            "description": "The most runs StatusCounts counts for one status. Null when StatusCounts is.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
+          "statusCountsCapped": {
+            "description": "The statuses that have more runs than StatusCountCap, so their entry in\nStatusCounts is that many or more. Empty when every count is exact. Null when\nStatusCounts is.",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
           },
           "succeededRetainedFrom": {
             "description": "Succeeded runs that finished before this are removed by the retention sweep. Null when the\nsweep is off or keeps them forever.",
@@ -16491,7 +16543,7 @@
     },
     "/api/auth/otp/request": {
       "post": {
-        "description": "A tenant that does not allow sign-in codes answers 403 to everybody, before any address is read.\nThe code a password sign-in sends to approve a new device does not come through here, so it\nstill works on such a tenant.",
+        "description": "A tenant that does not allow sign-in codes answers 403 to everybody, before any address is read.\nOutside Development it answers 503 to everybody when only the mock email service is registered,\nsince nothing would be sent. The check runs before any address is read.\nThe code a password sign-in sends to approve a new device does not come through here, so it\nstill works on such a tenant.",
         "operationId": "barakoCMSFeaturesAuthOtpRequestEndpoint",
         "requestBody": {
           "content": {
@@ -23900,7 +23952,7 @@
     },
     "/api/roles/preview": {
       "post": {
-        "description": "The draft is judged by a PermissionResolver made for the request and pinned to it,\nso the rule logic is the one a saved role runs through. It is never the cached resolver: nothing\nthe draft decides may reach the shared cache. Nothing is stored. The user is judged as holding\nthe draft alone, so the answer is what the role would grant that user, not a merge with the\nroles the user holds now. The user's branch scoping is not applied, and neither is sensitivity:\na field the user would see masked or hidden still counts in a condition.\nThe caller only sees entries the caller may read, so the preview cannot be used to list what the\ncaller cannot open. Those are left out, not shown with a reason. A draft read condition on a\nfield the caller may not read is refused with 400, since which entries match would tell the\ncaller the field's value.",
+        "description": "The draft is judged by a PermissionResolver made for the request and pinned to it,\nso the rule logic is the one a saved role runs through. It is never the cached resolver: nothing\nthe draft decides may reach the shared cache. Nothing is stored. The user is judged as holding\nthe draft alone, so the answer is what the role would grant that user, not a merge with the\nroles the user holds now.\nThe user's branch scope and field sensitivity are applied, by the services the real read uses,\njudged for the previewed user and not the caller. An entry outside the user's branches is hidden\nwith outside branch scope. A field sensitivity masks or hides for the user, judged as\nthe draft alone, is left out of the readable fields. The draft holds the capabilities and the\nname the request gives it, and none when it gives none. With a roleId the draft is an edit\nof that stored role: it takes the role's id, which is how a field lists a role, and its name when\nthe request gives none, and the update's checks apply (a role the caller does not reach is 404,\na platform role needs a platform administrator, a seeded role may keep its reserved name, a\nplatform capability the role already holds is kept). A read condition is still judged on the\nstored value, as the real read judges it: the permission check runs on the stored entry and the\nmask is applied afterwards.\nThe caller only sees entries the caller may read, so the preview cannot be used to list what the\ncaller cannot open. Those are left out, not shown with a reason. A draft read condition on a\nfield the caller may not read is refused with 400, since which entries match would tell the\ncaller the field's value.",
         "operationId": "barakoCMSFeaturesRolesPreviewEndpoint",
         "requestBody": {
           "content": {

@@ -150,7 +150,7 @@ public class SiteShareLinksMigrationTests
     private static async Task<(string Scratch, string Sql)> ScopedAsync(
         string file, CancellationToken ct, string? scratch = null)
     {
-        var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "4.2.0", file), ct);
+        var sql = await File.ReadAllTextAsync(Path.Combine(RepoPaths.Root, "migrations", "4.2.0", file), ct);
 
         scratch ??= "site_share_links_check_" + Guid.NewGuid().ToString("N")[..8];
         // Only the table moves to the scratch schema; mt_immutable_timestamptz stays in public,
@@ -207,15 +207,4 @@ public class SiteShareLinksMigrationTests
         await command.ExecuteNonQueryAsync(ct);
     }
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-        {
-            directory = directory.Parent;
-        }
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 }

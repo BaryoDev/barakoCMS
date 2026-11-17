@@ -27,10 +27,25 @@ internal sealed class Request
 
     /// <summary>A new name. Every entry's value moves to it, by a job.</summary>
     public string? NewName { get; set; }
+
+    /// <summary>
+    /// Check the change with everything the real one runs and answer with what it would do, starting
+    /// no job and storing nothing.
+    /// </summary>
+    public bool DryRun { get; set; }
 }
 
-internal sealed class Response
+internal sealed class Response : barakoCMS.Core.Validation.IDryRunResponse
 {
+    /// <summary>True when this answers a dry run: nothing was changed and no job started.</summary>
+    public bool DryRun { get; init; }
+
+    /// <summary>For a dry run, the field before and after: its name for a rename, its type for a convert, its label for a label. Null otherwise.</summary>
+    public List<barakoCMS.Core.Validation.FieldDiff>? Changes { get; init; }
+
+    /// <summary>For a dry run of a convert or a remove, how many entries hold a value the change drops.</summary>
+    public int? ValuesLost { get; init; }
+
     /// <summary>
     /// <c>additive</c>, applied at once, or <c>rename</c>, <c>convert</c> or <c>destructive</c>,
     /// applied by the job in <see cref="Change"/>.

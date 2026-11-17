@@ -18,14 +18,6 @@ namespace BarakoCMS.Tests;
 /// </remarks>
 public class ComposeDefaultsTests
 {
-    internal static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Directory.Build.props")))
-            dir = dir.Parent;
-        dir.Should().NotBeNull("the tests must be able to find the repository root");
-        return dir!.FullName;
-    }
 
     public static TheoryData<string> ComposeFiles() => new()
     {
@@ -37,7 +29,7 @@ public class ComposeDefaultsTests
 
     private static string[] Lines(string composeFile)
     {
-        var path = Path.Combine(RepoRoot(), composeFile.Replace('/', Path.DirectorySeparatorChar));
+        var path = Path.Combine(RepoPaths.Root, composeFile.Replace('/', Path.DirectorySeparatorChar));
         File.Exists(path).Should().BeTrue("{0} is one of the shipped compose files", composeFile);
         return File.ReadAllLines(path);
     }
@@ -177,7 +169,7 @@ public class ComposeDefaultsTests
     [Fact]
     public void No_flyio_app_configuration_is_committed()
     {
-        var root = RepoRoot();
+        var root = RepoPaths.Root;
 
         File.Exists(Path.Combine(root, "fly.toml")).Should().BeFalse(
             "fly.toml names a globally unique Fly app, so committing one points every adopter's "

@@ -41,7 +41,7 @@ public class ExternalAuthMigrationTests
             await store.Storage.Database.EnsureStorageExistsAsync(document, ct);
         }
 
-        var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", version, file + ".sql"), ct);
+        var sql = await File.ReadAllTextAsync(Path.Combine(RepoPaths.Root, "migrations", version, file + ".sql"), ct);
 
         var scratch = "external_auth_check_" + Guid.NewGuid().ToString("N")[..8];
         var scoped = sql.Replace($"public.{table}", $"{scratch}.{table}");
@@ -91,7 +91,7 @@ public class ExternalAuthMigrationTests
         var declared = feature.Objects.OfType<Weasel.Postgresql.Tables.Table>().Single()
             .Indexes.Select(i => i.Name).Order().ToList();
 
-        var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", version, file + ".sql"), ct);
+        var sql = await File.ReadAllTextAsync(Path.Combine(RepoPaths.Root, "migrations", version, file + ".sql"), ct);
         var created = System.Text.RegularExpressions.Regex
             .Matches(sql, $@"CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS\s+(\w+)\s+ON\s+public\.{table}\b")
             .Select(m => m.Groups[1].Value).Order().ToList();
@@ -138,15 +138,4 @@ public class ExternalAuthMigrationTests
         await command.ExecuteNonQueryAsync(ct);
     }
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-        {
-            directory = directory.Parent;
-        }
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 }

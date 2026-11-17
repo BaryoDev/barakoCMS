@@ -132,13 +132,8 @@ public class SensitivityByCapabilityTests
         return client;
     }
 
-    private async Task<HttpClient> SuperAdminAsync()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> SuperAdminAsync() =>
+        _factory.CreateClientAsync("SuperAdmin");
 
     private static async Task<JsonElement> ReadAsync(HttpClient client, Guid id)
     {
