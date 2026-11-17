@@ -179,7 +179,7 @@ internal class Endpoint(
 
         var lineDefinition = await session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(d => d.Name.ToLower() == barakoCMS.Core.ContentTypeName.Normalize(lineType.ContentType), ct);
-        var parent = lineDefinition?.Fields.FirstOrDefault(f => string.Equals(f.Name, lineType.ParentField, StringComparison.OrdinalIgnoreCase));
+        var parent = lineDefinition?.Fields.FieldNamed(lineType.ParentField);
         if (parent is null
             || !string.Equals(parent.Type, "reference", StringComparison.OrdinalIgnoreCase)
             || parent.Multiple

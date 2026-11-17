@@ -43,15 +43,6 @@ internal static partial class NumberingRules
     public static bool NeedsBranch(NumberingRule rule) =>
         rule.SeriesTemplate?.Contains("{branch}", StringComparison.Ordinal) == true;
 
-    /// <summary>
-    /// The names of the type's client-allocated series, with the branch left as a pattern, so a
-    /// ledger or a check can tell which counters a client may take numbers from.
-    /// </summary>
-    public static IReadOnlyList<string> ClientSeriesNames(ContentTypeDefinition definition) =>
-        definition.Numbering is { ClientAllocated: true } rule
-            ? [SeriesFor(definition, rule, NeedsBranch(rule) ? "{branch}" : null).Name]
-            : [];
-
     [System.Text.RegularExpressions.GeneratedRegex("^[a-z0-9._-]+\\z")]
     private static partial System.Text.RegularExpressions.Regex BranchCodePattern();
 
@@ -75,7 +66,7 @@ internal static partial class NumberingRules
     public static List<string> DefinitionErrors(ContentTypeDefinition definition, NumberingRule rule)
     {
         var errors = new List<string>();
-        var field = definition.Fields.FirstOrDefault(f => string.Equals(f.Name, rule.Field, StringComparison.OrdinalIgnoreCase));
+        var field = definition.Fields.FieldNamed(rule.Field);
 
         if (field is null)
         {

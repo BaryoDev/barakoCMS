@@ -15,8 +15,6 @@ internal class Endpoint(
         // consolidated on /api/content-types. /api/schemas stays as a deprecated alias so an
         // existing client keeps working; it goes in 6.0.
         Get("/api/content-types", "/api/schemas");
-        // NOTE: AllowAnonymous() must NOT be combined with Roles() — in ASP.NET Core
-        // AllowAnonymous short-circuits authorization and silently disables the role check.
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
     }
 

@@ -103,7 +103,7 @@ internal class Endpoint(
             return;
         }
 
-        if (user == null || !await permissionResolver.CanPerformActionAsync(user, existingContent.ContentType, "update", existingContent, ct))
+        if (!await permissionResolver.CanPerformActionAsync(user, existingContent.ContentType, "update", existingContent, ct))
         {
             await Send.ForbiddenAsync(ct);
             return;
