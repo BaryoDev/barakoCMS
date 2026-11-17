@@ -858,7 +858,8 @@ public class MemberProfileApiTests
         var member = await MemberAsync(slug, Branch("north"));
         using (var scope = _factory.Services.CreateScope())
         {
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            // Groups are stored per tenant, so a tenant's group lives under the tenant, where its requests read.
+            await using var session = scope.ServiceProvider.GetRequiredService<IDocumentStore>().LightweightSession(slug);
             session.Store(new UserGroup
             {
                 Id = Guid.NewGuid(), Name = $"grp-{Guid.NewGuid():N}"[..12], UserIds = [member], RoleIds = [role.Id],
