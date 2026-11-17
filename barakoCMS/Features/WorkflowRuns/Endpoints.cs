@@ -60,6 +60,12 @@ internal sealed class RunResponse
     /// <summary>The user who started the run by hand. Null for a run an event started.</summary>
     public Guid? StartedBy { get; init; }
 
+    /// <summary>For a run a schedule started, the due time it is for. Null for every other run.</summary>
+    public DateTimeOffset? ScheduledFor { get; init; }
+
+    /// <summary>For a scheduled run, the due time before <see cref="ScheduledFor"/>. Null when there was none.</summary>
+    public DateTimeOffset? ScheduledPreviousFor { get; init; }
+
     /// <summary>When an operator abandoned the run. Null for a run nobody abandoned.</summary>
     public DateTimeOffset? AbandonedAt { get; init; }
 
@@ -95,9 +101,19 @@ internal sealed class RunResponse
         CorrelationId = barakoCMS.Infrastructure.Tracing.Correlation.Normalise(r.CorrelationId),
         UpdatedAt = r.UpdatedAt == default ? null : r.UpdatedAt,
         StartedBy = r.StartedBy,
+        ScheduledFor = AsUtc(r.ScheduledFor),
+        ScheduledPreviousFor = AsUtc(r.ScheduledPreviousFor),
         Actions = r.Actions.OrderBy(a => a.Ordinal).Select(AttemptResponse.From).ToList(),
         AbandonedAt = r.AbandonedAt,
         Compensation = r.Compensation?.ToString(),
+    };
+
+    // Stored as UTC. Marten can read it back unspecified, which is pinned to UTC; a local value is converted.
+    private static DateTimeOffset? AsUtc(DateTime? at) => at switch
+    {
+        null => null,
+        { Kind: DateTimeKind.Local } t => new DateTimeOffset(t.ToUniversalTime()),
+        { } t => new DateTimeOffset(DateTime.SpecifyKind(t, DateTimeKind.Utc)),
     };
 }
 
