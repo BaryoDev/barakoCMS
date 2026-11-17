@@ -115,10 +115,24 @@ public class MigrationSkipQueryTests
             "select exists (select 1 from pg_indexes where schemaname = 'public' and tablename = 'mt_events' "
             + "and indexname = 'mt_events_idx_tenant_timestamp' and indexdef like '%(tenant_id, \"timestamp\", seq_id)%')"),
 
+        // The run table with no index on the status and tenant, as 5.7.1 left it. Each file adds one of
+        // the three indexes the run list's status counts read by.
+        ["core/5.7.2/workflow-run-content-status-tenant-index"] = (RunTableBefore, ValidIndex("mt_doc_workflow_runs_idx_content_status_tenant")),
+
+        ["core/5.7.2/workflow-run-status-tenant-index"] = (RunTableBefore, ValidIndex("mt_doc_workflow_runs_idx_status_tenant")),
+
+        ["core/5.7.2/workflow-run-workflow-status-tenant-index"] = (RunTableBefore, ValidIndex("mt_doc_workflow_runs_idx_workflow_status_tenant")),
+
         ["Files/4.2.0/stored-files-parent-index"] = (
             "create table public.mt_doc_stored_files (id uuid primary key, data jsonb not null);",
             "select to_regclass('public.mt_doc_stored_files_idx_parent_file_id') is not null"),
     };
+
+    private const string RunTableBefore =
+        "create table public.mt_doc_workflow_runs (tenant_id varchar not null default '*DEFAULT*', id uuid not null, data jsonb not null);";
+
+    private static string ValidIndex(string name) =>
+        "select coalesce((select indisvalid from pg_index where indexrelid = to_regclass('public." + name + "')), false)";
 
     public static TheoryData<string> Keys()
     {
