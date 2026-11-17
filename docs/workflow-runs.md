@@ -630,7 +630,7 @@ Worst case for the document is every action holding 20 entries with 500-characte
 
 Each run in the list carries `contentTitle`, the title of its entry as the caller may read it. A `changedSince` delta lists the runs that changed, and a run is not written when its entry's title changes, so the delta does not carry a new title for a run that was not otherwise touched. A client that shows titles keeps the one it has until it reads the run again, for example with the plain list or `GET /api/workflow-runs/{id}`.
 
-The list response also carries `statusCounts`, the number of runs in each status for the current `contentId` filter, whatever the `status` filter and page, except that it is null when `changedSince` is given, since a poll should not pay for a count of the table. It carries too `succeededRetainedFrom` and `failedRetainedFrom`, the times before which the retention sweep removes finished runs (null when the sweep is off or keeps them).
+The list response also carries `statusCounts`, the number of runs in each status for the current `contentId` filter, whatever the `status` filter and page, except that it is null when `changedSince` is given, since a poll should not pay for a count of the table. Each status is counted up to `statusCountCap` (1000), so the cost does not grow with the history. A status with more runs than that reports the cap, and its name is in `statusCountsCapped`, meaning "the cap or more". It carries too `succeededRetainedFrom` and `failedRetainedFrom`, the times before which the retention sweep removes finished runs (null when the sweep is off or keeps them).
 
 `updatedAt` is set by the store on every write of a run and is indexed. A run written before it existed has none until it is next written.
 

@@ -8,7 +8,7 @@ namespace barakoCMS.Features.WorkflowRuns;
 /// answers 304 with no body.
 /// </summary>
 /// <remarks>
-/// Hashes the runs, the page, the counts and the configured retention windows. The cursor and the
+/// Hashes the runs, the page, the counts, the cap and the capped statuses, and the configured retention windows. The cursor and the
 /// cutoff dates derived from them are left out: they come from the clock, so including them would
 /// make every response differ from the last. A changed window changes the tag.
 /// A cursor the client keeps from an earlier response stays valid, so skipping the new one loses nothing.
@@ -22,6 +22,8 @@ internal static class RunListETag
         int pageSize,
         int totalItems,
         Dictionary<string, int>? counts,
+        int? countCap,
+        IReadOnlyList<string>? capped,
         string retention)
     {
         var material = JsonSerializer.Serialize(new
@@ -32,6 +34,8 @@ internal static class RunListETag
             totalItems,
             retention,
             counts = counts?.OrderBy(c => c.Key, StringComparer.Ordinal).ToList(),
+            countCap,
+            capped = capped?.OrderBy(c => c, StringComparer.Ordinal).ToList(),
         });
 
         return DeliveryCache.WeakETag(DeliveryCache.TenantOf(http), material);
