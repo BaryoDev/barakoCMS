@@ -156,7 +156,7 @@ public class SensitivityByCapabilityMigrationTests
     /// <summary>The file with its two tables moved into the scratch schema.</summary>
     private static async Task<string> ScopedAsync(string file, string scratch, CancellationToken ct)
     {
-        var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "4.6.0", file), ct);
+        var sql = await File.ReadAllTextAsync(Path.Combine(RepoPaths.Root, "migrations", "4.6.0", file), ct);
 
         sql.Should().Contain($"public.{Roles}", "{0} should name the roles table as public.{1}", file, Roles);
         sql.Should().Contain($"public.{Types}", "{0} should name the content types table as public.{1}", file, Types);
@@ -194,15 +194,4 @@ public class SensitivityByCapabilityMigrationTests
         await command.ExecuteNonQueryAsync(ct);
     }
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-        {
-            directory = directory.Parent;
-        }
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 }

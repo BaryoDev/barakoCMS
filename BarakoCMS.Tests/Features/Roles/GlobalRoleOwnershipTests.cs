@@ -19,8 +19,6 @@ public class GlobalRoleOwnershipTests(IntegrationTestFixture fixture)
 {
     private readonly ConfigCallers _callers = new(fixture);
 
-    private static string Unique(string prefix) => $"{prefix}{Guid.NewGuid():n}"[..(prefix.Length + 10)];
-
     private Task<Role?> LoadAsync(Guid id) => _callers.InTenantAsync(null, s => s.LoadAsync<Role>(id, Ct));
 
     [Fact]
@@ -29,14 +27,14 @@ public class GlobalRoleOwnershipTests(IntegrationTestFixture fixture)
         var tenant = await _callers.TenantAsync();
         var held = new Role
         {
-            Id = Guid.NewGuid(), Name = Unique("Held Globally "), Description = "before", IsPlatform = true,
+            Id = Guid.NewGuid(), Name = TestNames.Compact("Held Globally "), Description = "before", IsPlatform = true,
             SystemCapabilities = [SystemCapabilities.ViewAuditLog],
         };
         await _callers.StoreInTenantAsync(null, held);
         var grants = await _callers.TenantRoleAsync(tenant, SystemCapabilities.ManageConfig, SystemCapabilities.ManageRoles);
         var admin = await _callers.ClientAsync(tenant, [], memberRoles: [grants]);
 
-        var own = Unique("Own ");
+        var own = TestNames.Compact("Own ");
         var (control, controlBody) = await ApplyAsync(admin, new { version = 1, roles = new Dictionary<string, object> { [own] = new { description = "x" } } });
         control.StatusCode.Should().Be(HttpStatusCode.OK, "the control: the same caller writes a role of its own tenant. " + controlBody);
 
@@ -82,10 +80,10 @@ public class GlobalRoleOwnershipTests(IntegrationTestFixture fixture)
     public async Task Assigning_a_global_role_takes_a_platform_role_and_refuses_a_tenants_role()
     {
         var tenant = await _callers.TenantAsync();
-        var tenantRole = new Role { Id = Guid.NewGuid(), Name = Unique("Shop Desk "), TenantSlug = tenant };
-        var platformRole = new Role { Id = Guid.NewGuid(), Name = Unique("Everywhere "), IsPlatform = true };
+        var tenantRole = new Role { Id = Guid.NewGuid(), Name = TestNames.Compact("Shop Desk "), TenantSlug = tenant };
+        var platformRole = new Role { Id = Guid.NewGuid(), Name = TestNames.Compact("Everywhere "), IsPlatform = true };
         await _callers.StoreInTenantAsync(null, tenantRole, platformRole);
-        var target = new User { Id = Guid.NewGuid(), Username = Unique("target-"), Email = $"{Guid.NewGuid():n}@example.com", RoleIds = [] };
+        var target = new User { Id = Guid.NewGuid(), Username = TestNames.Compact("target-"), Email = $"{Guid.NewGuid():n}@example.com", RoleIds = [] };
         await _callers.StoreInTenantAsync(null, target);
         var client = await _callers.SuperAdminAsync(null);
 

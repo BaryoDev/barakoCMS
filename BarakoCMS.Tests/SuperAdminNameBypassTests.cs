@@ -30,19 +30,11 @@ namespace BarakoCMS.Tests;
 /// </remarks>
 public class SuperAdminNameBypassTests
 {
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Directory.Build.props")))
-            dir = dir.Parent;
-        dir.Should().NotBeNull("the test must be able to find the repository root");
-        return dir!.FullName;
-    }
 
     [Fact]
     public void PermissionResolver_does_not_bypass_on_a_role_name()
     {
-        var path = Path.Combine(RepoRoot(), "barakoCMS", "Infrastructure", "Services", "PermissionResolver.cs");
+        var path = Path.Combine(RepoPaths.Root, "barakoCMS", "Infrastructure", "Services", "PermissionResolver.cs");
         File.Exists(path).Should().BeTrue("the resolver is the file this regression lives in");
 
         var source = File.ReadAllText(path);
@@ -72,7 +64,7 @@ public class SuperAdminNameBypassTests
     [Fact]
     public void SensitivityService_does_not_read_a_role_name_from_the_token()
     {
-        var path = Path.Combine(RepoRoot(), "barakoCMS", "Infrastructure", "Services", "SensitivityService.cs");
+        var path = Path.Combine(RepoPaths.Root, "barakoCMS", "Infrastructure", "Services", "SensitivityService.cs");
         File.Exists(path).Should().BeTrue("the service is the file this regression lives in");
 
         File.ReadAllText(path).Should().NotContain(
@@ -102,7 +94,7 @@ public class SuperAdminNameBypassTests
     [Fact]
     public void Both_role_write_paths_check_the_reservation()
     {
-        var root = RepoRoot();
+        var root = RepoPaths.Root;
         foreach (var relative in new[]
                  {
                      Path.Combine("barakoCMS", "Features", "Roles", "Create", "Endpoint.cs"),

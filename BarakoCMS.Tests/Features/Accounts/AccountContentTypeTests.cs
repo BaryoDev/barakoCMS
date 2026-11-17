@@ -284,13 +284,8 @@ public class AccountContentTypeTests
         Fields = [new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string", IsRequired = false, Sensitivity = level }],
     };
 
-    private async Task<HttpClient> SuperAdminAsync()
-    {
-        var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> SuperAdminAsync() =>
+        _fixture.CreateClientAsync("SuperAdmin");
 
     [Fact]
     public async Task The_account_type_wins_over_a_tenant_type_of_the_same_name_that_was_stored_before()

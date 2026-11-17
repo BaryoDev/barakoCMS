@@ -22,13 +22,8 @@ public class RoleUpdateNameAndSlugTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private async Task<HttpClient> AdminAsync()
-    {
-        var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-            "Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> AdminAsync() =>
+        _fixture.CreateClientAsync("SuperAdmin");
 
     private static object Rule(string slug) => new
     {

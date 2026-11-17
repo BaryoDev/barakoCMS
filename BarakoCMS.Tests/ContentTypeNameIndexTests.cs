@@ -139,13 +139,6 @@ public class ContentTypeNameIndexTests
     private static string Normal(string expression) => Regex.Replace(expression, @"\s+", " ").Trim();
 
     private static async Task<string> MigrationAsync() =>
-        await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "5.1.0", File1158), Ct);
+        await File.ReadAllTextAsync(Path.Combine(RepoPaths.Root, "migrations", "5.1.0", File1158), Ct);
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-            directory = directory.Parent;
-        return directory!.FullName;
-    }
 }

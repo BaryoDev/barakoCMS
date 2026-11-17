@@ -25,14 +25,6 @@ namespace BarakoCMS.Tests;
 /// </remarks>
 public class RoleGrantTests
 {
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Directory.Build.props")))
-            dir = dir.Parent;
-        dir.Should().NotBeNull("the test must be able to find the repository root");
-        return dir!.FullName;
-    }
 
     /// <summary>Production and module code. Not tests.</summary>
     /// <remarks>
@@ -92,7 +84,7 @@ public class RoleGrantTests
     [Fact]
     public void No_endpoint_grants_a_role_that_nothing_creates()
     {
-        var root = RepoRoot();
+        var root = RepoPaths.Root;
 
         var seeded = new HashSet<string>(StringComparer.Ordinal);
         var granted = new Dictionary<string, string>(StringComparer.Ordinal);

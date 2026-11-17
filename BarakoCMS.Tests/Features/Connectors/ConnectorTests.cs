@@ -375,13 +375,8 @@ public class ConnectorTests
             await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
-    private async Task<HttpClient> AdminClient()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin", "Admin"));
-        return client;
-    }
+    private Task<HttpClient> AdminClient() =>
+        _factory.CreateClientAsync("SuperAdmin", "Admin");
 
     private static string NewSlug() => "conn" + Guid.NewGuid().ToString("n")[..10];
 
