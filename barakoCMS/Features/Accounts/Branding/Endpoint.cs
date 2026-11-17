@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -31,7 +32,7 @@ internal class Endpoint(IQuerySession session) : EndpointWithoutRequest<Response
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var slug = (User.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
+        var slug = User.TenantSlug();
         var tenant = await session.Query<Tenant>().FirstOrDefaultAsync(t => t.Slug == slug, ct);
         var accountId = tenant?.AccountId ?? TenantAccount.DefaultId;
 

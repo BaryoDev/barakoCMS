@@ -38,17 +38,10 @@ internal static class SeoFields
     public const string SocialImage = "SocialImage";
     public const string NoIndex = "NoIndex";
 
-    /// <summary>Where a search result usually stops showing a title.</summary>
-    /// <remarks>
-    /// Guidance rather than validation, and deliberately not enforced. Google truncates on pixel
-    /// width rather than character count, so a hard limit here would be wrong in both directions:
-    /// refusing a title that displays fine, and accepting one that does not. The admin shows the
-    /// count and a preview; the decision stays with the person who can see the words.
-    /// </remarks>
-    public const int TitleGuidance = 60;
-
-    /// <summary>Where a search result usually stops showing a description.</summary>
-    public const int DescriptionGuidance = 155;
+    // Title and description lengths are deliberately not enforced. Google truncates on pixel width
+    // rather than character count, so a hard limit would refuse a title that displays fine and
+    // accept one that does not. The admin shows the count and a preview; the decision stays with
+    // the person who can see the words.
 
     /// <summary>The field set, in the order an editor should meet them.</summary>
     /// <remarks>

@@ -12,7 +12,11 @@ namespace barakoCMS.Models;
 /// </remarks>
 public static class TemplateHoles
 {
-    private static readonly Regex Hole = new(@"\{\{\s*([A-Za-z0-9_.\[\]]+)\s*\}\}", RegexOptions.Compiled);
+    internal static readonly Regex Hole = new(@"\{\{\s*([A-Za-z0-9_.\[\]]+)\s*\}\}", RegexOptions.Compiled);
+
+    /// <summary>The hole name without a leading <c>data.</c>. Substitution and the Public check both use it.</summary>
+    internal static string Bare(string name) =>
+        name.StartsWith("data.", StringComparison.OrdinalIgnoreCase) ? name[5..] : name;
 
     /// <summary>The name inside each hole of <paramref name="template"/>, in order.</summary>
     public static IEnumerable<string> Names(string? template) =>
@@ -23,7 +27,7 @@ public static class TemplateHoles
     {
         // "data.Title" and "Title" both name the same field: the admin's variable picker offers the
         // first and templates in the wild use the second.
-        var bare = name.StartsWith("data.", StringComparison.OrdinalIgnoreCase) ? name[5..] : name;
+        var bare = Bare(name);
 
         return schema.Fields.FirstOrDefault(f => string.Equals(f.Name, bare, StringComparison.OrdinalIgnoreCase));
     }

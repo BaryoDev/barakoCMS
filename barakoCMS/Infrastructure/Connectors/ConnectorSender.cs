@@ -152,7 +152,7 @@ internal sealed class ConnectorSender(
         // which resolves the name once and opens the socket to an address that answer survived, with
         // redirects off. Checking here as well would only re-resolve, and a name whose answer changes
         // between the check and the connection is the whole of #258. Send time means socket time.
-        var client = httpClientFactory.CreateClient("ExternalApi");
+        var client = httpClientFactory.CreateClient(HttpClientNames.ExternalApi);
 
         using var request = Tagged(new HttpRequestMessage(HttpMethod.Get, target));
 
@@ -284,7 +284,7 @@ internal sealed class ConnectorSender(
         // which resolves once and opens the socket to an address that answer survived, with
         // redirects off. A name that resolves publicly when the request is composed and privately
         // when it is sent is the case a check here could not see.
-        var client = httpClientFactory.CreateClient("ExternalApi");
+        var client = httpClientFactory.CreateClient(HttpClientNames.ExternalApi);
 
         using var request = BuildRequest(composed, target);
 
@@ -445,7 +445,7 @@ internal sealed class ConnectorSender(
 
         // The same client the send path uses, so the address guard, the redirect policy and the
         // proxy decision are the ones already reviewed rather than a second set.
-        var client = httpClientFactory.CreateClient("ExternalApi");
+        var client = httpClientFactory.CreateClient(HttpClientNames.ExternalApi);
 
         using var request = BuildRequest(composed, target);
 
@@ -698,7 +698,7 @@ internal sealed class ConnectorSender(
         try
         {
             grant = await ClientCredentialsGrant.RequestAsync(
-                httpClientFactory.CreateClient("ExternalApi"),
+                httpClientFactory.CreateClient(HttpClientNames.ExternalApi),
                 new ClientCredentials(
                     tokenUri, clientId.Trim(), secret,
                     connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.Scope),

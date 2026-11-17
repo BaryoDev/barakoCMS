@@ -25,7 +25,7 @@ public static class PaginationExtensions
 
         return new PaginatedResponse<T>
         {
-            Items = items.ToList(),
+            Items = items,
             Page = request.Page,
             PageSize = request.PageSize,
             TotalItems = (int)stats.TotalResults,

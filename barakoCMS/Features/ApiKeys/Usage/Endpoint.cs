@@ -41,7 +41,7 @@ internal class KeyUsageEndpoint(IQuerySession session, ApiKeyRefusals refusals) 
 
     public override async Task HandleAsync(UsageRequest req, CancellationToken ct)
     {
-        var tenant = (User.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
+        var tenant = User.TenantSlug();
         var key = await session.Query<ApiKey>().FirstOrDefaultAsync(k => k.Id == req.Id && k.TenantSlug == tenant, ct);
         if (key is null) { await Send.NotFoundAsync(ct); return; }
 

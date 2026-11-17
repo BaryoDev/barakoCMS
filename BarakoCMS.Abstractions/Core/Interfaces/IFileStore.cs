@@ -140,21 +140,12 @@ public interface IFileStore
     /// answers in one read however many ids it is given, so the caller bounds how many it asks for.
     /// The default asks <see cref="FindPublicAsync"/> once for each distinct id.
     /// </remarks>
-    async Task<IReadOnlyDictionary<Guid, StoredFileInfo>> FindPublicManyAsync(
+    Task<IReadOnlyDictionary<Guid, StoredFileInfo>> FindPublicManyAsync(
         IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(ids);
 
-        var found = new Dictionary<Guid, StoredFileInfo>();
-        foreach (var id in ids)
-        {
-            if (!found.ContainsKey(id) && await FindPublicAsync(id, cancellationToken) is { } file)
-            {
-                found[id] = file;
-            }
-        }
-
-        return found;
+        return LookUpAsync(ids, id => FindPublicAsync(id, cancellationToken));
     }
 
     /// <summary>
@@ -166,15 +157,21 @@ public interface IFileStore
     /// The same bound as <see cref="FindPublicManyAsync"/>. The default asks
     /// <see cref="FindAsync"/> once for each distinct id.
     /// </remarks>
-    async Task<IReadOnlyDictionary<Guid, StoredFileInfo>> FindManyAsync(
+    Task<IReadOnlyDictionary<Guid, StoredFileInfo>> FindManyAsync(
         IReadOnlyCollection<Guid> ids, ClaimsPrincipal caller, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(ids);
 
+        return LookUpAsync(ids, id => FindAsync(id, caller, cancellationToken));
+    }
+
+    private static async Task<IReadOnlyDictionary<Guid, StoredFileInfo>> LookUpAsync(
+        IReadOnlyCollection<Guid> ids, Func<Guid, Task<StoredFileInfo?>> find)
+    {
         var found = new Dictionary<Guid, StoredFileInfo>();
         foreach (var id in ids)
         {
-            if (!found.ContainsKey(id) && await FindAsync(id, caller, cancellationToken) is { } file)
+            if (!found.ContainsKey(id) && await find(id) is { } file)
             {
                 found[id] = file;
             }

@@ -22,7 +22,7 @@ internal class GetServicePrincipalEndpoint(IQuerySession session) : EndpointWith
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var principal = await PrincipalRules.InTenantAsync(session, Route<Guid>("id"), PrincipalRules.TenantOf(User), ct);
+        var principal = await PrincipalRules.InTenantAsync(session, Route<Guid>("id"), User.TenantSlug(), ct);
         if (principal is null) { await Send.NotFoundAsync(ct); return; }
         await Send.OkAsync(ServicePrincipalResponse.Of(principal), ct);
     }

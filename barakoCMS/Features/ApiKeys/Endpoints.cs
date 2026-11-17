@@ -70,7 +70,7 @@ internal class CreateApiKeyEndpoint(
         var contentTypes = await ValidContentTypesAsync(req, ct);
 
         var creatorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var id) ? id : Guid.Empty;
-        var tenant = (User.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
+        var tenant = User.TenantSlug();
 
         await ValidatePrincipalAsync(req.ServicePrincipalId, tenant, ct);
         ThrowIfAnyErrors();
@@ -212,24 +212,16 @@ internal class ListApiKeysEndpoint(IQuerySession session) : Endpoint<ListRequest
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var tenant = (User.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
+        var tenant = User.TenantSlug();
         var page = await session.Query<ApiKey>()
             .Where(k => k.TenantSlug == tenant)
             .OrderByDescending(k => k.CreatedAt)
             .ToPagedResponseAsync(req, ct);
 
-        await Send.OkAsync(new PaginatedResponse<ApiKeyListItem>
-        {
-            Items = page.Items
-                .Select(k => new ApiKeyListItem(
+        await Send.OkAsync(page.Map(k => new ApiKeyListItem(
                     k.Id, k.Name, k.Prefix, k.Scopes, k.TenantSlug,
                     k.ExpiresAt, k.LastUsedAt, k.Revoked, k.CreatedAt, k.ContentTypes ?? new(),
-                    k.ServicePrincipalId, k.ReadOnly, k.ReplacedByKeyId, k.ReplacesKeyId, ApiKeyKinds.Of(k)))
-                .ToList(),
-            Page = page.Page,
-            PageSize = page.PageSize,
-            TotalItems = page.TotalItems,
-        }, ct);
+                    k.ServicePrincipalId, k.ReadOnly, k.ReplacedByKeyId, k.ReplacesKeyId, ApiKeyKinds.Of(k))), ct);
     }
 }
 
@@ -245,7 +237,7 @@ internal class RevokeApiKeyEndpoint(IDocumentSession session) : EndpointWithoutR
     public override async Task HandleAsync(CancellationToken ct)
     {
         var id = Route<Guid>("id");
-        var tenant = (User.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
+        var tenant = User.TenantSlug();
 
         // Scoped to the caller's tenant, so an admin can't revoke another tenant's key by guessing an id.
         var key = await session.Query<ApiKey>().FirstOrDefaultAsync(k => k.Id == id && k.TenantSlug == tenant, ct);
@@ -304,7 +296,7 @@ internal class RotateApiKeyEndpoint(
 
     public override async Task HandleAsync(RotateApiKeyRequest req, CancellationToken ct)
     {
-        var tenant = (User.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
+        var tenant = User.TenantSlug();
 
         var old = await session.Query<ApiKey>().FirstOrDefaultAsync(k => k.Id == req.Id && k.TenantSlug == tenant, ct);
         if (old is null) { await Send.NotFoundAsync(ct); return; }

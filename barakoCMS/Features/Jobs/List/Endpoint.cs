@@ -79,12 +79,6 @@ internal sealed class Endpoint(IQuerySession session) : Endpoint<ListJobsRequest
 
         var page = await query.OrderByDescending(r => r.CreatedAt).ToPagedResponseAsync(req, ct);
 
-        await Send.ResponseAsync(new PaginatedResponse<JobResponse>
-        {
-            Items = page.Items.Select(JobResponse.From).ToList(),
-            Page = page.Page,
-            PageSize = page.PageSize,
-            TotalItems = page.TotalItems,
-        }, cancellation: ct);
+        await Send.ResponseAsync(page.Map(JobResponse.From), cancellation: ct);
     }
 }

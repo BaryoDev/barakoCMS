@@ -106,16 +106,7 @@ internal class Endpoint(
 
         var refresh = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var refreshExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
-        session.Store(new RefreshToken
-        {
-            Id = Guid.NewGuid(),
-            TokenHash = RefreshToken.HashOf(refresh),
-            UserId = user.Id,
-            ExpiresAt = refreshExpiry,
-            CreatedAt = DateTime.UtcNow,
-            IsRevoked = false,
-            DeviceId = device.DeviceId,
-        });
+        session.Store(RefreshToken.Issue(user.Id, refresh, refreshExpiry, device.DeviceId));
 
         // Losing this save means a concurrent request spent the link, so no tokens may be returned.
         if (!await TrySaveAsync(ct)) { ThrowError(Refused); return; }

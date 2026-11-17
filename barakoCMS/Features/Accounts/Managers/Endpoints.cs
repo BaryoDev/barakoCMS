@@ -34,7 +34,7 @@ internal static class ManagerAudit
         TenantAccount account, Guid userId, CancellationToken ct)
     {
         Guid.TryParse(actor.FindFirst("UserId")?.Value, out var actorId);
-        var tenant = (actor.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
+        var tenant = actor.TenantSlug();
         return AuditLog.RecordAsync(session, tenant, action, actorId, actor.FindFirst("Username")?.Value,
             targetType: "User", targetId: userId.ToString(),
             metadata: new Dictionary<string, object>
@@ -72,15 +72,9 @@ internal class ListEndpoint(IQuerySession session) : Endpoint<Request, Paginated
         var names = (await session.Query<User>().Where(u => ids.Contains(u.Id)).ToListAsync(ct))
             .ToDictionary(u => u.Id, u => u.Username);
 
-        await Send.OkAsync(new PaginatedResponse<ManagerResponse>
-        {
-            Items = page.Items.Select(m => new ManagerResponse(
+        await Send.OkAsync(page.Map(m => new ManagerResponse(
                 m.UserId, names.GetValueOrDefault(m.UserId, string.Empty),
-                new DateTimeOffset(DateTime.SpecifyKind(m.GrantedAt, DateTimeKind.Utc)))).ToList(),
-            Page = page.Page,
-            PageSize = page.PageSize,
-            TotalItems = page.TotalItems,
-        }, ct);
+                new DateTimeOffset(DateTime.SpecifyKind(m.GrantedAt, DateTimeKind.Utc)))), ct);
     }
 }
 

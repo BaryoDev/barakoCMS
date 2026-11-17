@@ -23,7 +23,7 @@ internal class DisableServicePrincipalEndpoint(IDocumentSession session, ICaller
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var tenant = PrincipalRules.TenantOf(User);
+        var tenant = User.TenantSlug();
         var principal = await PrincipalRules.InTenantAsync(session, Route<Guid>("id"), tenant, ct);
         if (principal is null) { await Send.NotFoundAsync(ct); return; }
 

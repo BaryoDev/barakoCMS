@@ -22,12 +22,6 @@ internal class Endpoint(
             .OrderBy(g => g.Name)
             .ToPagedResponseAsync(req, ct);
 
-        await Send.OkAsync(new PaginatedResponse<barakoCMS.Features.UserGroups.UserGroupResponse>
-        {
-            Items = page.Items.Select(barakoCMS.Features.UserGroups.UserGroupResponse.From).ToList(),
-            Page = page.Page,
-            PageSize = page.PageSize,
-            TotalItems = page.TotalItems,
-        }, ct);
+        await Send.OkAsync(page.Map(barakoCMS.Features.UserGroups.UserGroupResponse.From), ct);
     }
 }

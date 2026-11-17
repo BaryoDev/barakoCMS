@@ -9,13 +9,6 @@ using Marten.Patching;
 
 namespace barakoCMS.Features.Stations;
 
-/// <summary>The caller's tenant from the token, as the API key endpoints read it.</summary>
-internal static class StationTenant
-{
-    public static string Of(System.Security.Claims.ClaimsPrincipal user) =>
-        (user.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
-}
-
 internal sealed class CreateStationRequest
 {
     public string Name { get; set; } = string.Empty;
@@ -67,7 +60,7 @@ internal sealed class CreateStationEndpoint(
 
     public override async Task HandleAsync(CreateStationRequest req, CancellationToken ct)
     {
-        var tenant = StationTenant.Of(User);
+        var tenant = User.TenantSlug();
         var name = (req.Name ?? string.Empty).Trim();
         var capabilities = (req.Capabilities ?? [])
             .Select(c => (c ?? string.Empty).Trim()).Where(c => c.Length > 0)
@@ -145,7 +138,7 @@ internal sealed class ListStationsEndpoint(IQuerySession session) : EndpointWith
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var slug = StationTenant.Of(User);
+        var slug = User.TenantSlug();
         var stations = await session.Query<Station>()
             .Where(s => s.TenantSlug == slug)
             .OrderBy(s => s.Name)
@@ -174,7 +167,7 @@ internal sealed class RevokeStationEndpoint(IDocumentSession session) : Endpoint
 
     public override async Task HandleAsync(RevokeStationRequest req, CancellationToken ct)
     {
-        var tenant = StationTenant.Of(User);
+        var tenant = User.TenantSlug();
         var station = await session.LoadAsync<Station>(req.Id, ct);
         if (station is null || station.TenantSlug != tenant)
         {

@@ -133,13 +133,7 @@ internal sealed class ListDeliveriesEndpoint(
         var canReadResponseBody = Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId)
             && await permissionResolver.HasCapabilityAsync(userId, SystemCapabilities.ViewWebhookResponseBodies, ct);
 
-        await Send.ResponseAsync(new PaginatedResponse<WebhookDeliveryResponse>
-        {
-            Items = page.Items.Select(d => WebhookDeliveryResponse.From(d, canReadResponseBody)).ToList(),
-            Page = page.Page,
-            PageSize = page.PageSize,
-            TotalItems = page.TotalItems,
-        }, cancellation: ct);
+        await Send.ResponseAsync(page.Map(d => WebhookDeliveryResponse.From(d, canReadResponseBody)), cancellation: ct);
     }
 
     private static IQueryable<WebhookDelivery>? ByStatusClass(IQueryable<WebhookDelivery> query, string status) =>

@@ -12,7 +12,7 @@ public static class TenantSignIn
 {
     public static async Task<bool> AllowsAsync(IQuerySession session, string? tenantSlug, string method, CancellationToken ct)
     {
-        var slug = string.IsNullOrWhiteSpace(tenantSlug) ? Tenant.DefaultSlug : tenantSlug.Trim().ToLowerInvariant();
+        var slug = TenantSlugs.Normalise(tenantSlug);
         if (slug == Tenant.DefaultSlug)
         {
             return true;
@@ -28,7 +28,7 @@ public static class TenantSignIn
     /// </summary>
     public static async Task<bool> AllowsExplicitlyAsync(IQuerySession session, string? tenantSlug, string method, CancellationToken ct)
     {
-        var slug = string.IsNullOrWhiteSpace(tenantSlug) ? Tenant.DefaultSlug : tenantSlug.Trim().ToLowerInvariant();
+        var slug = TenantSlugs.Normalise(tenantSlug);
         if (slug == Tenant.DefaultSlug)
         {
             return false;
