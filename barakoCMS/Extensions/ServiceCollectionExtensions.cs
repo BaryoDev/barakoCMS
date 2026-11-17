@@ -771,6 +771,21 @@ public static class ServiceCollectionExtensions
 
     private const string WorkflowRunUpdatedAtThenIdIndex = "mt_doc_workflow_runs_idx_updated_at_id";
 
+    // The run list counts runs per status for a tenant, optionally for one workflow or one entry. Each
+    // index carries the status and the tenant, so Postgres can count from the index without reading the
+    // rows. An existing database needs migrations/5.7.2/workflow-run-*tenant-index.sql.
+    private static MartenRegistry.DocumentMappingExpression<WorkflowRun> WithRunCountIndexes(
+        this MartenRegistry.DocumentMappingExpression<WorkflowRun> runs) => runs
+        .Index(x => x.Status, PerTenantIndex("mt_doc_workflow_runs_idx_status_tenant"))
+        .Index(x => new { x.WorkflowDefinitionId, x.Status }, PerTenantIndex("mt_doc_workflow_runs_idx_workflow_status_tenant"))
+        .Index(x => new { x.ContentId, x.Status }, PerTenantIndex("mt_doc_workflow_runs_idx_content_status_tenant"));
+
+    private static Action<Marten.Schema.ComputedIndex> PerTenantIndex(string name) => idx =>
+    {
+        idx.Name = name;
+        idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+    };
+
     private static void MapTenantScopedDocuments(StoreOptions options)
     {
         options.Schema.For<LocaleSettings>()
@@ -855,7 +870,7 @@ public static class ServiceCollectionExtensions
             // The claim is a read, a check and a write with nothing between them, and two nodes
             // must not both take the same attempt. This is what refuses the second one.
             .UseOptimisticConcurrency(true)
-            .Index(x => x.Status).Index(x => x.CreatedAt).Index(WorkflowRunUpdatedAtThenId, idx => idx.Name = WorkflowRunUpdatedAtThenIdIndex).Index(x => new { x.WorkflowDefinitionId, x.UpdatedAt, x.Id }, idx => idx.Name = "mt_doc_workflow_runs_idx_workflow_updated_at");
+            .Index(x => x.Status).Index(x => x.CreatedAt).Index(WorkflowRunUpdatedAtThenId, idx => idx.Name = WorkflowRunUpdatedAtThenIdIndex).Index(x => new { x.WorkflowDefinitionId, x.UpdatedAt, x.Id }, idx => idx.Name = "mt_doc_workflow_runs_idx_workflow_updated_at").WithRunCountIndexes();
         options.Listeners.Add(new barakoCMS.Infrastructure.Workflows.WorkflowRunStampListener());
 
         options.Schema.For<barakoCMS.Features.Workflows.ScheduleClaim>()
