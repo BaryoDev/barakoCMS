@@ -578,7 +578,10 @@ public class MemberProfileApiTests
     // The profile hold check: a profile value a member's role reads widens that role, so the caller
     // must hold the value. The roles here read region and branches through a condition.
 
-    private async Task<Role> ConditionalRoleAsync(string slug, string attribute)
+    private Task<Role> ConditionalRoleAsync(string slug, string attribute) =>
+        ConditionalRoleWithReferenceAsync(slug, $"$CURRENT_USER.{attribute}");
+
+    private async Task<Role> ConditionalRoleWithReferenceAsync(string slug, string reference)
     {
         using var scope = _factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -593,7 +596,7 @@ public class MemberProfileApiTests
                     Enabled = true,
                     Conditions = new Dictionary<string, object>
                     {
-                        ["Area"] = new Dictionary<string, object> { ["_eq"] = $"$CURRENT_USER.{attribute}" },
+                        ["Area"] = new Dictionary<string, object> { ["_eq"] = reference },
                     },
                 },
             }],
@@ -739,5 +742,151 @@ public class MemberProfileApiTests
         NotRateLimited(response);
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
         (await RowAsync(member, slug)).Profile.Should().Contain("ward", "9");
+    }
+
+    [Theory]
+    [InlineData("$CURRENT_USER.branch")]
+    [InlineData("$CURRENT_BRANCH")]
+    [InlineData("$CURRENT_USER.branches")]
+    public async Task Every_form_of_the_branch_reference_reads_branches(string reference)
+    {
+        var slug = await TenantAsync();
+        var role = await ConditionalRoleWithReferenceAsync(slug, reference);
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        var manager = await ManagerAsync(slug, role, new() { ["branches"] = a.ToString() });
+        var member = await MemberWithRoleAsync(slug, role, new() { ["branches"] = a.ToString() });
+
+        var response = await manager.PutAsJsonAsync($"/api/tenants/members/{member}",
+            KeepRole(role, new() { ["branches"] = $"{a},{b}" }));
+
+        NotRateLimited(response);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden, await response.Content.ReadAsStringAsync());
+        (await RowAsync(member, slug)).Profile["branches"].Should().Be(a.ToString());
+    }
+
+    [Fact]
+    public async Task Branches_are_held_even_when_no_role_of_the_member_mentions_them()
+    {
+        var slug = await TenantAsync();
+        var role = await ConditionalRoleAsync(slug, "region");
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        var manager = await ManagerAsync(slug, role, new() { ["branches"] = a.ToString() });
+        var member = await MemberAsync(slug);
+
+        var refused = await manager.PutAsJsonAsync($"/api/tenants/members/{member}", new
+        {
+            roleIds = new[] { SystemRoles.UserRoleId }, status = "Active", profile = new Dictionary<string, string> { ["branches"] = b.ToString() },
+        });
+        NotRateLimited(refused);
+        refused.StatusCode.Should().Be(HttpStatusCode.Forbidden, await refused.Content.ReadAsStringAsync());
+
+        var allowed = await manager.PutAsJsonAsync($"/api/tenants/members/{member}", new
+        {
+            roleIds = new[] { SystemRoles.UserRoleId }, status = "Active", profile = new Dictionary<string, string> { ["branches"] = a.ToString() },
+        });
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK, await allowed.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_role_granted_now_needs_every_value_it_reads_held_even_if_unchanged()
+    {
+        var slug = await TenantAsync();
+        var role = await ConditionalRoleAsync(slug, "region");
+        var manager = await ManagerAsync(slug, role, Branch("north"));
+        var member = await MemberAsync(slug, Branch("south"));
+
+        var response = await manager.PutAsJsonAsync($"/api/tenants/members/{member}", new
+        {
+            roleIds = new[] { SystemRoles.UserRoleId, role.Id }, status = "Active", profile = Branch("south"),
+        });
+
+        NotRateLimited(response);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden, await response.Content.ReadAsStringAsync());
+        (await RowAsync(member, slug)).RoleIds.Should().NotContain(role.Id);
+    }
+
+    [Fact]
+    public async Task Setting_a_value_then_granting_the_role_that_reads_it_is_refused_at_the_second_step()
+    {
+        var slug = await TenantAsync();
+        var role = await ConditionalRoleAsync(slug, "region");
+        var manager = await ManagerAsync(slug, role, Branch("north"));
+        var member = await MemberAsync(slug);
+
+        var first = await manager.PutAsJsonAsync($"/api/tenants/members/{member}", new
+        {
+            roleIds = new[] { SystemRoles.UserRoleId }, status = "Active", profile = Branch("south"),
+        });
+        first.StatusCode.Should().Be(HttpStatusCode.OK, "no role of the member reads region yet");
+
+        var second = await manager.PutAsJsonAsync($"/api/tenants/members/{member}", new
+        {
+            roleIds = new[] { SystemRoles.UserRoleId, role.Id }, status = "Active",
+        });
+        NotRateLimited(second);
+        second.StatusCode.Should().Be(HttpStatusCode.Forbidden, await second.Content.ReadAsStringAsync());
+        (await RowAsync(member, slug)).RoleIds.Should().NotContain(role.Id);
+    }
+
+    [Fact]
+    public async Task Adding_an_existing_member_with_a_new_role_and_no_profile_checks_the_stored_profile()
+    {
+        var slug = await TenantAsync();
+        var role = await ConditionalRoleAsync(slug, "region");
+        var manager = await ManagerAsync(slug, role, Branch("north"));
+        var email = NewEmail();
+        var member = await MemberAsync(slug, Branch("south"), email);
+
+        var response = await manager.PostAsJsonAsync("/api/tenants/members", new
+        {
+            email, roleIds = new[] { SystemRoles.UserRoleId, role.Id },
+        });
+
+        NotRateLimited(response);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden, await response.Content.ReadAsStringAsync());
+        (await RowAsync(member, slug)).RoleIds.Should().NotContain(role.Id);
+    }
+
+    [Fact]
+    public async Task A_role_held_through_a_group_counts_and_an_empty_role_list_does_not_skip_the_check()
+    {
+        var slug = await TenantAsync();
+        var role = await ConditionalRoleAsync(slug, "region");
+        var manager = await ManagerAsync(slug, role, Branch("north"));
+        var member = await MemberAsync(slug, Branch("north"));
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new UserGroup
+            {
+                Id = Guid.NewGuid(), Name = $"grp-{Guid.NewGuid():N}"[..12], UserIds = [member], RoleIds = [role.Id],
+            });
+            await session.SaveChangesAsync();
+        }
+
+        var response = await manager.PutAsJsonAsync($"/api/tenants/members/{member}", new
+        {
+            roleIds = Array.Empty<Guid>(), status = "Active", profile = Branch("south"),
+        });
+
+        NotRateLimited(response);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden, await response.Content.ReadAsStringAsync());
+        (await RowAsync(member, slug)).Profile.Should().Contain("region", "north");
+    }
+
+    [Fact]
+    public async Task A_value_that_differs_only_by_padding_is_not_held()
+    {
+        var slug = await TenantAsync();
+        var role = await ConditionalRoleAsync(slug, "region");
+        var manager = await ManagerAsync(slug, role, Branch("north"));
+        var member = await MemberWithRoleAsync(slug, role, Branch("north"));
+
+        var response = await manager.PutAsJsonAsync($"/api/tenants/members/{member}", KeepRole(role, Branch("north ")));
+
+        NotRateLimited(response);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden, await response.Content.ReadAsStringAsync());
     }
 }

@@ -111,7 +111,7 @@ internal static class CallerAttributes
 
     /// <summary>
     /// The profile attribute names these conditions read through a variable. <c>$CURRENT_BRANCH</c>
-    /// reads <c>branches</c>, the stored attribute the request's branch must belong to.
+    /// and <c>$CURRENT_USER.branch</c> both read <c>branches</c>, the stored attribute the request's branch is derived from.
     /// </summary>
     public static IEnumerable<string> NamesRead(Dictionary<string, object>? conditions)
     {
@@ -132,9 +132,12 @@ internal static class CallerAttributes
                     continue;
 
                 var text = (string)value!;
-                yield return text.StartsWith(Prefix, StringComparison.Ordinal)
+                var name = text.StartsWith(Prefix, StringComparison.Ordinal)
                     ? text[Prefix.Length..]
-                    : CallerBranches.BranchesAttribute;
+                    : CallerBranches.BranchAttribute;
+
+                // The request's branch ("branch") is derived from the stored "branches".
+                yield return name == CallerBranches.BranchAttribute ? CallerBranches.BranchesAttribute : name;
             }
         }
     }
