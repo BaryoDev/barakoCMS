@@ -12,7 +12,8 @@ namespace barakoCMS.Infrastructure.Services;
 public sealed class InboundWebhookVerifier(IDocumentSession session, ILogger<InboundWebhookVerifier>? logger = null)
     : IInboundWebhookVerifier
 {
-    private static int _bodyOnlyRefusalLogged;
+    // Warn once per provider, so a second misconfigured receiver is not hidden behind the first.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> BodyOnlyRefusalLogged = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Five minutes either way, which is what the Svix spec suggests. Symmetric because the clocks
@@ -26,7 +27,7 @@ public sealed class InboundWebhookVerifier(IDocumentSession session, ILogger<Inb
     {
         var outcome = Check(request, now);
         if (RefusedForNoTimestamp(request)
-            && Interlocked.Exchange(ref _bodyOnlyRefusalLogged, 1) == 0)
+            && BodyOnlyRefusalLogged.TryAdd(request.Provider, true))
             logger?.LogWarning(
                 "Inbound webhook {Provider} is configured with a plain HMAC and no timestamp header, so its requests are refused. "
                 + "Name a timestamp header, or set AllowBodyOnlySignature for a sender that cannot send one.",

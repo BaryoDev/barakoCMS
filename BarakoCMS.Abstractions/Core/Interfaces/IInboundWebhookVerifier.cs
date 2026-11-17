@@ -83,7 +83,8 @@ public interface IInboundWebhookVerifier
 
     /// <summary>
     /// Checks the signature and the timestamp window only. Returns <see cref="InboundWebhookOutcome.Processed"/>
-    /// when both pass. Does not touch the database.
+    /// when both pass. Does not touch the database. A plain <see cref="InboundWebhookScheme.Hmac"/> request with no
+    /// timestamp header is refused unless <see cref="InboundWebhookRequest.AllowBodyOnlySignature"/> is set.
     /// </summary>
     InboundWebhookOutcome Verify(InboundWebhookRequest request, DateTimeOffset now);
 
