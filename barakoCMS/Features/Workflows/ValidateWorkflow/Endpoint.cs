@@ -2,7 +2,6 @@ using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
-using Microsoft.Extensions.Logging;
 
 namespace barakoCMS.Features.Workflows.ValidateWorkflow;
 
@@ -28,9 +27,7 @@ internal class Request
 /// <summary>
 /// Endpoint to validate workflow JSON schema.
 /// </summary>
-internal class Endpoint(
-    IWorkflowSchemaValidator validator,
-    ILogger<Endpoint> logger) : Endpoint<Request, WorkflowValidationResult>
+internal class Endpoint(IWorkflowSchemaValidator validator) : Endpoint<Request, WorkflowValidationResult>
 {
     public override void Configure()
     {
@@ -41,36 +38,23 @@ internal class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        try
+        var workflow = new WorkflowDefinition
         {
-            var workflow = new WorkflowDefinition
-            {
-                Name = req.Name,
-                TriggerContentType = req.TriggerContentType,
-                TriggerContentTypes = req.TriggerContentTypes,
-                TriggerEvent = req.TriggerEvent,
-                TriggerEvents = req.TriggerEvents,
-                Conditions = req.Conditions,
-                Actions = req.Actions,
-                Executor = req.Executor,
-                Schedule = req.Schedule,
-                ScheduleTimeZone = req.ScheduleTimeZone,
-                ScheduleCatchUp = req.ScheduleCatchUp,
-                NotifyRoleOnFailure = req.NotifyRoleOnFailure,
-            };
+            Name = req.Name,
+            TriggerContentType = req.TriggerContentType,
+            TriggerContentTypes = req.TriggerContentTypes,
+            TriggerEvent = req.TriggerEvent,
+            TriggerEvents = req.TriggerEvents,
+            Conditions = req.Conditions,
+            Actions = req.Actions,
+            Executor = req.Executor,
+            Schedule = req.Schedule,
+            ScheduleTimeZone = req.ScheduleTimeZone,
+            ScheduleCatchUp = req.ScheduleCatchUp,
+            NotifyRoleOnFailure = req.NotifyRoleOnFailure,
+        };
 
-            var result = await validator.ValidateAsync(workflow, ct);
-            await Send.ResponseAsync(result, cancellation: ct);
-        }
-        catch (OperationCanceledException)
-        {
-            logger.LogInformation("Workflow validation was cancelled");
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error validating workflow");
-            await Send.ErrorsAsync(cancellation: ct);
-        }
+        var result = await validator.ValidateAsync(workflow, ct);
+        await Send.ResponseAsync(result, cancellation: ct);
     }
 }

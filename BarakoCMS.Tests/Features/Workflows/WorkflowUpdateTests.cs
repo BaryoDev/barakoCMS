@@ -63,6 +63,19 @@ public class WorkflowUpdateTests
     }
 
     [Fact]
+    public async Task Creating_a_workflow_writes_a_workflow_created_audit_row()
+    {
+        var admin = await _harness.AdminAsync();
+        var id = await CreateAsync(admin, Email("created@example.com"));
+
+        var audit = await _harness.AuditOfAsync("workflow.created", id);
+
+        audit.Should().HaveCount(1);
+        audit[0].ActorUsername.Should().NotBeNullOrEmpty();
+        audit[0].TargetType.Should().Be(nameof(WorkflowDefinition));
+    }
+
+    [Fact]
     public async Task A_valid_definition_replaces_the_stored_one_and_is_audited()
     {
         var admin = await _harness.AdminAsync();

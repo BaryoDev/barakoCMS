@@ -288,7 +288,7 @@ internal sealed class SaveRequestEndpoint(
 
         session.Store(definition);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug,
             existing is null ? "request.created" : "request.updated",
             actorId, User.FindFirst("Username")?.Value,
@@ -338,7 +338,7 @@ internal sealed class DeleteRequestEndpoint(
 
         session.Delete(found);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "request.deleted", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(RequestDefinition), targetId: found.Id.ToString(),

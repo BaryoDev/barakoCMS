@@ -587,8 +587,7 @@ internal sealed class WorkflowRunner(
             {
                 await session.SaveChangesAsync(ct);
             }
-            catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-                || ex.GetType().Name.Contains("Concurrency"))
+            catch (Exception ex) when (ConcurrencyConflict.Is(ex))
             {
                 // Another node got there first. Not an error, and not worth a log line at warning:
                 // it is the mechanism working.
@@ -637,8 +636,7 @@ internal sealed class WorkflowRunner(
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency"))
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
         {
             return null;
         }
@@ -692,8 +690,7 @@ internal sealed class WorkflowRunner(
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency"))
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
         {
             return false;
         }
@@ -826,8 +823,7 @@ internal sealed class WorkflowRunner(
             {
                 await session.SaveChangesAsync(ct);
             }
-            catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-                || ex.GetType().Name.Contains("Concurrency"))
+            catch (Exception ex) when (ConcurrencyConflict.Is(ex))
             {
                 return false;
             }
@@ -943,8 +939,7 @@ internal sealed class WorkflowRunner(
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency"))
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
         {
             return false;
         }
@@ -1005,8 +1000,7 @@ internal sealed class WorkflowRunner(
             await session.SaveChangesAsync(ct);
             return true;
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency"))
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
         {
             // Another writer got there first, and its write stands.
             return false;
@@ -1032,8 +1026,7 @@ internal sealed class WorkflowRunner(
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency"))
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
         {
             // Another node wrote the run first, and its write carries the value.
         }

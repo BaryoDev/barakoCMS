@@ -2,7 +2,6 @@ using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
-using Microsoft.Extensions.Logging;
 
 namespace barakoCMS.Features.Workflows.GetTemplateVariables;
 
@@ -17,9 +16,7 @@ internal class Request
 /// <summary>
 /// Endpoint to get available template variables for a content type.
 /// </summary>
-internal class Endpoint(
-    ITemplateVariableExtractor extractor,
-    ILogger<Endpoint> logger) : Endpoint<Request, TemplateVariableCollection>
+internal class Endpoint(ITemplateVariableExtractor extractor) : Endpoint<Request, TemplateVariableCollection>
 {
     public override void Configure()
     {
@@ -33,16 +30,8 @@ internal class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        try
-        {
-            var contentType = req.ContentType ?? "Content"; // Default to generic Content type
-            var variables = await extractor.GetVariablesAsync(contentType, ct);
-            await Send.ResponseAsync(variables, cancellation: ct);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error retrieving template variables for content type {ContentType}", req.ContentType);
-            await Send.ErrorsAsync(cancellation: ct);
-        }
+        var contentType = req.ContentType ?? "Content"; // Default to generic Content type
+        var variables = await extractor.GetVariablesAsync(contentType, ct);
+        await Send.ResponseAsync(variables, cancellation: ct);
     }
 }

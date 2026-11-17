@@ -160,7 +160,7 @@ internal class Endpoint(
             return;
         }
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : Guid.Empty;
+        var actorId = ActingCaller.IdOf(User) ?? Guid.Empty;
 
         // The roles as stored (ids) and as answered (names), worked out now so the change carries
         // exactly what this request asked for. A copy, so the stored field is not touched until the

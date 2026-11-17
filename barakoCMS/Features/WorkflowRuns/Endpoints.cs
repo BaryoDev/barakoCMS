@@ -365,6 +365,10 @@ internal sealed class RunListResponse
 
 internal static class RunGate
 {
+    internal const string BadIdMessage = "The run id is not a GUID.";
+
+    internal static bool TryParseId(string? raw, out Guid id) => Guid.TryParse(raw, out id);
+
     /// <summary>
     /// The names that gated the run endpoints before capabilities, kept as the legacy fallback for
     /// both <see cref="SystemCapabilities.ViewWorkflowRuns"/> and
@@ -396,7 +400,7 @@ internal sealed class ListRunsEndpoint(
 
         if (!text.Contains(','))
         {
-            return [ParseOne(text, ignoreCase: true)];
+            return [ParseOne(text)];
         }
 
         // Each part has to be a name. Enum parsing alone reads a comma as a combination of flags,
@@ -406,16 +410,16 @@ internal sealed class ListRunsEndpoint(
         {
             var name = part.Trim();
             if (!Enum.GetNames<RunStatus>().Contains(name, StringComparer.OrdinalIgnoreCase)) Refuse();
-            var status = ParseOne(name, ignoreCase: true);
+            var status = ParseOne(name);
             if (!statuses.Contains(status)) statuses.Add(status);
         }
 
         return statuses;
     }
 
-    private RunStatus ParseOne(string text, bool ignoreCase)
+    private RunStatus ParseOne(string text)
     {
-        if (!Enum.TryParse<RunStatus>(text, ignoreCase, out var parsed))
+        if (!Enum.TryParse<RunStatus>(text, ignoreCase: true, out var parsed))
         {
             Refuse();
         }
@@ -617,9 +621,9 @@ internal sealed class GetRunEndpoint(IQuerySession session) : EndpointWithoutReq
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!Guid.TryParse(Route<string>("id"), out var id))
+        if (!RunGate.TryParseId(Route<string>("id"), out var id))
         {
-            ThrowError("The run id is not a GUID.", 400);
+            ThrowError(RunGate.BadIdMessage, 400);
             return;
         }
 
@@ -663,9 +667,9 @@ internal sealed class RetryAttemptEndpoint(
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!Guid.TryParse(Route<string>("id"), out var id))
+        if (!RunGate.TryParseId(Route<string>("id"), out var id))
         {
-            ThrowError("The run id is not a GUID.", 400);
+            ThrowError(RunGate.BadIdMessage, 400);
             return;
         }
 
@@ -762,7 +766,7 @@ internal sealed class RetryAttemptEndpoint(
         if (skippedBehind > 0) metadata["resumedActions"] = skippedBehind;
         if (wasPermanent is { } permanent) metadata["wasPermanent"] = permanent;
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "workflow.action.retried", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(WorkflowRun), targetId: run.Id.ToString(),
@@ -772,8 +776,7 @@ internal sealed class RetryAttemptEndpoint(
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency"))
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
         {
             // The run moved between the read above and this save, which in practice means the runner
             // claimed the attempt while the operator was deciding. Optimistic concurrency on
@@ -837,9 +840,9 @@ internal sealed class CancelRunEndpoint(
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!Guid.TryParse(Route<string>("id"), out var id))
+        if (!RunGate.TryParseId(Route<string>("id"), out var id))
         {
-            ThrowError("The run id is not a GUID.", 400);
+            ThrowError(RunGate.BadIdMessage, 400);
             return;
         }
 
@@ -869,7 +872,7 @@ internal sealed class CancelRunEndpoint(
 
         session.Update(run);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "workflow.run.cancelled", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(WorkflowRun), targetId: run.Id.ToString(),
@@ -886,8 +889,7 @@ internal sealed class CancelRunEndpoint(
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency"))
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
         {
             ThrowError("The runner took an action of that run just now. Nothing was changed. Send the request again to cancel what is left.", 409);
             return;
@@ -924,9 +926,9 @@ internal sealed class AbandonRunEndpoint(
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!Guid.TryParse(Route<string>("id"), out var id))
+        if (!RunGate.TryParseId(Route<string>("id"), out var id))
         {
-            ThrowError("The run id is not a GUID.", 400);
+            ThrowError(RunGate.BadIdMessage, 400);
             return;
         }
 
@@ -980,8 +982,7 @@ internal sealed class AbandonRunEndpoint(
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency"))
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
         {
             ThrowError("The runner took an action of that run just now. Nothing was changed. Send the request again.", 409);
             return;
@@ -1007,7 +1008,7 @@ internal sealed class AbandonRunEndpoint(
 
     private Task RecordAsync(WorkflowRun run, int queued, CancellationToken ct)
     {
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         return AuditLog.RecordAsync(session, tenant.Slug, "workflow.run.abandoned", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(WorkflowRun), targetId: run.Id.ToString(),

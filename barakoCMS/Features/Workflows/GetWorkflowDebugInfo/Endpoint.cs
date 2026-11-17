@@ -2,7 +2,6 @@ using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
-using Microsoft.Extensions.Logging;
 
 namespace barakoCMS.Features.Workflows.GetWorkflowDebugInfo;
 
@@ -18,9 +17,7 @@ internal class Request
 /// <summary>
 /// Endpoint to get workflow execution history for debugging.
 /// </summary>
-internal class Endpoint(
-    IWorkflowDebugger debugger,
-    ILogger<Endpoint> logger) : Endpoint<Request, List<WorkflowExecutionLog>>
+internal class Endpoint(IWorkflowDebugger debugger) : Endpoint<Request, List<WorkflowExecutionLog>>
 {
     public override void Configure()
     {
@@ -32,15 +29,7 @@ internal class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        try
-        {
-            var logs = await debugger.GetExecutionHistoryAsync(req.Id, req.Limit, ct);
-            await Send.ResponseAsync(logs, cancellation: ct);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error retrieving debug info for workflow {WorkflowId}", req.Id);
-            await Send.ErrorsAsync(cancellation: ct);
-        }
+        var logs = await debugger.GetExecutionHistoryAsync(req.Id, req.Limit, ct);
+        await Send.ResponseAsync(logs, cancellation: ct);
     }
 }

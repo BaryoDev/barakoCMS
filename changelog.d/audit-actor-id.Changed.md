@@ -1,0 +1,1 @@
+Audit rows for workflow, query, request and content type changes now record the service principal id when an API key bound to a principal made the call. A content type rebuild by a caller with no user id records no actor instead of an all-zero id.

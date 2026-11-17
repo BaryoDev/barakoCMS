@@ -1,7 +1,6 @@
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
 using FastEndpoints;
-using Microsoft.Extensions.Logging;
 using barakoCMS.Models;
 
 namespace barakoCMS.Features.Workflows.GetActions;
@@ -9,7 +8,7 @@ namespace barakoCMS.Features.Workflows.GetActions;
 /// <summary>
 /// Endpoint to list all available workflow action plugins with metadata.
 /// </summary>
-internal class Endpoint(IWorkflowPluginRegistry registry, ILogger<Endpoint> logger) : EndpointWithoutRequest
+internal class Endpoint(IWorkflowPluginRegistry registry) : EndpointWithoutRequest
 {
     public override void Configure()
     {
@@ -23,15 +22,6 @@ internal class Endpoint(IWorkflowPluginRegistry registry, ILogger<Endpoint> logg
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        try
-        {
-            var actions = registry.GetAllActions();
-            await Send.ResponseAsync(actions, cancellation: ct);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to retrieve workflow actions");
-            await Send.ErrorsAsync(cancellation: ct);
-        }
+        await Send.ResponseAsync(registry.GetAllActions(), cancellation: ct);
     }
 }

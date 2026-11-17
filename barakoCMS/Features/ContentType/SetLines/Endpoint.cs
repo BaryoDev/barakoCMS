@@ -65,7 +65,7 @@ internal class Endpoint(
         def.UpdatedAt = DateTimeOffset.UtcNow;
         session.Store(def);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "contenttype.lines.changed", actorId, User.FindFirst("Username")?.Value,
             targetType: "ContentType", targetId: def.Id.ToString(),
             metadata: new Dictionary<string, object>

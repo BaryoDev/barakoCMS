@@ -586,8 +586,7 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         return found;
     }
 
-    private static bool IsConcurrency(Exception ex) =>
-        ex is JasperFx.ConcurrencyException || ex.GetType().Name.Contains("Concurrency");
+    private static bool IsConcurrency(Exception ex) => ConcurrencyConflict.Is(ex);
 
     /// <summary>
     /// Type and message only. A stack trace is noise here and a response body can hold a credential.

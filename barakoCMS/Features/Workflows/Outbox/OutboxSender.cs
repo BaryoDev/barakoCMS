@@ -114,7 +114,7 @@ internal sealed class OutboxSender(
             {
                 await session.SaveChangesAsync(ct);
             }
-            catch (Exception ex) when (ex is JasperFx.ConcurrencyException || ex.GetType().Name.Contains("Concurrency"))
+            catch (Exception ex) when (ConcurrencyConflict.Is(ex))
             {
                 // Another node took it. Nothing of this message's stays staged for the next save.
                 session.EjectAllPendingChanges();
@@ -129,7 +129,7 @@ internal sealed class OutboxSender(
             {
                 await session.SaveChangesAsync(ct);
             }
-            catch (Exception ex) when (ex is JasperFx.ConcurrencyException || ex.GetType().Name.Contains("Concurrency"))
+            catch (Exception ex) when (ConcurrencyConflict.Is(ex))
             {
                 session.EjectAllPendingChanges();
                 logger.LogWarning("Outbox message {MessageId} changed while it was being sent, the result was not saved", message.Id);
