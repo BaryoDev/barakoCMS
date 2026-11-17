@@ -1,1 +1,1 @@
-Creating a workflow now writes a workflow.created audit entry, like update, delete and enable already did.
+- **Creating a workflow wrote no audit entry.** It now writes `workflow.created`, as update, delete and enable already did.
