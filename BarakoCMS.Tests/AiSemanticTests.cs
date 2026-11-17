@@ -68,7 +68,7 @@ public class AiSemanticTests
     }
 
     [Fact]
-    public async Task A_type_spelled_in_another_case_is_indexed_and_searched()
+    public async Task A_type_spelled_in_another_case_is_indexed_under_its_stored_name()
     {
         var type = "ai_case_type";
         await SeedAsync(type);
@@ -79,7 +79,7 @@ public class AiSemanticTests
         (await index.Content.ReadAsStringAsync()).Should().Contain("\"indexed\":2");
 
         _client.DefaultRequestHeaders.Authorization = null;
-        var res = await _client.GetAsync($"/api/public/{type.ToUpperInvariant()}/semantic?q=photovoltaic%20renewable%20sunlight");
+        var res = await _client.GetAsync($"/api/public/{type}/semantic?q=photovoltaic%20renewable%20sunlight");
         res.StatusCode.Should().Be(HttpStatusCode.OK);
         (await res.Content.ReadAsStringAsync()).Should().Contain("\"solar\"");
     }

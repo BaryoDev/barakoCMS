@@ -3,15 +3,13 @@
 # raising one, or adding a line, is a reviewed decision the pull request explains.
 99 BarakoCMS.AI/Features/SemanticSearchEndpoint.cs::SemanticSearchEndpoint.HandleAsync
 75 BarakoCMS.Accounting/AccountingMigration.cs::AccountingMigration.RunAsync
-74 BarakoCMS.ExternalAuth/FacebookAuthEndpoints.cs::FacebookCallbackEndpoint.HandleAsync
-85 BarakoCMS.ExternalAuth/GitHubAuthEndpoints.cs::GitHubCallbackEndpoint.HandleAsync
-72 BarakoCMS.ExternalAuth/GoogleAuthEndpoints.cs::GoogleCallbackEndpoint.HandleAsync
+82 BarakoCMS.ExternalAuth/GitHubAuthEndpoints.cs::GitHubCallbackEndpoint.HandleAsync
 104 BarakoCMS.ExternalAuth/OidcAuthEndpoints.cs::OidcCallback.CompleteAsync
 150 BarakoCMS.ExternalAuth/OidcIdToken.cs::OidcIdToken.ValidateAsync
 73 BarakoCMS.ExternalAuth/OidcIdTokenGrant.cs::OidcIdTokenGrantEndpoint.HandleAsync
 97 BarakoCMS.ExternalAuth/OidcProviders.cs::OidcProviders.Read
 92 BarakoCMS.ExternalAuth/SocialSignIn.cs::SocialSignIn.IssueForUserAsync
-92 BarakoCMS.Files/Features/Upload/Endpoint.cs::Endpoint.HandleAsync
+91 BarakoCMS.Files/Features/Upload/Endpoint.cs::Endpoint.HandleAsync
 124 BarakoCMS.Files/SkiaImageResizer.cs::SkiaImageResizer.ResizeAsync
 95 BarakoCMS.Portability/ImportEndpoint.cs::ImportEndpoint.HandleAsync
 96 barakoCMS/Core/Validation/FieldRules.cs::FieldRules.DefinitionErrors

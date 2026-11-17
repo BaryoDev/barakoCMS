@@ -54,22 +54,8 @@ public class SemanticSearchEndpoint(
         // Semantic search is public delivery in another form, so it answers to the same type-level
         // opt-in. Checked before anything else: embedding an unserviceable query would still spend a
         // model call, which makes an ungated endpoint a free compute endpoint as well as a leak.
-        ContentTypeDefinition? def;
-        try
-        {
-            def = await TypeLookup.FindAsync(session, type, ct);
-        }
-        catch (barakoCMS.Core.AmbiguousContentTypeException ambiguous)
-        {
-            AddError(ambiguous.Message);
-            await Send.ErrorsAsync(400, ct);
-            return;
-        }
-
+        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
         if (def is not { IsPubliclyDeliverable: true }) { await Send.NotFoundAsync(ct); return; }
-
-        // The stored name, whatever case the route used: content and embeddings carry it as written.
-        type = def.Name;
 
         if (q.Length > MaxQueryLength)
         {
