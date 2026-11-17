@@ -20,7 +20,8 @@ internal static class RuleConditions
     {
         var l = left ?? "";
         var r = right ?? "";
-        switch (op.ToLowerInvariant())
+        var name = op.ToLowerInvariant();
+        switch (name)
         {
             case "eq": return string.Equals(l, r, StringComparison.OrdinalIgnoreCase);
             case "ne": return !string.Equals(l, r, StringComparison.OrdinalIgnoreCase);
@@ -30,7 +31,7 @@ internal static class RuleConditions
             case "gt" or "gte" or "lt" or "lte":
                 var order = Order(l, r);
                 if (order is null) return false;
-                return op.ToLowerInvariant() switch { "gt" => order > 0, "gte" => order >= 0, "lt" => order < 0, _ => order <= 0 };
+                return name switch { "gt" => order > 0, "gte" => order >= 0, "lt" => order < 0, _ => order <= 0 };
             default: return false;
         }
     }

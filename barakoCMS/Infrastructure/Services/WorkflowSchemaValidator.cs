@@ -364,7 +364,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         WorkflowAction action, string field, bool onTransition, WorkflowValidationResult result, int depth,
         IWorkflowPluginRegistry registry)
     {
-        if (action.Parameters is null) return;
+        if (action?.Parameters is null) return;
 
         foreach (var (name, template) in action.Parameters)
         {
@@ -851,6 +851,13 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     private void ValidateActionAt(WorkflowAction action, int index, WorkflowValidationResult result)
     {
         var fieldPrefix = $"actions[{index}]";
+        if (action is null)
+        {
+            result.Errors.Add(new ValidationError { Field = fieldPrefix, Message = "Action is required" });
+            result.IsValid = false;
+            return;
+        }
+
         ValidateAction(action, fieldPrefix, result);
         ValidateLabel(action?.Label, fieldPrefix, result);
 

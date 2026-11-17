@@ -169,19 +169,12 @@ internal class Endpoint : Endpoint<Request, Response>
         var newRefreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var newRefreshTokenExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
         
-        var newRefreshToken = new RefreshToken
-        {
-            Id = Guid.NewGuid(),
-            TokenHash = RefreshToken.HashOf(newRefreshTokenString),
-            UserId = user.Id,
-            ExpiresAt = newRefreshTokenExpiry,
-            CreatedAt = DateTime.UtcNow,
-            IsRevoked = false,
+        var newRefreshToken = RefreshToken.Issue(
+            user.Id, newRefreshTokenString, newRefreshTokenExpiry,
             // Carried across rotation. Without this the binding survived exactly one refresh: the
             // token being exchanged still had it, the one replacing it did not, so device trust
             // stopped enforcing anything from the second refresh onward and nothing said so.
-            DeviceId = refreshToken.DeviceId
-        };
+            refreshToken.DeviceId);
 
         // Revoke old refresh token (rotation)
         refreshToken.IsRevoked = true;

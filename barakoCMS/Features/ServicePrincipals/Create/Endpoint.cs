@@ -30,7 +30,7 @@ internal class CreateServicePrincipalEndpoint(IDocumentSession session, ICallerC
 
     public override async Task HandleAsync(CreateServicePrincipalRequest req, CancellationToken ct)
     {
-        var tenant = PrincipalRules.TenantOf(User);
+        var tenant = User.TenantSlug();
         if (PrincipalRules.NameProblem(req.Name, out var name) is { } nameProblem)
             ThrowError(r => r.Name, nameProblem);
 

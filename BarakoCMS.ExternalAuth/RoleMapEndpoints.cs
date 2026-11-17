@@ -5,6 +5,7 @@ using barakoCMS.Models;
 using FastEndpoints;
 using FluentValidation;
 using Marten;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.ExternalAuth;
 
@@ -37,7 +38,7 @@ internal static class RoleMaps
         IDocumentSession session, System.Security.Claims.ClaimsPrincipal actor, string action,
         ExternalRoleMap map, CancellationToken ct)
     {
-        Guid.TryParse(actor.FindFirst("UserId")?.Value, out var actorId);
+        actor.TryGetUserId(out var actorId);
         var metadata = new Dictionary<string, object>
         {
             ["claim"] = map.Claim,

@@ -45,7 +45,7 @@ internal static class PrincipalRules
     public static Task<string?> NotHeldAsync(
         IQuerySession session, ICallerCapabilities callers, IPermissionResolver permissions, System.Security.Claims.ClaimsPrincipal user,
         IEnumerable<Guid> roleIds, CancellationToken ct) =>
-        RoleGrantRules.NotHeldAsync(session, callers, permissions, user, roleIds, TenantOf(user), ct);
+        RoleGrantRules.NotHeldAsync(session, callers, permissions, user, roleIds, user.TenantSlug(), ct);
 
     /// <summary>Whether these roles may go on a principal, then whether the caller holds what they carry.</summary>
     public static async Task<string?> CheckAsync(
@@ -87,9 +87,6 @@ internal static class PrincipalRules
         IQuerySession session, ICallerCapabilities callers, IPermissionResolver permissions, System.Security.Claims.ClaimsPrincipal user,
         ServicePrincipal principal, CancellationToken ct) =>
         NotHeldAsync(session, callers, permissions, user, principal.RoleIds, ct);
-
-    public static string TenantOf(System.Security.Claims.ClaimsPrincipal user) =>
-        (user.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
 
     public static Guid? ActorOf(System.Security.Claims.ClaimsPrincipal user) =>
         Guid.TryParse(user.FindFirst("UserId")?.Value, out var id) ? id : null;

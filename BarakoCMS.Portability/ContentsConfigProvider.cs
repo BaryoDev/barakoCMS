@@ -5,6 +5,7 @@ using barakoCMS.Models;
 using Marten;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
+using barakoCMS.Modules;
 
 // The bundle types are obsolete for callers outside the module, and this is the module.
 #pragma warning disable CS0618
@@ -172,5 +173,5 @@ internal sealed class ContentsConfigProvider(
     }
 
     private async Task<User?> CallerAsync(ConfigCaller caller, CancellationToken ct) =>
-        Guid.TryParse(caller.Principal?.FindFirst("UserId")?.Value, out var id) ? await session.LoadAsync<User>(id, ct) : null;
+        caller.Principal is { } principal && principal.TryGetUserId(out var id) ? await session.LoadAsync<User>(id, ct) : null;
 }

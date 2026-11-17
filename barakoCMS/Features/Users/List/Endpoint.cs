@@ -27,17 +27,11 @@ internal class Endpoint(IDocumentSession session) : Endpoint<Request, PaginatedR
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var query = session.Query<User>();
-
-        var totalCount = await query.CountAsync(ct);
-
-        var users = await query
+        var page = await session.Query<User>()
             .OrderByDescending(u => u.CreatedAt)
-            .Skip(req.Skip)
-            .Take(req.Take)
-            .ToListAsync(ct);
-        
-        var response = users.Select(u => new UserResponse
+            .ToPagedResponseAsync(req, ct);
+
+        await Send.ResponseAsync(page.Map(u => new UserResponse
         {
             Id = u.Id,
             Username = u.Username,
@@ -45,14 +39,6 @@ internal class Endpoint(IDocumentSession session) : Endpoint<Request, PaginatedR
             RoleIds = u.RoleIds,
             GroupIds = u.GroupIds,
             CreatedAt = u.CreatedAt
-        }).ToList();
-
-        await Send.ResponseAsync(new PaginatedResponse<UserResponse>
-        {
-            Items = response,
-            Page = req.Page,
-            PageSize = req.PageSize,
-            TotalItems = totalCount
-        }, cancellation: ct);
+        }), cancellation: ct);
     }
 }

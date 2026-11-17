@@ -136,7 +136,7 @@ internal sealed class BuildHookSweepService(
             await session.SaveChangesAsync(ct);
             return true;
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException || ex.GetType().Name.Contains("Concurrency"))
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
         {
             return false;
         }

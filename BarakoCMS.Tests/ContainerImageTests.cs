@@ -20,14 +20,6 @@ namespace BarakoCMS.Tests;
 /// </remarks>
 public class ContainerImageTests
 {
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Directory.Build.props")))
-            dir = dir.Parent;
-        dir.Should().NotBeNull("the tests must be able to find the repository root");
-        return dir!.FullName;
-    }
 
     /// <summary>The two ways a Dockerfile can name uid 0.</summary>
     private static readonly string[] RootSpellings = ["root", "0"];
@@ -38,7 +30,7 @@ public class ContainerImageTests
     [MemberData(nameof(RuntimeImages))]
     public void The_image_drops_to_a_non_root_user_before_its_entrypoint(string dockerfile)
     {
-        var path = Path.Combine(RepoRoot(), dockerfile.Replace('/', Path.DirectorySeparatorChar));
+        var path = Path.Combine(RepoPaths.Root, dockerfile.Replace('/', Path.DirectorySeparatorChar));
         File.Exists(path).Should().BeTrue("{0} is one of the published images", dockerfile);
 
         var lines = File.ReadAllLines(path);
@@ -106,7 +98,7 @@ public class ContainerImageTests
     [Fact]
     public void The_dockerfiles_being_checked_are_the_ones_that_are_published()
     {
-        var root = RepoRoot();
+        var root = RepoPaths.Root;
         var release = File.ReadAllText(Path.Combine(root, ".github", "workflows", "release.yml"));
 
         // Whole trimmed lines, not substrings. "file: Dockerfile" is contained in

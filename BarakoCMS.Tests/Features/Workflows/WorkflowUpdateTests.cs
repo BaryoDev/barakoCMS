@@ -62,6 +62,25 @@ public class WorkflowUpdateTests
         return JsonDocument.Parse(text).RootElement.GetProperty("id").GetGuid();
     }
 
+    private static Guid AdminIdOf(HttpClient client) =>
+        Guid.Parse(new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler()
+            .ReadJwtToken(client.DefaultRequestHeaders.Authorization!.Parameter!)
+            .Claims.First(c => c.Type == "UserId").Value);
+
+    [Fact]
+    public async Task Creating_a_workflow_writes_a_workflow_created_audit_row()
+    {
+        var admin = await _harness.AdminAsync();
+        var id = await CreateAsync(admin, Email("created@example.com"));
+
+        var audit = await _harness.AuditOfAsync("workflow.created", id);
+
+        audit.Should().HaveCount(1);
+        audit[0].ActorUsername.Should().NotBeNullOrEmpty();
+        audit[0].ActorUserId.Should().Be(AdminIdOf(admin));
+        audit[0].TargetType.Should().Be(nameof(WorkflowDefinition));
+    }
+
     [Fact]
     public async Task A_valid_definition_replaces_the_stored_one_and_is_audited()
     {

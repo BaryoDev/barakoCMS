@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
@@ -49,14 +50,9 @@ internal static class CollectionSyncGate
 /// <summary>The checks that need the database, so cannot live in the FluentValidation validator.</summary>
 internal static class CollectionSyncRules
 {
-    /// <summary>The shape a slug has to have, checked on the route value as well as on a save.</summary>
-    /// <remarks>
-    /// Applied to the route value too. A slug that cannot exist is a malformed request rather than a
-    /// missing sync, and answering 404 to it says "no such sync" when the truthful answer is "that is
-    /// not a sync name".
-    /// </remarks>
-    internal static bool IsSlug(string value) =>
-        System.Text.RegularExpressions.Regex.IsMatch(value, "^[a-z0-9][a-z0-9-]{0,62}$");
+    /// <summary>Loads a sync by slug, or null.</summary>
+    internal static Task<CollectionSync?> FindAsync(IQuerySession session, string slug, CancellationToken ct) =>
+        session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
 
     /// <summary>Returns why this sync cannot be saved, or null.</summary>
     internal static async Task<string?> CheckAsync(
@@ -275,13 +271,7 @@ internal sealed class ListCollectionSyncsEndpoint(
     {
         var page = await session.Query<CollectionSync>().OrderBy(s => s.Name).ToPagedResponseAsync(req, ct);
 
-        await Send.ResponseAsync(new PaginatedResponse<CollectionSyncResponse>
-        {
-            Items = page.Items.Select(CollectionSyncResponse.From).ToList(),
-            Page = page.Page,
-            PageSize = page.PageSize,
-            TotalItems = page.TotalItems,
-        }, cancellation: ct);
+        await Send.ResponseAsync(page.Map(CollectionSyncResponse.From), cancellation: ct);
     }
 }
 
@@ -297,13 +287,13 @@ internal sealed class GetCollectionSyncEndpoint(IQuerySession session) : Endpoin
     {
         var slug = Route<string>("slug") ?? string.Empty;
 
-        if (!CollectionSyncRules.IsSlug(slug))
+        if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a collection sync slug: lowercase letters, digits and hyphens only.", 400);
             return;
         }
 
-        var sync = await session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
+        var sync = await CollectionSyncRules.FindAsync(session, slug, ct);
 
         if (sync is null)
         {
@@ -367,13 +357,13 @@ internal sealed class UpdateCollectionSyncEndpoint(
     {
         var slug = Route<string>("slug") ?? string.Empty;
 
-        if (!CollectionSyncRules.IsSlug(slug))
+        if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a collection sync slug: lowercase letters, digits and hyphens only.", 400);
             return;
         }
 
-        var sync = await session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
+        var sync = await CollectionSyncRules.FindAsync(session, slug, ct);
 
         if (sync is null)
         {
@@ -417,13 +407,13 @@ internal sealed class DeleteCollectionSyncEndpoint(
     {
         var slug = Route<string>("slug") ?? string.Empty;
 
-        if (!CollectionSyncRules.IsSlug(slug))
+        if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a collection sync slug: lowercase letters, digits and hyphens only.", 400);
             return;
         }
 
-        var sync = await session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
+        var sync = await CollectionSyncRules.FindAsync(session, slug, ct);
 
         if (sync is null)
         {
@@ -471,13 +461,13 @@ internal sealed class RunCollectionSyncEndpoint(
     {
         var slug = Route<string>("slug") ?? string.Empty;
 
-        if (!CollectionSyncRules.IsSlug(slug))
+        if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a collection sync slug: lowercase letters, digits and hyphens only.", 400);
             return;
         }
 
-        var sync = await session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
+        var sync = await CollectionSyncRules.FindAsync(session, slug, ct);
 
         if (sync is null)
         {

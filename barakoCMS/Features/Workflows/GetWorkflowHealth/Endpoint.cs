@@ -177,7 +177,7 @@ internal sealed class Endpoint(IQuerySession session, IConfiguration config, Tim
     /// </summary>
     internal static async Task<DayHealth> DayHealthAsync(IQuerySession session, DateTimeOffset now, CancellationToken ct)
     {
-        var counts = await RunQueries.CountSinceByWorkflowAsync(session, now.AddHours(-24), Enum.GetValues<RunStatus>(), ct);
+        var counts = await RunQueries.CountSinceAsync(session, null, now.AddHours(-24), Enum.GetValues<RunStatus>(), ct);
         var newest = await RunQueries.NewestAsync(session, RecentOutcomes, ct);
 
         var runs = counts.Values.Sum();

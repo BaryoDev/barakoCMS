@@ -1024,6 +1024,17 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         }
     }
 
+    /// <summary>
+    /// A client of this host carrying a bearer token for a stored user holding <paramref name="roleNames"/>.
+    /// </summary>
+    public async Task<HttpClient> CreateClientAsync(params string[] roleNames)
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", await StoredUserTokenAsync(roleNames));
+        return client;
+    }
+
     private async Task<string> MintForStoredUserAsync(string[] roleNames)
     {
         using var scope = Services.CreateScope();

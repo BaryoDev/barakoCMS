@@ -154,7 +154,7 @@ public class WorkflowPluginTests
     }
 
     [Fact]
-    public async Task WebhookAction_Should_NotThrow_WhenUrlMissing()
+    public async Task WebhookAction_RunAsync_Should_ReportPermanentFailure_WhenUrlMissing()
     {
         // Arrange
         var mockHttpClientFactory = new Mock<IHttpClientFactory>();
@@ -178,10 +178,13 @@ public class WorkflowPluginTests
         };
 
         // Act
-        Func<Task> act = async () => await action.ExecuteAsync(parameters, content, CancellationToken.None);
+        var result = await action.RunAsync(parameters, content, CancellationToken.None);
 
         // Assert
-        await act.Should().NotThrowAsync();
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeFalse();
+        result.Error.Should().Be("No Url parameter was configured for this webhook action.");
+        mockHttpClientFactory.Verify(f => f.CreateClient(It.IsAny<string>()), Times.Never);
     }
 
     /// <summary>

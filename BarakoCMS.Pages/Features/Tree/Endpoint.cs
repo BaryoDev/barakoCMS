@@ -4,6 +4,7 @@ using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
 using Microsoft.Extensions.Options;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.Pages.Features.Tree;
 
@@ -74,7 +75,7 @@ internal sealed class Endpoint : EndpointWithoutRequest<TreeResponse>
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (User.FindFirst("UserId") is not { } claim || !Guid.TryParse(claim.Value, out var userId))
+        if (!User.TryGetUserId(out var userId))
         {
             await Send.UnauthorizedAsync(ct);
             return;

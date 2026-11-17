@@ -12,6 +12,7 @@ using barakoCMS.Models;
 using barakoCMS.Modules;
 using barakoCMS.Repository;
 using System.Threading.RateLimiting;
+using barakoCMS.Infrastructure.Http;
 using barakoCMS.Infrastructure.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -102,7 +103,7 @@ public static class ServiceCollectionExtensions
 
         AddRateLimiting(services, configuration);
 
-        AddHealthChecksDashboard(services, configuration);
+        AddHealthChecksDashboard(configuration);
 
         LegacyEmailKeyCheck.WarnIfIgnored(services, configuration);
 
@@ -1285,7 +1286,7 @@ public static class ServiceCollectionExtensions
         outbound.Validate(barakoCMS.Infrastructure.Jobs.JobOptions.FromConfiguration(configuration).LeaseSeconds);
         services.AddSingleton(new barakoCMS.Infrastructure.Http.OutboundResilience(outbound));
 
-        services.AddHttpClient("ExternalApi")
+        services.AddHttpClient(HttpClientNames.ExternalApi)
                 .ConfigurePrimaryHttpMessageHandler(sp => barakoCMS.Infrastructure.Http.OutboundHttpHandler.Create(
                     sp.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundAddressGuard>(),
                     allowWebhookProxy))
@@ -1741,7 +1742,7 @@ public static class ServiceCollectionExtensions
                     options, barakoCMS.Infrastructure.Security.RateLimitSetup.Read(current)));
     }
 
-    private static void AddHealthChecksDashboard(IServiceCollection services, IConfiguration configuration)
+    private static void AddHealthChecksDashboard(IConfiguration configuration)
     {
         barakoCMS.Infrastructure.Health.HealthChecksUiRemoval.WarnIfEnabled(
             configuration, message => Log.Warning("{HealthChecksUiRemoved}", message));
@@ -1956,7 +1957,7 @@ public static class ServiceCollectionExtensions
 
         UseJobWorkers(app);
 
-        UseHealthEndpoints(app, configuration);
+        UseHealthEndpoints(app);
 
         UseOpenApi(app, configuration, env);
 
@@ -2306,7 +2307,7 @@ public static class ServiceCollectionExtensions
         });
     }
 
-    private static void UseHealthEndpoints(IApplicationBuilder app, IConfiguration configuration)
+    private static void UseHealthEndpoints(IApplicationBuilder app)
     {
         // Health check endpoints, unauthenticated because kubelet cannot present a token. The
         // response body stays minimal on all three so anonymous callers cannot enumerate internal

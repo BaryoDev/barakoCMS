@@ -321,9 +321,10 @@ internal sealed class RunListResponse
     public bool HasPreviousPage => Page > 1;
 
     /// <summary>
-    /// How many runs have each status under the content and workflow filters, whatever the status filter and
-    /// the page. Every status is present, with zero where there are none. Null when <c>changedSince</c>
-    /// was given, since a poll reads what changed and a count would add a scan to each one.
+    /// How many runs have each status under the content and workflow filters, whatever the status filter
+    /// and the page, each counted up to <see cref="StatusCountCap"/>. Every status is present, with zero
+    /// where there are none. Null when <c>changedSince</c> was given, since a poll reads what changed and
+    /// a count would add a scan to each one.
     /// </summary>
     public Dictionary<string, int>? StatusCounts { get; set; }
 
@@ -348,6 +349,18 @@ internal sealed class RunListResponse
     public IReadOnlyList<RunSeriesBucket>? Series { get; set; }
 
     /// <summary>
+    /// The most runs <see cref="StatusCounts"/> counts for one status. Null when <see cref="StatusCounts"/> is.
+    /// </summary>
+    public int? StatusCountCap { get; set; }
+
+    /// <summary>
+    /// The statuses that have more runs than <see cref="StatusCountCap"/>, so their entry in
+    /// <see cref="StatusCounts"/> is that many or more. Empty when every count is exact. Null when
+    /// <see cref="StatusCounts"/> is.
+    /// </summary>
+    public List<string>? StatusCountsCapped { get; set; }
+
+    /// <summary>
     /// Pass back as <c>changedSince</c> to read what changed after this response. Present only when
     /// <c>changedSince</c> was given.
     /// </summary>
@@ -365,6 +378,10 @@ internal sealed class RunListResponse
 
 internal static class RunGate
 {
+    internal const string BadIdMessage = "The run id is not a GUID.";
+
+    internal static bool TryParseId(string? raw, out Guid id) => Guid.TryParse(raw, out id);
+
     /// <summary>
     /// The names that gated the run endpoints before capabilities, kept as the legacy fallback for
     /// both <see cref="SystemCapabilities.ViewWorkflowRuns"/> and
@@ -396,7 +413,7 @@ internal sealed class ListRunsEndpoint(
 
         if (!text.Contains(','))
         {
-            return [ParseOne(text, ignoreCase: true)];
+            return [ParseOne(text)];
         }
 
         // Each part has to be a name. Enum parsing alone reads a comma as a combination of flags,
@@ -406,16 +423,16 @@ internal sealed class ListRunsEndpoint(
         {
             var name = part.Trim();
             if (!Enum.GetNames<RunStatus>().Contains(name, StringComparer.OrdinalIgnoreCase)) Refuse();
-            var status = ParseOne(name, ignoreCase: true);
+            var status = ParseOne(name);
             if (!statuses.Contains(status)) statuses.Add(status);
         }
 
         return statuses;
     }
 
-    private RunStatus ParseOne(string text, bool ignoreCase)
+    private RunStatus ParseOne(string text)
     {
-        if (!Enum.TryParse<RunStatus>(text, ignoreCase, out var parsed))
+        if (!Enum.TryParse<RunStatus>(text, ignoreCase: true, out var parsed))
         {
             Refuse();
         }
@@ -478,7 +495,9 @@ internal sealed class ListRunsEndpoint(
         CountWindow? Window,
         Dictionary<string, int>? Counts,
         Dictionary<string, int>? Previous,
-        List<RunSeriesBucket>? Series)
+        List<RunSeriesBucket>? Series,
+        int? Cap = null,
+        List<string>? Capped = null)
     {
         /// <summary>What a window adds to the ETag: where it is, and the counts and buckets in it.</summary>
         public string ETagSuffix() => Window is null || Previous is null
@@ -502,7 +521,7 @@ internal sealed class ListRunsEndpoint(
         if (window is null)
         {
             var all = await RunQueries.CountByStatusAsync(session, req.ContentId, req.WorkflowId, ct);
-            return new RunTally(null, all, null, null);
+            return new RunTally(null, all.Counts, null, null, all.Cap, all.Capped);
         }
 
         var cells = await RunQueries.CountWindowAsync(session, req.ContentId, req.WorkflowId, window, ct);
@@ -564,7 +583,6 @@ internal sealed class ListRunsEndpoint(
 
         var now = clock.GetUtcNow();
         var tally = await TallyAsync(req, since is null, now, ct);
-        var (window, counts) = (tally.Window, tally.Counts);
 
         var query = FilterRuns(session, req, status, since);
 
@@ -576,7 +594,7 @@ internal sealed class ListRunsEndpoint(
             session, HttpContext, User, page.Items.Select(r => r.ContentId), ct);
         var items = page.Items.Select(r => RunResponse.From(r, titles.GetValueOrDefault(r.ContentId))).ToList();
 
-        var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, counts,
+        var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, tally.Counts, tally.Cap, tally.Capped,
             $"{sweeping}:{windows.SucceededDays}:{windows.FailedDays}" + tally.ETagSuffix());
         HttpContext.Response.Headers.ETag = etag;
         HttpContext.Response.Headers.CacheControl = "private, no-cache";
@@ -594,10 +612,12 @@ internal sealed class ListRunsEndpoint(
             Page = page.Page,
             PageSize = page.PageSize,
             TotalItems = page.TotalItems,
-            StatusCounts = counts,
-            Window = window is null ? null : new WindowInfo(window.From, window.To),
+            StatusCounts = tally.Counts,
+            Window = tally.Window is { } window ? new WindowInfo(window.From, window.To) : null,
             PreviousStatusCounts = tally.Previous,
             Series = tally.Series,
+            StatusCountCap = tally.Cap,
+            StatusCountsCapped = tally.Capped,
             Cursor = since is { } input
                 ? RunCursor.Next(input, page.Items, req.Skip + page.Items.Count < page.TotalItems, now).ToString()
                 : null,
@@ -617,9 +637,9 @@ internal sealed class GetRunEndpoint(IQuerySession session) : EndpointWithoutReq
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!Guid.TryParse(Route<string>("id"), out var id))
+        if (!RunGate.TryParseId(Route<string>("id"), out var id))
         {
-            ThrowError("The run id is not a GUID.", 400);
+            ThrowError(RunGate.BadIdMessage, 400);
             return;
         }
 
@@ -663,9 +683,9 @@ internal sealed class RetryAttemptEndpoint(
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!Guid.TryParse(Route<string>("id"), out var id))
+        if (!RunGate.TryParseId(Route<string>("id"), out var id))
         {
-            ThrowError("The run id is not a GUID.", 400);
+            ThrowError(RunGate.BadIdMessage, 400);
             return;
         }
 
@@ -762,7 +782,7 @@ internal sealed class RetryAttemptEndpoint(
         if (skippedBehind > 0) metadata["resumedActions"] = skippedBehind;
         if (wasPermanent is { } permanent) metadata["wasPermanent"] = permanent;
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "workflow.action.retried", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(WorkflowRun), targetId: run.Id.ToString(),
@@ -772,8 +792,7 @@ internal sealed class RetryAttemptEndpoint(
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency"))
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
         {
             // The run moved between the read above and this save, which in practice means the runner
             // claimed the attempt while the operator was deciding. Optimistic concurrency on
@@ -837,9 +856,9 @@ internal sealed class CancelRunEndpoint(
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!Guid.TryParse(Route<string>("id"), out var id))
+        if (!RunGate.TryParseId(Route<string>("id"), out var id))
         {
-            ThrowError("The run id is not a GUID.", 400);
+            ThrowError(RunGate.BadIdMessage, 400);
             return;
         }
 
@@ -869,7 +888,7 @@ internal sealed class CancelRunEndpoint(
 
         session.Update(run);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "workflow.run.cancelled", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(WorkflowRun), targetId: run.Id.ToString(),
@@ -886,8 +905,7 @@ internal sealed class CancelRunEndpoint(
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency"))
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
         {
             ThrowError("The runner took an action of that run just now. Nothing was changed. Send the request again to cancel what is left.", 409);
             return;
@@ -924,9 +942,9 @@ internal sealed class AbandonRunEndpoint(
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!Guid.TryParse(Route<string>("id"), out var id))
+        if (!RunGate.TryParseId(Route<string>("id"), out var id))
         {
-            ThrowError("The run id is not a GUID.", 400);
+            ThrowError(RunGate.BadIdMessage, 400);
             return;
         }
 
@@ -980,8 +998,7 @@ internal sealed class AbandonRunEndpoint(
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency"))
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
         {
             ThrowError("The runner took an action of that run just now. Nothing was changed. Send the request again.", 409);
             return;
@@ -1007,7 +1024,7 @@ internal sealed class AbandonRunEndpoint(
 
     private Task RecordAsync(WorkflowRun run, int queued, CancellationToken ct)
     {
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         return AuditLog.RecordAsync(session, tenant.Slug, "workflow.run.abandoned", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(WorkflowRun), targetId: run.Id.ToString(),

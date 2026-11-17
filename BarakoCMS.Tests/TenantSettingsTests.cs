@@ -59,8 +59,6 @@ public class TenantSettingsTests
     private static string NextIp() =>
         $"198.51.102.{Interlocked.Increment(ref _ipCounter) % 250 + 1}";
 
-    private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..20].ToLowerInvariant();
-
     [Fact]
     public async Task A_tenant_smtp_from_is_used_for_that_tenant_and_another_tenant_keeps_the_host_default()
     {
@@ -530,7 +528,7 @@ public class TenantSettingsTests
 
     private async Task<string> TenantAsync()
     {
-        var slug = Unique("sett");
+        var slug = TestNames.Slug("sett");
         await StoreAsync(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
         return slug;
     }
@@ -538,9 +536,9 @@ public class TenantSettingsTests
     private async Task<HttpClient> MemberClientAsync(WebApplicationFactory<Program> host, string slug, Guid roleId, string roleName)
     {
         var userId = Guid.NewGuid();
-        var username = Unique("u");
+        var username = TestNames.Slug("u");
         await StoreAsync(
-            new User { Id = userId, Username = username, Email = $"{Unique("m")}@example.com" },
+            new User { Id = userId, Username = username, Email = $"{TestNames.Slug("m")}@example.com" },
             new Membership
             {
                 Id = Guid.NewGuid(), UserId = userId, TenantSlug = slug,

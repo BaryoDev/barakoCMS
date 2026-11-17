@@ -28,15 +28,8 @@ internal class Endpoint(
             query = RoleScope.Reach(query, tenant.Slug);
         }
 
-        var total = await query.CountAsync(ct);
-        var roles = await query.OrderBy(r => r.Name).Skip(req.Skip).Take(req.Take).ToListAsync(ct);
+        var page = await query.OrderBy(r => r.Name).ToPagedResponseAsync(req, ct);
 
-        await Send.ResponseAsync(new PaginatedResponse<barakoCMS.Features.Roles.RoleResponse>
-        {
-            Items = roles.Select(barakoCMS.Features.Roles.RoleResponse.From).ToList(),
-            Page = req.Page,
-            PageSize = req.PageSize,
-            TotalItems = total
-        }, cancellation: ct);
+        await Send.ResponseAsync(page.Map(barakoCMS.Features.Roles.RoleResponse.From), cancellation: ct);
     }
 }

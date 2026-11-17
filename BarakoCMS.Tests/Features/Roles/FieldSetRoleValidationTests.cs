@@ -25,13 +25,8 @@ public class FieldSetRoleValidationTests
 
     public FieldSetRoleValidationTests(IntegrationTestFixture fixture) => _fixture = fixture;
 
-    private async Task<HttpClient> AdminAsync()
-    {
-        var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-            "Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> AdminAsync() =>
+        _fixture.CreateClientAsync("SuperAdmin");
 
     private async Task<string> TypeAsync()
     {

@@ -298,16 +298,7 @@ internal class Endpoint : Endpoint<Request, Response>
         var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var refreshTokenExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
         
-        var refreshToken = new RefreshToken
-        {
-            Id = Guid.NewGuid(),
-            TokenHash = RefreshToken.HashOf(refreshTokenString),
-            UserId = user.Id,
-            ExpiresAt = refreshTokenExpiry,
-            CreatedAt = DateTime.UtcNow,
-            IsRevoked = false,
-            DeviceId = device.DeviceId
-        };
+        var refreshToken = RefreshToken.Issue(user.Id, refreshTokenString, refreshTokenExpiry, device.DeviceId);
 
         _documentSession.Store(refreshToken);
         await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.succeeded", user.Id, user.Username,

@@ -31,7 +31,7 @@ public class WorkflowMissedTriggerMigrationTests
         }
 
         var sql = await File.ReadAllTextAsync(
-            Path.Combine(RepositoryRoot(), "migrations", "5.5.0", "workflow-missed-triggers.sql"), ct);
+            Path.Combine(RepoPaths.Root, "migrations", "5.5.0", "workflow-missed-triggers.sql"), ct);
 
         var scratch = "missed_trigger_check_" + Guid.NewGuid().ToString("N")[..8];
         var scoped = sql.Replace($"public.{Table}", $"{scratch}.{Table}");
@@ -66,7 +66,7 @@ public class WorkflowMissedTriggerMigrationTests
     public async Task The_rollback_removes_the_table_the_migration_builds()
     {
         var ct = TestContext.Current.CancellationToken;
-        var root = RepositoryRoot();
+        var root = RepoPaths.Root;
         var migration = await File.ReadAllTextAsync(Path.Combine(root, "migrations", "5.5.0", "workflow-missed-triggers.sql"), ct);
         var rollback = await File.ReadAllTextAsync(Path.Combine(root, "migrations", "5.5.0", "rollback-workflow-missed-triggers.sql"), ct);
 
@@ -132,15 +132,4 @@ public class WorkflowMissedTriggerMigrationTests
         await command.ExecuteNonQueryAsync(ct);
     }
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-        {
-            directory = directory.Parent;
-        }
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 }

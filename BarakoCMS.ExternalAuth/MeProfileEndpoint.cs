@@ -1,5 +1,6 @@
 using FastEndpoints;
 using Marten;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.ExternalAuth;
 
@@ -13,7 +14,7 @@ public class MeProfileEndpoint(IQuerySession session) : EndpointWithoutRequest
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId);
+        User.TryGetUserId(out var userId);
         var p = await session.Query<SocialProfile>().FirstOrDefaultAsync(x => x.UserId == userId, ct);
         await Send.OkAsync(new
         {

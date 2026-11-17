@@ -649,7 +649,7 @@ public class TemplateVariableExtractor(
             readable[entry.Id] = (entry.ContentType, new FollowedContent
             {
                 Id = entry.Id,
-                ContentType = hidden ? "HIDDEN" : entry.ContentType,
+                ContentType = hidden ? barakoCMS.Core.HiddenContentType.Name : entry.ContentType,
                 Status = entry.Status,
                 Sensitivity = entry.Sensitivity,
                 CreatedAt = entry.CreatedAt,
@@ -972,7 +972,7 @@ public class TemplateVariableExtractor(
     {
         var fields = new List<TemplateVariable>();
 
-        foreach (var kvp in content.Data)
+        foreach (var kvp in content.Data ?? [])
         {
             var value = kvp.Value;
             var type = "string";

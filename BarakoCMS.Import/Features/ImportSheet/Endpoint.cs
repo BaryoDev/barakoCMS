@@ -7,6 +7,7 @@ using FastEndpoints;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Talaan;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.Import.Features.ImportSheet;
 
@@ -37,8 +38,7 @@ internal sealed class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var userIdClaim = User.FindFirst("UserId");
-        if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId)
+        if (!User.TryGetUserId(out var userId)
             || await session.LoadAsync<User>(userId, ct) is not { } user)
         {
             await Send.UnauthorizedAsync(ct);
@@ -139,43 +139,13 @@ internal sealed class Endpoint(
             return null;
         }
 
-        using var buffer = new MemoryStream();
-        await using (var upload = file.OpenReadStream())
-            await upload.CopyToAsync(buffer, ct);
-        buffer.Position = 0;
-
-        var limit = SpreadsheetLimits.MaxExpandedBytes(configuration);
-        if (SpreadsheetLimits.ExpandedBytesOver(buffer, limit) is { } expanded)
-        {
-            await RefuseAsync(
-                $"That file expands to {expanded / 1024 / 1024} MB, over the {limit / 1024 / 1024} MB "
-              + $"this instance will parse. Split it, or raise {SpreadsheetLimits.MaxExpandedBytesKey}.", ct);
-            return null;
-        }
-
-        var tooBig = SpreadsheetGuard.Check(
-            buffer, SpreadsheetLimits.MaxColumns(configuration),
-            (long)ImportLimits.MaxRecords(configuration) + Math.Max(req.HeaderRow, 0) + SpreadsheetGuard.RowMargin);
-        if (tooBig is not null)
-        {
-            await RefuseAsync(tooBig, ct);
-            return null;
-        }
-
-        try
-        {
-            return Spreadsheet.Read(buffer, file.FileName);
-        }
-        catch (NotSupportedException ex)
-        {
-            await RefuseAsync(ex.Message, ct);
-        }
-        catch (Exception)
-        {
-            await RefuseAsync("Could not read the file. Ensure it is a valid .xlsx or CSV.", ct);
-        }
-
-        return null;
+        return await SpreadsheetUpload.ReadAsync(
+            file, configuration,
+            buffer => SpreadsheetGuard.Check(
+                buffer, SpreadsheetLimits.MaxColumns(configuration),
+                (long)ImportLimits.MaxRecords(configuration) + Math.Max(req.HeaderRow, 0) + SpreadsheetGuard.RowMargin),
+            message => RefuseAsync(message, ct),
+            ct);
     }
 
     /// <summary>The mapped data rows, ready to write, or null after answering 400.</summary>

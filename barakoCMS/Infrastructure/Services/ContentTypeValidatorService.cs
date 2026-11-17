@@ -201,7 +201,7 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
             }
 
             errors.AddRange(FieldPresentation.RoleErrors(fields).Concat(ParentFields.DefinitionErrors(name, fields)).Concat(OwnerHiddenFields.DefinitionErrors(fields)));
-            errors.AddRange(ComputedFields.DefinitionErrors(fields));
+            errors.AddRange(ComputedFields.DefinitionErrors(fields, CarriedComputed(fields, stored)));
 
             // Entries, filters, sensitivity and the write rules all find a field by its name
             // ignoring case, so two names that differ only in case are one field read two ways. A
@@ -220,6 +220,24 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
         }
 
         return (errors.Count == 0, errors);
+    }
+
+    /// <summary>
+    /// Stored computed fields whose inputs are stored too, so nothing the audience and mask rule
+    /// reads has changed since the type was saved. A new or changed field, or one over a new or
+    /// changed input, is checked in full.
+    /// </summary>
+    private static HashSet<FieldDefinition> CarriedComputed(List<FieldDefinition> fields, HashSet<FieldDefinition> stored)
+    {
+        var carried = new HashSet<FieldDefinition>(ReferenceEqualityComparer.Instance);
+        foreach (var field in fields.Where(f => f is not null && stored.Contains(f) && ComputedFields.IsComputed(f)))
+        {
+            var inputs = (field.Computed!.Args ?? []).Select(a => fields.FirstOrDefault(f => f is not null && string.Equals(f.Name, a, StringComparison.OrdinalIgnoreCase)));
+            if (inputs.All(i => i is null || stored.Contains(i)))
+                carried.Add(field);
+        }
+
+        return carried;
     }
 
     /// <summary>What is wrong with the settings a field's type gives meaning to.</summary>

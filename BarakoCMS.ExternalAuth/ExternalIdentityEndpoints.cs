@@ -5,6 +5,7 @@ using barakoCMS.Models;
 using FastEndpoints;
 using FluentValidation;
 using Marten;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.ExternalAuth;
 
@@ -58,7 +59,7 @@ internal static class ExternalIdentityAccess
             return true;
         }
 
-        if (!Guid.TryParse(caller.FindFirst("UserId")?.Value, out var callerId))
+        if (!caller.TryGetUserId(out var callerId))
         {
             return false;
         }
@@ -136,7 +137,7 @@ internal sealed class RemoveExternalIdentityEndpoint(IDocumentSession session, T
         }
 
         session.Delete(link);
-        Guid.TryParse(User.FindFirst("UserId")?.Value, out var actorId);
+        User.TryGetUserId(out var actorId);
         await AuditLog.RecordAsync(session, tenant.Slug, "user.external_identity.removed", actorId,
             User.FindFirst("Username")?.Value, targetType: "User", targetId: req.UserId.ToString(),
             metadata: new Dictionary<string, object> { ["provider"] = link.Provider, ["issuer"] = link.Issuer }, ct: ct);

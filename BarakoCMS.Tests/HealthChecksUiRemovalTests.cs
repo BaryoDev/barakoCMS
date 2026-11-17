@@ -20,17 +20,6 @@ public class HealthChecksUiRemovalTests
                 : new Dictionary<string, string?> { ["HealthChecksUI:Enabled"] = enabled })
             .Build();
 
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "CLAUDE.md")))
-        {
-            dir = dir.Parent;
-        }
-
-        dir.Should().NotBeNull("the test needs the repository root to scan");
-        return dir!.FullName;
-    }
 
     [Fact]
     public void A_startup_warning_names_the_removed_setting_and_the_package_that_restores_it()
@@ -60,7 +49,7 @@ public class HealthChecksUiRemovalTests
     [Fact]
     public void The_core_project_no_longer_references_the_health_checks_ui_packages()
     {
-        var root = RepoRoot();
+        var root = RepoPaths.Root;
 
         var csproj = File.ReadAllText(Path.Combine(root, "barakoCMS", "barakoCMS.csproj"));
         var props = File.ReadAllText(Path.Combine(root, "Directory.Packages.props"));
@@ -72,7 +61,7 @@ public class HealthChecksUiRemovalTests
     [Fact]
     public void No_module_project_references_or_calls_the_removed_health_checks_ui_types()
     {
-        var root = RepoRoot();
+        var root = RepoPaths.Root;
         var modules = Directory.GetDirectories(root, "BarakoCMS.*")
             // On a case-insensitive file system "BarakoCMS.*" also matches the core barakoCMS folder.
             .Where(d => Path.GetFileName(d).StartsWith("BarakoCMS.", StringComparison.Ordinal))

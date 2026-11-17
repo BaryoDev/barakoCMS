@@ -30,13 +30,11 @@ public class GitHubStartEndpoint(IConfiguration config, IQuerySession session) :
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!ExternalAuthSupport.ProviderEnabled(config, "GitHub", "ClientId")) { await Send.NotFoundAsync(ct); return; }
-        var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
-        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.GitHub, ct)) { await Send.NotFoundAsync(ct); return; }
-        var state = ExternalAuthSupport.NewState();
-        HttpContext.Response.Cookies.Append("gh_state", state, ExternalAuthSupport.ShortCookie());
-        HttpContext.Response.Cookies.Append("gh_club", club, ExternalAuthSupport.ShortCookie());
-        SocialHandoff.BindDevice(HttpContext, config);
+        var begun = await ExternalAuthSupport.BeginAsync(
+            HttpContext, config, session, Query<string>("club", isRequired: false),
+            "gh", ExternalProviders.GitHub, "GitHub", "ClientId", ct);
+        if (begun is null) { await Send.NotFoundAsync(ct); return; }
+        var state = begun.Value.State;
 
         var redirect = Gh.CallbackUrl(config, HttpContext);
         var url =
@@ -63,19 +61,16 @@ public class GitHubCallbackEndpoint(
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var baseUrl = ExternalAuthSupport.BaseUrl(config, HttpContext);
-        var club = HttpContext.Request.Cookies["gh_club"] ?? "";
-        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.GitHub, ct)) { await Send.NotFoundAsync(ct); return; }
-        var cookieState = HttpContext.Request.Cookies["gh_state"];
-        var code = Query<string>("code", isRequired: false);
-        var state = Query<string>("state", isRequired: false);
-        HttpContext.Response.Cookies.Delete("gh_state");
-        HttpContext.Response.Cookies.Delete("gh_club");
+        var cb = await ExternalAuthSupport.ReadCallbackStateAsync(
+            HttpContext, config, session, Query<string>("code", isRequired: false),
+            Query<string>("state", isRequired: false), "gh", ExternalProviders.GitHub, ct);
+        if (cb is null) { await Send.NotFoundAsync(ct); return; }
+        var (baseUrl, club, code) = cb;
 
         Task Fail(string message) =>
             Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendError(baseUrl, message, club)));
 
-        if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state) || state != cookieState)
+        if (code is null)
         {
             await Fail("GitHub sign-in was cancelled or the link expired. Please try again.");
             return;

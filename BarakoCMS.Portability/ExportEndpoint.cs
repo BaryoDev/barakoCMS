@@ -6,6 +6,7 @@ using FastEndpoints;
 using Marten;
 using Marten.Linq.MatchesSql;
 using Microsoft.Extensions.Configuration;
+using barakoCMS.Modules;
 
 // The bundle types are obsolete for callers outside the module, and this is the module.
 #pragma warning disable CS0618
@@ -46,7 +47,7 @@ public class ExportEndpoint(
     public override async Task HandleAsync(Req req, CancellationToken ct)
     {
         // The same identity check as the content List endpoint.
-        if (!Guid.TryParse(User.FindFirst("UserId")?.Value, out var callerId)
+        if (!User.TryGetUserId(out var callerId)
             || await session.LoadAsync<barakoCMS.Models.User>(callerId, ct) is not { } caller)
         {
             await Send.UnauthorizedAsync(ct);

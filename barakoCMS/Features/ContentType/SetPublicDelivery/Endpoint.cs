@@ -73,7 +73,7 @@ internal class Endpoint(
             // Two actions rather than one with a direction field, so enabling can be alerted on
             // without the alert also firing every time somebody turns delivery off. The direction is
             // in the metadata as well, for anyone reading the trail rather than matching on it.
-            var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+            var actorId = ActingCaller.IdOf(User);
 
             await AuditLog.RecordAsync(
                 session,

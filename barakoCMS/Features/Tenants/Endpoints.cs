@@ -83,13 +83,7 @@ internal class ListTenantsEndpoint(IQuerySession session, IConfiguration configu
         var slugs = page.Items.Select(t => t.Slug).ToList();
         var claims = await TenantDomainClaims.ForAsync(session, slugs, ct);
         var facts = await TenantListFacts.ForAsync(session, TenantPartitions.Enforced(configuration), slugs, ct);
-        await Send.OkAsync(new PaginatedResponse<TenantResponse>
-        {
-            Items = page.Items.Select(t => TenantResponse.From(t, claims[t.Slug], facts)).ToList(),
-            Page = page.Page,
-            PageSize = page.PageSize,
-            TotalItems = page.TotalItems,
-        }, ct);
+        await Send.OkAsync(page.Map(t => TenantResponse.From(t, claims[t.Slug], facts)), ct);
     }
 }
 

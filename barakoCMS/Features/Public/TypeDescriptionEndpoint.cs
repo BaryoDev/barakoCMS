@@ -57,9 +57,7 @@ internal sealed class TypeDescriptionEndpoint(IQuerySession session) : EndpointW
     {
         Get("/api/public/types/{type}/description");
         AllowAnonymous();
-        Options(x => x
-            .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
-            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators, barakoCMS.Infrastructure.Caching.DeliveryResponseCachePolicy.Instance));
+        Options(PublicDelivery.DeliveryOptions);
         Description(b => b
             .Produces<PublicTypeDescription>(200)
             .Produces(404));
@@ -68,8 +66,8 @@ internal sealed class TypeDescriptionEndpoint(IQuerySession session) : EndpointW
     public override async Task HandleAsync(CancellationToken ct)
     {
         var type = Route<string>("type") ?? string.Empty;
-        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
-        if (!PublicDelivery.IsDeliverable(def)) { await Send.NotFoundAsync(ct); return; }
+        var def = await PublicDelivery.LoadDeliverableAsync(session, type, ct);
+        if (def is null) { await Send.NotFoundAsync(ct); return; }
 
         var fields = def!.Fields
             .Where(PublicDelivery.IsDeliveredField)

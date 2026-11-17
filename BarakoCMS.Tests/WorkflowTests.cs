@@ -76,14 +76,14 @@ public class WorkflowTests
         using var _ = scope;
 
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        session.Store(Definition(type, new() { ["Status"] = "New" }));
+        session.Store(Definition(type, new() { ["Stage"] = "New" }));
         await session.SaveChangesAsync();
 
         await engine.ProcessEventAsync(type, "Created", new Content
         {
             Id = Guid.NewGuid(),
             ContentType = type,
-            Data = new Dictionary<string, object> { ["Status"] = "New" },
+            Data = new Dictionary<string, object> { ["Stage"] = "New" },
         }, CancellationToken.None);
 
         spy.Executions.Should().ContainSingle("the conditions match, so the action runs");
@@ -130,17 +130,42 @@ public class WorkflowTests
         using var _ = scope;
 
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        session.Store(Definition(type, new() { ["Status"] = "New" }));
+        session.Store(Definition(type, new() { ["Stage"] = "New" }));
         await session.SaveChangesAsync();
 
         await engine.ProcessEventAsync(type, "Created", new Content
         {
             Id = Guid.NewGuid(),
             ContentType = type,
-            Data = new Dictionary<string, object> { ["Status"] = "Shipped" },
+            Data = new Dictionary<string, object> { ["Stage"] = "Shipped" },
         }, CancellationToken.None);
 
-        spy.Executions.Should().BeEmpty("Status is Shipped and the workflow wanted New");
+        spy.Executions.Should().BeEmpty("Stage is Shipped and the workflow wanted New");
+    }
+
+    /// <summary>
+    /// A data field named Status does not stand in for the entry's lifecycle status.
+    /// </summary>
+    [Fact]
+    public async Task A_data_field_named_Status_does_not_satisfy_a_condition_on_the_lifecycle_status()
+    {
+        var type = $"wfs_{Guid.NewGuid():n}"[..12];
+        var (engine, spy, scope) = await EngineAsync();
+        using var _ = scope;
+
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(Definition(type, new() { ["Status"] = "Published" }));
+        await session.SaveChangesAsync();
+
+        await engine.ProcessEventAsync(type, "Created", new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = type,
+            Status = ContentStatus.Draft,
+            Data = new Dictionary<string, object> { ["Status"] = "Published" },
+        }, CancellationToken.None);
+
+        spy.Executions.Should().BeEmpty("the entry is a Draft, whatever its own Status field says");
     }
 
     /// <summary>

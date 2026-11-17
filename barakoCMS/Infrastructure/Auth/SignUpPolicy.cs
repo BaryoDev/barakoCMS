@@ -43,7 +43,7 @@ public static class SignUpPolicy
     /// <summary>Decides for a person signing themselves up in <paramref name="tenantSlug"/>.</summary>
     public static async Task<SignUpDecision> DecideAsync(IQuerySession session, string? tenantSlug, CancellationToken ct)
     {
-        var slug = string.IsNullOrWhiteSpace(tenantSlug) ? Tenant.DefaultSlug : tenantSlug.Trim().ToLowerInvariant();
+        var slug = TenantSlugs.Normalise(tenantSlug);
         if (slug == Tenant.DefaultSlug)
         {
             return new SignUpDecision(SignUpOutcome.AsBefore, slug, null);

@@ -68,7 +68,7 @@ internal sealed class AddSeoFieldsEndpoint(
         foreach (var field in SeoFields.Definitions())
         {
             var existing = definition.Fields
-                .FirstOrDefault(f => string.Equals(f.Name, field.Name, StringComparison.OrdinalIgnoreCase));
+                .FieldNamed(field.Name);
 
             if (existing is not null)
             {

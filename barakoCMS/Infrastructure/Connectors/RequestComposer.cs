@@ -47,9 +47,6 @@ internal sealed class RequestComposer(
     IConfiguration config,
     IQueryRunner queryRunner) : IRequestComposer
 {
-    /// <summary>The same <c>{{name}}</c> syntax workflow actions already use.</summary>
-    private static readonly Regex Hole = new(@"\{\{\s*([A-Za-z0-9_.\[\]]+)\s*\}\}", RegexOptions.Compiled);
-
     /// <summary>Sent when a connector names no header of its own. See <see cref="IdempotencyHeaderName"/>.</summary>
     private const string DefaultIdempotencyHeader = "Idempotency-Key";
 
@@ -222,7 +219,7 @@ internal sealed class RequestComposer(
         var names = new List<string>();
         foreach (var template in templates)
         {
-            foreach (Match match in Hole.Matches(template ?? string.Empty))
+            foreach (Match match in TemplateHoles.Hole.Matches(template ?? string.Empty))
             {
                 var name = match.Groups[1].Value;
                 if (name.StartsWith("query.", StringComparison.OrdinalIgnoreCase))
@@ -362,7 +359,7 @@ internal sealed class RequestComposer(
     private string Substitute(
         string template, Content content, IReadOnlyList<Dictionary<string, object>> queryRows, Escaping escaping)
     {
-        return Hole.Replace(template, match =>
+        return TemplateHoles.Hole.Replace(template, match =>
         {
             var name = match.Groups[1].Value;
 
@@ -447,7 +444,7 @@ internal sealed class RequestComposer(
             }
         }
 
-        var bare = name.StartsWith("data.", StringComparison.OrdinalIgnoreCase) ? name[5..] : name;
+        var bare = TemplateHoles.Bare(name);
 
         foreach (var (key, value) in content.Data)
         {

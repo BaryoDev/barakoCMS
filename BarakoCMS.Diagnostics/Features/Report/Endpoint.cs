@@ -4,6 +4,7 @@ using FastEndpoints;
 using Marten;
 // RequireRateLimiting lives here; this project is not a Web SDK project, so it is not implicitly used.
 using Microsoft.AspNetCore.Builder;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.Diagnostics.Features.Report;
 
@@ -46,7 +47,7 @@ public class Endpoint(IDocumentSession session, TenantContext tenant) : Endpoint
     public override async Task HandleAsync(ReportRequest req, CancellationToken ct)
     {
         // Best-effort identity: present only when the request carried a valid token.
-        Guid? userId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var uid) ? uid : null;
+        Guid? userId = User.TryGetUserId(out var uid) ? uid : null;
         var username = User.FindFirst("Username")?.Value ?? User.Identity?.Name;
         var userAgent = HttpContext.Request.Headers.UserAgent.ToString();
 

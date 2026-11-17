@@ -260,7 +260,7 @@ internal class RollbackEndpoint(
         var sensitivity = Resolve<barakoCMS.Core.Interfaces.ISensitivityService>();
         if (await sensitivity.ApplyAsync(content, response.Data, HttpContext, ct))
         {
-            response.ContentType = "HIDDEN";
+            response.ContentType = barakoCMS.Core.HiddenContentType.Name;
         }
 
         await barakoCMS.Infrastructure.Audit.SensitiveReadAudit.RecordAsync(

@@ -1,5 +1,5 @@
 # mcr.microsoft.com/dotnet/sdk:10.0
-FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:747cbade5bfd918a175ac32f8f1d931edec2c7d0d5397a3de72eaef1ac1f66d2 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:fe0fd4e93bd2fbb47c883b7a6369e5c8d3db8bf01cdc5981f6ee35fbdf3ff4fb AS build
 WORKDIR /src
 
 # Copy the manifests and restore as a distinct layer, so the cache survives a source-only change.
@@ -28,7 +28,7 @@ FROM build AS publish
 RUN dotnet publish "barakoCMS.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 # mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra@sha256:9e3919aff68057f3e45125c5255a71d3b5f40364e45ede883348688851b9f0df AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra@sha256:cae5b962bfb786606def03d250c6a645cc98839095c89e806e4bd8978a68115b AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
 EXPOSE 8080

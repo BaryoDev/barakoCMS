@@ -20,13 +20,8 @@ public class ClientErrorResolveTests
 
     public ClientErrorResolveTests(IntegrationTestFixture factory) => _factory = factory;
 
-    private async Task<HttpClient> AdminClient()
-    {
-        var c = _factory.CreateClient();
-        c.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", await _factory.StoredUserTokenAsync("Admin"));
-        return c;
-    }
+    private Task<HttpClient> AdminClient() =>
+        _factory.CreateClientAsync("Admin");
 
     private async Task<(Guid Id, string Marker)> SeedOpenErrorAsync()
     {

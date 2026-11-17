@@ -30,7 +30,7 @@ internal class SetServicePrincipalRolesEndpoint(IDocumentSession session, ICalle
 
     public override async Task HandleAsync(SetPrincipalRolesRequest req, CancellationToken ct)
     {
-        var tenant = PrincipalRules.TenantOf(User);
+        var tenant = User.TenantSlug();
         var principal = await PrincipalRules.InTenantAsync(session, req.Id, tenant, ct);
         if (principal is null) { await Send.NotFoundAsync(ct); return; }
 

@@ -25,13 +25,8 @@ public class FieldAccessAuditTests
 
     public FieldAccessAuditTests(IntegrationTestFixture factory) => _factory = factory;
 
-    private async Task<HttpClient> AdminAsync()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _factory.StoredUserTokenAsync("Admin", "SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> AdminAsync() =>
+        _factory.CreateClientAsync("Admin", "SuperAdmin");
 
     private async Task<ContentTypeDefinition> TypeAsync(params FieldDefinition[] extra)
     {

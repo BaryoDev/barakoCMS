@@ -64,7 +64,7 @@ internal static class PlatformRoles
     public static Task<bool> MayChangeAsync(
         IQuerySession session, ClaimsPrincipal principal, IConfiguration configuration,
         IReadOnlyCollection<string> legacyRoles, CancellationToken ct) =>
-        HoldsGloballyAsync(session, principal, configuration, SystemCapabilities.ManageUserMembership, legacyRoles, ct);
+        PlatformScope.HoldsGloballyAsync(session, principal, configuration, SystemCapabilities.ManageUserMembership, legacyRoles, ct);
 
     /// <summary>
     /// Whether one of the caller's global roles grants manage_users, or the caller is SuperAdmin.
@@ -73,7 +73,7 @@ internal static class PlatformRoles
     public static Task<bool> MayManageUsersAsync(
         IQuerySession session, ClaimsPrincipal principal, IConfiguration configuration,
         IReadOnlyCollection<string> legacyRoles, CancellationToken ct) =>
-        HoldsGloballyAsync(session, principal, configuration, SystemCapabilities.ManageUsers, legacyRoles, ct);
+        PlatformScope.HoldsGloballyAsync(session, principal, configuration, SystemCapabilities.ManageUsers, legacyRoles, ct);
 
     /// <summary>
     /// Whether any role the user holds carries a platform capability: their global roles, the roles
@@ -94,22 +94,6 @@ internal static class PlatformRoles
         var legacy = configuration.GetValue(CapabilityGateProcessor.LegacyRoleFallbackKey, false);
         var roles = await session.Query<Role>().Where(r => ids.Contains(r.Id)).ToListAsync(ct);
         return roles.Any(r => CarriesPlatformCapability(r) || (legacy && r.Name == "SuperAdmin"));
-    }
-
-    private static async Task<bool> HoldsGloballyAsync(
-        IQuerySession session, ClaimsPrincipal principal, IConfiguration configuration,
-        string capability, IReadOnlyCollection<string> legacyRoles, CancellationToken ct)
-    {
-        var caller = await CallerAsync(session, principal, ct);
-        if (caller is null || caller.RoleIds.Count == 0) return false;
-        if (caller.RoleIds.Contains(SystemRoles.SuperAdminRoleId)) return true;
-
-        var legacy = configuration.GetValue(CapabilityGateProcessor.LegacyRoleFallbackKey, false);
-        var ids = caller.RoleIds;
-        var roles = await session.Query<Role>().Where(r => r.DeletedAt == null && ids.Contains(r.Id)).ToListAsync(ct);
-
-        return roles.Any(r => SystemCapabilities.Satisfies(r.SystemCapabilities ?? [], capability)
-                              || (legacy && legacyRoles.Contains(r.Name)));
     }
 
     public static async Task<bool> IsSuperAdminAsync(IQuerySession session, ClaimsPrincipal principal, CancellationToken ct) =>

@@ -110,13 +110,9 @@ internal sealed class Endpoint(
         // Only the page is redacted: the rules cost time per character, and a caller is never
         // sent the rest.
         var redactor = new DiagnosticRedactor(await SensitiveFieldNames.LoadAsync(session, allTenants, ct));
-        await Send.ResponseAsync(new PaginatedResponse<IncidentGroup>
-        {
-            Items = groups.Skip(req.Skip).Take(req.Take).Select(g => Redacted(g, redactor)).ToList(),
-            Page = req.Page,
-            PageSize = req.PageSize,
-            TotalItems = groups.Count,
-        }, cancellation: ct);
+        var page = groups.ToPagedResponse(req);
+        page.Items = page.Items.Select(g => Redacted(g, redactor)).ToList();
+        await Send.ResponseAsync(page, cancellation: ct);
     }
 
     private static IncidentGroup Redacted(IncidentGroup g, DiagnosticRedactor redactor) => new()
