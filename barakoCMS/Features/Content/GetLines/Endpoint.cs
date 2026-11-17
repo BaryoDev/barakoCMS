@@ -44,7 +44,7 @@ internal class Endpoint(
 
         var typeName = barakoCMS.Core.ContentTypeName.Normalize(header.ContentType);
         var definition = await session.Query<ContentTypeDefinition>()
-            .FirstNamedAsync(typeName, ct);
+            .FirstOrDefaultAsync(d => d.Name.ToLower() == typeName, ct);
         if (definition?.Lines is not { } lines)
         {
             AddError("This content type declares no lines");

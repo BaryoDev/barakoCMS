@@ -50,7 +50,7 @@ internal class Endpoint(
         var ruleName = Route<string>("rule") ?? string.Empty;
 
         var def = await session.Query<ContentTypeDefinition>()
-            .FirstNamedAsync(name, ct);
+            .FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct);
 
         var rule = def is null
             ? null

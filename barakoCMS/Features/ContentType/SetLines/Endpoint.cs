@@ -29,7 +29,7 @@ internal class Endpoint(
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var name = barakoCMS.Core.ContentTypeName.Normalize(Route<string>("name") ?? string.Empty);
-        var def = await session.Query<ContentTypeDefinition>().FirstNamedAsync(name, ct);
+        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct);
         if (def is null)
         {
             await Send.NotFoundAsync(ct);
@@ -42,7 +42,7 @@ internal class Endpoint(
             var childName = barakoCMS.Core.ContentTypeName.Normalize(asked.ContentType ?? string.Empty);
             var child = string.IsNullOrEmpty(childName)
                 ? null
-                : await session.Query<ContentTypeDefinition>().FirstNamedAsync(childName, ct);
+                : await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == childName, ct);
 
             var errors = Errors(def, child, asked);
             foreach (var error in errors)

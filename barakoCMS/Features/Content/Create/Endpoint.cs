@@ -20,8 +20,7 @@ internal class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        var user = await CallerAsync(ct);
-        var userId = user.Id;
+        var (userId, user) = await CallerAsync(ct);
 
         if (!await permissionResolver.CanPerformActionAsync(user, req.ContentType, "create", null, ct))
         {
@@ -43,10 +42,9 @@ internal class Endpoint(
             Permitted = (entry, token) => permissionResolver.AllowsCreatedEntryAsync(user, entry, token),
         };
 
-        var definition = await FindDefinitionAsync(req.ContentType, ct);
-        if (req.Lines is { Count: > 0 } || definition?.Lines?.TotalField is not null)
+        if (req.Lines is { Count: > 0 } || await DeclaresTotalAsync(req.ContentType, ct))
         {
-            await CreateWithLinesAsync(req, request, definition, userId, user, ct);
+            await CreateWithLinesAsync(req, request, userId, user, ct);
             return;
         }
 
@@ -157,10 +155,10 @@ internal class Endpoint(
         return true;
     }
 
-    private async Task<ContentTypeDefinition?> FindDefinitionAsync(string contentType, CancellationToken ct)
+    private async Task<bool> DeclaresTotalAsync(string contentType, CancellationToken ct)
     {
         var name = barakoCMS.Core.ContentTypeName.Normalize(contentType);
-        return await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct);
+        return (await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct))?.Lines?.TotalField is not null;
     }
 
     /// <summary>
@@ -168,10 +166,10 @@ internal class Endpoint(
     /// passes, and a refused line names its position.
     /// </summary>
     private async Task CreateWithLinesAsync(
-        Request req, barakoCMS.Infrastructure.Services.ContentCreateRequest request, ContentTypeDefinition? definition, Guid userId, User user, CancellationToken ct)
+        Request req, barakoCMS.Infrastructure.Services.ContentCreateRequest request, Guid userId, User user, CancellationToken ct)
     {
         var name = barakoCMS.Core.ContentTypeName.Normalize(req.ContentType);
-        var lineType = definition?.Lines;
+        var lineType = (await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct))?.Lines;
         if (lineType is null)
         {
             AddError($"Content type '{req.ContentType}' does not take lines.");
@@ -228,7 +226,7 @@ internal class Endpoint(
     }
 
     /// <summary>The signed-in user the write is made for.</summary>
-    private async Task<User> CallerAsync(CancellationToken ct)
+    private async Task<(Guid Id, User User)> CallerAsync(CancellationToken ct)
     {
         // A person or a service principal. Anything else answers 401.
         var user = await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct);
@@ -237,6 +235,7 @@ internal class Endpoint(
             ThrowError("Caller not found", 401);
         }
 
-        return user;
+        var userId = user.Id;
+        return (userId, user);
     }
 }

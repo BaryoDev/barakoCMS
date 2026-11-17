@@ -188,7 +188,7 @@ internal sealed class Endpoint(
         var name = barakoCMS.Core.ContentTypeName.Normalize(req.Name);
 
         var definition = await session.Query<ContentTypeDefinition>()
-            .FirstNamedAsync(name, ct);
+            .FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct);
 
         if (definition is null)
         {

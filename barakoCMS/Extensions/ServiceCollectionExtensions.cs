@@ -2017,18 +2017,6 @@ public static class ServiceCollectionExtensions
                         StatusCodes.Status409Conflict)
                     .ExecuteAsync(context);
             }
-            catch (barakoCMS.Core.AmbiguousContentTypeException ex) when (!context.Response.HasStarted)
-            {
-                // A name that matches two stored types differing only by case is a bad request, not
-                // a fault, so a lookup that does not catch it answers 400 with the reason.
-                context.Response.Clear();
-                await new FastEndpoints.ProblemDetails(
-                        [new FluentValidation.Results.ValidationFailure("contentType", ex.Message)],
-                        context.Request.Path,
-                        context.TraceIdentifier,
-                        StatusCodes.Status400BadRequest)
-                    .ExecuteAsync(context);
-            }
         });
     }
 

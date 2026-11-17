@@ -48,7 +48,7 @@ internal class Endpoint(
         var fieldName = Route<string>("field") ?? string.Empty;
 
         var def = await session.Query<ContentTypeDefinition>()
-            .FirstNamedAsync(name, ct);
+            .FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct);
 
         var field = def?.Fields.FirstOrDefault(
             f => string.Equals(f.Name, fieldName, StringComparison.OrdinalIgnoreCase));

@@ -99,7 +99,7 @@ internal sealed class PutEndpoint(IDocumentSession session) : Endpoint<PutReques
         // Taken before the type is read, so a field change that ran in between is not missed.
         await FieldChanges.LockTypeAsync(session, req.ContentType.Trim(), ct);
         var lowered = req.ContentType.Trim().ToLower();
-        var definition = await session.Query<ContentTypeDefinition>().FirstNamedAsync(lowered, ct);
+        var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
         if (definition is not null && await FieldChanges.RunningAsync(session, definition.Name, ct) is { } running)
         {
             AddError(FieldChanges.Busy(running));
