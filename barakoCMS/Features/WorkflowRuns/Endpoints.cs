@@ -108,9 +108,13 @@ internal sealed class RunResponse
         Compensation = r.Compensation?.ToString(),
     };
 
-    // Stored as a UTC DateTime; Marten can read it back unspecified, so pin the zone before it goes out.
-    private static DateTimeOffset? AsUtc(DateTime? at) =>
-        at is { } t ? new DateTimeOffset(DateTime.SpecifyKind(t, DateTimeKind.Utc)) : null;
+    // Stored as UTC. Marten can read it back unspecified, which is pinned to UTC; a local value is converted.
+    private static DateTimeOffset? AsUtc(DateTime? at) => at switch
+    {
+        null => null,
+        { Kind: DateTimeKind.Local } t => new DateTimeOffset(t.ToUniversalTime()),
+        { } t => new DateTimeOffset(DateTime.SpecifyKind(t, DateTimeKind.Utc)),
+    };
 }
 
 /// <summary>
