@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Connectors;
@@ -78,8 +79,6 @@ internal static class QueryGate
     /// </summary>
     internal static readonly IReadOnlyList<string> LegacyRoles = CapabilityGate.AdminLegacyRoles;
 
-    internal static bool IsSlug(string value) =>
-        System.Text.RegularExpressions.Regex.IsMatch(value, "^[a-z0-9][a-z0-9-]{0,62}$");
 }
 
 /// <summary>A query list request. <c>deleted=true</c> lists the deleted queries instead of the live ones.</summary>
@@ -105,13 +104,7 @@ internal sealed class ListQueriesEndpoint(
             .OrderBy(q => q.Name)
             .ToPagedResponseAsync(req, ct);
 
-        await Send.ResponseAsync(new PaginatedResponse<QueryResponse>
-        {
-            Items = page.Items.Select(QueryResponse.From).ToList(),
-            Page = page.Page,
-            PageSize = page.PageSize,
-            TotalItems = page.TotalItems,
-        }, cancellation: ct);
+        await Send.ResponseAsync(page.Map(QueryResponse.From), cancellation: ct);
     }
 }
 
@@ -127,7 +120,7 @@ internal sealed class GetQueryEndpoint(IQuerySession session) : EndpointWithoutR
     {
         var slug = Route<string>("slug") ?? string.Empty;
 
-        if (!QueryGate.IsSlug(slug))
+        if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a query slug: lowercase letters, digits and hyphens only.", 400);
             return;
@@ -175,7 +168,7 @@ internal sealed class SaveQueryEndpoint(
     public override async Task HandleAsync(SaveQueryRequest req, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Name)) { ThrowError("Name is required.", 400); return; }
-        if (!QueryGate.IsSlug(req.Slug))
+        if (!Slugs.IsValid(req.Slug))
         {
             ThrowError("Slug must be lowercase letters, digits and hyphens.", 400);
             return;
@@ -224,7 +217,7 @@ internal sealed class SaveQueryEndpoint(
 
         session.Store(definition);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug,
             existing is null || replacesDeleted ? "query.created" : "query.updated",
             actorId, User.FindFirst("Username")?.Value,
@@ -258,7 +251,7 @@ internal sealed class DeleteQueryEndpoint(
     {
         var slug = Route<string>("slug") ?? string.Empty;
 
-        if (!QueryGate.IsSlug(slug))
+        if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a query slug: lowercase letters, digits and hyphens only.", 400);
             return;
@@ -274,7 +267,7 @@ internal sealed class DeleteQueryEndpoint(
         found.DeletedAt = DateTime.UtcNow;
         session.Store(found);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "query.deleted", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(QueryDefinition), targetId: found.Id.ToString(),
@@ -298,7 +291,7 @@ internal sealed class RestoreQueryEndpoint(
     public override async Task HandleAsync(CancellationToken ct)
     {
         var slug = Route<string>("slug") ?? string.Empty;
-        if (!QueryGate.IsSlug(slug))
+        if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a query slug: lowercase letters, digits and hyphens only.", 400);
             return;
@@ -316,7 +309,7 @@ internal sealed class RestoreQueryEndpoint(
         found.UpdatedAt = DateTime.UtcNow;
         session.Store(found);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "query.restored", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(QueryDefinition), targetId: found.Id.ToString(),
@@ -344,7 +337,7 @@ internal sealed class EraseQueryEndpoint(
     public override async Task HandleAsync(CancellationToken ct)
     {
         var slug = Route<string>("slug") ?? string.Empty;
-        if (!QueryGate.IsSlug(slug))
+        if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a query slug: lowercase letters, digits and hyphens only.", 400);
             return;
@@ -360,7 +353,7 @@ internal sealed class EraseQueryEndpoint(
 
         session.Delete(found);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "query.erased", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(QueryDefinition), targetId: found.Id.ToString(),
@@ -395,7 +388,7 @@ internal sealed class PreviewQueryEndpoint(
     {
         var slug = Route<string>("slug") ?? string.Empty;
 
-        if (!QueryGate.IsSlug(slug))
+        if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a query slug: lowercase letters, digits and hyphens only.", 400);
             return;

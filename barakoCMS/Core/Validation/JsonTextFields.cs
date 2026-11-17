@@ -73,7 +73,7 @@ internal static class JsonTextFields
     {
         foreach (var key in data.Keys.ToList())
         {
-            var field = fields?.FirstOrDefault(f => f is not null && string.Equals(f.Name, key, StringComparison.OrdinalIgnoreCase));
+            var field = fields?.FieldNamed(key);
             if (!Holds(field))
             {
                 continue;

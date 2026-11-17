@@ -53,12 +53,19 @@ internal static class ComputedFields
 
     /// <summary>What is wrong with the computed fields of a type, for the type validator.</summary>
     public static List<string> DefinitionErrors(IReadOnlyCollection<FieldDefinition> fields)
+        => DefinitionErrors(fields, null);
+
+    /// <summary>
+    /// As above, but a computed field in <paramref name="carried"/> is not checked again for role
+    /// list and mask, which a type stored before that rule may already break.
+    /// </summary>
+    public static List<string> DefinitionErrors(IReadOnlyCollection<FieldDefinition> fields, IReadOnlySet<FieldDefinition>? carried)
     {
         var errors = new List<string>();
         var computed = fields.Where(f => f is not null && IsComputed(f) && !string.IsNullOrWhiteSpace(f.Name)).ToList();
 
         foreach (var field in computed)
-            errors.AddRange(FieldErrors(field, fields));
+            errors.AddRange(FieldErrors(field, fields, carried?.Contains(field) == true));
 
         if (errors.Count == 0)
             errors.AddRange(CycleErrors(computed));
@@ -66,7 +73,7 @@ internal static class ComputedFields
         return errors;
     }
 
-    private static IEnumerable<string> FieldErrors(FieldDefinition field, IReadOnlyCollection<FieldDefinition> fields)
+    private static IEnumerable<string> FieldErrors(FieldDefinition field, IReadOnlyCollection<FieldDefinition> fields, bool carried)
     {
         var def = field.Computed!;
         var name = field.Name;
@@ -87,23 +94,8 @@ internal static class ComputedFields
             yield break;
         }
 
-        if (def.Round is { } digits && (digits < 0 || digits > MaxRound))
-            yield return $"Field '{name}' rounds to {digits} places, and rounding is 0 to {MaxRound}.";
-
-        if (def.Round is not null && !IsNumeric(fn))
-            yield return $"Field '{name}' computes with {fn}, which does not give a number, so it takes no round.";
-
-        if (field.IsRequired)
-            yield return $"Field '{name}' is computed by the server, so it cannot be required of a caller.";
-
-        if (field.DefaultValue is not null)
-            yield return $"Field '{name}' is computed by the server, so it takes no default value.";
-
-        var resultType = field.Type.ToLowerInvariant();
-        if (IsNumeric(fn) && !NumericTypes.Contains(resultType))
-            yield return $"Field '{name}' computes with {fn}, which gives a number, so its type has to be int, decimal or money, not {field.Type}.";
-        if (fn == "concat" && !TextTypes.Contains(resultType))
-            yield return $"Field '{name}' computes with concat, which gives text, so its type has to be string or text, not {field.Type}.";
+        foreach (var error in ShapeErrors(field, fn))
+            yield return error;
 
         var inputs = new List<FieldDefinition>();
         foreach (var arg in args)
@@ -131,10 +123,106 @@ internal static class ComputedFields
                 yield return $"Field '{name}' is {field.Sensitivity} and computes from '{input.Name}', which is {input.Sensitivity}. "
                     + "A computed value may not be more widely readable than what it is computed from.";
             }
+
+            if (carried)
+                continue;
+
+            foreach (var leak in ReadAudienceErrors(field, input))
+                yield return leak;
         }
 
         foreach (var error in InputTypeErrors(field, fn, inputs))
             yield return error;
+    }
+
+    private static IEnumerable<string> ShapeErrors(FieldDefinition field, string fn)
+    {
+        var def = field.Computed!;
+        var name = field.Name;
+
+        if (def.Round is { } digits && (digits < 0 || digits > MaxRound))
+            yield return $"Field '{name}' rounds to {digits} places, and rounding is 0 to {MaxRound}.";
+
+        if (def.Round is not null && !IsNumeric(fn))
+            yield return $"Field '{name}' computes with {fn}, which does not give a number, so it takes no round.";
+
+        if (field.IsRequired)
+            yield return $"Field '{name}' is computed by the server, so it cannot be required of a caller.";
+
+        if (field.DefaultValue is not null)
+            yield return $"Field '{name}' is computed by the server, so it takes no default value.";
+
+        var resultType = field.Type.ToLowerInvariant();
+        if (IsNumeric(fn) && !NumericTypes.Contains(resultType))
+            yield return $"Field '{name}' computes with {fn}, which gives a number, so its type has to be int, decimal or money, not {field.Type}.";
+        if (fn == "concat" && !TextTypes.Contains(resultType))
+            yield return $"Field '{name}' computes with concat, which gives text, so its type has to be string or text, not {field.Type}.";
+    }
+
+    /// <summary>
+    /// Role list and mask, the two ways besides the level that delivery narrows who reads a field.
+    /// </summary>
+    /// <remarks>
+    /// Delivery lets a field's role list replace the capability its level names, so a list is the
+    /// audience when present and the level's capability holders are when not. A computed field is
+    /// no wider than an input when its list is inside the input's. An input with no list is read by
+    /// the holders of its level's capability, so a list on the computed field over it would let
+    /// listed roles read it without that capability, and is refused. Roles are compared exactly,
+    /// case included, as delivery does. A Public or Members input is read alike by everyone, so a
+    /// list on it means nothing and is not checked. A mask only applies to a caller who may not read
+    /// the field, and it is stricter in the order Remove, Redact, Last4, so a computed field showing
+    /// more of its value than the input does would hand that caller a part of what the input hides.
+    /// Public and Members fields are never masked.
+    /// </remarks>
+    private static IEnumerable<string> ReadAudienceErrors(FieldDefinition field, FieldDefinition input)
+    {
+        if (RoleListError(field, input) is { } roleError)
+            yield return roleError;
+
+        if (MaskStrictness(field) < MaskStrictness(input))
+        {
+            yield return $"Field '{field.Name}' computes from '{input.Name}', which is masked as {EffectiveMask(input)}, "
+                + $"and '{field.Name}' shows {EffectiveMask(field)}. Mask '{field.Name}' at least as strictly (Remove is strictest, then Redact, then Last4).";
+        }
+    }
+
+    private static string? RoleListError(FieldDefinition field, FieldDefinition input)
+    {
+        if (SensitivityRank.IsUniform(input.Sensitivity))
+            return null;
+
+        var own = field.VisibleToRoles ?? [];
+        var who = $"'{field.Name}' ({field.Sensitivity}) computes from '{input.Name}' ({input.Sensitivity})";
+
+        if (input.VisibleToRoles is not { Count: > 0 } allowed)
+        {
+            return own.Count == 0
+                ? null
+                : $"Field {who}, which has no role list, so the holders of its level's capability read it. "
+                    + $"'{field.Name}' lists {string.Join(", ", own.Select(r => $"'{r}'"))}, which replaces that capability and can let those roles read what they could not. "
+                    + $"Remove the list from '{field.Name}', or give '{input.Name}' a list that holds those roles.";
+        }
+
+        var wider = own.Count == 0
+            ? "has no role list"
+            : own.Where(r => !allowed.Contains(r, StringComparer.Ordinal)).ToList() is { Count: > 0 } extra
+                ? $"lists {string.Join(", ", extra.Select(r => $"'{r}'"))}, which '{input.Name}' does not"
+                : null;
+
+        return wider is null
+            ? null
+            : $"Field {who}, which only {string.Join(", ", allowed.Select(r => $"'{r}'"))} may read, "
+                + $"and '{field.Name}' {wider}. Give '{field.Name}' a visibleToRoles list inside the input's, so it is not readable by more roles than what it is computed from.";
+    }
+
+    private static FieldMask EffectiveMask(FieldDefinition f) =>
+        f.Mask != FieldMask.Default ? f.Mask : f.Sensitivity == SensitivityLevel.Hidden ? FieldMask.Remove : FieldMask.Redact;
+
+    private static int MaskStrictness(FieldDefinition f)
+    {
+        if (f.Sensitivity is SensitivityLevel.Public or SensitivityLevel.Members)
+            return 0;
+        return EffectiveMask(f) switch { FieldMask.Remove => 3, FieldMask.Redact => 2, FieldMask.Last4 => 1, _ => 2 };
     }
 
     private static IEnumerable<string> InputTypeErrors(FieldDefinition field, string fn, List<FieldDefinition> inputs)

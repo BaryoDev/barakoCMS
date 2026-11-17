@@ -51,11 +51,7 @@ internal sealed class ModuleSeedContext : IModuleSeedContext
             existing = null;
         }
 
-        existing ??= (await Session.Query<Role>()
-                               .Where(r => r.DeletedAt == null && r.Name == name && (r.TenantSlug == null || r.TenantSlug == Tenant.DefaultSlug))
-                               .ToListAsync(cancellationToken))
-                           .OrderBy(r => r.TenantSlug is null ? 0 : 1)
-                           .FirstOrDefault();
+        existing ??= await DeploymentRoleNames.FindAsync(Session, name, cancellationToken);
         if (existing is not null)
         {
             return false;

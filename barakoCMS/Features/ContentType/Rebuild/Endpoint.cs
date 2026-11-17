@@ -85,7 +85,7 @@ internal class Endpoint(
             return;
         }
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : Guid.Empty;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "content.rebuilt", actorId,
             User.FindFirst("Username")?.Value ?? string.Empty,
             targetType: name, targetId: name,

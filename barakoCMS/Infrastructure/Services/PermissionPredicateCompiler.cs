@@ -145,7 +145,7 @@ internal static class PermissionPredicateCompiler
                 continue;
             }
 
-            if (Normalize(rawOperators) is not Dictionary<string, object> operators)
+            if (JsonValues.ToClr(rawOperators) is not Dictionary<string, object> operators)
             {
                 return false;
             }
@@ -157,7 +157,7 @@ internal static class PermissionPredicateCompiler
 
             foreach (var (op, rawExpected) in operators)
             {
-                var expected = Normalize(rawExpected);
+                var expected = JsonValues.ToClr(rawExpected);
 
                 if (op == "_has")
                 {
@@ -244,11 +244,11 @@ internal static class PermissionPredicateCompiler
     {
         foreach (var rawOperators in conditions.Values)
         {
-            if (Normalize(rawOperators) is not Dictionary<string, object> operators) continue;
+            if (JsonValues.ToClr(rawOperators) is not Dictionary<string, object> operators) continue;
 
             foreach (var (op, rawExpected) in operators)
             {
-                if (Normalize(rawExpected) is not string reference || !CallerAttributes.IsReference(reference)) continue;
+                if (JsonValues.ToClr(rawExpected) is not string reference || !CallerAttributes.IsReference(reference)) continue;
 
                 if (op is not ("_eq" or "_ne")) return true;
 
@@ -490,29 +490,5 @@ internal static class PermissionPredicateCompiler
 
         text = substitute && s == "$CURRENT_USER" ? userId.ToString() : s;
         return true;
-    }
-
-    /// <summary>
-    /// The same normalisation <see cref="ConditionEvaluator"/> applies, for the same reason.
-    /// </summary>
-    /// <remarks>
-    /// A Role read back from Marten holds its condition values as <c>JsonElement</c>, so without this
-    /// every rule would look uncompilable and the endpoint would silently keep its slow path.
-    /// </remarks>
-    private static object? Normalize(object? value)
-    {
-        if (value is not JsonElement element) return value;
-
-        return element.ValueKind switch
-        {
-            JsonValueKind.Object => element.EnumerateObject().ToDictionary(p => p.Name, p => Normalize(p.Value)!),
-            JsonValueKind.Array => element.EnumerateArray().Select(e => Normalize(e)).ToList(),
-            JsonValueKind.String => element.GetString(),
-            JsonValueKind.Number => element.TryGetInt64(out var l) ? l : element.GetDouble(),
-            JsonValueKind.True => true,
-            JsonValueKind.False => false,
-            JsonValueKind.Null or JsonValueKind.Undefined => null,
-            _ => value,
-        };
     }
 }

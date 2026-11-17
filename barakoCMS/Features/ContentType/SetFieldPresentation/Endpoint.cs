@@ -99,7 +99,7 @@ internal class Endpoint(
             def.UpdatedAt = DateTimeOffset.UtcNow;
             session.Store(def);
 
-            var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+            var actorId = ActingCaller.IdOf(User);
             await AuditLog.RecordAsync(
                 session,
                 tenant.Slug,

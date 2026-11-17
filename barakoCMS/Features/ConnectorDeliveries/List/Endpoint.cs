@@ -75,12 +75,6 @@ internal sealed class Endpoint(
         var canReadResponseBody = Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId)
             && await permissionResolver.HasCapabilityAsync(userId, SystemCapabilities.ViewWebhookResponseBodies, ct);
 
-        await Send.ResponseAsync(new PaginatedResponse<ConnectorDeliveryResponse>
-        {
-            Items = page.Items.Select(d => ConnectorDeliveryResponse.From(d, canReadResponseBody)).ToList(),
-            Page = page.Page,
-            PageSize = page.PageSize,
-            TotalItems = page.TotalItems,
-        }, cancellation: ct);
+        await Send.ResponseAsync(page.Map(d => ConnectorDeliveryResponse.From(d, canReadResponseBody)), cancellation: ct);
     }
 }

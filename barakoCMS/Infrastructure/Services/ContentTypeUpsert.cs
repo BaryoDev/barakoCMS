@@ -232,7 +232,7 @@ public static class ContentTypeUpsert
         }
     }
 
-    private static List<string> DefinitionErrors(
+    internal static List<string> DefinitionErrors(
         IContentTypeValidatorService validator, ContentTypeDefinition type, ContentTypeDefinition? stored, int maxFields)
     {
         // The cap was settled by the caller, including its one exception: a type already stored over
@@ -574,8 +574,29 @@ public static class ContentTypeUpsert
                     f => f is not null && string.Equals(f.Name, field.Name, StringComparison.OrdinalIgnoreCase))
                 is { } held
                 && string.Equals(field.Type, held.Type, StringComparison.OrdinalIgnoreCase)
-                && SameRules(field.ValidationRules, held.ValidationRules))
+                && SameRules(field.ValidationRules, held.ValidationRules)
+                && (!TakesPartInComputation(type, field, held) || SameAudience(field, held)))
             .ToList();
+    }
+
+    /// <summary>Whether the field is computed, or is read by a computed field of the type.</summary>
+    private static bool TakesPartInComputation(ContentTypeDefinition type, FieldDefinition field, FieldDefinition held) =>
+        field.Computed is not null
+        || held.Computed is not null
+        || type.Fields.Any(f => f.Computed?.Args is { } args
+            && args.Any(a => string.Equals(a, field.Name, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>
+    /// Same level, role list, mask and computation as the stored field. A field matched to its
+    /// stored counterpart by name alone is carried past the computed-field audience check only when
+    /// none of these changed, so a bundle cannot widen a computed field or narrow its input.
+    /// </summary>
+    private static bool SameAudience(FieldDefinition field, FieldDefinition held)
+    {
+        string Key(FieldDefinition f) => System.Text.Json.JsonSerializer.Serialize(
+            new object?[] { f.Sensitivity, f.VisibleToRoles ?? [], f.Mask, f.Computed });
+
+        return Key(field) == Key(held);
     }
 
     /// <summary>Same rule names, in the same case, each with the same JSON value.</summary>

@@ -113,16 +113,7 @@ internal class VerifyEndpoint(
     {
         var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var expiry = DateTime.UtcNow.Add(lifetime);
-        session.Store(new RefreshToken
-        {
-            Id = Guid.NewGuid(),
-            TokenHash = RefreshToken.HashOf(token),
-            UserId = userId,
-            ExpiresAt = expiry,
-            CreatedAt = DateTime.UtcNow,
-            IsRevoked = false,
-            DeviceId = deviceId,
-        });
+        session.Store(RefreshToken.Issue(userId, token, expiry, deviceId));
         return (token, expiry);
     }
 

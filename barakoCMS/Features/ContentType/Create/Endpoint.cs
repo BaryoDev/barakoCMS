@@ -116,11 +116,19 @@ internal class Endpoint(
             ThrowError(owned, 409);
     }
 
+    /// <summary>
+    /// A token field sent as Public, which is what leaving sensitivity out sends, is stored Hidden,
+    /// and role names become ids, so the checks that follow see the fields as they will be stored.
+    /// </summary>
+    private async Task PrepareFieldsAsync(Request req, CancellationToken ct)
+    {
+        barakoCMS.Core.Validation.TokenFields.ApplyDefaults(req.Fields);
+        await barakoCMS.Core.RoleReferences.ToIdsAsync(session, req.Fields ?? [], ct);
+    }
+
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        // A token field sent as Public, which is what leaving sensitivity out sends, is stored
-        // Hidden. First, so the checks below see the field as it will be stored.
-        barakoCMS.Core.Validation.TokenFields.ApplyDefaults(req.Fields);
+        await PrepareFieldsAsync(req, ct);
 
         // 1. Validate ContentType
         var (isValid, errors) = validator.Validate(req.Name, req.DisplayName, req.Fields);
@@ -272,7 +280,6 @@ internal class Endpoint(
             return;
         }
 
-        await barakoCMS.Core.RoleReferences.ToIdsAsync(session, def.Fields, ct);
         session.Store(def);
 
         // Written once for a name and never deleted, which is what makes recreating it inherit

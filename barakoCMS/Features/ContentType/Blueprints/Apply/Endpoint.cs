@@ -138,7 +138,7 @@ internal sealed class Endpoint(
             await sourcing.DecideAsync(type.Name, false, ct);
         }
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "contenttype.blueprint_applied", actorId,
             User.FindFirst("Username")?.Value,
             targetType: "Blueprint", targetId: entry.Name,

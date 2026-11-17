@@ -234,7 +234,7 @@ public sealed class ParentReferenceHook : IContentLifecycleHook
             .FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
 
         return definition?.Fields
-            .FirstOrDefault(f => string.Equals(f.Name, ParentField, StringComparison.OrdinalIgnoreCase))
+            .FieldNamed(ParentField)
             ?.DisplayName is { Length: > 0 } display
             ? display
             : ParentField;

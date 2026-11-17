@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure;
 using barakoCMS.Features.Connectors;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
@@ -109,14 +110,11 @@ internal static class RequestRules
     /// </remarks>
     internal static readonly string[] Methods = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
-    internal static bool IsSlug(string value) =>
-        System.Text.RegularExpressions.Regex.IsMatch(value, "^[a-z0-9][a-z0-9-]{0,62}$");
-
     internal static string? Check(SaveRequestRequest req)
     {
         if (string.IsNullOrWhiteSpace(req.Name)) return "Name is required.";
-        if (!IsSlug(req.Slug)) return "Slug must be lowercase letters, digits and hyphens.";
-        if (!IsSlug(req.ConnectorSlug)) return "ConnectorSlug must name a connector.";
+        if (!Slugs.IsValid(req.Slug)) return "Slug must be lowercase letters, digits and hyphens.";
+        if (!Slugs.IsValid(req.ConnectorSlug)) return "ConnectorSlug must name a connector.";
 
         if (!Methods.Contains(req.Method?.ToUpperInvariant()))
         {
@@ -201,13 +199,7 @@ internal sealed class ListRequestsEndpoint(
     {
         var page = await session.Query<RequestDefinition>().OrderBy(r => r.Name).ToPagedResponseAsync(req, ct);
 
-        await Send.ResponseAsync(new PaginatedResponse<RequestResponse>
-        {
-            Items = page.Items.Select(RequestResponse.From).ToList(),
-            Page = page.Page,
-            PageSize = page.PageSize,
-            TotalItems = page.TotalItems,
-        }, cancellation: ct);
+        await Send.ResponseAsync(page.Map(RequestResponse.From), cancellation: ct);
     }
 }
 
@@ -223,7 +215,7 @@ internal sealed class GetRequestEndpoint(IQuerySession session) : EndpointWithou
     {
         var slug = Route<string>("slug") ?? string.Empty;
 
-        if (!RequestRules.IsSlug(slug))
+        if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a request slug: lowercase letters, digits and hyphens only.", 400);
             return;
@@ -288,7 +280,7 @@ internal sealed class SaveRequestEndpoint(
 
         session.Store(definition);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug,
             existing is null ? "request.created" : "request.updated",
             actorId, User.FindFirst("Username")?.Value,
@@ -323,7 +315,7 @@ internal sealed class DeleteRequestEndpoint(
     {
         var slug = Route<string>("slug") ?? string.Empty;
 
-        if (!RequestRules.IsSlug(slug))
+        if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a request slug: lowercase letters, digits and hyphens only.", 400);
             return;
@@ -338,7 +330,7 @@ internal sealed class DeleteRequestEndpoint(
 
         session.Delete(found);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "request.deleted", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(RequestDefinition), targetId: found.Id.ToString(),
@@ -374,7 +366,7 @@ internal sealed class DryRunRequestEndpoint(
     {
         var slug = Route<string>("slug") ?? string.Empty;
 
-        if (!RequestRules.IsSlug(slug))
+        if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a request slug: lowercase letters, digits and hyphens only.", 400);
             return;

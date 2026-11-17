@@ -43,7 +43,7 @@ internal class MoveKeysToPrincipalEndpoint(IDocumentSession session, ICallerCapa
 
     public override async Task HandleAsync(MoveKeysRequest req, CancellationToken ct)
     {
-        var tenant = PrincipalRules.TenantOf(User);
+        var tenant = User.TenantSlug();
         if (req.KeyId is null == !req.AllManageable)
             ThrowError("Name one key with KeyId, or set AllManageable, not both and not neither.");
 

@@ -76,44 +76,24 @@ internal static class RunQueries
 
     /// <summary>
     /// Per workflow, the runs of one status created at or after a time: one grouped query per status
-    /// asked for, however many workflows are on the page.
+    /// asked for, however many workflows are on the page. Null workflow ids counts every workflow in
+    /// the caller's tenant.
     /// </summary>
     internal static async Task<Dictionary<(Guid Workflow, RunStatus Status), int>> CountSinceAsync(
-        IQuerySession session, IReadOnlyCollection<Guid> workflowIds, DateTimeOffset from,
+        IQuerySession session, IReadOnlyCollection<Guid>? workflowIds, DateTimeOffset from,
         IEnumerable<RunStatus> statuses, CancellationToken ct)
     {
         var result = new Dictionary<(Guid, RunStatus), int>();
-        if (workflowIds.Count == 0) return result;
+        if (workflowIds is { Count: 0 }) return result;
 
-        var ids = workflowIds.ToList();
+        var ids = workflowIds?.ToList();
         foreach (var status in statuses)
         {
             var wanted = status;
-            var groups = await session.Query<WorkflowRun>()
-                .Where(r => ids.Contains(r.WorkflowDefinitionId) && r.Status == wanted && r.CreatedAt >= from)
-                .GroupBy(r => r.WorkflowDefinitionId)
-                .Select(g => new WorkflowCount { Workflow = g.Key, Count = g.Count() })
-                .ToListAsync(ct);
+            var runs = session.Query<WorkflowRun>().Where(r => r.Status == wanted && r.CreatedAt >= from);
+            if (ids is not null) runs = runs.Where(r => ids.Contains(r.WorkflowDefinitionId));
 
-            foreach (var group in groups) result[(group.Workflow, wanted)] = group.Count;
-        }
-
-        return result;
-    }
-
-    /// <summary>
-    /// For the caller's tenant, the runs of each status created at or after a time, per workflow:
-    /// one grouped query per status asked for.
-    /// </summary>
-    internal static async Task<Dictionary<(Guid Workflow, RunStatus Status), int>> CountSinceByWorkflowAsync(
-        IQuerySession session, DateTimeOffset from, IEnumerable<RunStatus> statuses, CancellationToken ct)
-    {
-        var result = new Dictionary<(Guid, RunStatus), int>();
-        foreach (var status in statuses)
-        {
-            var wanted = status;
-            var groups = await session.Query<WorkflowRun>()
-                .Where(r => r.Status == wanted && r.CreatedAt >= from)
+            var groups = await runs
                 .GroupBy(r => r.WorkflowDefinitionId)
                 .Select(g => new WorkflowCount { Workflow = g.Key, Count = g.Count() })
                 .ToListAsync(ct);

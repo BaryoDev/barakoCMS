@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Connectors;
@@ -71,13 +72,7 @@ internal sealed class ListConnectorsEndpoint(
     {
         var page = await session.Query<Connector>().OrderBy(c => c.Name).ToPagedResponseAsync(req, ct);
 
-        await Send.ResponseAsync(new PaginatedResponse<ConnectorResponse>
-        {
-            Items = page.Items.Select(ConnectorResponse.From).ToList(),
-            Page = page.Page,
-            PageSize = page.PageSize,
-            TotalItems = page.TotalItems,
-        }, cancellation: ct);
+        await Send.ResponseAsync(page.Map(ConnectorResponse.From), cancellation: ct);
     }
 }
 
@@ -93,7 +88,7 @@ internal sealed class GetConnectorEndpoint(IQuerySession session) : EndpointWith
     {
         var slug = Route<string>("slug") ?? string.Empty;
 
-        if (!ConnectorRules.IsSlug(slug))
+        if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a connector slug: lowercase letters, digits and hyphens only.", 400);
             return;
@@ -157,7 +152,7 @@ internal sealed class CreateConnectorEndpoint(
             ProbePath = string.IsNullOrWhiteSpace(req.ProbePath) ? "/" : req.ProbePath.Trim(),
         };
 
-        connector.SecretKeys = StoreSecrets(connector.Id, req.Secrets, replaceAll: true);
+        connector.SecretKeys = StoreSecrets(connector.Id, req.Secrets);
         session.Store(connector);
 
         await ConnectorGate.AuditAsync(session, tenant.Slug, "connector.created", connector, User, ct: ct);
@@ -166,7 +161,7 @@ internal sealed class CreateConnectorEndpoint(
         await Send.ResponseAsync(ConnectorResponse.From(connector), cancellation: ct);
     }
 
-    private List<string> StoreSecrets(Guid connectorId, Dictionary<string, string>? secrets, bool replaceAll)
+    private List<string> StoreSecrets(Guid connectorId, Dictionary<string, string>? secrets)
     {
         var names = new List<string>();
         if (secrets is null) return names;
@@ -204,7 +199,7 @@ internal sealed class UpdateConnectorEndpoint(
     {
         var slug = Route<string>("slug") ?? string.Empty;
 
-        if (!ConnectorRules.IsSlug(slug))
+        if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a connector slug: lowercase letters, digits and hyphens only.", 400);
             return;
@@ -359,7 +354,7 @@ internal sealed class DeleteConnectorEndpoint(
     {
         var slug = Route<string>("slug") ?? string.Empty;
 
-        if (!ConnectorRules.IsSlug(slug))
+        if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a connector slug: lowercase letters, digits and hyphens only.", 400);
             return;
@@ -405,7 +400,7 @@ internal sealed class TestConnectorEndpoint(
     {
         var slug = Route<string>("slug") ?? string.Empty;
 
-        if (!ConnectorRules.IsSlug(slug))
+        if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a connector slug: lowercase letters, digits and hyphens only.", 400);
             return;
@@ -449,17 +444,6 @@ internal sealed class TestConnectorEndpoint(
 
 internal static class ConnectorRules
 {
-    /// <summary>The shape a slug has to have, checked on the way in as well as on the way out.</summary>
-    /// <remarks>
-    /// Applied to the route value too, not only to a create. A slug that cannot exist is a malformed
-    /// request rather than a missing connector, and answering 404 to it says "no such connector" when
-    /// the truthful answer is "that is not a connector name". It also keeps the route distinguishable
-    /// from a routing failure, which is what RoleGateTests checks for when it probes a gated route:
-    /// a 404 is what a route that has been removed looks like too.
-    /// </remarks>
-    internal static bool IsSlug(string value) =>
-        System.Text.RegularExpressions.Regex.IsMatch(value, "^[a-z0-9][a-z0-9-]{0,62}$");
-
 
     /// <summary>Returns the reason a request is not acceptable, or null.</summary>
     internal static string? Check(SaveConnectorRequest req)

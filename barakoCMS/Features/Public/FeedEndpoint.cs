@@ -32,18 +32,16 @@ internal class FeedEndpoint(IQuerySession session, IConfiguration config) : Endp
     {
         Get("/api/public/{type}/feed.xml");
         AllowAnonymous();
-        Options(x => x
-            .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
-            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators, barakoCMS.Infrastructure.Caching.DeliveryResponseCachePolicy.Instance));
+        Options(PublicDelivery.DeliveryOptions);
     }
 
     public override async Task HandleAsync(CancellationToken ct)
     {
         var type = Route<string>("type") ?? string.Empty;
 
-        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
         /* A feed is public delivery in another format, so it answers to the same opt-in. */
-        if (!PublicDelivery.IsDeliverable(def)) { await Send.NotFoundAsync(ct); return; }
+        var def = await PublicDelivery.LoadDeliverableAsync(session, type, ct);
+        if (def is null) { await Send.NotFoundAsync(ct); return; }
         var slugField = PublicDelivery.SlugField(def!);
 
         var entries = await session.Query<ContentDoc>()

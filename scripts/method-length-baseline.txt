@@ -31,10 +31,10 @@
 253 barakoCMS/Features/Collections/Push/Endpoint.cs::Endpoint.HandleAsync
 83 barakoCMS/Features/Collections/Validator.cs::SaveCollectionSyncValidator.SaveCollectionSyncValidator
 143 barakoCMS/Features/Connectors/Endpoints.cs::UpdateConnectorEndpoint.HandleAsync
-115 barakoCMS/Features/Content/ChangeStatus/Endpoint.cs::Endpoint.HandleAsync
+109 barakoCMS/Features/Content/ChangeStatus/Endpoint.cs::Endpoint.HandleAsync
 91 barakoCMS/Features/Content/Create/Endpoint.cs::Endpoint.HandleAsync
 105 barakoCMS/Features/Content/History/RollbackEndpoint.cs::RollbackEndpoint.HandleAsync
-190 barakoCMS/Features/Content/List/Endpoint.cs::Endpoint.HandleAsync
+187 barakoCMS/Features/Content/List/Endpoint.cs::Endpoint.HandleAsync
 81 barakoCMS/Features/Content/Schedule/Endpoint.cs::Endpoint.HandleAsync
 233 barakoCMS/Features/Content/Update/Endpoint.cs::Endpoint.HandleAsync
 99 barakoCMS/Features/ContentType/AddField/Endpoint.cs::Endpoint.HandleAsync
@@ -49,7 +49,7 @@
 86 barakoCMS/Features/ContentType/SetUniqueness/Endpoint.cs::Endpoint.HandleAsync
 87 barakoCMS/Features/EmailTemplates/EmailTemplateRenderer.cs::EmailTemplateRenderer.RenderAsync
 81 barakoCMS/Features/EmailTemplates/Preview/Endpoint.cs::Endpoint.HandleAsync
-152 barakoCMS/Features/Public/DeliveryQuery.cs::DeliveryQuery.Parse
+151 barakoCMS/Features/Public/DeliveryQuery.cs::DeliveryQuery.Parse
 110 barakoCMS/Features/Public/Endpoints.cs::GetBySlugEndpoint.HandleAsync
 79 barakoCMS/Features/Public/Endpoints.cs::ListPublishedEndpoint.HandleAsync
 75 barakoCMS/Features/Public/Endpoints.cs::PublicDelivery.ResolveIncludesAsync

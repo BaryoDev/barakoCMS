@@ -47,7 +47,7 @@ internal sealed class Endpoint(
         var lowered = (Route<string>("name") ?? string.Empty).ToLower();
         var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
         var fieldName = Route<string>("field") ?? string.Empty;
-        var field = definition?.Fields.FirstOrDefault(f => string.Equals(f.Name, fieldName, StringComparison.OrdinalIgnoreCase));
+        var field = definition?.Fields.FieldNamed(fieldName);
         if (definition is null || field is null)
         {
             await Send.NotFoundAsync(ct);
@@ -311,7 +311,7 @@ internal sealed class Endpoint(
         ThrowIfAnyErrors(StatusCodes.Status409Conflict);
     }
 
-    private Guid ActorId() => Guid.TryParse(User.FindFirst("UserId")?.Value, out var id) ? id : Guid.Empty;
+    private Guid ActorId() => ActingCaller.IdOf(User) ?? Guid.Empty;
 
     private Task AuditAsync(ContentTypeDefinition definition, string field, string classification, FieldChange? change, CancellationToken ct)
     {

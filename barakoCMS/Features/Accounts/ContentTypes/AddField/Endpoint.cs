@@ -87,7 +87,7 @@ internal sealed class Endpoint(
 
         var definition = owned.Definition;
         var clash = definition.Fields
-            .FirstOrDefault(f => string.Equals(f.Name, req.FieldName, StringComparison.OrdinalIgnoreCase));
+            .FieldNamed(req.FieldName);
         if (clash is not null)
         {
             AddError($"The content type \"{definition.Name}\" already has a field named \"{clash.Name}\". "

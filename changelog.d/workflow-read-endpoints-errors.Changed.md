@@ -1,0 +1,1 @@
+- **Workflow tool endpoints turned unexpected errors into 400.** The workflow actions, template variables, debug info and validate endpoints now let an unexpected error surface as a 500, logged by the host. A null action in a workflow body and a negative debug limit are still refused with 400.

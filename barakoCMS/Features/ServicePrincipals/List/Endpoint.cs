@@ -23,18 +23,12 @@ internal class ListServicePrincipalsEndpoint(IQuerySession session)
 
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
-        var tenant = PrincipalRules.TenantOf(User);
+        var tenant = User.TenantSlug();
         var page = await session.Query<ServicePrincipal>()
             .Where(p => p.TenantSlug == tenant)
             .OrderByDescending(p => p.CreatedAt)
             .ToPagedResponseAsync(req, ct);
 
-        await Send.OkAsync(new PaginatedResponse<ServicePrincipalResponse>
-        {
-            Items = page.Items.Select(ServicePrincipalResponse.Of).ToList(),
-            Page = page.Page,
-            PageSize = page.PageSize,
-            TotalItems = page.TotalItems,
-        }, ct);
+        await Send.OkAsync(page.Map(ServicePrincipalResponse.Of), ct);
     }
 }

@@ -471,7 +471,7 @@ public class SensitivityService : ISensitivityService
 
     /// <summary>The schema's spelling of a key, or null when the type does not declare it.</summary>
     private static string? DeclaredName(ContentTypeDefinition definition, string key) =>
-        definition.Fields.FirstOrDefault(f => string.Equals(f.Name, key, StringComparison.OrdinalIgnoreCase))?.Name;
+        definition.Fields.FieldNamed(key)?.Name;
 
     private static bool IsNull(object? value) =>
         value is null or JsonElement { ValueKind: JsonValueKind.Null or JsonValueKind.Undefined };

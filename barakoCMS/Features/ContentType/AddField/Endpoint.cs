@@ -197,7 +197,7 @@ internal sealed class Endpoint(
         }
 
         var clash = definition.Fields
-            .FirstOrDefault(f => string.Equals(f.Name, req.FieldName, StringComparison.OrdinalIgnoreCase));
+            .FieldNamed(req.FieldName);
 
         if (clash is not null)
         {
@@ -259,7 +259,7 @@ internal sealed class Endpoint(
         // The field stores role ids. The entry holds each id with the name it has now.
         var roles = await RoleAudit.RoleListsAsync(session, [field.VisibleToRoles], [], ct);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "contenttype.field_added", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(ContentTypeDefinition), targetId: definition.Name,

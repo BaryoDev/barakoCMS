@@ -87,7 +87,7 @@ internal sealed class SignedHttpOutboxTransport(
             request.Options.Set(OutboundResilienceHandler.Replayable, true);
             OutboundResilienceHandler.SetTenant(request, message.Tenant);
 
-            using var response = await httpClientFactory.CreateClient("ExternalApi")
+            using var response = await httpClientFactory.CreateClient(HttpClientNames.ExternalApi)
                 .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
             timer.Stop();

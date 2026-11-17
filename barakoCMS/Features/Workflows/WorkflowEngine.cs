@@ -51,7 +51,7 @@ internal class WorkflowEngine(
             {
                 if (erased && workflow.Conditions is { Count: > 0 }) continue;
 
-                if (MatchesConditions(workflow, content))
+                if (WorkflowConditions.Matches(workflow, content))
                 {
                     await ExecuteActionsAsync(workflow, eventType, content, ct);
                 }
@@ -62,29 +62,6 @@ internal class WorkflowEngine(
                 logger.LogError(ex, "Workflow '{WorkflowName}' ({WorkflowId}) failed to execute", workflow.Name, workflow.Id);
             }
         }
-    }
-
-    private bool MatchesConditions(WorkflowDefinition workflow, barakoCMS.Models.Content content)
-    {
-        foreach (var condition in workflow.Conditions ?? [])
-        {
-            if (content.Data?.TryGetValue(condition.Key, out var value) == true)
-            {
-                if (value?.ToString() != condition.Value)
-                {
-                    return false;
-                }
-            }
-            else if (condition.Key == "Status" && content.Status.ToString() != condition.Value)
-            {
-                return false;
-            }
-            else
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     private async Task ExecuteActionsAsync(WorkflowDefinition workflow, string eventType, barakoCMS.Models.Content content, CancellationToken ct)

@@ -25,6 +25,18 @@ public class RefreshToken
     public static string HashOf(string token) =>
         Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token)));
     
+    /// <summary>A new unrevoked refresh token row for a raw token, stored by its hash.</summary>
+    internal static RefreshToken Issue(Guid userId, string rawToken, DateTime expiresAt, string? deviceId) => new()
+    {
+        Id = Guid.NewGuid(),
+        TokenHash = HashOf(rawToken),
+        UserId = userId,
+        ExpiresAt = expiresAt,
+        CreatedAt = DateTime.UtcNow,
+        IsRevoked = false,
+        DeviceId = deviceId,
+    };
+
     /// <summary>
     /// The user this refresh token belongs to
     /// </summary>

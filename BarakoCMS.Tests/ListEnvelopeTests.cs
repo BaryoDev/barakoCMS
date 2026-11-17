@@ -116,6 +116,22 @@ public class ListEnvelopeTests
         first.TotalItems.Should().BeGreaterThanOrEqualTo(3);
     }
 
+    /// <summary>
+    /// A page past the end still reports the real total, not the 0 Marten's Stats gives for it.
+    /// </summary>
+    [Fact]
+    public async Task A_page_past_the_end_reports_the_real_total()
+    {
+        await AuthenticateAsync("SuperAdmin", "Admin");
+
+        var first = await ReadPageAsync("/api/roles?page=1&pageSize=1");
+        var past = await ReadPageAsync("/api/roles?page=500&pageSize=1");
+
+        first.TotalItems.Should().BeGreaterThan(0);
+        past.Items.Should().BeEmpty();
+        past.TotalItems.Should().Be(first.TotalItems);
+    }
+
     private async Task<(List<string> Items, int TotalItems)> ReadPageAsync(string url)
     {
         var response = await _client.GetAsync(url);

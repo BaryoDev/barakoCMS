@@ -40,7 +40,7 @@ internal static class ActingCaller
                 : null;
 
         var principal = await session.LoadAsync<ServicePrincipal>(principalId, ct);
-        var slug = (caller.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
+        var slug = caller.TenantSlug();
         if (principal is null || principal.Disabled
             || !string.Equals(principal.TenantSlug, slug, StringComparison.OrdinalIgnoreCase))
             return null;
@@ -56,4 +56,11 @@ internal static class ActingCaller
             RoleIds = roles.Where(r => !r.IsPlatform && RoleScope.Reaches(r, slug)).Select(r => r.Id).ToList(),
         };
     }
+}
+
+internal static class TenantClaimExtensions
+{
+    /// <summary>The tenant slug in the caller's <c>tenant</c> claim, trimmed and lowercased. The default slug when absent.</summary>
+    public static string TenantSlug(this ClaimsPrincipal user) =>
+        (user.FindFirst("tenant")?.Value ?? Tenant.DefaultSlug).Trim().ToLowerInvariant();
 }

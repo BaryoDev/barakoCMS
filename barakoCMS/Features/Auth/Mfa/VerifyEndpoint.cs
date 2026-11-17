@@ -190,16 +190,7 @@ internal class VerifyEndpoint(
     {
         var refresh = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var refreshExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
-        writes.Store(new RefreshToken
-        {
-            Id = Guid.NewGuid(),
-            TokenHash = RefreshToken.HashOf(refresh),
-            UserId = user.Id,
-            ExpiresAt = refreshExpiry,
-            CreatedAt = DateTime.UtcNow,
-            IsRevoked = false,
-            DeviceId = device.DeviceId,
-        });
+        writes.Store(RefreshToken.Issue(user.Id, refresh, refreshExpiry, device.DeviceId));
         await AuditLog.RecordAsync(writes, tenant.Slug, "auth.mfa.succeeded", user.Id, user.Username,
             ipAddress: device.IpAddress, ct: ct);
         return new SignedIn(issued, refresh, refreshExpiry);
