@@ -563,10 +563,13 @@ internal sealed class AddMemberEndpoint(
         Guid memberId, List<Guid> roleIds, Membership? membership, Dictionary<string, string>? profile,
         string slug, CancellationToken ct)
     {
+        // The stored profile survives a request with none for an Active or Suspended member, so it is
+        // the "before" for both. Roles count as kept only while Active. A Removed member starts empty.
         var active = membership is { Status: MembershipStatus.Active };
+        var survives = membership is { Status: not MembershipStatus.Removed };
         var profileNotHeld = await barakoCMS.Features.Roles.RoleGrantRules.ProfileNotHeldAsync(
             session, User, memberId, roleIds, active ? membership!.RoleIds : new List<Guid>(),
-            active ? membership!.Profile : null, profile, slug, ct);
+            survives ? membership!.Profile : null, profile, slug, ct);
         if (profileNotHeld is not null)
             ThrowError(profileNotHeld, 403);
     }

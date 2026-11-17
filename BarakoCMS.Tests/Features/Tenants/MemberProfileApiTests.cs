@@ -889,4 +889,33 @@ public class MemberProfileApiTests
         NotRateLimited(response);
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden, await response.Content.ReadAsStringAsync());
     }
+
+    [Fact]
+    public async Task Adding_a_suspended_member_with_a_new_role_and_no_profile_checks_the_stored_profile()
+    {
+        var slug = await TenantAsync();
+        var role = await ConditionalRoleAsync(slug, "region");
+        var manager = await ManagerAsync(slug, role, Branch("north"));
+        var email = NewEmail();
+        var member = await MemberAsync(slug, Branch("south"), email);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var row = await session.Query<Membership>().FirstAsync(m => m.UserId == member && m.TenantSlug == slug);
+            row.Status = MembershipStatus.Suspended;
+            session.Store(row);
+            await session.SaveChangesAsync();
+        }
+
+        var response = await manager.PostAsJsonAsync("/api/tenants/members", new
+        {
+            email, roleIds = new[] { SystemRoles.UserRoleId, role.Id },
+        });
+
+        NotRateLimited(response);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden, await response.Content.ReadAsStringAsync());
+        var after = await RowAsync(member, slug);
+        after.Status.Should().Be(MembershipStatus.Suspended);
+        after.RoleIds.Should().NotContain(role.Id);
+    }
 }
