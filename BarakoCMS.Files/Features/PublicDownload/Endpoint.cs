@@ -75,19 +75,16 @@ public class Endpoint(IQuerySession session, BarakoCMS.Files.Storage.FileStorage
             return;
         }
 
-        /* Defense in depth for the proxied bytes: never sniff a different type, and sandbox the
-         * response so a document opened directly (a stray SVG/HTML) can't execute script on our origin. */
-        HttpContext.Response.Headers["X-Content-Type-Options"] = "nosniff";
-        HttpContext.Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
-
-        if (checkedType && !string.IsNullOrEmpty(served.PublicUrl))
+        // The shared block also sets the headers that keep proxied bytes from being sniffed as another
+        // type or running script on our origin.
+        var serve = await FileServing.PrepareAsync(HttpContext, served, checkedType, storage, ct);
+        if (serve.RedirectUrl is not null)
         {
-            await Send.RedirectAsync(served.PublicUrl, isPermanent: false, allowRemoteRedirects: true);
+            await Send.RedirectAsync(serve.RedirectUrl, isPermanent: false, allowRemoteRedirects: true);
             return;
         }
 
-        var bytes = await (await storage.ForAsync(served, ct)).GetAsync(served.StorageKey, ct);
-        if (bytes is null)
+        if (serve.Bytes is null)
         {
             // A missing object is not the file, so nothing may keep this 404 for a day under its tag.
             DeliveryCache.Withdraw(HttpContext);
@@ -95,7 +92,6 @@ public class Endpoint(IQuerySession session, BarakoCMS.Files.Storage.FileStorage
             return;
         }
 
-        await Send.BytesAsync(
-            bytes, served.FileName, checkedType ? served.ContentType : "application/octet-stream", cancellation: ct);
+        await Send.BytesAsync(serve.Bytes, served.FileName, serve.ContentType, cancellation: ct);
     }
 }

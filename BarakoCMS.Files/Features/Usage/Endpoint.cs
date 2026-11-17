@@ -4,6 +4,7 @@ using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.Files.Features.Usage;
 
@@ -40,7 +41,7 @@ public class Endpoint(
         var total = await usages.CountAsync(ct);
         var page = await usages.Skip(req.Skip).Take(req.Take).ToListAsync(ct);
 
-        var caller = Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId)
+        var caller = User.TryGetUserId(out var userId)
             ? await session.LoadAsync<barakoCMS.Models.User>(userId, ct)
             : null;
 

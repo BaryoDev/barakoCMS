@@ -5,6 +5,7 @@ using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Services;
 using Marten;
 using Microsoft.Extensions.Configuration;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.Files;
 
@@ -115,9 +116,14 @@ internal sealed class FileStore(
             return null;
         }
 
-        // The storage hands back the whole object as one array, so the array is exposed and a
-        // caller that wants the bytes does not copy them out of the stream.
-        var bytes = await (await storage.ForAsync(file, cancellationToken)).GetAsync(file.StorageKey, cancellationToken);
+        return await OpenBytesAsync(file, cancellationToken);
+    }
+
+    // The storage hands back the whole object as one array, so the array is exposed and a
+    // caller that wants the bytes does not copy them out of the stream.
+    private async Task<Stream?> OpenBytesAsync(StoredFile file, CancellationToken ct)
+    {
+        var bytes = await (await storage.ForAsync(file, ct)).GetAsync(file.StorageKey, ct);
         return bytes is null ? null : new MemoryStream(bytes, 0, bytes.Length, writable: false, publiclyVisible: true);
     }
 
@@ -152,8 +158,7 @@ internal sealed class FileStore(
             return null;
         }
 
-        var bytes = await (await storage.ForAsync(file, cancellationToken)).GetAsync(file.StorageKey, cancellationToken);
-        return bytes is null ? null : new MemoryStream(bytes, 0, bytes.Length, writable: false, publiclyVisible: true);
+        return await OpenBytesAsync(file, cancellationToken);
     }
 
     public async Task<StoredFileInfo?> FindForRunAsync(Guid id, CancellationToken cancellationToken = default)
@@ -170,8 +175,7 @@ internal sealed class FileStore(
             return null;
         }
 
-        var bytes = await (await storage.ForAsync(file, cancellationToken)).GetAsync(file.StorageKey, cancellationToken);
-        return bytes is null ? null : new MemoryStream(bytes, 0, bytes.Length, writable: false, publiclyVisible: true);
+        return await OpenBytesAsync(file, cancellationToken);
     }
 
     // The scope's session is opened for the scope's tenant, so an id of another tenant loads
@@ -303,7 +307,7 @@ internal sealed class FileStore(
             return FileDeleteResult.InUse;
         }
 
-        Guid.TryParse(caller.FindFirst("UserId")?.Value, out var userId);
+        caller.TryGetUserId(out var userId);
 
         await FileRemoval.RemoveAsync(
             session,
@@ -367,7 +371,7 @@ internal sealed class FileStore(
             return true;
         }
 
-        return Guid.TryParse(caller.FindFirst("UserId")?.Value, out var userId)
+        return caller.TryGetUserId(out var userId)
             && await permissions.HasCapabilityAsync(userId, FileCapabilities.UploadFiles, ct);
     }
 

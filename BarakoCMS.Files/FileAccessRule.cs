@@ -5,6 +5,7 @@ using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;
 using Marten;
 using Microsoft.Extensions.Configuration;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.Files;
 
@@ -56,7 +57,7 @@ internal static class FileAccessRule
             return true;
         }
 
-        return Guid.TryParse(caller.FindFirst("UserId")?.Value, out var userId)
+        return caller.TryGetUserId(out var userId)
             && userId != Guid.Empty
             && await permissions.HasCapabilityAsync(userId, FileCapabilities.ManageAllFiles, ct);
     }
@@ -82,7 +83,7 @@ internal static class FileAccessRule
         }
 
         if (!IsSignedInHere(caller, tenantSlug)
-            || !Guid.TryParse(caller.FindFirst("UserId")?.Value, out var userId)
+            || !caller.TryGetUserId(out var userId)
             || userId == Guid.Empty)
         {
             return false;

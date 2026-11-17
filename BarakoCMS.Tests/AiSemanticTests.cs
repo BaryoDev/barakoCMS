@@ -68,6 +68,23 @@ public class AiSemanticTests
     }
 
     [Fact]
+    public async Task A_type_spelled_in_another_case_is_indexed_under_its_stored_name()
+    {
+        var type = "ai_case_type";
+        await SeedAsync(type);
+
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await AdminToken());
+        var index = await _client.PostAsync($"/api/ai/index/{type.ToUpperInvariant()}", null);
+        index.StatusCode.Should().Be(HttpStatusCode.OK, because: await index.Content.ReadAsStringAsync());
+        (await index.Content.ReadAsStringAsync()).Should().Contain("\"indexed\":2");
+
+        _client.DefaultRequestHeaders.Authorization = null;
+        var res = await _client.GetAsync($"/api/public/{type}/semantic?q=photovoltaic%20renewable%20sunlight");
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await res.Content.ReadAsStringAsync()).Should().Contain("\"solar\"");
+    }
+
+    [Fact]
     public async Task Index_ThenSemanticSearch_ReturnsNearestPublicMatch()
     {
         var type = "ai_solar";

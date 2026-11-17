@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Marten;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.FeatureFlags;
 
@@ -43,7 +44,7 @@ public class FeatureFlagService(IQuerySession session)
         IQuerySession session, System.Security.Claims.ClaimsPrincipal user, CancellationToken ct)
     {
         if (user.Identity?.IsAuthenticated != true) return null;
-        if (!Guid.TryParse(user.FindFirst("UserId")?.Value, out var id)) return null;
+        if (!user.TryGetUserId(out var id)) return null;
         var email = (await session.LoadAsync<barakoCMS.Models.User>(id, ct))?.Email;
         return string.IsNullOrWhiteSpace(email) ? null : email;
     }

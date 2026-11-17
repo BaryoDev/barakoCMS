@@ -34,8 +34,22 @@ public class IndexEndpoint(IDocumentSession session, IEmbeddingClient embed) : E
             return;
         }
 
-        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        ContentTypeDefinition? def;
+        try
+        {
+            def = await TypeLookup.FindAsync(session, type, ct);
+        }
+        catch (barakoCMS.Core.AmbiguousContentTypeException ambiguous)
+        {
+            AddError(ambiguous.Message);
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
         if (def is null) { await Send.NotFoundAsync(ct); return; }
+
+        // The stored name, whatever case the route used: content and embeddings carry it as written.
+        type = def.Name;
 
         var items = await session.Query<Content>()
             .Where(c => c.ContentType == type

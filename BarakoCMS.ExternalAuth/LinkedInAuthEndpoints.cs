@@ -29,14 +29,11 @@ public class LinkedInStartEndpoint(IConfiguration config, IQuerySession session)
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!ExternalAuthSupport.ProviderEnabled(config, "LinkedIn", "ClientId")) { await Send.NotFoundAsync(ct); return; }
-        var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
-        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.LinkedIn, ct)) { await Send.NotFoundAsync(ct); return; }
-        var state = ExternalAuthSupport.NewState();
-
-        HttpContext.Response.Cookies.Append("li_state", state, ExternalAuthSupport.ShortCookie());
-        HttpContext.Response.Cookies.Append("li_club", club, ExternalAuthSupport.ShortCookie());
-        SocialHandoff.BindDevice(HttpContext, config);
+        var begun = await ExternalAuthSupport.BeginAsync(
+            HttpContext, config, session, Query<string>("club", isRequired: false),
+            "li", ExternalProviders.LinkedIn, "LinkedIn", "ClientId", ct);
+        if (begun is null) { await Send.NotFoundAsync(ct); return; }
+        var state = begun.Value.State;
 
         var redirect = Li.CallbackUrl(config, HttpContext);
         var url =
@@ -63,20 +60,16 @@ public class LinkedInCallbackEndpoint(
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var baseUrl = ExternalAuthSupport.BaseUrl(config, HttpContext);
-        var club = HttpContext.Request.Cookies["li_club"] ?? "";
-        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.LinkedIn, ct)) { await Send.NotFoundAsync(ct); return; }
-        var cookieState = HttpContext.Request.Cookies["li_state"];
-        var code = Query<string>("code", isRequired: false);
-        var state = Query<string>("state", isRequired: false);
-
-        HttpContext.Response.Cookies.Delete("li_state");
-        HttpContext.Response.Cookies.Delete("li_club");
+        var cb = await ExternalAuthSupport.ReadCallbackStateAsync(
+            HttpContext, config, session, Query<string>("code", isRequired: false),
+            Query<string>("state", isRequired: false), "li", ExternalProviders.LinkedIn, ct);
+        if (cb is null) { await Send.NotFoundAsync(ct); return; }
+        var (baseUrl, club, code) = cb;
 
         Task Fail(string message) =>
             Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendError(baseUrl, message, club)));
 
-        if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state) || state != cookieState)
+        if (code is null)
         {
             await Fail("LinkedIn sign-in was cancelled or the link expired. Please try again.");
             return;

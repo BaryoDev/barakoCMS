@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.Files;
 
@@ -17,7 +18,7 @@ internal static class FileOwnership
     public static bool CanAccess(ClaimsPrincipal user, StoredFile file)
     {
         // The empty id owns nothing: a file stored for no user carries it as UploadedBy.
-        return Guid.TryParse(user.FindFirst("UserId")?.Value, out var userId)
+        return user.TryGetUserId(out var userId)
             && userId != Guid.Empty
             && file.UploadedBy == userId;
     }

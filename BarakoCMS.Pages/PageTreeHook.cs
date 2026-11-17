@@ -58,7 +58,7 @@ public sealed class PageTreeHook : IContentLifecycleHook
         }
 
         var errors = new List<string>();
-        var definition = await DefinitionAsync(context, options, ct);
+        var definition = await PublishedPages.DefinitionAsync(context.Session, options.ContentType, ct);
 
         if (PageData.Guid(context.Data, options.ParentField) is null)
         {
@@ -98,14 +98,6 @@ public sealed class PageTreeHook : IContentLifecycleHook
         var chain = new ParentReferenceHook(options.ContentType, options.ParentField, options.MaxDepth);
         errors.AddRange(await chain.OnBeforeSaveAsync(walked, ct));
         return errors;
-    }
-
-    private static Task<ContentTypeDefinition?> DefinitionAsync(
-        ContentLifecycleContext context, PagesOptions options, CancellationToken ct)
-    {
-        var lowered = options.ContentType.ToLower();
-        return context.Session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
     }
 
     private static string? ReservedRootSlug(

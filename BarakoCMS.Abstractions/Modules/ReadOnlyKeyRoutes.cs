@@ -66,6 +66,14 @@ public static class ReadOnlyKeyRoutes
         definition.Metadata(new ReadOnlyKeyReadRoute());
 
     /// <summary>
+    /// The caller's user id from the <c>UserId</c> claim. False when the claim is missing or is not a
+    /// guid, with <paramref name="userId"/> empty. An empty guid in the claim parses, so a caller that
+    /// must not match it checks for it.
+    /// </summary>
+    public static bool TryGetUserId(this ClaimsPrincipal caller, out Guid userId) =>
+        Guid.TryParse(caller.FindFirst(UserIdClaim)?.Value, out userId);
+
+    /// <summary>
     /// The id that owns the caller's rows: the principal id for a key bound to a service principal,
     /// the user id for a person. A full (not read-only) key with no principal acts as its creator and
     /// returns the creator's user id. False for a read-only key with no principal and for a caller with

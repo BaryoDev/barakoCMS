@@ -5,6 +5,7 @@ using barakoCMS.Models;
 using FastEndpoints;
 using FluentValidation;
 using Marten;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.ExternalAuth;
 
@@ -152,7 +153,7 @@ internal sealed class PutExternalProvidersEndpoint(IDocumentSession session, Ten
         IDocumentSession session, System.Security.Claims.ClaimsPrincipal actor, string action,
         ExternalProviderSettings settings, CancellationToken ct)
     {
-        Guid.TryParse(actor.FindFirst("UserId")?.Value, out var actorId);
+        actor.TryGetUserId(out var actorId);
         var metadata = new Dictionary<string, object> { ["providers"] = settings.Providers.ToList() };
         return AuditLog.RecordAsync(session, settings.Id, action, actorId, actor.FindFirst("Username")?.Value,
             targetType: "ExternalProviderSettings", targetId: settings.Id, metadata: metadata, ct: ct);

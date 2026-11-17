@@ -8,6 +8,7 @@ using FluentValidation.Results;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using barakoCMS.Modules;
 
 // The bundle types are obsolete for callers outside the module, and this is the module.
 #pragma warning disable CS0618
@@ -59,7 +60,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
     public override async Task HandleAsync(ImportRequest req, CancellationToken ct)
     {
-        Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId);
+        User.TryGetUserId(out var userId);
         var report = new ImportReport { DryRun = req.DryRun };
         var configuration = Resolve<IConfiguration>();
         // A null entry in either list is dropped here rather than failing later on a null

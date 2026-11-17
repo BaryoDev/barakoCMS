@@ -46,14 +46,11 @@ public class FacebookStartEndpoint(IConfiguration config, IQuerySession session)
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        if (!ExternalAuthSupport.ProviderEnabled(config, "Facebook", "AppId")) { await Send.NotFoundAsync(ct); return; }
-        var club = (Query<string>("club", isRequired: false) ?? "").Trim().ToLowerInvariant();
-        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.Facebook, ct)) { await Send.NotFoundAsync(ct); return; }
-        var state = ExternalAuthSupport.NewState();
-
-        HttpContext.Response.Cookies.Append("fb_state", state, ExternalAuthSupport.ShortCookie());
-        HttpContext.Response.Cookies.Append("fb_club", club, ExternalAuthSupport.ShortCookie());
-        SocialHandoff.BindDevice(HttpContext, config);
+        var begun = await ExternalAuthSupport.BeginAsync(
+            HttpContext, config, session, Query<string>("club", isRequired: false),
+            "fb", ExternalProviders.Facebook, "Facebook", "AppId", ct);
+        if (begun is null) { await Send.NotFoundAsync(ct); return; }
+        var state = begun.Value.State;
 
         var appId = config["Facebook:AppId"];
         var redirect = Fb.CallbackUrl(config, HttpContext);
@@ -82,20 +79,16 @@ public class FacebookCallbackEndpoint(
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var baseUrl = ExternalAuthSupport.BaseUrl(config, HttpContext);
-        var club = HttpContext.Request.Cookies["fb_club"] ?? "";
-        if (!await ExternalProviders.AllowedAsync(session, club, ExternalProviders.Facebook, ct)) { await Send.NotFoundAsync(ct); return; }
-        var cookieState = HttpContext.Request.Cookies["fb_state"];
-        var code = Query<string>("code", isRequired: false);
-        var state = Query<string>("state", isRequired: false);
-
-        HttpContext.Response.Cookies.Delete("fb_state");
-        HttpContext.Response.Cookies.Delete("fb_club");
+        var cb = await ExternalAuthSupport.ReadCallbackStateAsync(
+            HttpContext, config, session, Query<string>("code", isRequired: false),
+            Query<string>("state", isRequired: false), "fb", ExternalProviders.Facebook, ct);
+        if (cb is null) { await Send.NotFoundAsync(ct); return; }
+        var (baseUrl, club, code) = cb;
 
         Task Fail(string message) =>
             Send.ResultAsync(Results.Redirect(SocialSignIn.FrontendError(baseUrl, message, club)));
 
-        if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state) || state != cookieState)
+        if (code is null)
         {
             await Fail("Facebook sign-in was cancelled or the link expired. Please try again.");
             return;
