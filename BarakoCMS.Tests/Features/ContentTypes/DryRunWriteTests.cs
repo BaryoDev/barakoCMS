@@ -124,7 +124,7 @@ public class DryRunWriteTests : IAsyncLifetime
 
         // The same route with a valid body takes the dry run path: it says so and changes nothing.
         var valid = await _client.PutAsJsonAsync($"/api/contents/{id}",
-            new { id, dryRun = true, data = new Dictionary<string, object> { ["Grade"] = 9 } }, Ct);
+            new { id, dryRun = true, data = new Dictionary<string, object> { ["Title"] = "Ana", ["Grade"] = 9 } }, Ct);
         valid.StatusCode.Should().Be(HttpStatusCode.OK, await valid.Content.ReadAsStringAsync(Ct));
         var answer = await valid.Content.ReadFromJsonAsync<JsonElement>(Ct);
         answer.GetProperty("dryRun").GetBoolean().Should().BeTrue();
