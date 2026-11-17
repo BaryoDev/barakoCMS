@@ -634,6 +634,41 @@ public class ServicePrincipalTests
     }
 
     [Fact]
+    public async Task A_workflow_saved_with_a_principal_key_is_audited_under_the_principal_id()
+    {
+        var tenant = await TenantAsync();
+        var author = await RoleAsync(tenant, [SystemCapabilities.ManageWorkflows]);
+        var steward = await StewardWithRolesAsync(tenant, author.Id);
+        var principal = await CreatePrincipalAsync(steward, author.Id);
+        var key = await CreateKeyAsync(steward, principal.Id, "cap:manage_workflows");
+
+        var res = await KeyClient(key.Key, tenant).PostAsJsonAsync("/api/workflows", new
+        {
+            name = $"sp-wf-{Guid.NewGuid():N}"[..14],
+            triggerContentType = $"Sp{Guid.NewGuid():N}"[..12],
+            triggerEvent = "Published",
+            actions = new[]
+            {
+                new
+                {
+                    type = "Email",
+                    parameters = new Dictionary<string, string> { ["To"] = "a@example.com", ["Subject"] = "s", ["Body"] = "b" },
+                },
+            },
+        }, Ct);
+        var text = await res.Content.ReadAsStringAsync(Ct);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, text);
+        var id = System.Text.Json.JsonDocument.Parse(text).RootElement.GetProperty("id").GetGuid();
+
+        using var scope = _factory.Services.CreateScope();
+        var audit = await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<AuditEvent>()
+            .Where(e => e.Action == "workflow.created" && e.TargetId == id.ToString())
+            .ToListAsync(Ct);
+        audit.Should().ContainSingle();
+        audit[0].ActorUserId.Should().Be(principal.Id);
+    }
+
+    [Fact]
     public async Task A_principal_key_on_a_person_only_route_gets_a_clean_401_or_403()
     {
         var tenant = await TenantAsync();

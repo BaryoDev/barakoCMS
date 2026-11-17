@@ -311,7 +311,7 @@ internal sealed class Endpoint(
         ThrowIfAnyErrors(StatusCodes.Status409Conflict);
     }
 
-    private Guid ActorId() => Guid.TryParse(User.FindFirst("UserId")?.Value, out var id) ? id : Guid.Empty;
+    private Guid ActorId() => ActingCaller.IdOf(User) ?? Guid.Empty;
 
     private Task AuditAsync(ContentTypeDefinition definition, string field, string classification, FieldChange? change, CancellationToken ct)
     {

@@ -15,6 +15,7 @@ internal class CreateWorkflowEndpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator validator,
     ISecretProtector protector,
+    TenantContext tenant,
     IPermissionResolver permissions,
     IWorkflowPluginRegistry registry) : Endpoint<CreateWorkflowRequest, barakoCMS.Features.Workflows.WorkflowResponse>
 {
@@ -30,22 +31,12 @@ internal class CreateWorkflowEndpoint(
 
         // Validate before persisting so invalid trigger events / unknown action types / missing
         // required parameters are rejected up front rather than silently never firing (or firing twice).
-        var validation = await validator.ValidateAsync(workflow, ct);
-        if (!validation.IsValid)
+        var (validation, errors, status) = await WorkflowSave.CheckAsync(
+            session, validator, permissions, registry, User, workflow, ct);
+        if (errors is not null)
         {
-            foreach (var error in validation.Errors)
-            {
-                AddError($"{error.Field}: {error.Message}");
-            }
-            await Send.ErrorsAsync(cancellation: ct);
-            return;
-        }
-
-        var missing = await WorkflowSaveRights.MissingAsync(session, permissions, registry, User, workflow, ct);
-        if (missing.Count > 0)
-        {
-            foreach (var line in missing) AddError(line);
-            await Send.ErrorsAsync(403, ct);
+            foreach (var line in errors) AddError(line);
+            await Send.ErrorsAsync(status, ct);
             return;
         }
 
@@ -68,6 +59,7 @@ internal class CreateWorkflowEndpoint(
         }
 
         session.Store(workflow);
+        await WorkflowAudit.RecordAsync(session, tenant.Slug, "workflow.created", workflow, User, ct: ct);
         await session.SaveChangesAsync(ct);
         await Send.ResponseAsync(response, cancellation: ct);
     }
@@ -75,6 +67,27 @@ internal class CreateWorkflowEndpoint(
 
 internal static class WorkflowSave
 {
+    /// <summary>Validates a definition and checks the caller may save it.</summary>
+    /// <returns>The validation result, and the error lines with the status to send them under, or no lines when it passes.</returns>
+    internal static async Task<(WorkflowValidationResult Validation, List<string>? Errors, int Status)> CheckAsync(
+        IDocumentSession session,
+        barakoCMS.Infrastructure.Services.IWorkflowSchemaValidator validator,
+        IPermissionResolver permissions,
+        IWorkflowPluginRegistry registry,
+        System.Security.Claims.ClaimsPrincipal user,
+        WorkflowDefinition workflow,
+        CancellationToken ct)
+    {
+        var validation = await validator.ValidateAsync(workflow, ct);
+        if (!validation.IsValid)
+        {
+            return (validation, validation.Errors.Select(e => $"{e.Field}: {e.Message}").ToList(), 400);
+        }
+
+        var missing = await WorkflowSaveRights.MissingAsync(session, permissions, registry, user, workflow, ct);
+        return missing.Count > 0 ? (validation, missing, 403) : (validation, null, 200);
+    }
+
     /// <summary>Stores the triggers in the form the validator matched them in.</summary>
     /// <remarks>
     /// Stored as the content type declares it. The engine matches this with an equality query, so
@@ -137,7 +150,7 @@ internal static class WorkflowAudit
         Dictionary<string, object>? extra = null,
         CancellationToken ct = default)
     {
-        var actorId = Guid.TryParse(user.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(user);
 
         // The name and nothing of the actions. Their parameters hold addresses and credentials, and
         // the audit log is the one table nothing is ever deleted from.
@@ -341,8 +354,7 @@ internal sealed class DeleteWorkflowEndpoint(
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency"))
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
         {
             ThrowError("A run of that workflow moved while it was being deleted. Nothing was changed. Send the request again.", 409);
             return;
@@ -415,22 +427,12 @@ internal sealed class UpdateWorkflowEndpoint(
 
         var workflow = req.ToDefinition();
 
-        var validation = await validator.ValidateAsync(workflow, ct);
-        if (!validation.IsValid)
+        var (validation, errors, status) = await WorkflowSave.CheckAsync(
+            session, validator, permissions, registry, User, workflow, ct);
+        if (errors is not null)
         {
-            foreach (var error in validation.Errors)
-            {
-                AddError($"{error.Field}: {error.Message}");
-            }
-            await Send.ErrorsAsync(cancellation: ct);
-            return;
-        }
-
-        var missing = await WorkflowSaveRights.MissingAsync(session, permissions, registry, User, workflow, ct);
-        if (missing.Count > 0)
-        {
-            foreach (var line in missing) AddError(line);
-            await Send.ErrorsAsync(403, ct);
+            foreach (var line in errors) AddError(line);
+            await Send.ErrorsAsync(status, ct);
             return;
         }
 

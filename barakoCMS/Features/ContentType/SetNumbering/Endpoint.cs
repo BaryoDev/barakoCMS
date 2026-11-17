@@ -87,7 +87,7 @@ internal sealed class Endpoint(IDocumentSession session, barakoCMS.Infrastructur
         definition.UpdatedAt = DateTimeOffset.UtcNow;
         session.Store(definition);
 
-        var actor = Guid.TryParse(User.FindFirst("UserId")?.Value, out var id) ? id : (Guid?)null;
+        var actor = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "contenttype.numbering_set", actor, User.FindFirst("Username")?.Value,
             targetType: nameof(ContentTypeDefinition), targetId: definition.Name,
             metadata: new Dictionary<string, object>

@@ -224,7 +224,7 @@ internal sealed class SaveQueryEndpoint(
 
         session.Store(definition);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug,
             existing is null || replacesDeleted ? "query.created" : "query.updated",
             actorId, User.FindFirst("Username")?.Value,
@@ -274,7 +274,7 @@ internal sealed class DeleteQueryEndpoint(
         found.DeletedAt = DateTime.UtcNow;
         session.Store(found);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "query.deleted", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(QueryDefinition), targetId: found.Id.ToString(),
@@ -316,7 +316,7 @@ internal sealed class RestoreQueryEndpoint(
         found.UpdatedAt = DateTime.UtcNow;
         session.Store(found);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "query.restored", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(QueryDefinition), targetId: found.Id.ToString(),
@@ -360,7 +360,7 @@ internal sealed class EraseQueryEndpoint(
 
         session.Delete(found);
 
-        var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
+        var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "query.erased", actorId,
             User.FindFirst("Username")?.Value,
             targetType: nameof(QueryDefinition), targetId: found.Id.ToString(),

@@ -2,7 +2,7 @@ using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
-using Microsoft.Extensions.Logging;
+using FluentValidation;
 
 namespace barakoCMS.Features.Workflows.GetWorkflowDebugInfo;
 
@@ -15,12 +15,19 @@ internal class Request
     public int Limit { get; set; } = 20;
 }
 
+/// <summary>A negative limit is refused, as the old catch-all did. Larger limits keep working: a cap would be a contract move.</summary>
+internal sealed class Validator : Validator<Request>
+{
+    public Validator()
+    {
+        RuleFor(r => r.Limit).GreaterThanOrEqualTo(0);
+    }
+}
+
 /// <summary>
 /// Endpoint to get workflow execution history for debugging.
 /// </summary>
-internal class Endpoint(
-    IWorkflowDebugger debugger,
-    ILogger<Endpoint> logger) : Endpoint<Request, List<WorkflowExecutionLog>>
+internal class Endpoint(IWorkflowDebugger debugger) : Endpoint<Request, List<WorkflowExecutionLog>>
 {
     public override void Configure()
     {
@@ -32,15 +39,7 @@ internal class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        try
-        {
-            var logs = await debugger.GetExecutionHistoryAsync(req.Id, req.Limit, ct);
-            await Send.ResponseAsync(logs, cancellation: ct);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error retrieving debug info for workflow {WorkflowId}", req.Id);
-            await Send.ErrorsAsync(cancellation: ct);
-        }
+        var logs = await debugger.GetExecutionHistoryAsync(req.Id, req.Limit, ct);
+        await Send.ResponseAsync(logs, cancellation: ct);
     }
 }
