@@ -155,6 +155,58 @@ public class ComputedFieldTests
         isValid.Should().BeTrue();
     }
 
+    private static ContentTypeDefinition TypeOf(params FieldDefinition[] fields) =>
+        new() { Name = "timeEntry", DisplayName = "Time entry", Fields = fields.ToList() };
+
+    [Fact]
+    public void An_upsert_widening_a_stored_computed_field_over_a_sensitive_input_is_refused()
+    {
+        FieldDefinition[] Fields(SensitivityLevel level, params string[] roles) =>
+        [
+            Guarded(Plain("Salary", "decimal"), SensitivityLevel.Sensitive, FieldMask.Default, "HR"),
+            Plain("Bonus", "decimal"),
+            Guarded(Computed("Total", "decimal", "add", null, "Salary", "Bonus"), level, FieldMask.Default, roles),
+        ];
+
+        var stored = TypeOf(Fields(SensitivityLevel.Sensitive, "HR"));
+        var incoming = TypeOf(Fields(SensitivityLevel.Sensitive, "HR", "Finance"));
+
+        var errors = ContentTypeUpsert.DefinitionErrors(Validator, incoming, stored, 100);
+
+        errors.Should().ContainSingle(e => e.Contains("'Total'") && e.Contains("'Finance'"));
+    }
+
+    [Fact]
+    public void An_upsert_narrowing_an_input_under_a_stored_computed_field_is_refused()
+    {
+        FieldDefinition[] Fields(SensitivityLevel inputLevel) =>
+        [
+            Guarded(Plain("Salary", "decimal"), inputLevel, FieldMask.Default, "HR"),
+            Plain("Bonus", "decimal"),
+            Guarded(Computed("Total", "decimal", "add", null, "Salary", "Bonus"), SensitivityLevel.Sensitive),
+        ];
+
+        var errors = ContentTypeUpsert.DefinitionErrors(
+            Validator, TypeOf(Fields(SensitivityLevel.Sensitive)), TypeOf(Fields(SensitivityLevel.Hidden)), 100);
+
+        errors.Should().Contain(e => e.Contains("'Total'") && e.Contains("'Salary'"));
+    }
+
+    [Fact]
+    public void An_upsert_writing_a_stored_violating_computed_field_back_unchanged_is_accepted()
+    {
+        FieldDefinition[] Fields() =>
+        [
+            Guarded(Plain("Salary", "decimal"), SensitivityLevel.Sensitive, FieldMask.Default, "HR"),
+            Plain("Bonus", "decimal"),
+            Guarded(Computed("Total", "decimal", "add", null, "Salary", "Bonus"), SensitivityLevel.Sensitive),
+        ];
+
+        var errors = ContentTypeUpsert.DefinitionErrors(Validator, TypeOf(Fields()), TypeOf(Fields()), 100);
+
+        errors.Should().BeEmpty();
+    }
+
     [Fact]
     public void A_new_computed_field_over_a_stored_input_is_still_checked()
     {
