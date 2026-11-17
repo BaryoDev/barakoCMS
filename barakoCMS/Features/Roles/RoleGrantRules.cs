@@ -114,9 +114,16 @@ internal static class RoleGrantRules
         var effective = after ?? before;
         var changed = ChangedNames(before, after);
         var readByAny = ReadNames(counted);
-        var readByNew = ReadNames(counted.Where(r => requested.Contains(r.Id) && !keptRoleIds.Contains(r.Id)));
+        var granted = counted.Where(r => requested.Contains(r.Id) && !keptRoleIds.Contains(r.Id)).ToList();
+        var readByNew = ReadNames(granted);
         if (!tenantAdmin)
+        {
             readByAny.Add(CallerBranches.BranchesAttribute);
+            // The branch guard scopes every right by the member's branches, whether or not a rule reads them,
+            // so a role granted now with rights needs every branch the member has, not only the added ones.
+            if (granted.Any(CarriesRights))
+                readByNew.Add(CallerBranches.BranchesAttribute);
+        }
 
         var checks = changed.Where(readByAny.Contains)
             .Select(name => (name, full: false))

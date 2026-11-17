@@ -607,7 +607,9 @@ public class MemberProfileApiTests
     }
 
     /// <summary>A members manager who also holds the conditional role, with the profile given.</summary>
-    private async Task<HttpClient> ManagerAsync(string slug, Role conditional, Dictionary<string, string> profile)
+    private async Task<HttpClient> ManagerAsync(
+        string slug, Role conditional, Dictionary<string, string> profile,
+        string capability = SystemCapabilities.ManageTenantMembers)
     {
         Role manager;
         using (var scope = _factory.Services.CreateScope())
@@ -616,7 +618,7 @@ public class MemberProfileApiTests
             manager = new Role
             {
                 Id = Guid.NewGuid(), Name = $"mgr-{Guid.NewGuid():N}"[..14], TenantSlug = slug,
-                SystemCapabilities = [SystemCapabilities.ManageTenantMembers],
+                SystemCapabilities = [capability],
             };
             session.Store(manager);
             await session.SaveChangesAsync();
@@ -805,6 +807,74 @@ public class MemberProfileApiTests
         NotRateLimited(response);
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden, await response.Content.ReadAsStringAsync());
         (await RowAsync(member, slug)).RoleIds.Should().NotContain(role.Id);
+    }
+
+    [Fact]
+    public async Task A_role_granted_now_needs_every_branch_the_member_already_has_even_when_no_rule_reads_branches()
+    {
+        var slug = await TenantAsync();
+        var role = await ConditionalRoleAsync(slug, "region");
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        var manager = await ManagerAsync(slug, role, new() { ["region"] = "north", ["branches"] = a.ToString() });
+        var outside = await MemberAsync(slug, new() { ["region"] = "north", ["branches"] = b.ToString() });
+        var inside = await MemberAsync(slug, new() { ["region"] = "north", ["branches"] = a.ToString() });
+
+        var refused = await manager.PutAsJsonAsync($"/api/tenants/members/{outside}", new
+        {
+            roleIds = new[] { SystemRoles.UserRoleId, role.Id }, status = "Active",
+            profile = new Dictionary<string, string> { ["region"] = "north", ["branches"] = b.ToString() },
+        });
+        NotRateLimited(refused);
+        refused.StatusCode.Should().Be(HttpStatusCode.Forbidden, await refused.Content.ReadAsStringAsync());
+        (await refused.Content.ReadAsStringAsync()).Should().Contain("'branches'");
+        (await RowAsync(outside, slug)).RoleIds.Should().NotContain(role.Id);
+
+        var allowed = await manager.PutAsJsonAsync($"/api/tenants/members/{inside}", new
+        {
+            roleIds = new[] { SystemRoles.UserRoleId, role.Id }, status = "Active",
+            profile = new Dictionary<string, string> { ["region"] = "north", ["branches"] = a.ToString() },
+        });
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK, await allowed.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task An_invite_with_a_member_number_the_caller_does_not_hold_is_refused_and_adds_nobody()
+    {
+        var slug = await TenantAsync();
+        var role = await ConditionalRoleAsync(slug, "memberNo");
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            role.Invitable = true;
+            session.Store(role);
+            await session.SaveChangesAsync();
+        }
+
+        var manager = await ManagerAsync(slug, role, new() { ["memberNo"] = "M-1" },
+            SystemCapabilities.InviteTenantMembers);
+
+        var email = NewEmail();
+        var refused = await manager.PostAsJsonAsync("/api/tenants/members/invite", new
+        {
+            email, roleIds = new[] { role.Id }, profile = new Dictionary<string, string> { ["memberNo"] = "M-2" },
+        });
+        NotRateLimited(refused);
+        refused.StatusCode.Should().Be(HttpStatusCode.Forbidden, await refused.Content.ReadAsStringAsync());
+        (await refused.Content.ReadAsStringAsync()).Should().Contain("'memberNo'");
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+            var ids = await session.Query<User>().Where(u => u.Email == email).Select(u => u.Id).ToListAsync();
+            (await session.Query<Membership>().Where(m => m.TenantSlug == slug && ids.Contains(m.UserId)).ToListAsync())
+                .Should().BeEmpty("a refused invite adds nobody to the tenant");
+        }
+
+        var allowed = await manager.PostAsJsonAsync("/api/tenants/members/invite", new
+        {
+            email = NewEmail(), roleIds = new[] { role.Id },
+        });
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK, "an invite that sets no value the role reads needs no hold");
     }
 
     [Fact]
