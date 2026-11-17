@@ -106,6 +106,7 @@ internal sealed class BatchSteps(IServiceProvider scope, User user, HttpContext 
             ContentType = step.ContentType,
             Data = step.Data ?? new Dictionary<string, object>(),
             Id = step.Id,
+            DryRun = dryRun,
             Status = step.Status is null ? ContentStatus.Draft : ParseStatus(step.Status)!.Value,
             Sensitivity = step.Sensitivity is null ? SensitivityLevel.Public : ParseSensitivity(step.Sensitivity)!.Value,
             // Asked of the data the caller may write before any save rule runs, as the single create does.

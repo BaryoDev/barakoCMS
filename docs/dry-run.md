@@ -17,13 +17,23 @@ refused the same way, with the same status and errors. A request they accept ans
 what it would change, and nothing is stored: no entry, no event, no type, no field change job, no audit entry. An
 `Idempotency-Key` sent with a dry run is released afterwards, so the real write can send it.
 
-Three checks run only when the write is stored, so a dry run that answers 200 can still be
-followed by a refused write:
+Some checks run only when the write is stored, so a dry run that answers 200 can still be
+followed by a refused write. What each dry-run write leaves out:
 
-- **Uniqueness rules.** They are enforced as the entry is stored, against what is stored then.
-- **The version an update was read at.** `If-Match` (412, or 428 where it is required) and an
-  event-sourced type's expected version (409) are compared at the write.
-- **A field change running on the type.** Entry writes to the type wait for it (400).
+- **Entry create and update.** Uniqueness rules are enforced as the entry is stored, against what
+  is stored then. An update's `If-Match` (412, or 428 where it is required) and an event-sourced
+  type's expected version (409) are compared at the write. A field change running on the type makes
+  the real write wait (400); the dry run does not check it.
+- **Batch.** Uniqueness runs at each create step, as the entry is staged, and a field change
+  running on the type is refused (400), as in the real batch. A create step takes no number: its
+  numbering field is left out of `changes`, and the series' counter does not move. The final commit
+  phase does not run: the events the steps would append are not written, so a batch that could fail
+  only there (the deferred event appends or the last save) answers 200 as a dry run. Running that
+  phase and rolling back would burn event sequence numbers, and a gap in them delays the async
+  daemon until it passes its stale threshold.
+- **Field change.** A rename, convert or remove checks for a change already running on the type
+  (409), as the real call does. No job is started, no audit entry is written and nothing is stored.
+  A label change has no such check, as the real call has none.
 
 ```json
 { "id": "...", "version": 0, "dryRun": true,
