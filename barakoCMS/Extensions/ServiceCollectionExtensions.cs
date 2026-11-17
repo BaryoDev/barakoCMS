@@ -772,8 +772,8 @@ public static class ServiceCollectionExtensions
     private const string WorkflowRunUpdatedAtThenIdIndex = "mt_doc_workflow_runs_idx_updated_at_id";
 
     // The run list counts runs per status for a tenant, optionally for one workflow or one entry. Each
-    // index carries the status and the tenant, so Postgres can count from the index without reading the
-    // rows. An existing database needs migrations/5.7.2/workflow-run-*tenant-index.sql.
+    // index carries the status and the tenant, so each capped count stays inside one index range. An
+    // existing database needs migrations/5.7.2/workflow-run-*tenant-index.sql.
     private static MartenRegistry.DocumentMappingExpression<WorkflowRun> WithRunCountIndexes(
         this MartenRegistry.DocumentMappingExpression<WorkflowRun> runs) => runs
         .Index(x => x.Status, PerTenantIndex("mt_doc_workflow_runs_idx_status_tenant"))

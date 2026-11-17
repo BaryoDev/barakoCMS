@@ -9,7 +9,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 
 /// <summary>
 /// The run list's status counts have to stay exact for every filter, and have indexes that carry the
-/// status and the tenant so Postgres can count without reading the rows.
+/// status and the tenant so each capped count stays inside one index range.
 /// </summary>
 /// <remarks>
 /// Production runs <c>AutoCreate.CreateOnly</c>, so an upgraded database gets the indexes from
