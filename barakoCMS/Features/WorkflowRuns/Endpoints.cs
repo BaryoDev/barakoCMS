@@ -321,9 +321,10 @@ internal sealed class RunListResponse
     public bool HasPreviousPage => Page > 1;
 
     /// <summary>
-    /// How many runs have each status under the content and workflow filters, whatever the status filter and
-    /// the page. Every status is present, with zero where there are none. Null when <c>changedSince</c>
-    /// was given, since a poll reads what changed and a count would add a scan to each one.
+    /// How many runs have each status under the content and workflow filters, whatever the status filter
+    /// and the page, each counted up to <see cref="StatusCountCap"/>. Every status is present, with zero
+    /// where there are none. Null when <c>changedSince</c> was given, since a poll reads what changed and
+    /// a count would add a scan to each one.
     /// </summary>
     public Dictionary<string, int>? StatusCounts { get; set; }
 
@@ -346,6 +347,18 @@ internal sealed class RunListResponse
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<RunSeriesBucket>? Series { get; set; }
+
+    /// <summary>
+    /// The most runs <see cref="StatusCounts"/> counts for one status. Null when <see cref="StatusCounts"/> is.
+    /// </summary>
+    public int? StatusCountCap { get; set; }
+
+    /// <summary>
+    /// The statuses that have more runs than <see cref="StatusCountCap"/>, so their entry in
+    /// <see cref="StatusCounts"/> is that many or more. Empty when every count is exact. Null when
+    /// <see cref="StatusCounts"/> is.
+    /// </summary>
+    public List<string>? StatusCountsCapped { get; set; }
 
     /// <summary>
     /// Pass back as <c>changedSince</c> to read what changed after this response. Present only when
@@ -478,7 +491,9 @@ internal sealed class ListRunsEndpoint(
         CountWindow? Window,
         Dictionary<string, int>? Counts,
         Dictionary<string, int>? Previous,
-        List<RunSeriesBucket>? Series)
+        List<RunSeriesBucket>? Series,
+        int? Cap = null,
+        List<string>? Capped = null)
     {
         /// <summary>What a window adds to the ETag: where it is, and the counts and buckets in it.</summary>
         public string ETagSuffix() => Window is null || Previous is null
@@ -502,7 +517,7 @@ internal sealed class ListRunsEndpoint(
         if (window is null)
         {
             var all = await RunQueries.CountByStatusAsync(session, req.ContentId, req.WorkflowId, ct);
-            return new RunTally(null, all, null, null);
+            return new RunTally(null, all.Counts, null, null, all.Cap, all.Capped);
         }
 
         var cells = await RunQueries.CountWindowAsync(session, req.ContentId, req.WorkflowId, window, ct);
@@ -564,7 +579,6 @@ internal sealed class ListRunsEndpoint(
 
         var now = clock.GetUtcNow();
         var tally = await TallyAsync(req, since is null, now, ct);
-        var (window, counts) = (tally.Window, tally.Counts);
 
         var query = FilterRuns(session, req, status, since);
 
@@ -576,7 +590,7 @@ internal sealed class ListRunsEndpoint(
             session, HttpContext, User, page.Items.Select(r => r.ContentId), ct);
         var items = page.Items.Select(r => RunResponse.From(r, titles.GetValueOrDefault(r.ContentId))).ToList();
 
-        var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, counts,
+        var etag = RunListETag.Compute(HttpContext, items, page.Page, page.PageSize, page.TotalItems, tally.Counts, tally.Cap, tally.Capped,
             $"{sweeping}:{windows.SucceededDays}:{windows.FailedDays}" + tally.ETagSuffix());
         HttpContext.Response.Headers.ETag = etag;
         HttpContext.Response.Headers.CacheControl = "private, no-cache";
@@ -594,10 +608,12 @@ internal sealed class ListRunsEndpoint(
             Page = page.Page,
             PageSize = page.PageSize,
             TotalItems = page.TotalItems,
-            StatusCounts = counts,
-            Window = window is null ? null : new WindowInfo(window.From, window.To),
+            StatusCounts = tally.Counts,
+            Window = tally.Window is { } window ? new WindowInfo(window.From, window.To) : null,
             PreviousStatusCounts = tally.Previous,
             Series = tally.Series,
+            StatusCountCap = tally.Cap,
+            StatusCountsCapped = tally.Capped,
             Cursor = since is { } input
                 ? RunCursor.Next(input, page.Items, req.Skip + page.Items.Count < page.TotalItems, now).ToString()
                 : null,
