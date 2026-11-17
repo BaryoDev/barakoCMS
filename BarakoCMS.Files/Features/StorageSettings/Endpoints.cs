@@ -7,6 +7,7 @@ using BarakoCMS.Files.Storage;
 using FastEndpoints;
 using FluentValidation;
 using Marten;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.Files.Features.StorageSettings;
 
@@ -244,7 +245,7 @@ internal sealed class UpdateStorageSettingsEndpoint(
 
             // Which fields changed, never their values: the audit log is never deleted from, and
             // a secret quoted there would outlive every rotation.
-            Guid? actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var id) ? id : null;
+            Guid? actorId = User.TryGetUserId(out var id) ? id : null;
             await AuditLog.RecordAsync(session, tenant.Slug, "settings.storage.changed",
                 actorId, settings.UpdatedBy,
                 targetType: nameof(Storage.StorageSettings), targetId: Storage.StorageSettings.SingletonId,

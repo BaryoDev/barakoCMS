@@ -54,39 +54,17 @@ public class Endpoint(
             return;
         }
 
-        // Buffered once so the archive can be measured and then parsed from the same bytes. Bounded
-        // by the request body limit, so this is the size already accepted rather than a new cost.
-        using var buffer = new MemoryStream();
-        await using (var upload = file.OpenReadStream())
-        {
-            await upload.CopyToAsync(buffer, ct);
-        }
-        buffer.Position = 0;
-
-        if (RefusalFor(buffer) is { } refusal)
-        {
-            AddError(refusal);
-            await Send.ErrorsAsync(400, ct);
-            return;
-        }
-
-        SheetData sheet;
-        try
-        {
-            sheet = Spreadsheet.Read(buffer, file.FileName);
-        }
-        catch (NotSupportedException ex)
-        {
-            AddError(ex.Message);
-            await Send.ErrorsAsync(400, ct);
-            return;
-        }
-        catch (Exception)
-        {
-            AddError("Could not read the file. Ensure it is a valid .xlsx or CSV.");
-            await Send.ErrorsAsync(400, ct);
-            return;
-        }
+        var sheet = await SpreadsheetUpload.ReadAsync(
+            file, configuration,
+            buffer => SpreadsheetGuard.Check(
+                buffer, SpreadsheetLimits.MaxColumns(configuration), SpreadsheetGuard.ExcelMaxRows),
+            async message =>
+            {
+                AddError(message);
+                await Send.ErrorsAsync(400, ct);
+            },
+            ct);
+        if (sheet is null) return;
 
         var take = Math.Min(sheet.RowCount, MaxPreviewRows);
         var rows = new List<List<Response.CellDto>>(take);
@@ -109,21 +87,6 @@ public class Endpoint(
             Truncated = sheet.RowCount > take,
             Rows = rows
         }, cancellation: ct);
-    }
-
-    // Refused before anything is decompressed. The parser materialises the whole sheet, so the
-    // cost of this request is set by the expanded size rather than the uploaded size, and an
-    // xlsx is a zip: a file well inside the body limit expands to many times its size. See
-    // SpreadsheetLimits for the measurement that produced the default.
-    private string? RefusalFor(MemoryStream buffer)
-    {
-        var limit = SpreadsheetLimits.MaxExpandedBytes(configuration);
-        if (SpreadsheetLimits.ExpandedBytesOver(buffer, limit) is { } expanded)
-            return $"That file expands to {expanded / 1024 / 1024} MB, over the {limit / 1024 / 1024} MB "
-                 + $"this instance will parse. Split it, or raise {SpreadsheetLimits.MaxExpandedBytesKey}.";
-
-        return SpreadsheetGuard.Check(
-            buffer, SpreadsheetLimits.MaxColumns(configuration), SpreadsheetGuard.ExcelMaxRows);
     }
 
     private static int SuggestHeaderRow(SheetData sheet)

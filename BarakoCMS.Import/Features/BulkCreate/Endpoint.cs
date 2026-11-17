@@ -4,6 +4,7 @@ using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.Import.Features.BulkCreate;
 
@@ -63,8 +64,7 @@ public class Endpoint(
             return;
         }
 
-        var userIdClaim = User.FindFirst("UserId");
-        if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
+        if (!User.TryGetUserId(out var userId))
         {
             await Send.UnauthorizedAsync(ct);
             return;

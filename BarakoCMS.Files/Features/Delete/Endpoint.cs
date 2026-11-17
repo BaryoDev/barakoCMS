@@ -3,6 +3,7 @@ using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
 using FastEndpoints;
 using Marten;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.Files.Features.Delete;
 
@@ -71,7 +72,7 @@ public class Endpoint(
             return;
         }
 
-        Guid.TryParse(User.FindFirst("UserId")?.Value, out var userId);
+        User.TryGetUserId(out var userId);
 
         if (!req.Force)
         {

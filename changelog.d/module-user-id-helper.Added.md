@@ -1,0 +1,1 @@
+- **`ClaimsPrincipal.TryGetUserId(out Guid)` in BarakoCMS.Abstractions.** Reads the `UserId` claim the way module endpoints already did by hand, next to `TryGetOwnerId`. It returns false when the claim is missing or not a guid.

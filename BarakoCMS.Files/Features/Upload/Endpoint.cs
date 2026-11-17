@@ -2,6 +2,7 @@ using barakoCMS.Infrastructure.Auth;
 using FastEndpoints;
 using Microsoft.AspNetCore.Http;
 using Marten;
+using barakoCMS.Modules;
 
 namespace BarakoCMS.Files.Features.Upload;
 
@@ -53,8 +54,7 @@ public class Endpoint(
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        var userIdClaim = User.FindFirst("UserId");
-        if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
+        if (!User.TryGetUserId(out var userId))
         {
             await Send.UnauthorizedAsync(ct);
             return;

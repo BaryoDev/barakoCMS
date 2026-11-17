@@ -7,6 +7,12 @@ using Marten;
 
 namespace BarakoCMS.Diagnostics.Incidents;
 
+/// <summary>Stored timestamps carry no kind; they are UTC.</summary>
+internal static class IncidentTime
+{
+    public static DateTimeOffset AsUtc(DateTime stored) => new(DateTime.SpecifyKind(stored, DateTimeKind.Utc));
+}
+
 /// <summary>The fingerprint the core-record sources give a fault: a short hash of what makes two failures the same.</summary>
 internal static class IncidentFingerprint
 {
@@ -61,10 +67,10 @@ internal sealed class ClientErrorIncidentSource(IQuerySession session) : IIncide
             Tenant = e.Tenant,
             Release = e.AppVersion,
             Count = Math.Max(1, e.Count),
-            FirstSeenAt = new DateTimeOffset(DateTime.SpecifyKind(e.FirstSeenAt, DateTimeKind.Utc)),
-            LastSeenAt = new DateTimeOffset(DateTime.SpecifyKind(e.LastSeenAt, DateTimeKind.Utc)),
+            FirstSeenAt = IncidentTime.AsUtc(e.FirstSeenAt),
+            LastSeenAt = IncidentTime.AsUtc(e.LastSeenAt),
             Resolved = e.Resolved,
-            ResolvedAt = e.ResolvedAt is { } at ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc)) : null,
+            ResolvedAt = e.ResolvedAt is { } at ? IncidentTime.AsUtc(at) : null,
             ResolvedBy = e.ResolvedBy,
             ResolutionReference = e.ResolutionReference,
             ResolutionNote = e.ResolutionNote,
@@ -101,14 +107,14 @@ internal sealed class DeadLetteredJobIncidentSource(IQuerySession session) : IIn
         {
             var command = j.CommandType.Split(',')[0];
             var kind = IncidentFingerprint.Kind(j.LastError);
-            var last = new DateTimeOffset(DateTime.SpecifyKind(j.CompletedAt ?? j.CreatedAt, DateTimeKind.Utc));
+            var last = IncidentTime.AsUtc(j.CompletedAt ?? j.CreatedAt);
             return new IncidentOccurrence
             {
                 Fingerprint = IncidentFingerprint.Of("job", command, kind),
                 Title = $"{command[(command.LastIndexOf('.') + 1)..]} gave up after {j.AttemptCount} attempts",
                 Detail = DiagnosticRedactor.CutUrls(j.LastError),
                 Tenant = query.Tenant,
-                FirstSeenAt = new DateTimeOffset(DateTime.SpecifyKind(j.CreatedAt, DateTimeKind.Utc)),
+                FirstSeenAt = IncidentTime.AsUtc(j.CreatedAt),
                 LastSeenAt = last,
             };
         }).ToList();

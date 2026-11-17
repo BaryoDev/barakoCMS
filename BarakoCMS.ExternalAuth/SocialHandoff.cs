@@ -84,7 +84,7 @@ internal static class SocialHandoff
     };
 
     public static string NewSecret() =>
-        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        System.Buffers.Text.Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
 
     public static string HashOf(string value) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));

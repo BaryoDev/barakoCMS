@@ -1,6 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
-
 namespace BarakoCMS.Diagnostics;
 
 /// <summary>
@@ -25,9 +22,5 @@ public static class ClientErrorText
     /// the same fingerprint so recurrences group together; any change yields a different one.
     /// </summary>
     public static string Fingerprint(string kind, string message, string? source, int? status)
-    {
-        var raw = $"{kind}\n{message}\n{source}\n{status}";
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
-        return Convert.ToHexString(hash)[..32].ToLowerInvariant();
-    }
+        => Incidents.IncidentFingerprint.Of(kind, message, source, status?.ToString());
 }

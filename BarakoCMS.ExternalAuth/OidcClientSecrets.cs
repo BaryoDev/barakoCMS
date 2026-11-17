@@ -155,5 +155,5 @@ internal sealed class OidcClientSecrets
     }
 
     private static string Base64Url(byte[] bytes) =>
-        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        System.Buffers.Text.Base64Url.EncodeToString(bytes);
 }

@@ -80,25 +80,17 @@ public class Endpoint(
 
         var served = resolved.File;
 
-        // The same headers PublicDownload sends. A file stored before uploads were checked against
-        // their bytes carries whatever type its client declared, so the browser must neither sniff
-        // a different one nor run script from a document opened directly on this origin.
-        HttpContext.Response.Headers["X-Content-Type-Options"] = "nosniff";
-        HttpContext.Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
-
-        // Only a type the upload check would accept goes to the store, which serves it without
-        // these headers. Anything else is an old row, streamed from here as a plain download.
-        var checkedType = UploadTypes.IsExactly(served.ContentType);
-        if (checkedType && !string.IsNullOrEmpty(served.PublicUrl))
+        // The same headers and serving as PublicDownload, which keeps the rules in one place.
+        var serve = await FileServing.PrepareAsync(
+            HttpContext, served, UploadTypes.IsExactly(served.ContentType), storage, ct);
+        if (serve.RedirectUrl is not null)
         {
-            await Send.RedirectAsync(served.PublicUrl, isPermanent: false, allowRemoteRedirects: true);
+            await Send.RedirectAsync(serve.RedirectUrl, isPermanent: false, allowRemoteRedirects: true);
             return;
         }
 
-        var bytes = await (await storage.ForAsync(served, ct)).GetAsync(served.StorageKey, ct);
-        if (bytes is null) { await Send.NotFoundAsync(ct); return; }
+        if (serve.Bytes is null) { await Send.NotFoundAsync(ct); return; }
 
-        await Send.BytesAsync(
-            bytes, served.FileName, checkedType ? served.ContentType : "application/octet-stream", cancellation: ct);
+        await Send.BytesAsync(serve.Bytes, served.FileName, serve.ContentType, cancellation: ct);
     }
 }
