@@ -796,13 +796,8 @@ public class AggregateQueryTests
     private static JsonElement RowFor(List<JsonElement> rows, string field, string key) =>
         rows.Single(r => r.GetProperty(field).GetString() == key);
 
-    private async Task<HttpClient> AdminAsync()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin", "Admin"));
-        return client;
-    }
+    private Task<HttpClient> AdminAsync() =>
+        _factory.CreateClientAsync("SuperAdmin", "Admin");
 
     /// <summary>A caller who may manage queries and read only the types given, with no view_sensitive.</summary>
     private async Task<HttpClient> RestrictedAsync(string[] types, Dictionary<string, object>? conditions)

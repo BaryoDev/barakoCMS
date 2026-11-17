@@ -27,13 +27,8 @@ public class ClientErrorListTests
     private async Task<HttpResponseMessage> AdminGetAsync(string url) =>
         await (await AdminClient()).GetAsync(url);
 
-    private async Task<HttpClient> AdminClient()
-    {
-        var c = _factory.CreateClient();
-        c.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", await _factory.StoredUserTokenAsync("Admin"));
-        return c;
-    }
+    private Task<HttpClient> AdminClient() =>
+        _factory.CreateClientAsync("Admin");
 
     private async Task SeedAsync(params (string Message, string Severity, bool Resolved)[] rows)
     {

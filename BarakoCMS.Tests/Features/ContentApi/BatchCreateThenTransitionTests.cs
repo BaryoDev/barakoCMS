@@ -7,7 +7,7 @@ using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace BarakoCMS.Tests.Spikes;
+namespace BarakoCMS.Tests.Features.ContentApi;
 
 /// <summary>
 /// Spike: an entry created in a batch is moved by a later step of the same batch.
@@ -21,7 +21,7 @@ namespace BarakoCMS.Tests.Spikes;
 /// the target state, and a batch that does not commit leaves nothing.
 /// </remarks>
 [Collection("Integration1")]
-public class BatchCreateThenTransitionSpikeTests(IntegrationTestFixture host)
+public class BatchCreateThenTransitionTests(IntegrationTestFixture host)
 {
     private async Task<string> TypeAsync()
     {

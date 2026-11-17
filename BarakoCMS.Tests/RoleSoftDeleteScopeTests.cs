@@ -29,8 +29,6 @@ public class RoleSoftDeleteScopeTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..20].ToLowerInvariant();
-
     private async Task StoreAsync(params object[] documents)
     {
         using var scope = _factory.Services.CreateScope();
@@ -41,7 +39,7 @@ public class RoleSoftDeleteScopeTests
 
     private async Task<string> TenantAsync()
     {
-        var slug = Unique("sd");
+        var slug = TestNames.Slug("sd");
         await StoreAsync(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
         return slug;
     }
@@ -49,11 +47,11 @@ public class RoleSoftDeleteScopeTests
     private async Task<HttpClient> TenantAdminAsync(string slug)
     {
         var userId = Guid.NewGuid();
-        var username = Unique("u");
+        var username = TestNames.Slug("u");
         // The seeded Admin role does not hold manage_roles, so the caller gets a tenant role that does.
         var managerRole = new Role
         {
-            Id = Guid.NewGuid(), Name = Unique("mgr"), TenantSlug = slug,
+            Id = Guid.NewGuid(), Name = TestNames.Slug("mgr"), TenantSlug = slug,
             SystemCapabilities = [SystemCapabilities.ManageRoles],
         };
         await StoreAsync(
@@ -85,7 +83,7 @@ public class RoleSoftDeleteScopeTests
     {
         var tenant = await TenantAsync();
         var admin = await TenantAdminAsync(tenant);
-        var platform = new Role { Id = Guid.NewGuid(), Name = Unique("platform"), IsPlatform = true, DeletedAt = DateTime.UtcNow };
+        var platform = new Role { Id = Guid.NewGuid(), Name = TestNames.Slug("platform"), IsPlatform = true, DeletedAt = DateTime.UtcNow };
         await StoreAsync(platform);
 
         var response = await admin.PostAsync($"/api/roles/{platform.Id}/restore", null, Ct);
@@ -102,7 +100,7 @@ public class RoleSoftDeleteScopeTests
         var mine = await TenantAsync();
         var theirs = await TenantAsync();
         var admin = await TenantAdminAsync(mine);
-        var role = new Role { Id = Guid.NewGuid(), Name = Unique("theirs"), TenantSlug = theirs, DeletedAt = DateTime.UtcNow };
+        var role = new Role { Id = Guid.NewGuid(), Name = TestNames.Slug("theirs"), TenantSlug = theirs, DeletedAt = DateTime.UtcNow };
         await StoreAsync(role);
 
         var response = await admin.SendAsync(new HttpRequestMessage(new HttpMethod(method), $"/api/roles/{role.Id}/{action}"), Ct);
@@ -117,7 +115,7 @@ public class RoleSoftDeleteScopeTests
         var mine = await TenantAsync();
         var theirs = await TenantAsync();
         var admin = await TenantAdminAsync(mine);
-        var name = Unique("shared");
+        var name = TestNames.Slug("shared");
         var own = new Role { Id = Guid.NewGuid(), Name = name, TenantSlug = mine, DeletedAt = DateTime.UtcNow };
         var other = new Role { Id = Guid.NewGuid(), Name = name, TenantSlug = theirs, DeletedAt = DateTime.UtcNow };
         await StoreAsync(own, other);
@@ -134,14 +132,14 @@ public class RoleSoftDeleteScopeTests
     [Fact]
     public async Task A_deleted_group_grants_no_role_to_its_members_and_a_restored_one_grants_it_again()
     {
-        var slug = Unique("grp");
+        var slug = TestNames.Slug("grp");
         var role = new Role
         {
-            Id = Guid.NewGuid(), Name = Unique("viaGroup"), TenantSlug = null,
+            Id = Guid.NewGuid(), Name = TestNames.Slug("viaGroup"), TenantSlug = null,
             Permissions = [new ContentTypePermission { ContentTypeSlug = slug, Read = new PermissionRule { Enabled = true } }],
         };
-        var user = new User { Id = Guid.NewGuid(), Username = Unique("m"), Email = $"{Guid.NewGuid():n}@example.com", PasswordHash = "x" };
-        var group = new UserGroup { Id = Guid.NewGuid(), Name = Unique("g"), RoleIds = [role.Id], UserIds = [user.Id] };
+        var user = new User { Id = Guid.NewGuid(), Username = TestNames.Slug("m"), Email = $"{Guid.NewGuid():n}@example.com", PasswordHash = "x" };
+        var group = new UserGroup { Id = Guid.NewGuid(), Name = TestNames.Slug("g"), RoleIds = [role.Id], UserIds = [user.Id] };
         await StoreAsync(role, user, group);
 
         (await HoldsAsync(user, role.Id, slug)).Should().BeTrue("the group grants the role, so the denial below is about deletion");
@@ -204,8 +202,8 @@ public class RoleSoftDeleteScopeTests
     [Fact]
     public async Task A_token_minted_after_a_role_is_deleted_does_not_carry_it()
     {
-        var role = new Role { Id = Guid.NewGuid(), Name = Unique("tokenrole"), TenantSlug = null };
-        var user = new User { Id = Guid.NewGuid(), Username = Unique("tk"), Email = $"{Guid.NewGuid():n}@example.com", PasswordHash = "x", RoleIds = [role.Id] };
+        var role = new Role { Id = Guid.NewGuid(), Name = TestNames.Slug("tokenrole"), TenantSlug = null };
+        var user = new User { Id = Guid.NewGuid(), Username = TestNames.Slug("tk"), Email = $"{Guid.NewGuid():n}@example.com", PasswordHash = "x", RoleIds = [role.Id] };
         await StoreAsync(role, user);
 
         (await IssuedRolesAsync(user)).Should().Contain(role.Name, "a live role is carried, so the absence below is about deletion");
@@ -227,8 +225,8 @@ public class RoleSoftDeleteScopeTests
     [Fact]
     public async Task An_api_key_does_not_carry_a_role_its_owner_lost_to_deletion()
     {
-        var role = new Role { Id = Guid.NewGuid(), Name = Unique("keyrole"), TenantSlug = null };
-        var user = new User { Id = Guid.NewGuid(), Username = Unique("ak"), Email = $"{Guid.NewGuid():n}@example.com", PasswordHash = "x", RoleIds = [role.Id] };
+        var role = new Role { Id = Guid.NewGuid(), Name = TestNames.Slug("keyrole"), TenantSlug = null };
+        var user = new User { Id = Guid.NewGuid(), Username = TestNames.Slug("ak"), Email = $"{Guid.NewGuid():n}@example.com", PasswordHash = "x", RoleIds = [role.Id] };
         var secret = "bcms_" + Guid.NewGuid().ToString("N");
         await StoreAsync(role, user, new ApiKey
         {

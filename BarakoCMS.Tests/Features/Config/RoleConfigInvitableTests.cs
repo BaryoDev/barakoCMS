@@ -14,8 +14,6 @@ public class RoleConfigInvitableTests
 
     public RoleConfigInvitableTests(IntegrationTestFixture fixture) => _callers = new ConfigCallers(fixture);
 
-    private static string Unique(string prefix) => $"{prefix}{Guid.NewGuid():n}"[..(prefix.Length + 10)];
-
     private static object Doc(string name, object role) =>
         new { version = 1, roles = new Dictionary<string, object> { [name] = role } };
 
@@ -45,8 +43,8 @@ public class RoleConfigInvitableTests
     public async Task Export_writes_the_flag_and_a_plan_against_the_export_is_empty()
     {
         var (tenant, client) = await WriterAsync();
-        var on = Unique("Joiner ");
-        var off = Unique("Closed ");
+        var on = TestNames.Compact("Joiner ");
+        var off = TestNames.Compact("Closed ");
         await SeedAsync(tenant, on, true);
         await SeedAsync(tenant, off, false);
 
@@ -63,7 +61,7 @@ public class RoleConfigInvitableTests
     public async Task A_document_without_the_field_never_clears_the_flag_and_plans_empty()
     {
         var (tenant, client) = await WriterAsync();
-        var name = Unique("Joiner ");
+        var name = TestNames.Compact("Joiner ");
         await SeedAsync(tenant, name, true);
         var document = Doc(name, new { description = "seeded" });
 
@@ -80,7 +78,7 @@ public class RoleConfigInvitableTests
     public async Task True_and_false_set_the_flag()
     {
         var (tenant, client) = await WriterAsync();
-        var name = Unique("Toggle ");
+        var name = TestNames.Compact("Toggle ");
         await SeedAsync(tenant, name, false);
 
         var (on, onBody) = await ApplyAsync(client, Doc(name, new { description = "seeded", invitable = true }));
@@ -96,7 +94,7 @@ public class RoleConfigInvitableTests
     public async Task A_new_role_can_be_created_invitable()
     {
         var (tenant, client) = await WriterAsync();
-        var name = Unique("Fresh ");
+        var name = TestNames.Compact("Fresh ");
 
         var (applied, body) = await ApplyAsync(client, Doc(name, new { description = "new", invitable = true }));
 
@@ -108,9 +106,9 @@ public class RoleConfigInvitableTests
     public async Task True_is_refused_for_a_role_that_holds_a_capability_and_nothing_changes()
     {
         var (tenant, client) = await WriterAsync();
-        var held = Unique("Holder ");
+        var held = TestNames.Compact("Holder ");
         await SeedAsync(tenant, held, false, "view_audit_log");
-        var created = Unique("Newbie ");
+        var created = TestNames.Compact("Newbie ");
 
         var (onHeld, heldBody) = await ApplyAsync(client, Doc(held, new { systemCapabilities = new[] { "view_audit_log" }, invitable = true }));
         var (onNew, newBody) = await ApplyAsync(client, Doc(created, new { systemCapabilities = new[] { "view_audit_log" }, invitable = true }));
@@ -126,7 +124,7 @@ public class RoleConfigInvitableTests
     public async Task A_capability_added_to_an_invitable_role_without_the_field_is_refused_like_the_roles_route()
     {
         var (tenant, client) = await WriterAsync();
-        var name = Unique("Joiner ");
+        var name = TestNames.Compact("Joiner ");
         await SeedAsync(tenant, name, true);
 
         var (applied, body) = await ApplyAsync(client, Doc(name, new { systemCapabilities = new[] { "view_audit_log" } }));
@@ -152,8 +150,8 @@ public class RoleConfigInvitableTests
     public async Task Export_leaves_a_platform_role_out_and_keeps_the_tenants_own()
     {
         var (tenant, client) = await WriterAsync();
-        var own = Unique("Own ");
-        var platform = Unique("Shared ");
+        var own = TestNames.Compact("Own ");
+        var platform = TestNames.Compact("Shared ");
         await SeedAsync(tenant, own, false);
         await SeedPlatformAsync(platform, true, "view_audit_log");
 
@@ -169,8 +167,8 @@ public class RoleConfigInvitableTests
     public async Task An_export_applies_cleanly_on_the_same_tenant_with_an_invitable_platform_role_present()
     {
         var (tenant, client) = await WriterAsync();
-        var own = Unique("Own ");
-        var platform = Unique("Shared ");
+        var own = TestNames.Compact("Own ");
+        var platform = TestNames.Compact("Shared ");
         await SeedAsync(tenant, own, false);
         var seeded = await SeedPlatformAsync(platform, true, "view_audit_log");
 

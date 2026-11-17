@@ -149,7 +149,7 @@ public class EventCorrelationMigrationTests
     /// <summary>A migration file with every object moved from <c>public</c> into the scratch schema.</summary>
     private static async Task<string> ScopedAsync(string version, string file, string scratch, CancellationToken ct)
     {
-        var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", version, file), ct);
+        var sql = await File.ReadAllTextAsync(Path.Combine(RepoPaths.Root, "migrations", version, file), ct);
         var scoped = sql.Replace("public.", scratch + ".");
         scoped.Should().NotBe(sql, "{0} should name its objects as public.", file);
         return scoped;
@@ -192,15 +192,4 @@ public class EventCorrelationMigrationTests
         await command.ExecuteNonQueryAsync(ct);
     }
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-        {
-            directory = directory.Parent;
-        }
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 }

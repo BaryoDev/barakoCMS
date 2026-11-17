@@ -21,13 +21,8 @@ public class ValidationRulesEndpointTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private async Task<HttpClient> AdminAsync()
-    {
-        var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-            "Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin", "Admin"));
-        return client;
-    }
+    private Task<HttpClient> AdminAsync() =>
+        _fixture.CreateClientAsync("SuperAdmin", "Admin");
 
     private static Task<HttpResponseMessage> SaveTypeAsync(HttpClient client, string name, object rules) =>
         client.PostAsJsonAsync("/api/content-types", new

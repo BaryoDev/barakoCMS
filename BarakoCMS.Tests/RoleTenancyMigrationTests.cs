@@ -168,7 +168,7 @@ public class RoleTenancyMigrationTests
 
     private static async Task<List<string>> RunAsync(MigrationScratchDatabase db, string file = "role-tenancy.sql")
     {
-        var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "5.0.0", file), Ct);
+        var sql = await File.ReadAllTextAsync(Path.Combine(RepoPaths.Root, "migrations", "5.0.0", file), Ct);
         var notices = new List<string>();
         await using var connection = new NpgsqlConnection(db.ConnectionString);
         connection.Notice += (_, e) => notices.Add(e.Notice.MessageText);
@@ -509,15 +509,4 @@ public class RoleTenancyMigrationTests
         other.TenantSlug.Should().Be("default");
     }
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-        {
-            directory = directory.Parent;
-        }
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 }
