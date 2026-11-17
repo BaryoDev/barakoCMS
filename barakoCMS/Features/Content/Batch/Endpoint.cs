@@ -33,7 +33,9 @@ internal sealed class Endpoint(IContentBatchRunner batch, IDocumentSession sessi
         var outcome = await batch.RunAsync(async (scope, token) =>
         {
             var result = await BatchSteps.RunAsync(scope, req, user, HttpContext, token);
-            return new ContentBatchOutcome<BatchOutcome>(result, result.Failure is null);
+            // A dry run keeps nothing: the runner rolls the transaction back, so no entry, event,
+            // number, webhook or search row outlives it.
+            return new ContentBatchOutcome<BatchOutcome>(result, result.Failure is null && !req.DryRun);
         }, ct);
 
         if (outcome.Failure is { } failure)
@@ -43,6 +45,6 @@ internal sealed class Endpoint(IContentBatchRunner batch, IDocumentSession sessi
             return;
         }
 
-        await Send.OkAsync(new BatchResponse(outcome.Steps), ct);
+        await Send.OkAsync(new BatchResponse(outcome.Steps) { DryRun = req.DryRun }, ct);
     }
 }
