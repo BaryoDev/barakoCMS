@@ -96,7 +96,7 @@ internal class Endpoint(
             return [$"Line type '{child.Name}' has lines of its own. Lines are one level deep."];
         }
 
-        var parent = child.Fields.FirstOrDefault(f => string.Equals(f.Name, asked.ParentField, StringComparison.OrdinalIgnoreCase));
+        var parent = child.Fields.FieldNamed(asked.ParentField);
         if (parent is null)
         {
             return [$"Line type '{child.Name}' has no field '{asked.ParentField}'."];
@@ -116,8 +116,8 @@ internal class Endpoint(
 
         if (asked.TotalField is not null)
         {
-            var total = header.Fields.FirstOrDefault(f => string.Equals(f.Name, asked.TotalField, StringComparison.OrdinalIgnoreCase));
-            var amount = child.Fields.FirstOrDefault(f => string.Equals(f.Name, asked.LineAmountField, StringComparison.OrdinalIgnoreCase));
+            var total = header.Fields.FieldNamed(asked.TotalField);
+            var amount = child.Fields.FieldNamed(asked.LineAmountField);
             if (total is null || !IsNumber(total) || amount is null || !IsNumber(amount))
             {
                 return [$"'{asked.TotalField}' on '{header.Name}' and '{asked.LineAmountField}' on '{child.Name}' must both be number fields."];

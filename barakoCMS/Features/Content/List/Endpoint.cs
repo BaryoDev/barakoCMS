@@ -103,10 +103,7 @@ internal class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        // 1. Authenticate
-        // "UserId" is the only identity claim the token carries. This used to look first for the
-        // literal string System.Security.Claims.ClaimTypes.NameIdentifier, which is the name of a
-        // constant and not its value, so it never matched and the fallback was always what ran.
+        // A person or a service principal. Neither claim present answers 401.
         var user = await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct);
         if (user == null)
         {
@@ -241,7 +238,7 @@ internal class Endpoint(
                 };
                 // Same document- and field-level scrubbing as Get, so lists never leak sensitive data.
                 if (await sensitivity.ApplyAsync(item, response.Data, HttpContext, ct))
-                    response.ContentType = "HIDDEN";
+                    response.ContentType = barakoCMS.Core.HiddenContentType.Name;
 
                 // Across types the search ran in SQL over every value. Where the caller's Read rules
                 // narrow the fields of this entry, it is kept only when the term is in a value they
@@ -323,7 +320,7 @@ internal class Endpoint(
         IReadOnlyDictionary<Guid, barakoCMS.Models.Content> stored,
         CancellationToken ct)
     {
-        var shown = page.Where(i => i.ContentType != "HIDDEN").ToList();
+        var shown = page.Where(i => i.ContentType != barakoCMS.Core.HiddenContentType.Name).ToList();
         foreach (var item in shown)
         {
             item.LastModifiedBy = stored[item.Id].LastModifiedBy is var by && by != Guid.Empty ? by : null;
@@ -393,7 +390,7 @@ internal class Endpoint(
 
         foreach (var item in page)
         {
-            if (item.ContentType == "HIDDEN")
+            if (item.ContentType == barakoCMS.Core.HiddenContentType.Name)
             {
                 continue;
             }

@@ -137,7 +137,7 @@ internal sealed class Endpoint(
         return (new FollowedContent
         {
             Id = entry.Id,
-            ContentType = hidden ? "HIDDEN" : entry.ContentType,
+            ContentType = hidden ? barakoCMS.Core.HiddenContentType.Name : entry.ContentType,
             Status = entry.Status,
             Sensitivity = entry.Sensitivity,
             CreatedAt = entry.CreatedAt,

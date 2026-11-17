@@ -58,6 +58,10 @@ internal static class CollectionSyncRules
     internal static bool IsSlug(string value) =>
         System.Text.RegularExpressions.Regex.IsMatch(value, "^[a-z0-9][a-z0-9-]{0,62}$");
 
+    /// <summary>Loads a sync by slug, or null.</summary>
+    internal static Task<CollectionSync?> FindAsync(IQuerySession session, string slug, CancellationToken ct) =>
+        session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
+
     /// <summary>Returns why this sync cannot be saved, or null.</summary>
     internal static async Task<string?> CheckAsync(
         IQuerySession session, SaveCollectionSyncRequest req, CancellationToken ct)
@@ -303,7 +307,7 @@ internal sealed class GetCollectionSyncEndpoint(IQuerySession session) : Endpoin
             return;
         }
 
-        var sync = await session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
+        var sync = await CollectionSyncRules.FindAsync(session, slug, ct);
 
         if (sync is null)
         {
@@ -373,7 +377,7 @@ internal sealed class UpdateCollectionSyncEndpoint(
             return;
         }
 
-        var sync = await session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
+        var sync = await CollectionSyncRules.FindAsync(session, slug, ct);
 
         if (sync is null)
         {
@@ -423,7 +427,7 @@ internal sealed class DeleteCollectionSyncEndpoint(
             return;
         }
 
-        var sync = await session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
+        var sync = await CollectionSyncRules.FindAsync(session, slug, ct);
 
         if (sync is null)
         {
@@ -477,7 +481,7 @@ internal sealed class RunCollectionSyncEndpoint(
             return;
         }
 
-        var sync = await session.Query<CollectionSync>().FirstOrDefaultAsync(s => s.Slug == slug, ct);
+        var sync = await CollectionSyncRules.FindAsync(session, slug, ct);
 
         if (sync is null)
         {
