@@ -82,8 +82,14 @@ public class DryRunWriteTests : IAsyncLifetime
         return (await res.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("id").GetGuid();
     }
 
-    private static async Task<(HttpStatusCode Status, string Body)> ReadAsync(HttpResponseMessage res, CancellationToken ct) =>
-        (res.StatusCode, await res.Content.ReadAsStringAsync(ct));
+    // The body without its traceId, which differs on every request, so a dry run and a real call compare equal.
+    private static async Task<(HttpStatusCode Status, string Body)> ReadAsync(HttpResponseMessage res, CancellationToken ct)
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(await res.Content.ReadAsStringAsync(ct));
+        if (node is System.Text.Json.Nodes.JsonObject obj)
+            obj.Remove("traceId");
+        return (res.StatusCode, node?.ToJsonString() ?? "");
+    }
 
     [Fact]
     public async Task A_dry_run_create_leaves_no_entry_and_no_event()
@@ -243,7 +249,7 @@ public class DryRunWriteTests : IAsyncLifetime
         var refused = await _client.PostAsJsonAsync(path, new { remove = true, dryRun = true }, Ct);
         var real = await _client.PostAsJsonAsync(path, new { remove = true }, Ct);
         refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await refused.Content.ReadAsStringAsync(Ct)).Should().Be(await real.Content.ReadAsStringAsync(Ct));
+        (await ReadAsync(refused, Ct)).Should().Be(await ReadAsync(real, Ct));
 
         var allowed = await _client.PostAsJsonAsync(path, new { remove = true, allowDestructive = true, dryRun = true }, Ct);
         allowed.StatusCode.Should().Be(HttpStatusCode.OK, await allowed.Content.ReadAsStringAsync(Ct));
