@@ -19,7 +19,6 @@ namespace barakoCMS.Infrastructure.Multitenancy;
 internal static class PrivateSite
 {
     public const string KeyHeader = "X-Share-Key";
-    public const string PrivateMode = "Private";
 
     /// <summary>
     /// Any key spelled <c>Mode</c> in any case, holding <c>Private</c> in any case. Matched over every

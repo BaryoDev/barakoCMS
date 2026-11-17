@@ -54,7 +54,7 @@ public static class ExternalRoleGrant
         IDocumentSession session, User user, string tenantSlug, IReadOnlyCollection<Guid> roleIds,
         string source, CancellationToken ct)
     {
-        var slug = string.IsNullOrWhiteSpace(tenantSlug) ? Tenant.DefaultSlug : tenantSlug.Trim().ToLowerInvariant();
+        var slug = TenantSlugs.Normalise(tenantSlug);
         if (slug == Tenant.DefaultSlug || roleIds.Count == 0)
         {
             return false;

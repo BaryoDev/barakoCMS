@@ -168,7 +168,7 @@ internal class WebhookAction : IWorkflowAction
 
         try
         {
-            var client = _httpClientFactory.CreateClient("ExternalApi");
+            var client = _httpClientFactory.CreateClient(HttpClientNames.ExternalApi);
 
             // The trigger, so one URL behind several events can tell them apart. Null when the
             // caller is not the runner and did not say.

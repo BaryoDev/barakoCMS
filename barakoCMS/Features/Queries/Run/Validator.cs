@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure;
 using FastEndpoints;
 using FluentValidation;
 
@@ -7,7 +8,7 @@ internal sealed class Validator : Validator<Request>
 {
     public Validator()
     {
-        RuleFor(r => r.Slug).Must(QueryGate.IsSlug)
+        RuleFor(r => r.Slug).Must(Slugs.IsValid)
             .WithMessage("That is not a query slug: lowercase letters, digits and hyphens only.");
 
         RuleFor(r => r.From).Must(IsDay).When(r => r.From is not null)

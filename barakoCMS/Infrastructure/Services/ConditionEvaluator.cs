@@ -58,16 +58,16 @@ public class ConditionEvaluator : IConditionEvaluator
 
             // A Role loaded fresh from Marten deserializes any object-typed property as
             // JsonElement, not the concrete CLR shape it was stored with, because there is no
-            // static type to reconstruct against below a Dictionary<string, object>. Normalize
+            // static type to reconstruct against below a Dictionary<string, object>. JsonValues.ToClr converts
             // one level down (and everything nested inside it) so the checks below — and the
             // $CURRENT_USER substitution in EvaluateOperator — see the same plain CLR types
             // whether conditions came from memory or from a round trip through the database.
-            if (Normalize(conditionValue) is not Dictionary<string, object> operators)
+            if (JsonValues.ToClr(conditionValue) is not Dictionary<string, object> operators)
                 return false;
 
             foreach (var (op, rawExpectedValue) in operators)
             {
-                var expectedValue = Normalize(rawExpectedValue);
+                var expectedValue = JsonValues.ToClr(rawExpectedValue);
 
                 // Before any variable is substituted: a literal "$CURRENT_USER" here must stay text,
                 // or it would turn into the caller's id and match an array that holds that id.
@@ -155,30 +155,6 @@ public class ConditionEvaluator : IConditionEvaluator
                 // configuration mistake, and refusing is the direction that cannot leak.
                 return false;
         }
-    }
-
-    // Recursively converts a System.Text.Json.JsonElement (of any kind) into the equivalent plain
-    // CLR value (Dictionary<string, object>, List<object>, string, double, bool, or null), leaving
-    // anything that is already a plain CLR value untouched. Applied once at each level a condition
-    // value is read, so the rest of this class never needs to know or care whether a value came
-    // from memory or from a database round trip.
-    private static object? Normalize(object? value)
-    {
-        if (value is not JsonElement element)
-            return value;
-
-        return element.ValueKind switch
-        {
-            JsonValueKind.Object => element.EnumerateObject()
-                .ToDictionary(p => p.Name, p => Normalize(p.Value)!),
-            JsonValueKind.Array => element.EnumerateArray().Select(e => Normalize(e)).ToList(),
-            JsonValueKind.String => element.GetString(),
-            JsonValueKind.Number => element.TryGetInt64(out var l) ? l : element.GetDouble(),
-            JsonValueKind.True => true,
-            JsonValueKind.False => false,
-            JsonValueKind.Null or JsonValueKind.Undefined => null,
-            _ => value,
-        };
     }
 
     // Only a string item can match, and only a literal expected value: a variable is refused, and a

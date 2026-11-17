@@ -7,6 +7,7 @@ namespace barakoCMS.Infrastructure.Middleware;
 /// Middleware to monitor and log slow API requests.
 /// Logs a warning when requests exceed the configured threshold.
 /// </summary>
+[Obsolete("Removal planned for barakoCMS 6.0.0.")]
 public class PerformanceMiddleware(RequestDelegate next, ILogger<PerformanceMiddleware> logger)
 {
     private const int SlowRequestThresholdMs = 200;
