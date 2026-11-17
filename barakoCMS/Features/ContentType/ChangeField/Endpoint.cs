@@ -61,7 +61,7 @@ internal sealed class Endpoint(
 
         if (req.NewName is not null)
         {
-            await RenameAsync(definition, field, req.NewName.Trim(), ct);
+            await RenameAsync(definition, field, req.NewName.Trim(), req.DryRun, ct);
             return;
         }
 
@@ -75,6 +75,16 @@ internal sealed class Endpoint(
         {
             AddError("Send newName, or displayName on its own.");
             ThrowIfAnyErrors();
+        }
+
+        if (req.DryRun)
+        {
+            await Send.OkAsync(new Response
+            {
+                Classification = "additive", DryRun = true,
+                Changes = [new barakoCMS.Core.Validation.FieldDiff(field.Name, field.DisplayName, req.DisplayName!.Trim())],
+            }, ct);
+            return;
         }
 
         field.DisplayName = req.DisplayName!.Trim();
@@ -103,7 +113,7 @@ internal sealed class Endpoint(
         }
     }
 
-    private async Task RenameAsync(ContentTypeDefinition definition, FieldDefinition field, string newName, CancellationToken ct)
+    private async Task RenameAsync(ContentTypeDefinition definition, FieldDefinition field, string newName, bool dryRun, CancellationToken ct)
     {
         await RefuseWhileHeaderNamesAsync(definition, field, ct);
         if (string.Equals(newName, field.Name, StringComparison.OrdinalIgnoreCase))
@@ -127,6 +137,22 @@ internal sealed class Endpoint(
         }
 
         ThrowIfAnyErrors();
+
+        if (dryRun)
+        {
+            // The check StartAsync makes, without the job it starts.
+            if (await FieldChanges.RunningAsync(session, definition.Name, ct) is { } running)
+            {
+                RefuseBusy(running);
+            }
+
+            await Send.OkAsync(new Response
+            {
+                Classification = "rename", DryRun = true,
+                Changes = [new barakoCMS.Core.Validation.FieldDiff(field.Name, field.Name, newName)],
+            }, ct);
+            return;
+        }
 
         var change = new FieldChange
         {
@@ -212,6 +238,21 @@ internal sealed class Endpoint(
         }
 
         var classification = destructive ? "destructive" : "convert";
+        if (req.DryRun)
+        {
+            if (await FieldChanges.RunningAsync(session, definition.Name, ct) is { } running)
+            {
+                RefuseBusy(running);
+            }
+
+            await Send.OkAsync(new Response
+            {
+                Classification = classification, DryRun = true, ValuesLost = change.ValuesLost,
+                Changes = [new barakoCMS.Core.Validation.FieldDiff(field.Name, field.Type, req.Remove ? null : change.ToType)],
+            }, ct);
+            return;
+        }
+
         if (await FieldChanges.StartAsync(session, change, ct) is { } busy)
         {
             RefuseBusy(busy);

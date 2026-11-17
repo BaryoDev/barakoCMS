@@ -39,13 +39,8 @@ public class SlugUniquenessTests
     /// </remarks>
     private const string TakenMessage = "is already used by another";
 
-    private async Task<HttpClient> AdminAsync()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", await _factory.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> AdminAsync() =>
+        _factory.CreateClientAsync("SuperAdmin");
 
     /// <summary>
     /// A type with a slug field, named per test so tests cannot collide on stored content.

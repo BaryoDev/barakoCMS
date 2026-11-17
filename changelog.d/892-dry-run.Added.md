@@ -1,0 +1,1 @@
+- **Field changes and batches take a dry run.** `POST /api/content-types/{name}/fields/{field}/change` and `POST /api/contents/batch` accept `"dryRun": true`, as entry and content type writes already do. They run the same checks and answer with what would change, without starting a job or storing anything. See `docs/dry-run.md`.

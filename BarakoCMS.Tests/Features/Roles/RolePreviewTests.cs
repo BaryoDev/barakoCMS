@@ -34,13 +34,8 @@ public class RolePreviewTests
 
     // ---- setup ----
 
-    private async Task<HttpClient> SuperAdminAsync()
-    {
-        var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> SuperAdminAsync() =>
+        _fixture.CreateClientAsync("SuperAdmin");
 
     private async Task StoreAsync(params object[] documents)
     {

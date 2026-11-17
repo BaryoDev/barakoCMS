@@ -20,16 +20,8 @@ namespace BarakoCMS.Tests;
 /// </remarks>
 public class KubernetesManifestTests
 {
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Directory.Build.props")))
-            dir = dir.Parent;
-        dir.Should().NotBeNull("the tests must be able to find the repository root");
-        return dir!.FullName;
-    }
 
-    private static string ManifestDir() => Path.Combine(RepoRoot(), "k8s");
+    private static string ManifestDir() => Path.Combine(RepoPaths.Root, "k8s");
 
     private static string[] ManifestFiles() =>
         Directory.GetFiles(ManifestDir(), "*.yaml", SearchOption.TopDirectoryOnly)

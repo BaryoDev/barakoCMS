@@ -493,7 +493,7 @@ public class TenantPartitionsTests
     /// <summary>The one sql block in the tenancy doc that reads the workflow table.</summary>
     private static string DocumentedUnregisteredPartitionsSql()
     {
-        var doc = File.ReadAllText(Path.Combine(ComposeDefaultsTests.RepoRoot(), "docs", "tenancy-at-the-database.md"));
+        var doc = File.ReadAllText(Path.Combine(RepoPaths.Root, "docs", "tenancy-at-the-database.md"));
 
         var blocks = System.Text.RegularExpressions.Regex
             .Matches(doc, "```sql\n(.*?)```", System.Text.RegularExpressions.RegexOptions.Singleline)

@@ -25,8 +25,6 @@ public class ConfigSectionsTests
         _callers = new ConfigCallers(fixture);
     }
 
-    private static string Unique(string prefix) => $"{prefix}{Guid.NewGuid():n}"[..(prefix.Length + 10)];
-
     private static async Task<JsonElement> OkAsync(HttpResponseMessage response)
     {
         var text = await response.Content.ReadAsStringAsync(Ct);
@@ -38,10 +36,10 @@ public class ConfigSectionsTests
     private async Task<(string Tenant, string Type, string Role, string Workflow, string Connector, string Secret)> SourceAsync()
     {
         var tenant = await _callers.TenantAsync();
-        var type = Unique("visit");
-        var role = Unique("Front Desk ");
-        var workflow = Unique("notify-");
-        var connector = Unique("crm-");
+        var type = TestNames.Compact("visit");
+        var role = TestNames.Compact("Front Desk ");
+        var workflow = TestNames.Compact("notify-");
+        var connector = TestNames.Compact("crm-");
         var secret = "tok_" + Guid.NewGuid().ToString("N");
 
         var site = Type("site", ("Name", "string"), ("Tagline", "string"));
@@ -134,7 +132,7 @@ public class ConfigSectionsTests
     public async Task A_document_carrying_a_secret_value_is_refused_and_stores_nothing()
     {
         var tenant = await _callers.TenantAsync();
-        var slug = Unique("leak-");
+        var slug = TestNames.Compact("leak-");
         var client = await _callers.SuperAdminAsync(tenant);
 
         var (connectorResponse, connectorBody) = await ApplyAsync(client, new
@@ -155,7 +153,7 @@ public class ConfigSectionsTests
             version = 1,
             workflows = new Dictionary<string, object>
             {
-                [Unique("hook-")] = new { triggerEvents = new[] { "Created" }, actions = new[] { new { type = "Webhook", parameters = new Dictionary<string, string> { ["Url"] = "https://h.example.com", ["Secret"] = "whsec-plain" } } } },
+                [TestNames.Compact("hook-")] = new { triggerEvents = new[] { "Created" }, actions = new[] { new { type = "Webhook", parameters = new Dictionary<string, string> { ["Url"] = "https://h.example.com", ["Secret"] = "whsec-plain" } } } },
             },
         });
         workflowResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest, workflowBody.ToString());
@@ -166,8 +164,8 @@ public class ConfigSectionsTests
     public async Task A_workflow_change_keeps_the_stored_credential_and_the_export_leaves_it_out()
     {
         var tenant = await _callers.TenantAsync();
-        var type = Unique("order");
-        var name = Unique("signed-");
+        var type = TestNames.Compact("order");
+        var name = TestNames.Compact("signed-");
         var secret = "whsec_" + Guid.NewGuid().ToString("N");
         await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")));
         var client = await _callers.SuperAdminAsync(tenant);
@@ -243,11 +241,11 @@ public class ConfigSectionsTests
     {
         var mine = await _callers.TenantAsync();
         var theirs = await _callers.TenantAsync();
-        var myType = Unique("chart");
-        var theirType = Unique("ledger");
+        var myType = TestNames.Compact("chart");
+        var theirType = TestNames.Compact("ledger");
         await _callers.StoreInTenantAsync(mine, Type(myType, ("Title", "string")));
         await _callers.StoreInTenantAsync(theirs, Type(theirType, ("Title", "string")));
-        var role = Unique("Shared Clerk ");
+        var role = TestNames.Compact("Shared Clerk ");
         await _callers.StoreInTenantAsync(null, new Role
         {
             Id = Guid.NewGuid(), Name = role, IsPlatform = true,
@@ -295,8 +293,8 @@ public class ConfigSectionsTests
     private async Task<(string Tenant, string Name, HttpClient Client)> SignedWorkflowAsync(params string[] urls)
     {
         var tenant = await _callers.TenantAsync();
-        var type = Unique("order");
-        var name = Unique("signed-");
+        var type = TestNames.Compact("order");
+        var name = TestNames.Compact("signed-");
         await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")));
         var client = await _callers.SuperAdminAsync(tenant);
         await OkAsync(await client.PostAsJsonAsync("/api/workflows", new
@@ -379,8 +377,8 @@ public class ConfigSectionsTests
     private async Task<(string Tenant, string Name, HttpClient Client)> SignedConditionalAsync(string url)
     {
         var tenant = await _callers.TenantAsync();
-        var type = Unique("order");
-        var name = Unique("branch-");
+        var type = TestNames.Compact("order");
+        var name = TestNames.Compact("branch-");
         await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")));
         var client = await _callers.SuperAdminAsync(tenant);
         await OkAsync(await client.PostAsJsonAsync("/api/workflows", new
@@ -416,10 +414,10 @@ public class ConfigSectionsTests
     public async Task A_conditional_whose_child_carries_a_secret_value_is_refused()
     {
         var tenant = await _callers.TenantAsync();
-        var type = Unique("order");
+        var type = TestNames.Compact("order");
         await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")));
         var client = await _callers.SuperAdminAsync(tenant);
-        var name = Unique("leak-");
+        var name = TestNames.Compact("leak-");
         var document = new
         {
             version = 1,
@@ -461,10 +459,10 @@ public class ConfigSectionsTests
     {
         var mine = await _callers.TenantAsync();
         var theirs = await _callers.TenantAsync();
-        var shared = Unique("shared");
+        var shared = TestNames.Compact("shared");
         await _callers.StoreInTenantAsync(mine, Type(shared, ("Title", "string")));
         await _callers.StoreInTenantAsync(theirs, Type(shared, ("Title", "string")));
-        var role = Unique("Both Clerk ");
+        var role = TestNames.Compact("Both Clerk ");
         await _callers.StoreInTenantAsync(null, new Role
         {
             Id = Guid.NewGuid(), Name = role, IsPlatform = true,
@@ -483,10 +481,10 @@ public class ConfigSectionsTests
     {
         var mine = await _callers.TenantAsync();
         var theirs = await _callers.TenantAsync();
-        var shared = Unique("probe");
+        var shared = TestNames.Compact("probe");
         await _callers.StoreInTenantAsync(mine, Type(shared, ("Title", "string")));
         await _callers.StoreInTenantAsync(theirs, Type(shared, ("Title", "string")));
-        var role = Unique("Probed ");
+        var role = TestNames.Compact("Probed ");
         await _callers.StoreInTenantAsync(null, new Role
         {
             Id = Guid.NewGuid(), Name = role, IsPlatform = true,
@@ -508,9 +506,9 @@ public class ConfigSectionsTests
     private async Task<(string Tenant, string Role, string Type, HttpClient Client)> PlatformRuleAsync()
     {
         var tenant = await _callers.TenantAsync();
-        var type = Unique("ledger");
+        var type = TestNames.Compact("ledger");
         await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")));
-        var role = Unique("Shared Clerk ");
+        var role = TestNames.Compact("Shared Clerk ");
         await _callers.StoreInTenantAsync(null, new Role
         {
             Id = Guid.NewGuid(), Name = role, IsPlatform = true,
@@ -523,7 +521,7 @@ public class ConfigSectionsTests
     public async Task A_platform_roles_rule_is_exported_with_the_platform_marker_and_a_tenant_roles_is_not()
     {
         var (tenant, role, type, client) = await PlatformRuleAsync();
-        var own = Unique("Own Clerk ");
+        var own = TestNames.Compact("Own Clerk ");
         await _callers.StoreInTenantAsync(tenant, new Role
         {
             Id = Guid.NewGuid(), Name = own, TenantSlug = tenant,
@@ -557,10 +555,10 @@ public class ConfigSectionsTests
     [Fact]
     public async Task A_marked_rule_for_a_platform_role_the_install_lacks_is_skipped_with_a_warning()
     {
-        var type = Unique("ledger");
+        var type = TestNames.Compact("ledger");
         var fresh = await _callers.TenantAsync();
         var target = await _callers.SuperAdminAsync(fresh);
-        var missing = Unique("Absent Clerk ");
+        var missing = TestNames.Compact("Absent Clerk ");
         var document = new
         {
             version = 1,
@@ -582,10 +580,10 @@ public class ConfigSectionsTests
     [Fact]
     public async Task An_unmarked_rule_for_a_role_that_does_not_exist_still_errors()
     {
-        var type = Unique("ledger");
+        var type = TestNames.Compact("ledger");
         var fresh = await _callers.TenantAsync();
         var target = await _callers.SuperAdminAsync(fresh);
-        var missing = Unique("Typo Clerk ");
+        var missing = TestNames.Compact("Typo Clerk ");
         var document = new
         {
             version = 1,

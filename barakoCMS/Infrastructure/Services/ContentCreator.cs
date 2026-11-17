@@ -31,6 +31,13 @@ public sealed class ContentCreateRequest
     [System.Text.Json.Serialization.JsonIgnore]
     public Guid? SourceRunId { get; init; }
 
+    /// <summary>
+    /// A dry run takes no number: the numbering field is cleared and left empty, because the series'
+    /// counter moves on its own connection and a rollback would not return it. Set by server code only.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool DryRun { get; init; }
+
     /// <summary>The refusal of a save rule, when one refused the entry. Callers answer it as 422.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public string? RuleFailure { get; set; }
@@ -287,7 +294,7 @@ public sealed class ContentCreator(
                 .FirstNamedAsync(request.ContentType, ct);
 
         var entryId = request.Id ?? Guid.NewGuid();
-        await NumberAsync(definition, request.ContentType, entryId, request.Data, ct);
+        await NumberAsync(definition, request.ContentType, entryId, request.Data, request.DryRun, ct);
 
         var publicFields = definition?.Fields
             .Where(barakoCMS.Core.Validation.PublicFields.InSearchText)
@@ -340,7 +347,7 @@ public sealed class ContentCreator(
     /// The type is matched ignoring case here even where the create's own lookup is exact, so an
     /// entry created as INVOICE under a type named invoice is still numbered.
     /// </remarks>
-    private async Task NumberAsync(ContentTypeDefinition? definition, string contentType, Guid entryId, Dictionary<string, object> data, CancellationToken ct)
+    private async Task NumberAsync(ContentTypeDefinition? definition, string contentType, Guid entryId, Dictionary<string, object> data, bool dryRun, CancellationToken ct)
     {
         if (numbering is null)
         {
@@ -375,6 +382,12 @@ public sealed class ContentCreator(
         if (rule.ClientAllocated && !string.IsNullOrWhiteSpace(sent) && ledger is not null)
         {
             await KeepClientNumberAsync(series, rule, contentType, entryId, sent, data, ct);
+            return;
+        }
+
+        // A dry run keeps the field empty rather than show a number the real call will not use.
+        if (dryRun)
+        {
             return;
         }
 

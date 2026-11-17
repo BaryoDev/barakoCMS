@@ -21,13 +21,8 @@ public class WorkflowPermanentFailureTests
 
     public WorkflowPermanentFailureTests(IntegrationTestFixture fixture) => _fixture = fixture;
 
-    private async Task<HttpClient> AdminClientAsync()
-    {
-        var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> AdminClientAsync() =>
+        _fixture.CreateClientAsync("SuperAdmin");
 
     private async Task<Guid> SeedAsync(string actionType, AttemptStatus status, int attempts, bool? retryable)
     {

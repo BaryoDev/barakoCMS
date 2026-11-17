@@ -23,8 +23,6 @@ public class ConfigModuleSectionsTests
 
     public ConfigModuleSectionsTests(IntegrationTestFixture fixture) => _callers = new ConfigCallers(fixture);
 
-    private static string Unique(string prefix) => $"{prefix}{Guid.NewGuid():n}"[..(prefix.Length + 10)];
-
     private static ContentTypeDefinition Enquiry(string name) => new()
     {
         Id = Guid.NewGuid(),
@@ -42,7 +40,7 @@ public class ConfigModuleSectionsTests
     {
         var source = await _callers.TenantAsync();
         var target = await _callers.TenantAsync();
-        var type = Unique("member");
+        var type = TestNames.Compact("member");
         await _callers.StoreInTenantAsync(source, Type(type, ("Title", "string")));
         var sourceClient = await _callers.SuperAdminAsync(source);
         foreach (var title in new[] { "Ana", "Ben" })
@@ -72,7 +70,7 @@ public class ConfigModuleSectionsTests
     public async Task Entries_are_exported_only_when_the_contents_section_is_named()
     {
         var tenant = await _callers.TenantAsync();
-        var type = Unique("note");
+        var type = TestNames.Compact("note");
         await _callers.StoreInTenantAsync(tenant, Type(type, ("Title", "string")));
         var client = await _callers.SuperAdminAsync(tenant);
         (await client.PostAsJsonAsync("/api/contents", new { contentType = type, status = "Published", data = new Dictionary<string, object> { ["Title"] = "kept" } }, Ct))
