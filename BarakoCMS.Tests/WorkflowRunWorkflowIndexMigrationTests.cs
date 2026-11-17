@@ -29,7 +29,7 @@ public class WorkflowRunWorkflowIndexMigrationTests
     {
         var ct = TestContext.Current.CancellationToken;
         var sql = await File.ReadAllTextAsync(
-            Path.Combine(RepositoryRoot(), "migrations", "5.1.0", "workflow-run-workflow-index.sql"), ct);
+            Path.Combine(RepoPaths.Root, "migrations", "5.1.0", "workflow-run-workflow-index.sql"), ct);
 
         var scratch = "workflow_index_check_" + Guid.NewGuid().ToString("N")[..8];
         var scoped = sql.Replace($"public.{Table}", $"{scratch}.{Table}");
@@ -73,15 +73,4 @@ public class WorkflowRunWorkflowIndexMigrationTests
         await command.ExecuteNonQueryAsync(ct);
     }
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-        {
-            directory = directory.Parent;
-        }
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 }

@@ -17,8 +17,6 @@ public class ScheduleTriggerConfigTests
 
     public ScheduleTriggerConfigTests(IntegrationTestFixture fixture) => _callers = new ConfigCallers(fixture);
 
-    private static string Unique(string prefix) => $"{prefix}{Guid.NewGuid():n}"[..(prefix.Length + 10)];
-
     [Theory]
     [InlineData("0m", 0)]
     [InlineData("-24h", -24 * 60)]
@@ -46,7 +44,7 @@ public class ScheduleTriggerConfigTests
     public async Task A_schedule_is_stored_and_exported_back_unchanged()
     {
         var (tenant, type, client) = await TenantWithTypeAsync();
-        var name = Unique("remind-");
+        var name = TestNames.Compact("remind-");
         var document = new { version = 1, workflows = new Dictionary<string, object> { [name] = Workflow(type, "-24h", dateField: "startsAt") } };
 
         (await ApplyAsync(client, document)).Response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -76,7 +74,7 @@ public class ScheduleTriggerConfigTests
     public async Task A_bad_schedule_is_refused_by_name(string contentType, string dateField, string offset, string field)
     {
         var (tenant, type, client) = await TenantWithTypeAsync();
-        var name = Unique("remind-");
+        var name = TestNames.Compact("remind-");
         var typeName = contentType.Length == 0 ? type : contentType;
         var document = new { version = 1, workflows = new Dictionary<string, object> { [name] = Workflow(typeName, offset, dateField) } };
 
@@ -90,7 +88,7 @@ public class ScheduleTriggerConfigTests
     private async Task<(string Tenant, string Type, HttpClient Client)> TenantWithTypeAsync()
     {
         var tenant = await _callers.TenantAsync();
-        var type = Unique("Appointment");
+        var type = TestNames.Compact("Appointment");
         await _callers.StoreInTenantAsync(tenant, Type(type, ("startsAt", "string"), ("Type", "string")));
         return (tenant, type, await _callers.SuperAdminAsync(tenant));
     }

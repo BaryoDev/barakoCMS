@@ -429,13 +429,8 @@ public class WorkflowRunTests
         }
     }
 
-    private async Task<HttpClient> AdminClient()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin", "Admin"));
-        return client;
-    }
+    private Task<HttpClient> AdminClient() =>
+        _factory.CreateClientAsync("SuperAdmin", "Admin");
 
     /// <summary>
     /// The parking below is load-bearing, so it gets a gate rather than a comment.

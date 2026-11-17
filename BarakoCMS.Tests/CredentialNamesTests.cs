@@ -128,7 +128,7 @@ public class CredentialNamesTests
             "\"(passwd|pwd|privatekey|private_key|api_key|accesskey|access_key|credential)\"",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-        var root = RepoRoot();
+        var root = RepoPaths.Root;
         var classifier = Path.Combine(root, "barakoCMS", "Infrastructure", "Security", "CredentialNames.cs");
         File.Exists(classifier).Should().BeTrue("the classifier is the one file allowed to hold the words");
         WordsFound(literal, classifier).Should().HaveCount(8,
@@ -170,12 +170,4 @@ public class CredentialNamesTests
             .ToList();
     }
 
-    private static string RepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Directory.Build.props")))
-            dir = dir.Parent;
-        dir.Should().NotBeNull("the test must be able to find the repository root");
-        return dir!.FullName;
-    }
 }

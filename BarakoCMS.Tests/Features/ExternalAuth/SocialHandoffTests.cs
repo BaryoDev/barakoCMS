@@ -94,8 +94,6 @@ public class SocialHandoffTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..20].ToLowerInvariant();
-
     private static HttpClient Client(WebApplicationFactory<Program> host)
     {
         var client = host.CreateClient(new WebApplicationFactoryClientOptions
@@ -112,16 +110,16 @@ public class SocialHandoffTests
     /// <summary>Points the shared stub at a fresh account for the provider and returns its email.</summary>
     private static string NewAccount(string provider, string? email = null)
     {
-        email ??= $"{Unique("h")}@example.com";
+        email ??= $"{TestNames.Slug("h")}@example.com";
         switch (provider)
         {
             case "google":
-                _oauth!.GoogleSub = Unique("gsub");
+                _oauth!.GoogleSub = TestNames.Slug("gsub");
                 _oauth.GoogleDomain = null;
                 _oauth.GoogleEmail = email;
                 break;
             case "facebook":
-                _oauth!.FacebookId = Unique("fb");
+                _oauth!.FacebookId = TestNames.Slug("fb");
                 _oauth.FacebookEmail = email;
                 break;
             default:
@@ -261,7 +259,7 @@ public class SocialHandoffTests
     public async Task With_the_handoff_on_a_callback_without_the_device_cookie_goes_back_to_the_login_page()
     {
         var email = NewAccount("google");
-        var user = new User { Id = Guid.NewGuid(), Email = email, Username = Unique("rt"), PasswordHash = "x" };
+        var user = new User { Id = Guid.NewGuid(), Email = email, Username = TestNames.Slug("rt"), PasswordHash = "x" };
         await StoreAsync(user);
 
         var response = await CallbackAsync(_handoff!, "google", device: null);
@@ -284,8 +282,8 @@ public class SocialHandoffTests
         var deviceCookie = cookies.Single(c => c.StartsWith("social_device=", StringComparison.Ordinal));
         var sent = System.Web.HttpUtility.ParseQueryString(start.Headers.Location!.Query);
 
-        var email = $"{Unique("o")}@example.com";
-        var claims = OidcTestTokens.Claims(sent["nonce"]!, Unique("osub"), email);
+        var email = $"{TestNames.Slug("o")}@example.com";
+        var claims = OidcTestTokens.Claims(sent["nonce"]!, TestNames.Slug("osub"), email);
         var code = "code-" + Guid.NewGuid().ToString("N");
         _oidc!.Codes[code] = (OidcTestTokens.Rs256(_oidc.Key, claims), sent["code_challenge"]);
 
@@ -303,7 +301,7 @@ public class SocialHandoffTests
     [Fact]
     public async Task A_code_exchanges_once_with_200_and_a_second_use_answers_400()
     {
-        var email = $"{Unique("x")}@example.com";
+        var email = $"{TestNames.Slug("x")}@example.com";
         var code = await SignedInCodeAsync("google", email);
 
         var first = await ExchangeAsync(code);
@@ -378,7 +376,7 @@ public class SocialHandoffTests
     [Fact]
     public async Task An_account_with_mfa_exchanges_the_code_for_the_challenge_and_no_tokens()
     {
-        var user = new User { Id = Guid.NewGuid(), Email = $"{Unique("m")}@example.com", Username = Unique("m"), PasswordHash = "" };
+        var user = new User { Id = Guid.NewGuid(), Email = $"{TestNames.Slug("m")}@example.com", Username = TestNames.Slug("m"), PasswordHash = "" };
         using (var scope = _fixture.Services.CreateScope())
         {
             var protector = scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Auth.Mfa.IMfaSecretProtector>();
@@ -528,7 +526,7 @@ public class SocialHandoffTests
     public async Task A_callback_at_the_live_code_cap_goes_back_to_the_login_page_and_issues_no_token()
     {
         var email = NewAccount("google");
-        var user = new User { Id = Guid.NewGuid(), Email = email, Username = Unique("busy"), PasswordHash = "x" };
+        var user = new User { Id = Guid.NewGuid(), Email = email, Username = TestNames.Slug("busy"), PasswordHash = "x" };
         await StoreAsync(user);
         var cap = SocialHandoff.MaxLive;
         SocialHandoff.MaxLive = 0;
@@ -590,8 +588,8 @@ public class SocialHandoffTests
     {
         // Facebook:TrustUnverifiedEmail is on for this host, so the returning person matches by
         // address and no link row is written. The sweep would otherwise find no other login.
-        var facebookId = Unique("fb");
-        var user = new User { Id = Guid.NewGuid(), Email = $"{Unique("w")}@example.com", Username = Unique("w"), PasswordHash = "" };
+        var facebookId = TestNames.Slug("fb");
+        var user = new User { Id = Guid.NewGuid(), Email = $"{TestNames.Slug("w")}@example.com", Username = TestNames.Slug("w"), PasswordHash = "" };
         await StoreAsync(user, new ExternalIdentity
         {
             Id = ExternalIdentity.KeyOf(ExternalProviders.Facebook, facebookId), Issuer = ExternalProviders.Facebook,
@@ -648,7 +646,7 @@ public class SocialHandoffTests
     /// <summary>An existing account with a password, so a trusted-address sign-in stores no link.</summary>
     private async Task<User> ExistingUserAsync()
     {
-        var user = new User { Id = Guid.NewGuid(), Email = $"{Unique("p")}@example.com", Username = Unique("p"), PasswordHash = "x" };
+        var user = new User { Id = Guid.NewGuid(), Email = $"{TestNames.Slug("p")}@example.com", Username = TestNames.Slug("p"), PasswordHash = "x" };
         await StoreAsync(user);
         return user;
     }
@@ -665,7 +663,7 @@ public class SocialHandoffTests
     public async Task Facebook_then_google_a_deletion_request_clears_facebooks_fields_and_keeps_googles()
     {
         var user = await ExistingUserAsync();
-        var facebookId = Unique("fb");
+        var facebookId = TestNames.Slug("fb");
         _oauth!.FacebookBirthday = "01/02/1990";
         _oauth.FacebookLocation = "Manila";
         try
@@ -698,7 +696,7 @@ public class SocialHandoffTests
     public async Task Google_then_facebook_a_deletion_request_keeps_the_name_google_supplied()
     {
         var user = await ExistingUserAsync();
-        var facebookId = Unique("fb");
+        var facebookId = TestNames.Slug("fb");
         _oauth!.FacebookBirthday = "01/02/1990";
         _oauth.FacebookName = null;
         try
@@ -725,7 +723,7 @@ public class SocialHandoffTests
     public async Task A_facebook_profile_is_removed_when_the_sign_in_stored_no_link()
     {
         var user = await ExistingUserAsync();
-        var facebookId = Unique("fb");
+        var facebookId = TestNames.Slug("fb");
         _oauth!.FacebookBirthday = "01/02/1990";
         try
         {

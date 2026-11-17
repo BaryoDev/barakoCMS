@@ -28,8 +28,6 @@ public class FeatureFlagCallerScopeTests(IntegrationTestFixture factory)
         await session.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 
-    private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..20].ToLowerInvariant();
-
     private HttpClient Client(User? user = null, string? tenant = null)
     {
         var client = factory.CreateClient();
@@ -71,11 +69,11 @@ public class FeatureFlagCallerScopeTests(IntegrationTestFixture factory)
     [Fact]
     public async Task A_username_equal_to_a_targeted_address_does_not_get_the_flag()
     {
-        var targeted = $"{Unique("target")}@example.com";
-        var key = Unique("email-flag");
+        var targeted = $"{TestNames.Slug("target")}@example.com";
+        var key = TestNames.Slug("email-flag");
         await StoreAsync(new FeatureFlag { Key = key, Enabled = true, IsPublic = true, UserEmails = [targeted] });
-        var impostor = NewUser(targeted, $"{Unique("other")}@example.com");
-        var owner = NewUser(Unique("owner"), targeted);
+        var impostor = NewUser(targeted, $"{TestNames.Slug("other")}@example.com");
+        var owner = NewUser(TestNames.Slug("owner"), targeted);
         await StoreAsync(impostor, owner);
 
         var ownerFlags = await EvaluateAsync(Client(owner));
@@ -90,11 +88,11 @@ public class FeatureFlagCallerScopeTests(IntegrationTestFixture factory)
     [Fact]
     public async Task The_OFREP_route_does_not_target_by_username_either()
     {
-        var targeted = $"{Unique("target")}@example.com";
-        var key = Unique("ofrep-email");
+        var targeted = $"{TestNames.Slug("target")}@example.com";
+        var key = TestNames.Slug("ofrep-email");
         await StoreAsync(new FeatureFlag { Key = key, Enabled = true, IsPublic = true, UserEmails = [targeted] });
-        var impostor = NewUser(targeted, $"{Unique("other")}@example.com");
-        var owner = NewUser(Unique("owner"), targeted);
+        var impostor = NewUser(targeted, $"{TestNames.Slug("other")}@example.com");
+        var owner = NewUser(TestNames.Slug("owner"), targeted);
         await StoreAsync(impostor, owner);
 
         async Task<bool> ValueAsync(HttpClient client)
@@ -113,13 +111,13 @@ public class FeatureFlagCallerScopeTests(IntegrationTestFixture factory)
     [Fact]
     public async Task A_flag_limited_to_one_tenant_is_not_listed_to_another()
     {
-        var tenantA = Unique("flag-a");
-        var tenantB = Unique("flag-b");
+        var tenantA = TestNames.Slug("flag-a");
+        var tenantB = TestNames.Slug("flag-b");
         await StoreAsync(
             new Tenant { Id = Guid.NewGuid(), Slug = tenantA, Name = tenantA },
             new Tenant { Id = Guid.NewGuid(), Slug = tenantB, Name = tenantB });
-        var onlyA = Unique("only-a");
-        var everyone = Unique("everyone");
+        var onlyA = TestNames.Slug("only-a");
+        var everyone = TestNames.Slug("everyone");
         await StoreAsync(
             new FeatureFlag { Key = onlyA, Enabled = true, IsPublic = true, TenantSlugs = [tenantA] },
             new FeatureFlag { Key = everyone, Enabled = true, IsPublic = true });

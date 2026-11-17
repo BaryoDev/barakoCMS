@@ -126,8 +126,6 @@ public class ExternalIdentityOAuthTests
 
     private static OAuthStubHandler Stub => _stub!;
 
-    private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..20].ToLowerInvariant();
-
     private HttpClient Client(string? role = null, string? slug = null)
     {
         var client = _host!.CreateClient(new WebApplicationFactoryClientOptions
@@ -138,7 +136,7 @@ public class ExternalIdentityOAuthTests
         client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"198.51.100.{Interlocked.Increment(ref _ipCounter) % 250 + 1}");
         if (role is not null && slug is not null)
         {
-            var user = new User { Id = Guid.NewGuid(), Email = $"{Unique("c")}@example.com", Username = Unique("c"), PasswordHash = "" };
+            var user = new User { Id = Guid.NewGuid(), Email = $"{TestNames.Slug("c")}@example.com", Username = TestNames.Slug("c"), PasswordHash = "" };
             var roleId = role == "Admin" ? SystemRoles.AdminRoleId : SystemRoles.UserRoleId;
             StoreAsync(
                 user,
@@ -205,9 +203,9 @@ public class ExternalIdentityOAuthTests
     [Fact]
     public async Task A_google_user_whose_email_changes_still_signs_in_to_the_same_account()
     {
-        var sub = Unique("gsub");
-        var before = $"{Unique("old")}@example.com";
-        var after = $"{Unique("new")}@example.com";
+        var sub = TestNames.Slug("gsub");
+        var before = $"{TestNames.Slug("old")}@example.com";
+        var after = $"{TestNames.Slug("new")}@example.com";
         Stub.GoogleSub = sub;
         Stub.GoogleDomain = null;
 
@@ -227,8 +225,8 @@ public class ExternalIdentityOAuthTests
     public async Task A_github_user_whose_email_changes_still_signs_in_to_the_same_account()
     {
         var id = Random.Shared.NextInt64(1_000_000, long.MaxValue);
-        var before = $"{Unique("old")}@example.com";
-        var after = $"{Unique("new")}@example.com";
+        var before = $"{TestNames.Slug("old")}@example.com";
+        var after = $"{TestNames.Slug("new")}@example.com";
         Stub.GitHubId = id;
 
         Stub.GitHubEmail = before;
@@ -246,11 +244,11 @@ public class ExternalIdentityOAuthTests
     [Fact]
     public async Task A_linked_google_account_is_found_by_its_id_and_not_by_the_email_it_now_reports()
     {
-        var sub = Unique("gsub");
-        var first = $"{Unique("one")}@example.com";
+        var sub = TestNames.Slug("gsub");
+        var first = $"{TestNames.Slug("one")}@example.com";
         var someoneElse = new User
         {
-            Id = Guid.NewGuid(), Email = $"{Unique("two")}@example.com", Username = Unique("u"), PasswordHash = "",
+            Id = Guid.NewGuid(), Email = $"{TestNames.Slug("two")}@example.com", Username = TestNames.Slug("u"), PasswordHash = "",
         };
         await StoreAsync(someoneElse);
         Stub.GoogleSub = sub;
@@ -273,7 +271,7 @@ public class ExternalIdentityOAuthTests
     {
         var existing = new User
         {
-            Id = Guid.NewGuid(), Email = $"{Unique("had")}@example.com", Username = Unique("u"), PasswordHash = "",
+            Id = Guid.NewGuid(), Email = $"{TestNames.Slug("had")}@example.com", Username = TestNames.Slug("u"), PasswordHash = "",
         };
         await StoreAsync(existing);
         var id = Random.Shared.NextInt64(1_000_000, long.MaxValue);
@@ -291,9 +289,9 @@ public class ExternalIdentityOAuthTests
         var shared = Random.Shared.NextInt64(1_000_000, long.MaxValue);
         Stub.GoogleSub = shared.ToString();
         Stub.GoogleDomain = null;
-        Stub.GoogleEmail = $"{Unique("g")}@example.com";
+        Stub.GoogleEmail = $"{TestNames.Slug("g")}@example.com";
         Stub.GitHubId = shared;
-        Stub.GitHubEmail = $"{Unique("h")}@example.com";
+        Stub.GitHubEmail = $"{TestNames.Slug("h")}@example.com";
 
         ShouldHaveSignedIn(await CallbackAsync("google"));
         ShouldHaveSignedIn(await CallbackAsync("github"));
@@ -306,8 +304,8 @@ public class ExternalIdentityOAuthTests
     [Fact]
     public async Task A_linked_google_user_whose_userinfo_has_no_email_still_signs_in_to_the_same_account()
     {
-        var sub = Unique("gsub");
-        var email = $"{Unique("had")}@example.com";
+        var sub = TestNames.Slug("gsub");
+        var email = $"{TestNames.Slug("had")}@example.com";
         Stub.GoogleSub = sub;
         Stub.GoogleDomain = null;
         Stub.GoogleEmail = email;
@@ -322,7 +320,7 @@ public class ExternalIdentityOAuthTests
     [Fact]
     public async Task An_unlinked_google_user_with_no_email_is_refused_and_nothing_is_made()
     {
-        var sub = Unique("gsub");
+        var sub = TestNames.Slug("gsub");
         Stub.GoogleSub = sub;
         Stub.GoogleDomain = null;
         Stub.GoogleEmail = null;
@@ -341,10 +339,10 @@ public class ExternalIdentityOAuthTests
     {
         var existing = new User
         {
-            Id = Guid.NewGuid(), Email = $"{Unique("fbhad")}@example.com", Username = Unique("u"), PasswordHash = "",
+            Id = Guid.NewGuid(), Email = $"{TestNames.Slug("fbhad")}@example.com", Username = TestNames.Slug("u"), PasswordHash = "",
         };
         await StoreAsync(existing);
-        var id = Unique("fbid");
+        var id = TestNames.Slug("fbid");
         Stub.FacebookId = id;
         Stub.FacebookEmail = existing.Email;
 
@@ -357,8 +355,8 @@ public class ExternalIdentityOAuthTests
     [Fact]
     public async Task A_facebook_first_sign_in_that_makes_a_new_account_links_it()
     {
-        var id = Unique("fbid");
-        var email = $"{Unique("fbnew")}@example.com";
+        var id = TestNames.Slug("fbid");
+        var email = $"{TestNames.Slug("fbnew")}@example.com";
         Stub.FacebookId = id;
         Stub.FacebookEmail = email;
 
@@ -372,10 +370,10 @@ public class ExternalIdentityOAuthTests
 
     private async Task<(string Slug, Role Teacher)> TenantMappingAsync(string claim, string value)
     {
-        var slug = Unique("oa");
+        var slug = TestNames.Slug("oa");
         var teacher = new Role
         {
-            Id = Guid.NewGuid(), Name = Unique("Teacher"), TenantSlug = slug,
+            Id = Guid.NewGuid(), Name = TestNames.Slug("Teacher"), TenantSlug = slug,
             Permissions = [], SystemCapabilities = [],
         };
         await StoreAsync(
@@ -400,8 +398,8 @@ public class ExternalIdentityOAuthTests
     public async Task A_provider_claim_the_tenant_mapped_gives_the_role_on_a_google_sign_in()
     {
         var (slug, teacher) = await TenantMappingAsync("hd", "school.edu");
-        Stub.GoogleSub = Unique("gsub");
-        Stub.GoogleEmail = $"{Unique("staff")}@school.edu";
+        Stub.GoogleSub = TestNames.Slug("gsub");
+        Stub.GoogleEmail = $"{TestNames.Slug("staff")}@school.edu";
         Stub.GoogleDomain = "school.edu";
 
         ShouldHaveSignedIn(await CallbackAsync("google", slug));
@@ -416,8 +414,8 @@ public class ExternalIdentityOAuthTests
     public async Task A_claim_value_the_map_does_not_name_gives_no_role_on_a_google_sign_in()
     {
         var (slug, _) = await TenantMappingAsync("hd", "school.edu");
-        Stub.GoogleSub = Unique("gsub");
-        Stub.GoogleEmail = $"{Unique("other")}@elsewhere.org";
+        Stub.GoogleSub = TestNames.Slug("gsub");
+        Stub.GoogleEmail = $"{TestNames.Slug("other")}@elsewhere.org";
         Stub.GoogleDomain = "elsewhere.org";
 
         var response = await CallbackAsync("google", slug);
@@ -431,8 +429,8 @@ public class ExternalIdentityOAuthTests
     public async Task A_google_id_token_for_another_client_gives_no_role()
     {
         var (slug, _) = await TenantMappingAsync("hd", "school.edu");
-        Stub.GoogleSub = Unique("gsub");
-        Stub.GoogleEmail = $"{Unique("staff")}@school.edu";
+        Stub.GoogleSub = TestNames.Slug("gsub");
+        Stub.GoogleEmail = $"{TestNames.Slug("staff")}@school.edu";
         Stub.GoogleDomain = "school.edu";
         Stub.GoogleAudience = "someone-elses-client";
         try
@@ -453,7 +451,7 @@ public class ExternalIdentityOAuthTests
 
     private async Task<string> TenantListingAsync(params string[] providers)
     {
-        var slug = Unique("pv");
+        var slug = TestNames.Slug("pv");
         await StoreAsync(
             new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug },
             new ExternalProviderSettings { Id = slug, Providers = providers.ToList() });
@@ -480,7 +478,7 @@ public class ExternalIdentityOAuthTests
     {
         var onlyGoogle = await TenantListingAsync(ExternalProviders.Google);
         var onlyGitHub = await TenantListingAsync(ExternalProviders.GitHub);
-        var noList = Unique("nolist");
+        var noList = TestNames.Slug("nolist");
         await StoreAsync(new Tenant { Id = Guid.NewGuid(), Slug = noList, Name = noList });
 
         (await StartAsync("google", onlyGoogle)).Should().Be(HttpStatusCode.Redirect);
@@ -503,8 +501,8 @@ public class ExternalIdentityOAuthTests
     public async Task A_provider_the_tenant_has_off_cannot_be_called_back_for_that_tenant()
     {
         var onlyGitHub = await TenantListingAsync(ExternalProviders.GitHub);
-        Stub.GoogleSub = Unique("gsub");
-        Stub.GoogleEmail = $"{Unique("g")}@example.com";
+        Stub.GoogleSub = TestNames.Slug("gsub");
+        Stub.GoogleEmail = $"{TestNames.Slug("g")}@example.com";
         Stub.GoogleDomain = null;
 
         (await CallbackAsync("google", onlyGitHub)).StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -517,7 +515,7 @@ public class ExternalIdentityOAuthTests
     [Fact]
     public async Task A_tenant_administrator_sets_reads_and_removes_the_provider_list()
     {
-        var slug = Unique("adm");
+        var slug = TestNames.Slug("adm");
         await StoreAsync(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
         var admin = Client("Admin", slug);
 

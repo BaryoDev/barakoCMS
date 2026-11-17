@@ -141,13 +141,8 @@ public sealed class OwnerHiddenSurfaceTests
         (await GetAsync(officer, $"/api/contents?contentType={seed.Type}&search={seed.Phone}")).Should().Contain(seed.Id.ToString());
     }
 
-    private async Task<HttpClient> AdminAsync()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _factory.StoredUserTokenAsync("Admin"));
-        return client;
-    }
+    private Task<HttpClient> AdminAsync() =>
+        _factory.CreateClientAsync("Admin");
 
     [Fact]
     public async Task A_sensitivity_change_on_another_field_does_not_put_the_hidden_value_into_search()

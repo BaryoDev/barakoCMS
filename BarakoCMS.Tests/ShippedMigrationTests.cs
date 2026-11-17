@@ -176,7 +176,7 @@ public class ShippedMigrationTests
     [Fact]
     public void Core_ships_every_forward_file_under_migrations_except_the_ones_a_module_ships()
     {
-        var root = Path.Combine(RepositoryRoot(), "migrations");
+        var root = Path.Combine(RepoPaths.Root, "migrations");
         var onDisk = Directory.GetFiles(root, "*.sql", SearchOption.AllDirectories)
             .Select(path => Path.GetRelativePath(root, path).Replace('\\', '/'))
             .Where(path => !path.StartsWith("tenancy/", StringComparison.Ordinal))
@@ -205,7 +205,7 @@ public class ShippedMigrationTests
     [Fact]
     public void The_removed_module_scripts_are_not_shipped_and_are_unchanged()
     {
-        var root = Path.Combine(RepositoryRoot(), "migrations", "removed");
+        var root = Path.Combine(RepoPaths.Root, "migrations", "removed");
         var onDisk = Directory.GetFiles(root, "*.sql", SearchOption.AllDirectories)
             .ToDictionary(
                 path => Path.GetRelativePath(root, path).Replace('\\', '/'),
@@ -423,15 +423,4 @@ public class ShippedMigrationTests
         act.Should().Throw<InvalidOperationException>().Which.Message.Should().Contain(expected);
     }
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-        {
-            directory = directory.Parent;
-        }
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 }

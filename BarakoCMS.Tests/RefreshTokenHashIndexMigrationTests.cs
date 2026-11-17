@@ -39,7 +39,7 @@ public class RefreshTokenHashIndexMigrationTests
             "core declares .Index(x => x.TokenHash), so a database built from the model has it");
 
         var sql = await File.ReadAllTextAsync(
-            Path.Combine(RepositoryRoot(), "migrations", "4.5.0", "refresh-token-hash-index.sql"),
+            Path.Combine(RepoPaths.Root, "migrations", "4.5.0", "refresh-token-hash-index.sql"),
             TestContext.Current.CancellationToken);
 
         Regex.IsMatch(sql, @"CREATE\s+UNIQUE\s+INDEX", RegexOptions.IgnoreCase).Should().Be(
@@ -75,15 +75,4 @@ public class RefreshTokenHashIndexMigrationTests
         return match.Groups[1].Value;
     }
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-        {
-            directory = directory.Parent;
-        }
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 }

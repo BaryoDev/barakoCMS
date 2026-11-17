@@ -26,8 +26,6 @@ public class ConfigModuleWorkflowsTests
         _callers = new ConfigCallers(fixture);
     }
 
-    private static string Unique(string prefix) => $"{prefix}{Guid.NewGuid():n}"[..(prefix.Length + 10)];
-
     private static WorkflowDefinition Workflow(string name, string? owner) => new()
     {
         Id = Guid.NewGuid(),
@@ -43,9 +41,9 @@ public class ConfigModuleWorkflowsTests
     private async Task<(string Tenant, HttpClient Client, string Owned, string Plain)> TenantWithBothAsync()
     {
         var tenant = await _callers.TenantAsync();
-        var type = Unique("delivery");
-        var owned = Unique("module-");
-        var plain = Unique("config-");
+        var type = TestNames.Compact("delivery");
+        var owned = TestNames.Compact("module-");
+        var plain = TestNames.Compact("config-");
         var delivery = new ContentTypeDefinition
         {
             Id = Guid.NewGuid(), Name = "delivery", DisplayName = "Delivery",
@@ -129,7 +127,7 @@ public class ConfigModuleWorkflowsTests
     public async Task The_role_to_notify_on_failure_is_applied_exported_and_planned_when_it_changes()
     {
         var (tenant, client, _, _) = await TenantWithBothAsync();
-        var name = Unique("notify-");
+        var name = TestNames.Compact("notify-");
         object Document(string role) => new
         {
             version = 1,
@@ -162,7 +160,7 @@ public class ConfigModuleWorkflowsTests
     public async Task A_cron_schedule_is_applied_exported_and_planned_when_it_changes()
     {
         var (tenant, client, _, _) = await TenantWithBothAsync();
-        var name = Unique("cron-");
+        var name = TestNames.Compact("cron-");
         object Document(string cron, string zone) => new
         {
             version = 1,
@@ -206,7 +204,7 @@ public class ConfigModuleWorkflowsTests
     public async Task A_document_that_leaves_the_cron_schedule_unchanged_keeps_when_it_was_armed()
     {
         var (tenant, client, _, _) = await TenantWithBothAsync();
-        var name = Unique("cron-");
+        var name = TestNames.Compact("cron-");
         object Document(bool enabled) => new
         {
             version = 1,
@@ -263,8 +261,8 @@ public class ConfigModuleWorkflowsTests
     public async Task Seeding_stores_a_workflow_as_owned_and_marks_one_stored_before_owners_existed()
     {
         var store = _fixture.Services.GetRequiredService<IDocumentStore>();
-        var fresh = Workflow(Unique("seed-fresh-"), null);
-        var older = Workflow(Unique("seed-older-"), null);
+        var fresh = Workflow(TestNames.Compact("seed-fresh-"), null);
+        var older = Workflow(TestNames.Compact("seed-older-"), null);
         await using (var session = store.LightweightSession())
         {
             session.Store(older);
@@ -286,7 +284,7 @@ public class ConfigModuleWorkflowsTests
     public async Task Seeding_does_not_overwrite_a_workflow_that_is_already_stored()
     {
         var store = _fixture.Services.GetRequiredService<IDocumentStore>();
-        var stored = Workflow(Unique("seed-kept-"), "Shipping");
+        var stored = Workflow(TestNames.Compact("seed-kept-"), "Shipping");
         stored.Enabled = false;
         await using (var session = store.LightweightSession())
         {

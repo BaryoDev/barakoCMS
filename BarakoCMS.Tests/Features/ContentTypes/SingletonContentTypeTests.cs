@@ -34,13 +34,8 @@ public class SingletonContentTypeTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private async Task<HttpClient> AdminAsync()
-    {
-        var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-            "Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin", "Admin"));
-        return client;
-    }
+    private Task<HttpClient> AdminAsync() =>
+        _fixture.CreateClientAsync("SuperAdmin", "Admin");
 
     /// <summary>
     /// Created through the API rather than stored directly, so the request field that carries the

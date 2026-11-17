@@ -188,7 +188,7 @@ public class ForwardedHeadersTests
     }
 
     private static string[] ProductionComposeLines() =>
-        File.ReadAllLines(Path.Combine(ComposeDefaultsTests.RepoRoot(), "docker-compose.prod.yml"))
+        File.ReadAllLines(Path.Combine(RepoPaths.Root, "docker-compose.prod.yml"))
             .Select(l => l.Trim())
             .Where(l => !l.StartsWith('#'))
             .ToArray();

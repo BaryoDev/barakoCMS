@@ -28,13 +28,8 @@ public class TenantDomainsApiTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private async Task<HttpClient> SuperAdminAsync()
-    {
-        var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> SuperAdminAsync() =>
+        _fixture.CreateClientAsync("SuperAdmin");
 
     private static string Handle() => $"dom-{Guid.NewGuid():n}"[..16];
 

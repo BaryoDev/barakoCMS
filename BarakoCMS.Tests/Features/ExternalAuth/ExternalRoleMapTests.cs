@@ -66,8 +66,6 @@ public class ExternalRoleMapTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..20].ToLowerInvariant();
-
     private static IReadOnlyDictionary<string, IReadOnlyList<string>> Groups(params string[] values) =>
         new Dictionary<string, IReadOnlyList<string>> { ["groups"] = values };
 
@@ -81,10 +79,10 @@ public class ExternalRoleMapTests
 
     private async Task<(string Slug, Role Teacher)> TenantWithMapAsync(string claim = "groups", string value = "staff")
     {
-        var slug = Unique("map");
+        var slug = TestNames.Slug("map");
         var teacher = new Role
         {
-            Id = Guid.NewGuid(), Name = Unique("Teacher"), TenantSlug = slug,
+            Id = Guid.NewGuid(), Name = TestNames.Slug("Teacher"), TenantSlug = slug,
             Permissions = [], SystemCapabilities = [],
         };
         await StoreAsync(
@@ -102,7 +100,7 @@ public class ExternalRoleMapTests
     {
         var user = new User
         {
-            Id = Guid.NewGuid(), Email = $"{Unique("p")}@example.com", Username = Unique("u"), PasswordHash = "",
+            Id = Guid.NewGuid(), Email = $"{TestNames.Slug("p")}@example.com", Username = TestNames.Slug("u"), PasswordHash = "",
         };
         await StoreAsync(user);
         return user;
@@ -163,7 +161,7 @@ public class ExternalRoleMapTests
 
     private async Task<string> AwaitingDeletionRequestAsync(Guid userId)
     {
-        var id = Unique("fbreq");
+        var id = TestNames.Slug("fbreq");
         await StoreAsync(new FacebookDeletionRequest
         {
             Id = id, Status = FacebookDeletionStatus.AwaitingChoice, UserId = userId,
@@ -220,7 +218,7 @@ public class ExternalRoleMapTests
         var user = await PersonAsync();
         var other = Guid.NewGuid();
         await StoreAsync(
-            new Role { Id = other, Name = Unique("Other"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] },
+            new Role { Id = other, Name = TestNames.Slug("Other"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] },
             new Membership
             {
                 Id = Guid.NewGuid(), UserId = user.Id, TenantSlug = slug,
@@ -263,7 +261,7 @@ public class ExternalRoleMapTests
         var (slug, _) = await TenantWithMapAsync();
         var elsewhere = Guid.NewGuid();
         await StoreAsync(
-            new Role { Id = elsewhere, Name = Unique("Foreign"), TenantSlug = Unique("other"), Permissions = [], SystemCapabilities = [] },
+            new Role { Id = elsewhere, Name = TestNames.Slug("Foreign"), TenantSlug = TestNames.Slug("other"), Permissions = [], SystemCapabilities = [] },
             new ExternalRoleMap
             {
                 Id = slug, Claim = "groups",
@@ -284,7 +282,7 @@ public class ExternalRoleMapTests
     public async Task One_tenants_map_does_not_apply_in_another_tenant()
     {
         var (_, _) = await TenantWithMapAsync();
-        var plain = Unique("plain");
+        var plain = TestNames.Slug("plain");
         await StoreAsync(new Tenant { Id = Guid.NewGuid(), Slug = plain, Name = plain });
         var user = await PersonAsync();
 
@@ -318,7 +316,7 @@ public class ExternalRoleMapTests
         var client = _host!.CreateClient();
         if (role is not null)
         {
-            var user = new User { Id = Guid.NewGuid(), Email = $"{Unique("c")}@example.com", Username = Unique("c"), PasswordHash = "" };
+            var user = new User { Id = Guid.NewGuid(), Email = $"{TestNames.Slug("c")}@example.com", Username = TestNames.Slug("c"), PasswordHash = "" };
             var roleId = role == "Admin" ? SystemRoles.AdminRoleId : SystemRoles.UserRoleId;
             StoreAsync(
                 user,
@@ -341,7 +339,7 @@ public class ExternalRoleMapTests
 
     private async Task<string> AdminTenantAsync()
     {
-        var slug = Unique("adm");
+        var slug = TestNames.Slug("adm");
         await StoreAsync(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
         return slug;
     }
@@ -350,7 +348,7 @@ public class ExternalRoleMapTests
     public async Task A_tenant_administrator_sets_reads_and_removes_the_map()
     {
         var slug = await AdminTenantAsync();
-        var role = new Role { Id = Guid.NewGuid(), Name = Unique("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
+        var role = new Role { Id = Guid.NewGuid(), Name = TestNames.Slug("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
         await StoreAsync(role);
         var client = ClientFor(slug, "Admin");
 
@@ -370,7 +368,7 @@ public class ExternalRoleMapTests
     public async Task A_map_cannot_name_SuperAdmin_or_a_role_of_another_tenant()
     {
         var slug = await AdminTenantAsync();
-        var foreign = new Role { Id = Guid.NewGuid(), Name = Unique("Foreign"), TenantSlug = Unique("other"), Permissions = [], SystemCapabilities = [] };
+        var foreign = new Role { Id = Guid.NewGuid(), Name = TestNames.Slug("Foreign"), TenantSlug = TestNames.Slug("other"), Permissions = [], SystemCapabilities = [] };
         await StoreAsync(foreign);
         var client = ClientFor(slug, "Admin");
 
@@ -422,7 +420,7 @@ public class ExternalRoleMapTests
         var (slug, _) = await TenantWithMapAsync();
         var unowned = Guid.NewGuid();
         await StoreAsync(
-            new Role { Id = unowned, Name = Unique("Unowned"), TenantSlug = null, Permissions = [], SystemCapabilities = [] },
+            new Role { Id = unowned, Name = TestNames.Slug("Unowned"), TenantSlug = null, Permissions = [], SystemCapabilities = [] },
             new ExternalRoleMap
             {
                 Id = slug, Claim = "groups",
@@ -444,7 +442,7 @@ public class ExternalRoleMapTests
         var (slug, _) = await TenantWithMapAsync();
         var powerful = new Role
         {
-            Id = Guid.NewGuid(), Name = Unique("Power"), TenantSlug = slug,
+            Id = Guid.NewGuid(), Name = TestNames.Slug("Power"), TenantSlug = slug,
             Permissions = [], SystemCapabilities = [SystemCapabilities.ManageRoles],
         };
         await StoreAsync(powerful, new ExternalRoleMap
@@ -569,7 +567,7 @@ public class ExternalRoleMapTests
     public async Task A_rule_for_a_provider_with_a_templated_issuer_must_name_the_exact_issuer()
     {
         var slug = await AdminTenantAsync();
-        var role = new Role { Id = Guid.NewGuid(), Name = Unique("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
+        var role = new Role { Id = Guid.NewGuid(), Name = TestNames.Slug("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
         await StoreAsync(role);
         var client = ClientFor(slug, "Admin");
         var directory = Guid.NewGuid().ToString();
@@ -617,7 +615,7 @@ public class ExternalRoleMapTests
     public async Task A_rule_must_name_a_configured_provider()
     {
         var slug = await AdminTenantAsync();
-        var role = new Role { Id = Guid.NewGuid(), Name = Unique("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
+        var role = new Role { Id = Guid.NewGuid(), Name = TestNames.Slug("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
         await StoreAsync(role);
         var client = ClientFor(slug, "Admin");
 
@@ -651,7 +649,7 @@ public class ExternalRoleMapTests
     public async Task A_rule_cannot_read_a_claim_the_person_can_edit_about_themselves(string claim)
     {
         var slug = await AdminTenantAsync();
-        var role = new Role { Id = Guid.NewGuid(), Name = Unique("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
+        var role = new Role { Id = Guid.NewGuid(), Name = TestNames.Slug("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
         await StoreAsync(role);
         var client = ClientFor(slug, "Admin");
 
@@ -667,7 +665,7 @@ public class ExternalRoleMapTests
     public async Task A_value_with_a_space_at_either_end_is_refused()
     {
         var slug = await AdminTenantAsync();
-        var role = new Role { Id = Guid.NewGuid(), Name = Unique("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
+        var role = new Role { Id = Guid.NewGuid(), Name = TestNames.Slug("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
         await StoreAsync(role);
         var client = ClientFor(slug, "Admin");
 
@@ -683,7 +681,7 @@ public class ExternalRoleMapTests
     public async Task Setting_and_removing_the_map_each_leave_an_audit_entry_naming_the_tenant()
     {
         var slug = await AdminTenantAsync();
-        var role = new Role { Id = Guid.NewGuid(), Name = Unique("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
+        var role = new Role { Id = Guid.NewGuid(), Name = TestNames.Slug("Teacher"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] };
         await StoreAsync(role);
         var client = ClientFor(slug, "Admin");
 
@@ -706,7 +704,7 @@ public class ExternalRoleMapTests
         var user = await PersonAsync();
         var admins = Guid.NewGuid();
         await StoreAsync(
-            new Role { Id = admins, Name = Unique("Other"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] },
+            new Role { Id = admins, Name = TestNames.Slug("Other"), TenantSlug = slug, Permissions = [], SystemCapabilities = [] },
             new Membership { Id = Guid.NewGuid(), UserId = user.Id, TenantSlug = slug, Status = MembershipStatus.Active, RoleIds = [] });
 
         using var scope = _fixture.Services.CreateScope();
@@ -825,7 +823,7 @@ public class ExternalRoleMapTests
         var slug = await AdminTenantAsync();
         var manager = new Role
         {
-            Id = Guid.NewGuid(), Name = Unique("Manager"), Permissions = [],
+            Id = Guid.NewGuid(), Name = TestNames.Slug("Manager"), Permissions = [],
             SystemCapabilities = [SystemCapabilities.ManageUsers],
         };
         var caller = await PersonAsync();

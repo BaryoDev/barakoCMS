@@ -37,7 +37,7 @@ public class WorkflowTriggerEventsTests
     public async Task Taking_a_published_entry_down_fires_the_Unpublished_workflow_once()
     {
         await AuthenticateAsAdminAsync();
-        var contentType = NewName("wf");
+        var contentType = WorkflowStopHarness.NewName("wf");
         var workflowId = await StoreWorkflowAsync(w =>
         {
             w.TriggerContentType = contentType;
@@ -67,7 +67,7 @@ public class WorkflowTriggerEventsTests
     public async Task Erasing_an_entry_fires_the_Deleted_workflow_once_with_the_id_and_type_only()
     {
         await AuthenticateAsync("SuperAdmin");
-        var contentType = NewName("wf");
+        var contentType = WorkflowStopHarness.NewName("wf");
         var needle = $"erased-{Guid.NewGuid():n}";
 
         var workflowId = await StoreWorkflowAsync(w =>
@@ -102,7 +102,7 @@ public class WorkflowTriggerEventsTests
     public async Task The_action_of_a_Deleted_workflow_runs_and_is_handed_the_id_and_type_only()
     {
         await AuthenticateAsync("SuperAdmin");
-        var contentType = NewName("wf");
+        var contentType = WorkflowStopHarness.NewName("wf");
         var needle = $"erased-{Guid.NewGuid():n}";
 
         // The template names the erased field. With the entry's data it would resolve to the needle.
@@ -160,10 +160,10 @@ public class WorkflowTriggerEventsTests
     [Fact]
     public async Task The_inline_engine_hands_a_Deleted_action_the_id_and_type_only_and_passes_over_a_workflow_with_conditions()
     {
-        var contentType = NewName("wf");
+        var contentType = WorkflowStopHarness.NewName("wf");
         var needle = $"erased-{Guid.NewGuid():n}";
-        var plainKey = NewName("engine-deleted");
-        var conditionedKey = NewName("engine-deleted");
+        var plainKey = WorkflowStopHarness.NewName("engine-deleted");
+        var conditionedKey = WorkflowStopHarness.NewName("engine-deleted");
 
         await StoreWorkflowAsync(w =>
         {
@@ -216,7 +216,7 @@ public class WorkflowTriggerEventsTests
     public async Task Erasing_an_entry_created_again_under_the_same_id_fires_Deleted_again()
     {
         await AuthenticateAsync("SuperAdmin");
-        var contentType = NewName("wf");
+        var contentType = WorkflowStopHarness.NewName("wf");
         var workflowId = await StoreWorkflowAsync(w =>
         {
             w.TriggerContentType = contentType;
@@ -238,9 +238,9 @@ public class WorkflowTriggerEventsTests
     public async Task A_conditional_on_a_Deleted_run_refuses_a_condition_on_status_and_runs_one_on_the_content_type()
     {
         await AuthenticateAsync("SuperAdmin");
-        var contentType = NewName("wf");
-        var refusedChild = NewName("child");
-        var allowedChild = NewName("child");
+        var contentType = WorkflowStopHarness.NewName("wf");
+        var refusedChild = WorkflowStopHarness.NewName("child");
+        var allowedChild = WorkflowStopHarness.NewName("child");
 
         var refusedId = await StoreWorkflowAsync(w =>
         {
@@ -281,8 +281,8 @@ public class WorkflowTriggerEventsTests
     [Fact]
     public async Task A_workflow_naming_several_types_and_events_fires_for_each_of_them()
     {
-        var page = NewName("page");
-        var post = NewName("post");
+        var page = WorkflowStopHarness.NewName("page");
+        var post = WorkflowStopHarness.NewName("post");
         var workflowId = await StoreWorkflowAsync(w =>
         {
             w.TriggerContentTypes = [page, post];
@@ -292,7 +292,7 @@ public class WorkflowTriggerEventsTests
         (await EnqueueAsync(page, WorkflowEvents.Published)).Should().Be(1);
         (await EnqueueAsync(post, WorkflowEvents.Unpublished)).Should().Be(1);
         (await EnqueueAsync(post, WorkflowEvents.Updated)).Should().Be(0, "Updated is not in the list");
-        (await EnqueueAsync(NewName("other"), WorkflowEvents.Published)).Should().Be(0, "that type is not in the list");
+        (await EnqueueAsync(WorkflowStopHarness.NewName("other"), WorkflowEvents.Published)).Should().Be(0, "that type is not in the list");
 
         var runs = await RunsOfAsync(workflowId);
         runs.Should().HaveCount(2);
@@ -303,7 +303,7 @@ public class WorkflowTriggerEventsTests
     [Fact]
     public async Task An_event_matching_two_entries_in_the_lists_queues_one_run()
     {
-        var post = NewName("post");
+        var post = WorkflowStopHarness.NewName("post");
 
         // Stored straight through a session, so nothing has removed the repeats. The single fields
         // are left blank, so only the lists can match.
@@ -321,7 +321,7 @@ public class WorkflowTriggerEventsTests
     [Fact]
     public async Task A_definition_stored_before_the_lists_existed_still_fires_on_its_single_type_and_event()
     {
-        var post = NewName("post");
+        var post = WorkflowStopHarness.NewName("post");
         var workflowId = await StoreWorkflowAsync(w =>
         {
             w.TriggerContentType = post;
@@ -344,8 +344,8 @@ public class WorkflowTriggerEventsTests
 
         var res = await PostWorkflowAsync(new
         {
-            name = NewName("0663-wf"),
-            triggerContentType = NewName("post"),
+            name = WorkflowStopHarness.NewName("0663-wf"),
+            triggerContentType = WorkflowStopHarness.NewName("post"),
             triggerEvents = new[] { "Published", "Unpublished", "Published" },
         });
         res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, await res.Content.ReadAsStringAsync());
@@ -363,8 +363,8 @@ public class WorkflowTriggerEventsTests
 
         var res = await PostWorkflowAsync(new
         {
-            name = NewName("0663-wf"),
-            triggerContentType = NewName("post"),
+            name = WorkflowStopHarness.NewName("0663-wf"),
+            triggerContentType = WorkflowStopHarness.NewName("post"),
             triggerEvent = "Deleted",
         });
         res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, await res.Content.ReadAsStringAsync());
@@ -381,8 +381,8 @@ public class WorkflowTriggerEventsTests
 
         var res = await PostWorkflowAsync(new
         {
-            name = NewName("0663-wf"),
-            triggerContentType = NewName("post"),
+            name = WorkflowStopHarness.NewName("0663-wf"),
+            triggerContentType = WorkflowStopHarness.NewName("post"),
             triggerEvents = new[] { "Published", "Vanished" },
         });
         var body = await res.Content.ReadAsStringAsync();
@@ -429,7 +429,6 @@ public class WorkflowTriggerEventsTests
             "Bearer", _factory.CreateToken(roles: roles, userId: userId.ToString()));
     }
 
-    private static string NewName(string prefix) => $"{prefix}-{Guid.NewGuid():N}";
 
     private static WorkflowAction EmailAction() => new()
     {
@@ -442,7 +441,7 @@ public class WorkflowTriggerEventsTests
         var workflow = new WorkflowDefinition
         {
             Id = Guid.NewGuid(),
-            Name = NewName("0663-wf"),
+            Name = WorkflowStopHarness.NewName("0663-wf"),
             // Refused before any socket is opened, so a run the runner picks up sends nothing.
             Actions = [new WorkflowAction { Type = "Webhook", Parameters = new Dictionary<string, string> { ["Url"] = "not-a-url" } }],
         };

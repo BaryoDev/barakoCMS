@@ -78,13 +78,8 @@ public class AccountScopedTenantTests
         return (Bearer(_fixture.CreateToken(roles: [$"Account Manager {userId:N}"], userId: userId.ToString())), userId);
     }
 
-    private async Task<HttpClient> PlatformManagerAsync()
-    {
-        var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> PlatformManagerAsync() =>
+        _fixture.CreateClientAsync("SuperAdmin");
 
     private HttpClient Bearer(string token)
     {

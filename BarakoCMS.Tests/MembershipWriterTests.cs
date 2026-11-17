@@ -60,7 +60,7 @@ public class MembershipWriterTests
     [Fact]
     public void No_source_file_but_the_member_endpoints_writes_a_membership()
     {
-        var root = RepositoryRoot();
+        var root = RepoPaths.Root;
         var offenders = new List<string>();
         var scanned = 0;
         var homeSeen = false;
@@ -205,15 +205,4 @@ public class MembershipWriterTests
         }
     }
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "barakoCMS.sln")))
-        {
-            directory = directory.Parent;
-        }
-
-        return directory?.FullName
-            ?? throw new InvalidOperationException("barakoCMS.sln was not found above the test output directory.");
-    }
 }
