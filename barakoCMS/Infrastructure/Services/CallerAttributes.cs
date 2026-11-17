@@ -109,6 +109,39 @@ internal static class CallerAttributes
         return false;
     }
 
+    /// <summary>
+    /// The profile attribute names these conditions read through a variable. <c>$CURRENT_BRANCH</c>
+    /// and <c>$CURRENT_USER.branch</c> both read <c>branches</c>, the stored attribute the request's branch is derived from.
+    /// </summary>
+    public static IEnumerable<string> NamesRead(Dictionary<string, object>? conditions)
+    {
+        foreach (var comparison in (conditions ?? []).Values)
+        {
+            IEnumerable<object?> expected = comparison switch
+            {
+                JsonElement { ValueKind: JsonValueKind.Object } element =>
+                    element.EnumerateObject().Select(p => p.Value.ValueKind == JsonValueKind.String ? (object?)p.Value.GetString() : null),
+                Dictionary<string, object> operators =>
+                    operators.Values.Select(v => v is JsonElement { ValueKind: JsonValueKind.String } text ? text.GetString() : v),
+                _ => [],
+            };
+
+            foreach (var value in expected)
+            {
+                if (!IsReference(value))
+                    continue;
+
+                var text = (string)value!;
+                var name = text.StartsWith(Prefix, StringComparison.Ordinal)
+                    ? text[Prefix.Length..]
+                    : CallerBranches.BranchAttribute;
+
+                // The request's branch ("branch") is derived from the stored "branches".
+                yield return name == CallerBranches.BranchAttribute ? CallerBranches.BranchesAttribute : name;
+            }
+        }
+    }
+
     /// <summary>What is wrong with a profile a request sent, or null.</summary>
     public static string? ProfileError(Dictionary<string, string>? profile)
     {

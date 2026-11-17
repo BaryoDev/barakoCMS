@@ -497,6 +497,8 @@ internal sealed class AddMemberEndpoint(
 
         await RefuseUnheldRolesAsync(roleIds, membership, slug, ct);
 
+        await RefuseUnheldProfileAsync(user.Id, roleIds, membership, req.Profile, slug, ct);
+
         var details = new Dictionary<string, object> { ["invited"] = invited };
 
         if (membership is null)
@@ -554,6 +556,22 @@ internal sealed class AddMemberEndpoint(
             slug, ct);
         if (notHeld is not null)
             ThrowError(notHeld, 403);
+    }
+
+    // A profile a role reads widens that role, so it is held to the same rule as a role grant.
+    private async Task RefuseUnheldProfileAsync(
+        Guid memberId, List<Guid> roleIds, Membership? membership, Dictionary<string, string>? profile,
+        string slug, CancellationToken ct)
+    {
+        // The stored profile survives a request with none for an Active or Suspended member, so it is
+        // the "before" for both. Roles count as kept only while Active. A Removed member starts empty.
+        var active = membership is { Status: MembershipStatus.Active };
+        var survives = membership is { Status: not MembershipStatus.Removed };
+        var profileNotHeld = await barakoCMS.Features.Roles.RoleGrantRules.ProfileNotHeldAsync(
+            session, User, memberId, roleIds, active ? membership!.RoleIds : new List<Guid>(),
+            survives ? membership!.Profile : null, profile, slug, ct);
+        if (profileNotHeld is not null)
+            ThrowError(profileNotHeld, 403);
     }
 
     internal const string ConcurrentAdd =
@@ -632,6 +650,12 @@ internal sealed class UpdateMemberEndpoint(
             slug, ct);
         if (notHeld is not null)
             ThrowError(notHeld, 403);
+
+        // A profile change can widen the roles the member keeps, so the caller must hold that too.
+        var profileNotHeld = await barakoCMS.Features.Roles.RoleGrantRules.ProfileNotHeldAsync(
+            session, User, req.UserId, roleIds, current, membership.Profile, req.Profile, slug, ct);
+        if (profileNotHeld is not null)
+            ThrowError(profileNotHeld, 403);
 
         await Members.ChangeAsync(session, User, "tenant.member.updated", membership, roleIds, req.Status,
             req.Profile is null ? null : Members.CopyOf(req.Profile),

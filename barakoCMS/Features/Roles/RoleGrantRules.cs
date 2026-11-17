@@ -69,6 +69,111 @@ internal static class RoleGrantRules
         return null;
     }
 
+    /// <summary>
+    /// The first reason the caller cannot make this profile change, or null. A condition such as
+    /// <c>Branch eq $CURRENT_USER.branches</c> reads the member's profile, so a profile value a role
+    /// reads widens what the role allows, and the caller must hold it, as for a role grant. The
+    /// member's roles are the requested ones unioned with their global and group roles. For a role the
+    /// member keeps, only a value that is added or changed counts. For a role this request grants (one
+    /// not in <paramref name="keptRoleIds"/>), every attribute it reads in the effective profile
+    /// (<paramref name="after"/>, or <paramref name="before"/> when none is sent) counts, changed or not.
+    /// <c>branches</c> is always read, since the branch guards read it whatever a role says. It is held
+    /// when each branch counted is one of the caller's own; any other attribute is held when the
+    /// caller's own value is identical. A SuperAdmin passes, and so does the tenant's Admin for roles
+    /// owned by the tenant and for <c>branches</c>, as for a role grant.
+    /// </summary>
+    public static async Task<string?> ProfileNotHeldAsync(
+        IQuerySession session, System.Security.Claims.ClaimsPrincipal user, Guid memberId,
+        IEnumerable<Guid> roleIds, IReadOnlyCollection<Guid> keptRoleIds,
+        IReadOnlyDictionary<string, string>? before, IReadOnlyDictionary<string, string>? after,
+        string tenant, CancellationToken ct)
+    {
+        if (await PlatformRoles.IsSuperAdminAsync(session, user, ct))
+            return null;
+
+        var requested = roleIds.Distinct().ToList();
+        var member = await session.LoadAsync<User>(memberId, ct);
+        var effectiveIds = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
+            .WithRequestedAsync(session, member, tenant, requested, ct);
+        var roles = effectiveIds.Count == 0
+            ? []
+            : await session.Query<Role>().Where(r => r.DeletedAt == null && effectiveIds.Contains(r.Id)).ToListAsync(ct);
+
+        Guid.TryParse(user.FindFirst("UserId")?.Value, out var callerId);
+        var caller = callerId == Guid.Empty ? null : await session.LoadAsync<User>(callerId, ct);
+        var tenantAdmin = false;
+        if (caller is not null)
+        {
+            var (callerRoleIds, _) = await barakoCMS.Infrastructure.Multitenancy.MembershipRoles
+                .ResolveAsync(session, caller, tenant, ct);
+            tenantAdmin = callerRoleIds.Contains(SystemRoles.AdminRoleId);
+        }
+
+        var counted = roles.Where(r => !(tenantAdmin && !r.IsPlatform
+            && string.Equals(r.TenantSlug, tenant, StringComparison.OrdinalIgnoreCase))).ToList();
+        var effective = after ?? before;
+        var changed = ChangedNames(before, after);
+        var readByAny = ReadNames(counted);
+        var granted = counted.Where(r => requested.Contains(r.Id) && !keptRoleIds.Contains(r.Id)).ToList();
+        var readByNew = ReadNames(granted);
+        if (!tenantAdmin)
+        {
+            readByAny.Add(CallerBranches.BranchesAttribute);
+            // The branch guard scopes every right by the member's branches, whether or not a rule reads them,
+            // so a role granted now with rights needs every branch the member has, not only the added ones.
+            if (granted.Any(CarriesRights))
+                readByNew.Add(CallerBranches.BranchesAttribute);
+        }
+
+        var checks = changed.Where(readByAny.Contains)
+            .Select(name => (name, full: false))
+            .Concat((effective?.Keys ?? Enumerable.Empty<string>()).Where(readByNew.Contains).Select(name => (name, full: true)))
+            .ToList();
+        if (checks.Count == 0)
+            return null;
+
+        var own = caller is null
+            ? null
+            : (await session.Query<Membership>()
+                .FirstOrDefaultAsync(m => m.UserId == callerId && m.TenantSlug == tenant && m.Status == MembershipStatus.Active, ct))?.Profile;
+
+        foreach (var (name, full) in checks)
+        {
+            if (!ProfileValueHeld(name, full, before, effective, own))
+                return $"You cannot set '{name}' because you do not hold that value and a role of this member reads it.";
+        }
+
+        return null;
+    }
+
+    private static List<string> ChangedNames(
+        IReadOnlyDictionary<string, string>? before, IReadOnlyDictionary<string, string>? after) =>
+        (after ?? new Dictionary<string, string>())
+            .Where(pair => !(before is not null && before.TryGetValue(pair.Key, out var old)
+                             && string.Equals(old, pair.Value, StringComparison.Ordinal)))
+            .Select(pair => pair.Key)
+            .ToList();
+
+    private static HashSet<string> ReadNames(IEnumerable<Role> roles) =>
+        roles.SelectMany(r => ContentRights(r).SelectMany(x => CallerAttributes.NamesRead(x.Rule.Conditions)))
+            .ToHashSet(StringComparer.Ordinal);
+
+    // The value is compared as stored, as the condition evaluator reads it: no trimming, ordinal.
+    private static bool ProfileValueHeld(
+        string name, bool full, IReadOnlyDictionary<string, string>? before,
+        IReadOnlyDictionary<string, string>? effective, IReadOnlyDictionary<string, string>? own)
+    {
+        if (name == CallerBranches.BranchesAttribute)
+        {
+            var kept = full ? [] : CallerBranches.Of(before).ToHashSet();
+            var mine = CallerBranches.Of(own).ToHashSet();
+            return CallerBranches.Of(effective).All(b => kept.Contains(b) || mine.Contains(b));
+        }
+
+        return own is not null && effective is not null && own.TryGetValue(name, out var value)
+            && string.Equals(value, effective[name], StringComparison.Ordinal);
+    }
+
     public const string GlobalRoleWithRightsMessage =
         "This role carries capabilities or content rights and would apply in every tenant, so only a platform administrator (SuperAdmin) can grant it globally.";
 

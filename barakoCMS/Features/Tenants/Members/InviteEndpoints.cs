@@ -171,6 +171,8 @@ internal sealed class InviteMemberEndpoint(
         if (await Invites.ProfileValueTakenAsync(session, slug, user.Id, req.Profile, ct))
             ThrowError(Invites.ProfileTaken, 409);
 
+        await RefuseUnheldProfileAsync(user.Id, roleIds, req.Profile, slug, ct);
+
         var details = new Dictionary<string, object> { ["invited"] = created, ["viaInvite"] = true };
         await Members.AddAsync(session, User, user.Id, slug, roleIds, req.Profile, details, ct);
 
@@ -185,5 +187,16 @@ internal sealed class InviteMemberEndpoint(
 
         permissions.InvalidateUserPermissions(user.Id);
         await Send.OkAsync(new InviteResponse("invited", user.Id), ct);
+    }
+
+    // An invitable role holds no capability but may carry a condition that reads the profile, so the
+    // profile the invite sets is held to the same rule as a new member's (nothing before it).
+    private async Task RefuseUnheldProfileAsync(
+        Guid memberId, List<Guid> roleIds, Dictionary<string, string>? profile, string slug, CancellationToken ct)
+    {
+        var profileNotHeld = await barakoCMS.Features.Roles.RoleGrantRules.ProfileNotHeldAsync(
+            session, User, memberId, roleIds, new List<Guid>(), null, profile, slug, ct);
+        if (profileNotHeld is not null)
+            ThrowError(profileNotHeld, 403);
     }
 }

@@ -61,6 +61,22 @@ public static class MembershipRoles
         return (held.Union(global).ToList(), membership);
     }
 
+    /// <summary>
+    /// The roles a member would hold in a tenant if their membership held <paramref name="requested"/>:
+    /// those, unioned with the user's global and group roles, less any role another tenant owns. The
+    /// same filter <see cref="ResolveAsync"/> applies, for a membership that is not stored yet.
+    /// </summary>
+    internal static async Task<List<Guid>> WithRequestedAsync(
+        IQuerySession session, User? user, string tenantSlug, IEnumerable<Guid> requested, CancellationToken ct)
+    {
+        var global = user is null
+            ? []
+            : (user.RoleIds ?? new List<Guid>()).Union(await GroupRoleIdsAsync(session, user, ct)).ToList();
+        var all = requested.Union(global).ToList();
+        var foreign = await ForeignAsync(session, all, tenantSlug, ct);
+        return all.Except(foreign).ToList();
+    }
+
     /// <summary>The roles of every group the user is a member of, on either side of the link.</summary>
     /// <remarks>
     /// A member is a user whose <see cref="User.GroupIds"/> names the group or whom the group's
