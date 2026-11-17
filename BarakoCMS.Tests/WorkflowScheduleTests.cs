@@ -81,6 +81,31 @@ public class WorkflowScheduleTests
     }
 
     [Fact]
+    public async Task The_runs_api_shows_a_scheduled_run_with_its_due_time()
+    {
+        var workflow = Scheduled("0 0 * * *", "Asia/Manila", Utc(2026, 10, 19, 10, 0));
+        await StoreAsync(workflow);
+        await FireAsync(Utc(2026, 10, 19, 16, 0, 30));
+        var run = (await RunsOfAsync(workflow.Id)).Single();
+
+        var (token, _) = await TestHelpers.CreateAdminUserAsync(_fixture);
+        var client = _fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+        var one = await client.GetAsync($"/api/workflow-runs/{run.Id}", Ct);
+        one.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = JsonDocument.Parse(await one.Content.ReadAsStringAsync(Ct)).RootElement;
+        body.GetProperty("scheduledFor").GetDateTimeOffset().Should().Be(new DateTimeOffset(Utc(2026, 10, 19, 16, 0)));
+        body.GetProperty("scheduledPreviousFor").GetDateTimeOffset().Should().Be(new DateTimeOffset(Utc(2026, 10, 18, 16, 0)));
+
+        var list = await client.GetAsync($"/api/workflow-runs?workflowId={workflow.Id}", Ct);
+        list.StatusCode.Should().Be(HttpStatusCode.OK);
+        var item = JsonDocument.Parse(await list.Content.ReadAsStringAsync(Ct)).RootElement
+            .GetProperty("items").EnumerateArray().Single();
+        item.GetProperty("scheduledFor").GetDateTimeOffset().Should().Be(new DateTimeOffset(Utc(2026, 10, 19, 16, 0)));
+    }
+
+    [Fact]
     public async Task A_schedule_saved_after_an_old_claim_does_not_fire_for_times_before_it_was_saved()
     {
         var workflow = Scheduled("0 * * * *", "UTC", Utc(2026, 10, 19, 11, 30));
