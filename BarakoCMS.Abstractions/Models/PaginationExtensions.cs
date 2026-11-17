@@ -17,20 +17,21 @@ public static class PaginationExtensions
         PaginatedRequest request,
         CancellationToken ct)
     {
-        // Stats marks the query it is called on and a count from that query is refused, so the
-        // fallback count comes from a copy made before Stats. It only runs for an empty page.
-        var uncounted = query.Provider.CreateQuery<T>(query.Expression);
-
         var items = await query
             .Stats(out var stats)
             .Skip(request.Skip)
             .Take(request.Take)
             .ToListAsync(ct);
 
-        // A page past the end has no row to carry the total, so Stats reports 0. Count it on its own.
-        var total = items.Count == 0 && request.Skip > 0
-            ? await uncounted.CountAsync(ct)
-            : (int)stats.TotalResults;
+        // A page past the end has no row to carry the total, so Stats reports 0. Ask again from the
+        // first row. Stats marks the provider and Marten then refuses a CountAsync on it, so the
+        // second read uses Stats too.
+        var total = (int)stats.TotalResults;
+        if (items.Count == 0 && request.Skip > 0)
+        {
+            await query.Stats(out var all).Take(1).ToListAsync(ct);
+            total = (int)all.TotalResults;
+        }
 
         return new PaginatedResponse<T>
         {
