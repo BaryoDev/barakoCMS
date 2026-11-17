@@ -10,23 +10,49 @@ namespace barakoCMS.Features.WorkflowRuns;
 /// </summary>
 internal static class RunQueries
 {
-    /// <summary>The run count of every status, zero where there is none, in one grouped query.</summary>
-    internal static async Task<Dictionary<string, int>> CountByStatusAsync(
-        IQuerySession session, Guid? contentId, Guid? workflowId, CancellationToken ct)
+    /// <summary>The most runs counted for one status on a list read. A count that reaches it reads "this many or more".</summary>
+    internal const int StatusCountCap = 1000;
+
+    /// <summary>
+    /// The run count of every status, zero where there is none, counted only up to a cap for each status.
+    /// </summary>
+    /// <remarks>
+    /// A grouped count over every run of the tenant costs as much as the table is long, and the list asks
+    /// on each read. This reads at most <paramref name="cap"/> + 1 ids per status, so the cost has a ceiling
+    /// however long the history grows. A status that has more than the cap reports the cap and is named in
+    /// <see cref="StatusCounts.Capped"/>.
+    /// </remarks>
+    internal static async Task<StatusCounts> CountByStatusAsync(
+        IQuerySession session, Guid? contentId, Guid? workflowId, CancellationToken ct, int cap = StatusCountCap)
     {
-        var q = session.Query<WorkflowRun>().AsQueryable();
-        if (contentId is { } c) q = q.Where(r => r.ContentId == c);
-        if (workflowId is { } w) q = q.Where(r => r.WorkflowDefinitionId == w);
+        // One batch: one round trip and one snapshot for all the statuses.
+        var batch = session.CreateBatchQuery();
+        var pending = new List<(RunStatus Status, Task<IReadOnlyList<Guid>> Ids)>();
+        foreach (var status in Enum.GetValues<RunStatus>())
+        {
+            var wanted = status;
+            var q = batch.Query<WorkflowRun>().Where(r => r.Status == wanted);
+            if (contentId is { } c) q = q.Where(r => r.ContentId == c);
+            if (workflowId is { } w) q = q.Where(r => r.WorkflowDefinitionId == w);
+            pending.Add((status, q.Take(cap + 1).Select(r => r.Id).ToList()));
+        }
 
-        var groups = await q
-            .GroupBy(r => r.Status)
-            .Select(g => new StatusCount { Status = g.Key, Count = g.Count() })
-            .ToListAsync(ct);
+        await batch.Execute(ct);
 
-        var counts = Enum.GetValues<RunStatus>().ToDictionary(each => each.ToString(), _ => 0);
-        foreach (var group in groups) counts[group.Status.ToString()] = group.Count;
-        return counts;
+        var counts = new Dictionary<string, int>();
+        var capped = new List<string>();
+        foreach (var (status, task) in pending)
+        {
+            var ids = await task;
+            counts[status.ToString()] = Math.Min(ids.Count, cap);
+            if (ids.Count > cap) capped.Add(status.ToString());
+        }
+
+        return new StatusCounts(counts, cap, capped);
     }
+
+    /// <summary>Counts by status, the cap each was counted to, and the statuses that reached past it.</summary>
+    internal sealed record StatusCounts(Dictionary<string, int> Counts, int Cap, List<string> Capped);
 
     /// <summary>A count for every status, zero where there is none, from a count by status.</summary>
     internal static Dictionary<string, int> ByStatus(Func<RunStatus, int> of) =>
@@ -118,12 +144,6 @@ internal static class RunQueries
             .OrderByDescending(r => r.CreatedAt)
             .Take(count)
             .ToListAsync(ct);
-
-    private sealed class StatusCount
-    {
-        public RunStatus Status { get; set; }
-        public int Count { get; set; }
-    }
 
     private sealed class WorkflowCount
     {
