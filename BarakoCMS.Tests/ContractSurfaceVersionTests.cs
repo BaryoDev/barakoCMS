@@ -65,7 +65,7 @@ public class ContractSurfaceVersionTests
 
         var admin = meta.RootElement.GetProperty("apiContractVersion");
         admin.ValueKind.Should().Be(JsonValueKind.Number, "a released console reads it as a number");
-        admin.GetInt32().Should().Be(15);
+        admin.GetInt32().Should().Be(16);
 
         var delivery = meta.RootElement.GetProperty("deliveryContractVersion");
         delivery.ValueKind.Should().Be(JsonValueKind.Number);
