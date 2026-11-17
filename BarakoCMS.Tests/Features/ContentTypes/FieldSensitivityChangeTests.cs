@@ -416,6 +416,75 @@ public class FieldSensitivityChangeTests
             SensitivityLevel.Sensitive, "a refused request changes nothing");
     }
 
+    private async Task<string> SeedComputedAsync(SensitivityLevel computedLevel)
+    {
+        var type = $"fc{Guid.NewGuid().ToString("N")[..8]}";
+        using var scope = _factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+        using var session = store.LightweightSession();
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = type,
+            DisplayName = "Computed probe",
+            Fields = new List<FieldDefinition>
+            {
+                new() { Name = "Holder", Type = "string" },
+                new() { Name = "Card", Type = "string" },
+                new()
+                {
+                    Name = "Label", Type = "string", Sensitivity = computedLevel,
+                    Computed = new ComputedDefinition { Fn = "concat", Args = ["Holder", "Card"] },
+                },
+            },
+        });
+        await session.SaveChangesAsync();
+        return type;
+    }
+
+    private async Task<SensitivityLevel> StoredLevelAsync(string type, string field)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var def = await session.Query<ContentTypeDefinition>().FirstAsync(d => d.Name == type);
+        return def.Fields.Single(f => f.Name == field).Sensitivity;
+    }
+
+    [Fact]
+    public async Task Raising_an_input_is_refused_while_a_computed_field_over_it_would_expose_it()
+    {
+        var type = await SeedComputedAsync(SensitivityLevel.Public);
+
+        var res = await SetSensitivityAsync(await Client("Admin"), type, "Card", new { sensitivity = "Sensitive" });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync()).Should().Contain("'Label'").And.Contain("'Card'");
+        (await StoredLevelAsync(type, "Card")).Should().Be(SensitivityLevel.Public, "a refused request changes nothing");
+    }
+
+    [Fact]
+    public async Task Putting_a_role_list_on_an_input_is_refused_while_the_computed_field_has_none()
+    {
+        var type = await SeedComputedAsync(SensitivityLevel.Sensitive);
+
+        var res = await SetSensitivityAsync(
+            await Client("Admin"), type, "Card", new { sensitivity = "Sensitive", visibleToRoles = new[] { "HR" } });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync()).Should().Contain("'Label'").And.Contain("'Card'");
+    }
+
+    [Fact]
+    public async Task Raising_an_input_is_accepted_once_the_computed_field_is_at_least_as_restricted()
+    {
+        var type = await SeedComputedAsync(SensitivityLevel.Hidden);
+
+        var res = await SetSensitivityAsync(await Client("Admin"), type, "Card", new { sensitivity = "Sensitive" });
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await StoredLevelAsync(type, "Card")).Should().Be(SensitivityLevel.Sensitive);
+    }
+
     [Fact]
     public async Task Only_an_admin_can_change_a_field_s_sensitivity()
     {

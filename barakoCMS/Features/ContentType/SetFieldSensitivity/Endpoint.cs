@@ -173,6 +173,24 @@ internal class Endpoint(
         var answered = new FieldDefinition { VisibleToRoles = [.. target.VisibleToRoles] };
         var roles = await RoleAudit.RoleListsAsync(session, [field.VisibleToRoles?.ToList() ?? new List<string>(), target.VisibleToRoles], [answered], ct);
 
+        // The same computed-field check create and update run, on the field list this change would
+        // leave. Only what the change introduces is refused, so a type with an older problem elsewhere
+        // can still have a leaking field masked.
+        var proposedField = System.Text.Json.JsonSerializer.Deserialize<FieldDefinition>(System.Text.Json.JsonSerializer.Serialize(field))!;
+        proposedField.Sensitivity = req.Sensitivity;
+        proposedField.VisibleToRoles = [.. target.VisibleToRoles];
+        proposedField.Mask = barakoCMS.Core.Validation.SensitivityRank.IsUniform(req.Sensitivity) ? FieldMask.Default : req.Mask ?? FieldMask.Default;
+        var proposed = def.Fields.Select(f => f == field ? proposedField : f).ToList();
+        var already = barakoCMS.Core.Validation.ComputedFields.DefinitionErrors(def.Fields).ToHashSet();
+        var introduced = barakoCMS.Core.Validation.ComputedFields.DefinitionErrors(proposed).Where(e => !already.Contains(e)).ToList();
+        if (introduced.Count > 0)
+        {
+            foreach (var error in introduced)
+                AddError(error);
+            await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
         var change = NewChange(def, field, req, target.VisibleToRoles, actorId);
         if (await FieldChanges.StartAsync(session, change, ct, inlineWhenSmall: true) is { } busy)
         {

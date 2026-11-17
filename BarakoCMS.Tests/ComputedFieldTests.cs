@@ -42,6 +42,62 @@ public class ComputedFieldTests
     private static Dictionary<string, object> Data(params (string Key, object Value)[] pairs) =>
         pairs.ToDictionary(p => p.Key, p => p.Value);
 
+    private static FieldDefinition Guarded(FieldDefinition f, SensitivityLevel level, FieldMask mask = FieldMask.Default, params string[] roles)
+    {
+        f.Sensitivity = level;
+        f.Mask = mask;
+        f.VisibleToRoles = roles.ToList();
+        return f;
+    }
+
+    [Fact]
+    public void A_computed_field_over_a_role_restricted_input_is_refused_when_it_names_more_roles()
+    {
+        var (isValid, errors) = Save(
+            Guarded(Plain("Salary", "decimal"), SensitivityLevel.Sensitive, FieldMask.Default, "HR"),
+            Plain("Bonus", "decimal"),
+            Guarded(Computed("Total", "decimal", "add", null, "Salary", "Bonus"), SensitivityLevel.Sensitive, FieldMask.Default, "HR", "Finance"));
+
+        isValid.Should().BeFalse();
+        errors.Should().ContainSingle(e => e.Contains("'Total'") && e.Contains("'Salary'") && e.Contains("'Finance'"));
+    }
+
+    [Fact]
+    public void A_computed_field_over_a_role_restricted_input_is_refused_when_it_has_no_role_list()
+    {
+        var (isValid, errors) = Save(
+            Guarded(Plain("Salary", "decimal"), SensitivityLevel.Sensitive, FieldMask.Default, "HR"),
+            Plain("Bonus", "decimal"),
+            Guarded(Computed("Total", "decimal", "add", null, "Salary", "Bonus"), SensitivityLevel.Sensitive));
+
+        isValid.Should().BeFalse();
+        errors.Should().ContainSingle(e => e.Contains("'Total'") && e.Contains("'Salary'") && e.Contains("no role list"));
+    }
+
+    [Fact]
+    public void A_computed_field_over_a_masked_input_is_refused_when_it_shows_more_of_the_value()
+    {
+        var (isValid, errors) = Save(
+            Guarded(Plain("Card", "string"), SensitivityLevel.Sensitive, FieldMask.Redact),
+            Plain("Holder", "string"),
+            Guarded(Computed("Label", "string", "concat", null, "Holder", "Card"), SensitivityLevel.Sensitive, FieldMask.Last4));
+
+        isValid.Should().BeFalse();
+        errors.Should().ContainSingle(e => e.Contains("'Label'") && e.Contains("'Card'") && e.Contains("masked"));
+    }
+
+    [Fact]
+    public void A_computed_field_masked_and_listed_like_its_input_is_accepted()
+    {
+        var (isValid, errors) = Save(
+            Guarded(Plain("Card", "string"), SensitivityLevel.Sensitive, FieldMask.Last4, "HR", "Finance"),
+            Plain("Holder", "string"),
+            Guarded(Computed("Label", "string", "concat", null, "Holder", "Card"), SensitivityLevel.Hidden, FieldMask.Remove, "HR"));
+
+        errors.Should().BeEmpty();
+        isValid.Should().BeTrue();
+    }
+
     [Fact]
     public void Hours_is_worked_out_from_time_in_and_time_out_and_rounded()
     {

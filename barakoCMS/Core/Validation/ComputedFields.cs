@@ -131,10 +131,59 @@ internal static class ComputedFields
                 yield return $"Field '{name}' is {field.Sensitivity} and computes from '{input.Name}', which is {input.Sensitivity}. "
                     + "A computed value may not be more widely readable than what it is computed from.";
             }
+
+            foreach (var leak in ReadAudienceErrors(field, input))
+                yield return leak;
         }
 
         foreach (var error in InputTypeErrors(field, fn, inputs))
             yield return error;
+    }
+
+    /// <summary>
+    /// Role list and mask, the two ways besides the level that delivery narrows who reads a field.
+    /// </summary>
+    /// <remarks>
+    /// Delivery lets a field's role list replace the capability its level names, so a list is the
+    /// audience when present and the level's capability holders are when not. A computed field is
+    /// no wider than an input when its list is inside the input's. An input with no list is not
+    /// restricted on this axis, and the level check already covers it. A mask only applies to a
+    /// caller who may not read the field, and it is stricter in the order Remove, Redact, Last4, so
+    /// a computed field showing more of its value than the input does would hand that caller a part
+    /// of what the input hides. Public and Members fields are never masked.
+    /// </remarks>
+    private static IEnumerable<string> ReadAudienceErrors(FieldDefinition field, FieldDefinition input)
+    {
+        if (input.VisibleToRoles is { Count: > 0 } allowed)
+        {
+            var own = field.VisibleToRoles ?? [];
+            var wider = own.Count == 0
+                ? "has no role list"
+                : own.Where(r => !allowed.Contains(r, StringComparer.OrdinalIgnoreCase)).ToList() is { Count: > 0 } extra
+                    ? $"lists {string.Join(", ", extra.Select(r => $"'{r}'"))}, which '{input.Name}' does not"
+                    : null;
+            if (wider is not null)
+            {
+                yield return $"Field '{field.Name}' computes from '{input.Name}', which only {string.Join(", ", allowed.Select(r => $"'{r}'"))} may read, "
+                    + $"and '{field.Name}' {wider}. Give '{field.Name}' a visibleToRoles list inside the input's, so it is not readable by more roles than what it is computed from.";
+            }
+        }
+
+        if (MaskStrictness(field) < MaskStrictness(input))
+        {
+            yield return $"Field '{field.Name}' computes from '{input.Name}', which is masked as {EffectiveMask(input)}, "
+                + $"and '{field.Name}' shows {EffectiveMask(field)}. Mask '{field.Name}' at least as strictly (Remove is strictest, then Redact, then Last4).";
+        }
+    }
+
+    private static FieldMask EffectiveMask(FieldDefinition f) =>
+        f.Mask != FieldMask.Default ? f.Mask : f.Sensitivity == SensitivityLevel.Hidden ? FieldMask.Remove : FieldMask.Redact;
+
+    private static int MaskStrictness(FieldDefinition f)
+    {
+        if (f.Sensitivity is SensitivityLevel.Public or SensitivityLevel.Members)
+            return 0;
+        return EffectiveMask(f) switch { FieldMask.Remove => 3, FieldMask.Redact => 2, FieldMask.Last4 => 1, _ => 2 };
     }
 
     private static IEnumerable<string> InputTypeErrors(FieldDefinition field, string fn, List<FieldDefinition> inputs)

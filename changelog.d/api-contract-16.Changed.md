@@ -1,0 +1,1 @@
+- **The API contract moves from 15 to 16.** A computed field definition that shows more than its inputs is now refused where it used to be accepted. Deploy barakoBrew 1.13.0, which accepts 16, before or with this release.
