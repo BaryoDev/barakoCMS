@@ -172,6 +172,20 @@ public class WorkflowToolsApiTests : IAsyncLifetime
     #region POST /api/workflows/validate Tests
 
     [Fact]
+    public async Task ValidateWorkflow_WithANullAction_ShouldReturn400()
+    {
+        var response = await _client.PostAsJsonAsync("/api/workflows/validate", new
+        {
+            name = "Test Workflow",
+            triggerContentType = "PurchaseOrder",
+            triggerEvent = "Created",
+            actions = new object?[] { null },
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task ValidateWorkflow_WithValidWorkflow_ShouldReturnValid()
     {
         // Arrange
@@ -618,6 +632,16 @@ public class WorkflowToolsApiTests : IAsyncLifetime
     #endregion
 
     #region GET /api/workflows/{id}/debug Tests
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(-50)]
+    public async Task GetWorkflowDebugInfo_WithANegativeLimit_ShouldReturn400(int limit)
+    {
+        var response = await _client.GetAsync($"/api/workflows/{Guid.NewGuid()}/debug?limit={limit}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
 
     [Fact]
     public async Task GetWorkflowDebugInfo_WithNoExecutions_ShouldReturnEmptyList()

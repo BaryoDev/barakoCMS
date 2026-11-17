@@ -2,6 +2,7 @@ using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
+using FluentValidation;
 
 namespace barakoCMS.Features.Workflows.ValidateWorkflow;
 
@@ -56,5 +57,17 @@ internal class Endpoint(IWorkflowSchemaValidator validator) : Endpoint<Request, 
 
         var result = await validator.ValidateAsync(workflow, ct);
         await Send.ResponseAsync(result, cancellation: ct);
+    }
+}
+
+/// <summary>
+/// A null action in the body is refused with a 400, as it was when a catch-all turned the
+/// validator's exception into one.
+/// </summary>
+internal sealed class Validator : Validator<Request>
+{
+    public Validator()
+    {
+        RuleForEach(r => r.Actions).NotNull().WithMessage("Action is required");
     }
 }

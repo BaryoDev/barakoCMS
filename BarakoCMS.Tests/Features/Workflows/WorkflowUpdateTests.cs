@@ -62,6 +62,11 @@ public class WorkflowUpdateTests
         return JsonDocument.Parse(text).RootElement.GetProperty("id").GetGuid();
     }
 
+    private static Guid AdminIdOf(HttpClient client) =>
+        Guid.Parse(new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler()
+            .ReadJwtToken(client.DefaultRequestHeaders.Authorization!.Parameter!)
+            .Claims.First(c => c.Type == "UserId").Value);
+
     [Fact]
     public async Task Creating_a_workflow_writes_a_workflow_created_audit_row()
     {
@@ -72,6 +77,7 @@ public class WorkflowUpdateTests
 
         audit.Should().HaveCount(1);
         audit[0].ActorUsername.Should().NotBeNullOrEmpty();
+        audit[0].ActorUserId.Should().Be(AdminIdOf(admin));
         audit[0].TargetType.Should().Be(nameof(WorkflowDefinition));
     }
 

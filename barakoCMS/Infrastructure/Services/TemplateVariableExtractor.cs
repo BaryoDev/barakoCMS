@@ -972,7 +972,7 @@ public class TemplateVariableExtractor(
     {
         var fields = new List<TemplateVariable>();
 
-        foreach (var kvp in content.Data)
+        foreach (var kvp in content.Data ?? [])
         {
             var value = kvp.Value;
             var type = "string";
