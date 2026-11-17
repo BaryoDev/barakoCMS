@@ -17,8 +17,6 @@ public class ConfigIconTests
 
     public ConfigIconTests(IntegrationTestFixture fixture) => _callers = new ConfigCallers(fixture);
 
-    private static string Unique(string prefix) => $"{prefix}{Guid.NewGuid():n}"[..(prefix.Length + 10)];
-
     private static object Document(string name, ContentTypeIcon? icon)
     {
         var type = Type(name, ("Title", "string"));
@@ -33,7 +31,7 @@ public class ConfigIconTests
     public async Task Applying_a_type_with_an_icon_stores_it_sanitised()
     {
         var tenant = await _callers.TenantAsync();
-        var name = Unique("iconic");
+        var name = TestNames.Compact("iconic");
         var client = await _callers.SuperAdminAsync(tenant);
 
         var (response, body) = await ApplyAsync(client, Document(name, new ContentTypeIcon { Svg = Hostile }));
@@ -52,7 +50,7 @@ public class ConfigIconTests
     public async Task An_unusable_icon_fails_the_apply_with_a_message_and_stores_nothing()
     {
         var tenant = await _callers.TenantAsync();
-        var name = Unique("iconic");
+        var name = TestNames.Compact("iconic");
 
         var (response, body) = await ApplyAsync(await _callers.SuperAdminAsync(tenant),
             Document(name, new ContentTypeIcon { Svg = "<svg><path d=\"M0 0h5v5z\"/></svg>" }));
@@ -67,7 +65,7 @@ public class ConfigIconTests
     public async Task Re_applying_with_a_changed_icon_updates_it_and_a_document_without_one_keeps_it()
     {
         var tenant = await _callers.TenantAsync();
-        var name = Unique("iconic");
+        var name = TestNames.Compact("iconic");
         var client = await _callers.SuperAdminAsync(tenant);
         (await ApplyAsync(client, Document(name, new ContentTypeIcon { Name = "home" }))).Response.IsSuccessStatusCode.Should().BeTrue();
 

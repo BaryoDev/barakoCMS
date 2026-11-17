@@ -17,8 +17,11 @@
 
 set -euo pipefail
 
+# shellcheck source=scripts/lib-path.sh
+. "$(dirname "$0")/lib-path.sh"
+
 # Resolved before the cd below, so a relative path means the caller's directory.
-OUT="$(realpath -m "${1:?usage: scripts/openapi-fetch.sh <output file>}")"
+OUT="$(resolve_path "${1:?usage: scripts/openapi-fetch.sh <output file>}")"
 
 cd "$(dirname "$0")/.."
 

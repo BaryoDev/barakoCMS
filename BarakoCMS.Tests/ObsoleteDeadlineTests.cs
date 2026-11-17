@@ -176,7 +176,7 @@ public class ObsoleteDeadlineTests
 
     private static IEnumerable<string> SourceFiles()
     {
-        var root = RepositoryRoot();
+        var root = RepoPaths.Root;
         foreach (var directory in Directory.EnumerateDirectories(root, "*", SearchOption.TopDirectoryOnly))
         {
             var name = Path.GetFileName(directory);
@@ -204,19 +204,4 @@ public class ObsoleteDeadlineTests
         }
     }
 
-    /// <summary>
-    /// Walks up from the test binary to the directory holding the solution, so this works from a
-    /// local run and from CI without either knowing where the other put things.
-    /// </summary>
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "barakoCMS.sln")))
-        {
-            directory = directory.Parent;
-        }
-
-        directory.Should().NotBeNull("the test has to find the solution root to scan the source");
-        return directory!.FullName;
-    }
 }

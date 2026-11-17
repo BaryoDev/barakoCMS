@@ -29,13 +29,8 @@ public class TenantStatusTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private async Task<HttpClient> PlatformAdminAsync()
-    {
-        var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> PlatformAdminAsync() =>
+        _fixture.CreateClientAsync("SuperAdmin");
 
     private async Task<HttpResponseMessage> SetStatusAsync(string slug, object body)
     {
@@ -318,7 +313,7 @@ public class TenantStatusTests
 
         (await StoredJsonAsync(off)).TryGetProperty("Status", out _).Should().BeFalse("the control: the row is as 4.9 left it");
 
-        var sql = await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "5.0.0", "tenant-status.sql"), Ct);
+        var sql = await File.ReadAllTextAsync(Path.Combine(RepoPaths.Root, "migrations", "5.0.0", "tenant-status.sql"), Ct);
         await using (var connection = new NpgsqlConnection(_fixture.ConnectionString))
         {
             await connection.OpenAsync(Ct);
@@ -447,15 +442,4 @@ public class TenantStatusTests
         stillOpen.ScheduledUnpublishAt.Should().NotBeNull("its unpublish time is still to come");
     }
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-        {
-            directory = directory.Parent;
-        }
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 }

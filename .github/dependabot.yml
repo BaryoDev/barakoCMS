@@ -36,28 +36,24 @@ updates:
       - dependency-name: "FastEndpoints.Testing"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
-      # xunit.v3.extensibility.core carries no version of its own here: it must equal xunit.v3,
-      # which depends on it, and those two pin each other exactly. Directory.Packages.props says so
-      # in a comment directly above the line.
-      #
-      # Grouping does not solve this, which is worth saying because it is the obvious first answer.
-      # A group batches the updates that exist into one pull request; it cannot wait for the other
-      # half of a family to get a release. When 4.0.1 of this package shipped and xunit.v3 stayed at
-      # 4.0.0, the group moved the one that had somewhere to go and left the one that did not, and
-      # locked restore refused with NU1004. That failed the build, the module template job and the
-      # security scan, the last because the vulnerability report comes from a restore that never
-      # finished.
-      #
-      # So it is held, and moved by hand alongside xunit.v3. That is a manual step and it is smaller
-      # than repairing a broken pull request every time one half of the pair releases.
-      #
-      # Held by update-type rather than by a version range, for the same reason as the entries
-      # above: a range would suppress security updates too.
+      # xunit.v3.extensibility.core must equal xunit.v3, which depends on it, and the two pin each
+      # other exactly. Dependabot cannot move one without the other (a group only batches the
+      # updates that exist), so a lone bump broke restore with NU1004. The ignore stays and the
+      # pair is moved by hand. When xunit.v3 is bumped, bump this line in Directory.Packages.props
+      # to the same version. Held by update-type so security updates still come through.
       - dependency-name: "xunit.v3.extensibility.core"
         update-types:
           - "version-update:semver-patch"
           - "version-update:semver-minor"
           - "version-update:semver-major"
+
+      # The runtime is .NET 10 LTS, so no 11.x of the framework-band packages.
+      - dependency-name: "Microsoft.AspNetCore.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.Extensions.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "System.Security.Cryptography.*"
+        update-types: ["version-update:semver-major"]
 
       # BarakoCMS is referenced as a package in two places, and neither should move: the module
       # template, whose version is a placeholder filled in when a module is generated, and the

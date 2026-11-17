@@ -238,6 +238,10 @@ public class WorkflowRunChangedSinceTests
 
         poll.RootElement.GetProperty("statusCounts").ValueKind.Should().Be(JsonValueKind.Null);
         plain.RootElement.GetProperty("statusCounts").ValueKind.Should().Be(JsonValueKind.Object);
+        plain.RootElement.GetProperty("statusCountCap").ValueKind.Should().Be(JsonValueKind.Number);
+        plain.RootElement.GetProperty("statusCountsCapped").ValueKind.Should().Be(JsonValueKind.Array);
+        poll.RootElement.GetProperty("statusCountCap").ValueKind.Should().Be(JsonValueKind.Null);
+        poll.RootElement.GetProperty("statusCountsCapped").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
     [Fact]

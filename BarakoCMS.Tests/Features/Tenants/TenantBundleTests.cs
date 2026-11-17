@@ -28,13 +28,8 @@ public class TenantBundleTests
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private async Task<HttpClient> PlatformAdminAsync()
-    {
-        var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin"));
-        return client;
-    }
+    private Task<HttpClient> PlatformAdminAsync() =>
+        _fixture.CreateClientAsync("SuperAdmin");
 
     private static string NewHandle() => $"tb-{Guid.NewGuid():N}"[..16];
 

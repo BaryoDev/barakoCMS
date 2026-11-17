@@ -162,15 +162,6 @@ public class GaplessNumberingMigrationTests
     }
 
     private static async Task<string> MigrationAsync() =>
-        await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "4.9.0", "gapless-numbering.sql"), Ct);
+        await File.ReadAllTextAsync(Path.Combine(RepoPaths.Root, "migrations", "4.9.0", "gapless-numbering.sql"), Ct);
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-            directory = directory.Parent;
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 }

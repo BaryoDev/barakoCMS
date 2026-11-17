@@ -22,8 +22,11 @@
 
 set -uo pipefail
 
-BASE="$(realpath -m "${1:?usage: scripts/openapi-diff.sh <base> <revision>}")"
-REVISION="$(realpath -m "${2:?usage: scripts/openapi-diff.sh <base> <revision>}")"
+# shellcheck source=scripts/lib-path.sh
+. "$(dirname "$0")/lib-path.sh"
+
+BASE="$(resolve_path "${1:?usage: scripts/openapi-diff.sh <base> <revision>}")"
+REVISION="$(resolve_path "${2:?usage: scripts/openapi-diff.sh <base> <revision>}")"
 
 cd "$(dirname "$0")/.."
 

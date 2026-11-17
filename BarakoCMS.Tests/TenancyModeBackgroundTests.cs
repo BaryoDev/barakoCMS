@@ -107,7 +107,7 @@ public class TenancyModeBackgroundTests
     /// <summary>The one sql block in the multi-tenancy doc that reads the content table.</summary>
     private static string DocumentedUnreachablePartitionsSql()
     {
-        var doc = File.ReadAllText(Path.Combine(ComposeDefaultsTests.RepoRoot(), "docs", "multi-tenancy.md"));
+        var doc = File.ReadAllText(Path.Combine(RepoPaths.Root, "docs", "multi-tenancy.md"));
 
         var blocks = System.Text.RegularExpressions.Regex
             .Matches(doc, "```sql\n(.*?)```", System.Text.RegularExpressions.RegexOptions.Singleline)

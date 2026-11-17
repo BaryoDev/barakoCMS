@@ -34,10 +34,10 @@ public class WorkflowTriggerContentTypesTests
     public async Task Creating_a_workflow_with_a_list_returns_the_list_and_its_first_type_as_the_single_field()
     {
         await AuthenticateAsync();
-        var page = NewName("page");
-        var post = NewName("post");
+        var page = WorkflowStopHarness.NewName("page");
+        var post = WorkflowStopHarness.NewName("post");
 
-        var res = await PostAsync(new { name = NewName("0726-wf"), triggerContentTypes = new[] { page, post, page } });
+        var res = await PostAsync(new { name = WorkflowStopHarness.NewName("0726-wf"), triggerContentTypes = new[] { page, post, page } });
         res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, await res.Content.ReadAsStringAsync());
         var created = await ReadAsync(res);
 
@@ -54,9 +54,9 @@ public class WorkflowTriggerContentTypesTests
     public async Task A_single_type_workflow_reads_back_unchanged_with_its_type_in_the_list()
     {
         await AuthenticateAsync();
-        var post = NewName("post");
+        var post = WorkflowStopHarness.NewName("post");
 
-        var res = await PostAsync(new { name = NewName("0726-wf"), triggerContentType = post });
+        var res = await PostAsync(new { name = WorkflowStopHarness.NewName("0726-wf"), triggerContentType = post });
         res.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", res.StatusCode, await res.Content.ReadAsStringAsync());
         var created = await ReadAsync(res);
 
@@ -68,7 +68,7 @@ public class WorkflowTriggerContentTypesTests
     public async Task A_workflow_stored_before_the_list_existed_lists_its_single_type()
     {
         await AuthenticateAsync();
-        var post = NewName("post");
+        var post = WorkflowStopHarness.NewName("post");
         var id = Guid.NewGuid();
 
         using (var scope = _factory.Services.CreateScope())
@@ -77,7 +77,7 @@ public class WorkflowTriggerContentTypesTests
             session.Store(new WorkflowDefinition
             {
                 Id = id,
-                Name = NewName("0726-wf"),
+                Name = WorkflowStopHarness.NewName("0726-wf"),
                 TriggerContentType = post,
                 TriggerEvent = "Published",
                 Actions = [EmailAction()],
@@ -97,7 +97,7 @@ public class WorkflowTriggerContentTypesTests
     {
         await AuthenticateAsync();
 
-        var res = await PostAsync(new { name = NewName("0726-wf"), triggerContentTypes = Array.Empty<string>() });
+        var res = await PostAsync(new { name = WorkflowStopHarness.NewName("0726-wf"), triggerContentTypes = Array.Empty<string>() });
         var body = await res.Content.ReadAsStringAsync();
 
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "got {0}: {1}", res.StatusCode, body);
@@ -133,7 +133,6 @@ public class WorkflowTriggerContentTypesTests
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
 
-    private static string NewName(string prefix) => $"{prefix}-{Guid.NewGuid():N}";
 
     private static WorkflowAction EmailAction() => new()
     {

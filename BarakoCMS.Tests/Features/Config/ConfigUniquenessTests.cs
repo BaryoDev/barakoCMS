@@ -16,8 +16,6 @@ public class ConfigUniquenessTests
 
     public ConfigUniquenessTests(IntegrationTestFixture fixture) => _callers = new ConfigCallers(fixture);
 
-    private static string Unique(string prefix) => $"{prefix}{Guid.NewGuid():n}"[..(prefix.Length + 10)];
-
     private static ContentTypeDefinition Badge(string name, params UniquenessRule[] rules)
     {
         var type = Type(name, ("Badge", "string"), ("Note", "string"));
@@ -35,7 +33,7 @@ public class ConfigUniquenessTests
     public async Task A_new_type_applied_from_a_document_stores_its_uniqueness_rules()
     {
         var tenant = await _callers.TenantAsync();
-        var name = Unique("badge");
+        var name = TestNames.Compact("badge");
         var client = await _callers.SuperAdminAsync(tenant);
 
         var (response, body) = await ApplyAsync(client, new
@@ -56,7 +54,7 @@ public class ConfigUniquenessTests
     public async Task A_rule_create_would_refuse_is_refused_by_apply_and_nothing_is_stored()
     {
         var tenant = await _callers.TenantAsync();
-        var name = Unique("badge");
+        var name = TestNames.Compact("badge");
         var client = await _callers.SuperAdminAsync(tenant);
 
         var (response, body) = await ApplyAsync(client, new
@@ -76,7 +74,7 @@ public class ConfigUniquenessTests
     {
         var source = await _callers.TenantAsync();
         var target = await _callers.TenantAsync();
-        var name = Unique("badge");
+        var name = TestNames.Compact("badge");
         await _callers.StoreInTenantAsync(source, Badge(name, OneHolder()));
 
         var (exported, document) = await ExportAsync(await _callers.SuperAdminAsync(source), "contentTypes");
@@ -94,7 +92,7 @@ public class ConfigUniquenessTests
     public async Task A_document_without_uniqueness_keeps_the_rules_a_stored_type_holds()
     {
         var tenant = await _callers.TenantAsync();
-        var name = Unique("badge");
+        var name = TestNames.Compact("badge");
         await _callers.StoreInTenantAsync(tenant, Badge(name, OneHolder()));
         var client = await _callers.SuperAdminAsync(tenant);
 
@@ -118,7 +116,7 @@ public class ConfigUniquenessTests
     public async Task A_document_with_different_rules_for_a_stored_type_is_pointed_at_the_uniqueness_route()
     {
         var tenant = await _callers.TenantAsync();
-        var name = Unique("badge");
+        var name = TestNames.Compact("badge");
         await _callers.StoreInTenantAsync(tenant, Badge(name, OneHolder()));
         var client = await _callers.SuperAdminAsync(tenant);
 

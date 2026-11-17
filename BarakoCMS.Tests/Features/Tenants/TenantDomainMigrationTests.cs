@@ -145,7 +145,7 @@ public class TenantDomainMigrationTests
 
     private static string Scoped(string scratch)
     {
-        var sql = File.ReadAllText(Path.Combine(RepositoryRoot(), "migrations", "5.5.0", "1280-tenant-domains.sql"));
+        var sql = File.ReadAllText(Path.Combine(RepoPaths.Root, "migrations", "5.5.0", "1280-tenant-domains.sql"));
         var scoped = sql.Replace("public.", scratch + ".");
         scoped.Should().NotBe(sql, "the file should name its tables as public.<table>");
         return scoped;
@@ -205,15 +205,4 @@ public class TenantDomainMigrationTests
         await command.ExecuteNonQueryAsync(ct ?? Ct);
     }
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "migrations")))
-        {
-            directory = directory.Parent;
-        }
-
-        directory.Should().NotBeNull("the test binary should sit under the repository");
-        return directory!.FullName;
-    }
 }

@@ -34,13 +34,8 @@ public class RoleReferencePortabilityTests
 
     private static string NewType() => ("rolref" + Guid.NewGuid().ToString("n"))[..14];
 
-    private async Task<HttpClient> AdminAsync()
-    {
-        var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin", "Admin"));
-        return client;
-    }
+    private Task<HttpClient> AdminAsync() =>
+        _fixture.CreateClientAsync("SuperAdmin", "Admin");
 
     private async Task<Role> StoreRoleAsync()
     {

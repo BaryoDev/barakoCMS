@@ -180,12 +180,6 @@ public class ActivityEventIndexTests
     }
 
     private static async Task<string> MigrationAsync(string file) =>
-        await File.ReadAllTextAsync(Path.Combine(RepositoryRoot(), "migrations", "5.6.1", file), Ct);
+        await File.ReadAllTextAsync(Path.Combine(RepoPaths.Root, "migrations", "5.6.1", file), Ct);
 
-    private static string RepositoryRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "barakoCMS.sln"))) dir = dir.Parent;
-        return dir?.FullName ?? throw new InvalidOperationException("barakoCMS.sln not found above the test output");
-    }
 }

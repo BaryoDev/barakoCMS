@@ -1,0 +1,1 @@
+- **Runtime and images moved to .NET 10.0.15.** The Docker images are pinned to the 10.0.15 digests, and Marten 9.60.0 and the other routine package bumps come with it.
