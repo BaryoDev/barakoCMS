@@ -394,7 +394,7 @@ public class ContentValidatorService(
             return null;
 
         var display = schema.Fields
-            .FirstOrDefault(f => string.Equals(f.Name, slugField, StringComparison.OrdinalIgnoreCase))
+            .FieldNamed(slugField)
             ?.DisplayName ?? slugField;
 
         // Which entry holds it is deliberately not named. A caller who may create content here is not

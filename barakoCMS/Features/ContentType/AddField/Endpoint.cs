@@ -188,7 +188,7 @@ internal sealed class Endpoint(
         var name = barakoCMS.Core.ContentTypeName.Normalize(req.Name);
 
         var definition = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct);
+            .FirstNamedAsync(name, ct);
 
         if (definition is null)
         {
@@ -197,7 +197,7 @@ internal sealed class Endpoint(
         }
 
         var clash = definition.Fields
-            .FirstOrDefault(f => string.Equals(f.Name, req.FieldName, StringComparison.OrdinalIgnoreCase));
+            .FieldNamed(req.FieldName);
 
         if (clash is not null)
         {

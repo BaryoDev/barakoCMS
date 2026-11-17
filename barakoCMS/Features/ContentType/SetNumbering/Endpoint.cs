@@ -58,7 +58,7 @@ internal sealed class Endpoint(IDocumentSession session, barakoCMS.Infrastructur
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var lowered = (Route<string>("name") ?? string.Empty).ToLower();
-        if (await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct) is not { } definition)
+        if (await session.Query<ContentTypeDefinition>().FirstNamedAsync(lowered, ct) is not { } definition)
         {
             await Send.NotFoundAsync(ct);
             return;

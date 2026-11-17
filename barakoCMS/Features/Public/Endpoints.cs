@@ -322,6 +322,18 @@ internal static class PublicDelivery
     /// </summary>
     public static bool IsDeliverable(ContentTypeDefinition? def) => def is { IsPubliclyDeliverable: true };
 
+    /// <summary>The type by exact name when it is publicly deliverable, else null (the caller sends the 404).</summary>
+    public static async Task<ContentTypeDefinition?> LoadDeliverableAsync(IQuerySession session, string type, CancellationToken ct)
+    {
+        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
+        return IsDeliverable(def) ? def : null;
+    }
+
+    /// <summary>The rate limit and cache metadata every anonymous delivery route carries.</summary>
+    public static void DeliveryOptions(Microsoft.AspNetCore.Builder.RouteHandlerBuilder x) => x
+        .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
+        .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators, barakoCMS.Infrastructure.Caching.DeliveryResponseCachePolicy.Instance);
+
     public static Dictionary<string, object> PublicData(
         ContentDoc c,
         ContentTypeDefinition? def)
@@ -382,18 +394,12 @@ internal static class PublicDelivery
     /// <c>ShownWhenListedIn</c> is never served here, whatever its sensitivity.
     /// </remarks>
     public static bool IsDeliveredField(FieldDefinition field, bool member) =>
-        (field.Sensitivity == SensitivityLevel.Public
-         || (member && field.Sensitivity == SensitivityLevel.Members && field.VisibleToRoles is not { Count: > 0 }))
-        && !IsToken(field)
-        && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(field);
-
-    /// <summary>A token is never delivered, even from a definition stored with the field Public.</summary>
-    /// <remarks>
-    /// No endpoint stores one that way. A definition written past them would, and this is the last
-    /// place that can still leave the value out.
-    /// </remarks>
-    private static bool IsToken(FieldDefinition field) =>
-        barakoCMS.Core.Validation.TokenFields.IsToken(field.Type);
+        barakoCMS.Core.Validation.LookupRules.IsReturnable(field)
+        || (member
+            && field.Sensitivity == SensitivityLevel.Members
+            && field.VisibleToRoles is not { Count: > 0 }
+            && !barakoCMS.Core.Validation.TokenFields.IsToken(field.Type)
+            && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(field));
 
     /// <summary>
     /// Projects a Published, document-Public entry for anonymous delivery, exposing ONLY the fields the
@@ -545,16 +551,14 @@ internal class ListPublishedEndpoint(
     {
         Get("/api/public/{type}");
         AllowAnonymous();
-        Options(x => x
-            .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
-            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators, barakoCMS.Infrastructure.Caching.DeliveryResponseCachePolicy.Instance));
+        Options(PublicDelivery.DeliveryOptions);
     }
 
     public override async Task HandleAsync(PublicListRequest req, CancellationToken ct)
     {
         var type = Route<string>("type") ?? string.Empty;
-        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
-        if (!PublicDelivery.IsDeliverable(def)) { await Send.NotFoundAsync(ct); return; }
+        var def = await PublicDelivery.LoadDeliverableAsync(session, type, ct);
+        if (def is null) { await Send.NotFoundAsync(ct); return; }
         var slugField = PublicDelivery.SlugField(def!);
         if (!PublicDelivery.ReadAudience(HttpContext, config, tenant.Slug, out var member)) { await Send.UnauthorizedAsync(ct); return; }
 
@@ -719,9 +723,7 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
     {
         Get("/api/public/{type}/search");
         AllowAnonymous();
-        Options(x => x
-            .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
-            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators, barakoCMS.Infrastructure.Caching.DeliveryResponseCachePolicy.Instance));
+        Options(PublicDelivery.DeliveryOptions);
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -733,8 +735,8 @@ internal class PublicSearchEndpoint(IQuerySession session, IConfiguration config
         /* Eligibility first. Answering the short-query case before this gate returned 200 for a type
          * that is not deliverable, which confirms the type exists — the existence oracle the 404 is
          * meant to close. */
-        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
-        if (!PublicDelivery.IsDeliverable(def)) { await Send.NotFoundAsync(ct); return; }
+        var def = await PublicDelivery.LoadDeliverableAsync(session, type, ct);
+        if (def is null) { await Send.NotFoundAsync(ct); return; }
         var slugField = PublicDelivery.SlugField(def!);
 
         // Checked before the short-query answer, so a refused filter is a 400 whatever q holds.
@@ -826,9 +828,7 @@ internal class GetBySlugEndpoint(
     {
         Get("/api/public/{type}/{slug}");
         AllowAnonymous();
-        Options(x => x
-            .RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.DeliveryPolicy)
-            .WithMetadata(barakoCMS.Infrastructure.Caching.DeliveryCache.Validators, barakoCMS.Infrastructure.Caching.DeliveryResponseCachePolicy.Instance));
+        Options(PublicDelivery.DeliveryOptions);
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -836,8 +836,8 @@ internal class GetBySlugEndpoint(
         var type = Route<string>("type") ?? string.Empty;
         var slug = Route<string>("slug") ?? string.Empty;
 
-        var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, ct);
-        if (!PublicDelivery.IsDeliverable(def)) { await Send.NotFoundAsync(ct); return; }
+        var def = await PublicDelivery.LoadDeliverableAsync(session, type, ct);
+        if (def is null) { await Send.NotFoundAsync(ct); return; }
         var slugField = PublicDelivery.SlugField(def!);
         if (slugField is null) { await Send.NotFoundAsync(ct); return; } /* not slug-addressable */
 

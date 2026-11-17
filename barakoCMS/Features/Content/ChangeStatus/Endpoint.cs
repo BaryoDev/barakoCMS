@@ -37,12 +37,6 @@ internal class Endpoint(
             return;
         }
 
-        if (user == null)
-        {
-            await Send.ForbiddenAsync(ct);
-            return;
-        }
-
         // Which of the two request shapes is correct depends on the content type, which the
         // validator cannot see. A type with a lifecycle takes a named transition; every type that
         // exists today has none and takes a status.

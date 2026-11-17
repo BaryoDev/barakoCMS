@@ -54,7 +54,7 @@ internal sealed class AddSeoFieldsEndpoint(
         var name = barakoCMS.Core.ContentTypeName.Normalize(req.Name);
 
         var definition = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct);
+            .FirstNamedAsync(name, ct);
 
         if (definition is null)
         {
@@ -68,7 +68,7 @@ internal sealed class AddSeoFieldsEndpoint(
         foreach (var field in SeoFields.Definitions())
         {
             var existing = definition.Fields
-                .FirstOrDefault(f => string.Equals(f.Name, field.Name, StringComparison.OrdinalIgnoreCase));
+                .FieldNamed(field.Name);
 
             if (existing is not null)
             {

@@ -1,0 +1,1 @@
+A content type name that matches two stored types differing only by case now answers 400 on the content type settings routes, block bindings, SEO fields and entry lines, instead of picking one of them.

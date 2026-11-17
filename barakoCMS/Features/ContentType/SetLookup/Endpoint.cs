@@ -33,7 +33,7 @@ internal class Endpoint(
         var name = barakoCMS.Core.ContentTypeName.Normalize(Route<string>("name") ?? string.Empty);
 
         var def = await session.Query<ContentTypeDefinition>()
-            .FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct);
+            .FirstNamedAsync(name, ct);
 
         if (def is null)
         {
@@ -48,7 +48,7 @@ internal class Endpoint(
             {
                 var settingName = barakoCMS.Core.ContentTypeName.Normalize(reveal.SettingType);
                 settingType = await session.Query<ContentTypeDefinition>()
-                    .FirstOrDefaultAsync(d => d.Name.ToLower() == settingName, ct);
+                    .FirstNamedAsync(settingName, ct);
             }
 
             var errors = LookupRules.Errors(lookup, def, settingType);

@@ -19,11 +19,6 @@ internal class Endpoint(
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
-        // 1. Authenticate User
-        // Note: Generic "User" principal is available via HttpContext if authenticated.
-        // "UserId" is the only identity claim the token carries. This used to look first for the
-        // literal string System.Security.Claims.ClaimTypes.NameIdentifier, which is the name of a
-        // constant and not its value, so it never matched and the fallback was always what ran.
         // A person or a service principal. Neither claim present answers 401.
         Models.User? user = await barakoCMS.Infrastructure.Auth.ActingCaller.LoadAsync(session, User, ct);
         if (barakoCMS.Infrastructure.Auth.ActingCaller.IdOf(User) is null)

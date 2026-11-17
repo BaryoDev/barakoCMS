@@ -94,7 +94,7 @@ internal static class LookupRules
     public static FieldDefinition? Field(ContentTypeDefinition def, string? name) =>
         string.IsNullOrEmpty(name)
             ? null
-            : def.Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+            : def.Fields.FieldNamed(name);
 
     private static string Describe(FieldDefinition field) =>
         TokenFields.IsToken(field.Type) ? "a token" : field.Sensitivity.ToString();
