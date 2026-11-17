@@ -62,12 +62,13 @@ internal class Endpoint(IWorkflowSchemaValidator validator) : Endpoint<Request, 
 
 /// <summary>
 /// A null action in the body is refused with a 400, as it was when a catch-all turned the
-/// validator's exception into one.
+/// validator's exception into one. A Must rule, because FastEndpoints reads NotNull as making
+/// `actions` required in the OpenAPI document, and a body without it is still accepted.
 /// </summary>
 internal sealed class Validator : Validator<Request>
 {
     public Validator()
     {
-        RuleForEach(r => r.Actions).NotNull().WithMessage("Action is required");
+        RuleFor(r => r.Actions).Must(a => a is null || a.TrueForAll(x => x is not null)).WithMessage("Action is required");
     }
 }
