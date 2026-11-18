@@ -170,13 +170,18 @@ public class ApiKeyAuthoringReadsTests
 
         var res = await ClientFor(key, tenant).GetAsync("/api/blocks/schema", Ct);
 
-        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
+        var text = await res.Content.ReadAsStringAsync(Ct);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, text);
+        text.Should().Contain("hero");
     }
 
     [Fact]
     public async Task A_content_write_key_cannot_put_the_block_schema()
     {
         var tenant = await TenantProfileSeed.TenantAsync(_fixture, Ct);
+        // The same PUT works for the tenant admin, so the 403 below is the key's doing.
+        var admin = await TenantProfileSeed.AdminInAsync(_fixture, tenant, Ct);
+        (await admin.PutAsJsonAsync("/api/blocks/schema", HeroSchema, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
         // A SuperAdmin acting through the key: the role would allow the PUT, so only the scope refuses it.
         var userId = Guid.NewGuid();
         await StoreAsync(
