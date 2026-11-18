@@ -5,9 +5,9 @@ public enum InboundWebhookScheme
 {
     /// <summary>
     /// HMAC-SHA256 of <c>{timestamp}.{body}</c>, where the timestamp comes from
-    /// <see cref="InboundWebhookRequest.TimestampHeader"/> and must be inside the replay window. A
-    /// request with no timestamp header is refused unless
-    /// <see cref="InboundWebhookRequest.AllowBodyOnlySignature"/> is set, which signs the body alone.
+    /// <see cref="InboundWebhookRequest.TimestampHeader"/> and must be inside the replay window. With no
+    /// timestamp header the body alone is signed and there is no replay window. That is deprecated: 6.0
+    /// refuses it unless <see cref="InboundWebhookRequest.AllowBodyOnlySignature"/> is set.
     /// The signature is hex encoded in <see cref="InboundWebhookRequest.SignatureHeader"/>, optionally prefixed
     /// <c>sha256=</c>. The secret is used as UTF-8 text.
     /// </summary>
@@ -37,14 +37,15 @@ public sealed record InboundWebhookRequest(
     public string SignatureHeader { get; init; } = "X-Signature";
 
     /// <summary>
-    /// Hmac only: the header holding a unix timestamp. Required unless
-    /// <see cref="AllowBodyOnlySignature"/> is set.
+    /// Hmac only: the header holding a unix timestamp. Leaving it null is deprecated and refused in 6.0
+    /// unless <see cref="AllowBodyOnlySignature"/> is set.
     /// </summary>
     public string? TimestampHeader { get; init; }
 
     /// <summary>
-    /// Hmac only: accept a signature over the body alone when <see cref="TimestampHeader"/> is null,
-    /// for a sender that cannot send a timestamp. There is no replay window then. Defaults to false.
+    /// Hmac only: confirms a signature over the body alone when <see cref="TimestampHeader"/> is null,
+    /// for a sender that cannot send a timestamp. There is no replay window then. Without it, such a
+    /// request is accepted with a warning in 5.x and refused in 6.0. Defaults to false.
     /// </summary>
     public bool AllowBodyOnlySignature { get; init; }
 
@@ -84,7 +85,8 @@ public interface IInboundWebhookVerifier
     /// <summary>
     /// Checks the signature and the timestamp window only. Returns <see cref="InboundWebhookOutcome.Processed"/>
     /// when both pass. Does not touch the database. A plain <see cref="InboundWebhookScheme.Hmac"/> request with no
-    /// timestamp header is refused unless <see cref="InboundWebhookRequest.AllowBodyOnlySignature"/> is set.
+    /// timestamp header is accepted with a warning in 5.x and refused in 6.0 unless
+    /// <see cref="InboundWebhookRequest.AllowBodyOnlySignature"/> is set.
     /// </summary>
     InboundWebhookOutcome Verify(InboundWebhookRequest request, DateTimeOffset now);
 
