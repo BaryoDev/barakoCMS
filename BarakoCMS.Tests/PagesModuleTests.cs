@@ -24,7 +24,7 @@ namespace BarakoCMS.Tests;
 [Collection("Integration1")]
 public class PagesModuleTests
 {
-    private const string TypeName = "pagetreeprobe";
+    internal const string TypeName = "pagetreeprobe";
 
     private readonly IntegrationTestFixture _factory;
 
@@ -35,7 +35,7 @@ public class PagesModuleTests
     private static readonly SemaphoreSlim TypeGate = new(1, 1);
     private static bool _typeDeclared;
 
-    private async Task DeclareTypeAsync()
+    internal async Task DeclareTypeAsync()
     {
         await TypeGate.WaitAsync(Ct);
         try
