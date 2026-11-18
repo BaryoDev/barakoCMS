@@ -331,7 +331,7 @@ public class ReadableContentTypesTests
             DisplayName = "Salary",
             Type = "decimal",
             // A role list only means something on a restricted level; on Public the service
-            // answers before it reads the list, and the API clears it.
+            // answers before it reads the list, so a Public field is shown to everyone.
             Sensitivity = SensitivityLevel.Sensitive,
             VisibleToRoles = [secretRole.Id.ToString()],
         }, new FieldDefinition
