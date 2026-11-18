@@ -379,4 +379,71 @@ public class ReadableContentTypesTests
             .Single(f => f.GetProperty("name").GetString() == "Bonus")
             .GetProperty("computed").GetProperty("fn").GetString().Should().Be("multiply");
     }
+
+    [Fact]
+    public async Task Without_a_sign_in_both_routes_answer_401()
+    {
+        var post = NewName("post");
+        await StoreAsync(TypeOf(post));
+        var client = _fixture.CreateClient();
+
+        (await client.GetAsync(ListRoute, Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await client.GetAsync($"{ListRoute}/{post}", Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task A_disabled_read_rule_does_not_grant_the_shape()
+    {
+        var post = NewName("post");
+        await StoreAsync(TypeOf(post));
+        var (_, token) = await UserWithAsync(new ContentTypePermission
+        {
+            ContentTypeSlug = post,
+            Read = new PermissionRule { Enabled = false },
+        });
+
+        (await GetAsync($"{ListRoute}/{post}", token)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        NamesIn(await BodyAsync(await GetAsync(ListRoute, token))).Should().NotContain(post);
+    }
+
+    [Fact]
+    public async Task A_reference_to_a_type_the_caller_cannot_read_is_not_named()
+    {
+        var a = NewName("order");
+        var b = NewName("secret");
+        await StoreAsync(
+            TypeOf(a, new FieldDefinition { Name = "Link", DisplayName = "Link", Type = "reference", ReferenceType = b }),
+            TypeOf(b));
+        var (_, onlyA) = await UserWithAsync(Read(a));
+        var (_, both) = await UserWithAsync(Read(a), Read(b));
+
+        JsonElement Link(JsonElement body) => body.GetProperty("fields").EnumerateArray()
+            .Single(f => f.GetProperty("name").GetString() == "Link");
+
+        var hidden = await BodyAsync(await GetAsync($"{ListRoute}/{a}", onlyA));
+        Link(hidden).GetProperty("referenceType").ValueKind.Should().Be(JsonValueKind.Null);
+
+        var shown = await BodyAsync(await GetAsync($"{ListRoute}/{a}", both));
+        Link(shown).GetProperty("referenceType").GetString().Should().Be(b);
+    }
+
+    [Fact]
+    public async Task A_reference_to_a_type_that_does_not_exist_is_not_named()
+    {
+        var a = NewName("order");
+        await StoreAsync(TypeOf(a, new FieldDefinition
+        {
+            Name = "Link",
+            DisplayName = "Link",
+            Type = "reference",
+            ReferenceType = NewName("gone"),
+        }));
+        var (_, token) = await UserWithAsync(Read(a));
+
+        var body = await BodyAsync(await GetAsync($"{ListRoute}/{a}", token));
+
+        body.GetProperty("fields").EnumerateArray()
+            .Single(f => f.GetProperty("name").GetString() == "Link")
+            .GetProperty("referenceType").ValueKind.Should().Be(JsonValueKind.Null);
+    }
 }

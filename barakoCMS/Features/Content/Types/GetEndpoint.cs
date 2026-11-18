@@ -34,6 +34,6 @@ internal sealed class GetEndpoint(IQuerySession session, IPermissionResolver per
             return;
         }
 
-        await Send.OkAsync(await ReadableTypeResponse.ForAsync(definition, sensitivity, User, ct), ct);
+        await Send.OkAsync(await ReadableTypeResponse.ForAsync(definition, sensitivity, permissionResolver, session, user, User, ct), ct);
     }
 }

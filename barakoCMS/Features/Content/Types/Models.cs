@@ -33,7 +33,7 @@ internal sealed record ReadableField(
     /// <summary>Where the block schema of a <c>blocks</c> field is served.</summary>
     public const string BlockSchemaRoute = "/api/blocks/schema";
 
-    public static ReadableField From(FieldDefinition f, ISet<string> hidden) => new(
+    public static ReadableField From(FieldDefinition f, ISet<string> hidden, ISet<string> unreadableTypes) => new(
         f.Name,
         f.Type,
         f.IsRequired,
@@ -41,7 +41,7 @@ internal sealed record ReadableField(
         f.Options,
         f.Multiple,
         f.ItemType,
-        f.ReferenceType,
+        f.ReferenceType is { } target && unreadableTypes.Contains(target) ? null : f.ReferenceType,
         f.DefaultValue,
         f.JsonSchema,
         f.Currency,
@@ -67,6 +67,9 @@ internal sealed record ReadableTypeResponse(
     public static async Task<ReadableTypeResponse> ForAsync(
         ContentTypeDefinition d,
         barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
+        barakoCMS.Infrastructure.Services.IPermissionResolver permissions,
+        Marten.IQuerySession session,
+        barakoCMS.Models.User caller,
         System.Security.Claims.ClaimsPrincipal user,
         CancellationToken ct)
     {
@@ -78,6 +81,28 @@ internal sealed record ReadableTypeResponse(
                 visible.Add(field);
             else
                 hidden.Add(field.Name);
+        }
+
+        // A reference is shown only when the caller may read the type it points at, so the shape
+        // never names one that GET /types/{name} answers with 404. A reference to a type that does
+        // not exist is hidden too. Each name is resolved the way the get route resolves it, so the
+        // permission check runs on the definition that route would return; a name that cannot be
+        // resolved to one type counts as unreadable. ItemType is a scalar type and is not touched.
+        var unreadable = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var targets = visible.Select(f => f.ReferenceType)
+            .Where(n => !string.IsNullOrEmpty(n)).Select(n => n!).Distinct(StringComparer.Ordinal);
+        foreach (var name in targets)
+        {
+            try
+            {
+                var target = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, name, ct);
+                if (target is null || !await permissions.CanPerformActionAsync(caller, target.Name, "read", null, ct))
+                    unreadable.Add(name);
+            }
+            catch (barakoCMS.Core.AmbiguousContentTypeException)
+            {
+                unreadable.Add(name);
+            }
         }
 
         // Nothing the caller cannot read is named anywhere in the shape. Copies, so the stored
@@ -100,7 +125,7 @@ internal sealed record ReadableTypeResponse(
 
         return new ReadableTypeResponse(
             d.Name, d.DisplayName, d.Description, d.IsSingleton,
-            visible.Select(f => ReadableField.From(f, hidden)).ToList(),
+            visible.Select(f => ReadableField.From(f, hidden, unreadable)).ToList(),
             lifecycle, uniqueness);
     }
 }

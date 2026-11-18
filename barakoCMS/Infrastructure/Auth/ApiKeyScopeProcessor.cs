@@ -90,7 +90,7 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         if (!isWrite && IsReadOnlyReadable(path))
             return false;
         await Deny(http, ApiKeyRefusalReason.Scope,
-            isWrite ? "This API key is read-only." : "A read-only API key reaches only the entry reads, workflow health and runs, modules, analytics and the overview.", ct);
+            isWrite ? "This API key is read-only." : "A read-only API key reaches only the entry reads, the page tree, the block schema, workflow health and runs, modules, analytics and the overview.", ct);
         return true;
     }
 
@@ -208,8 +208,8 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
     // cannot reach them with a content:write key (#653). The segment count is exact, and the
     // rollback shape excludes by-slug: GET /api/contents/by-slug/{type}/{slug} has the same five
     // segments with a type name where the action sits, and "rollback" and "erase" are valid names.
-    // It also excludes types: GET /api/contents/types/{name} has four segments with a type name
-    // where the action sits, so a type named "erase" is a plain read.
+    // The four-segment shape also excludes types: GET /api/contents/types/{name} has four segments
+    // with a type name where the action sits, so a type named "erase" is a plain read.
     private static bool IsDestructive(string path)
     {
         var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
@@ -218,8 +218,7 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
             4 => segments[3].Equals("erase", StringComparison.OrdinalIgnoreCase)
                  && !segments[2].Equals("types", StringComparison.OrdinalIgnoreCase),
             5 => segments[3].Equals("rollback", StringComparison.OrdinalIgnoreCase)
-                 && !segments[2].Equals("by-slug", StringComparison.OrdinalIgnoreCase)
-                 && !segments[2].Equals("types", StringComparison.OrdinalIgnoreCase),
+                 && !segments[2].Equals("by-slug", StringComparison.OrdinalIgnoreCase),
             _ => false,
         };
     }
@@ -227,14 +226,14 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
     // /api/contents/{id}/share-links and /api/contents/{id}/share-links/{linkId}, closed to keys like
     // the site's share link routes and the preview route. A link is a credential for someone with
     // no account, and one a key made would outlive the key's own revocation. Matched by shape as
-    // above, and by-slug and types are excluded because "share-links" is a valid type name.
+    // above, and by-slug (any length) and types (four segments, where a type named share-links sits) are excluded because "share-links" is a valid type name.
     private static bool IsShareLinks(string path)
     {
         var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
         return segments.Length is 4 or 5
                && segments[3].Equals("share-links", StringComparison.OrdinalIgnoreCase)
                && !segments[2].Equals("by-slug", StringComparison.OrdinalIgnoreCase)
-               && !segments[2].Equals("types", StringComparison.OrdinalIgnoreCase);
+               && !(segments.Length == 4 && segments[2].Equals("types", StringComparison.OrdinalIgnoreCase));
     }
 
     // POST /api/services/{name}/heartbeat and nothing else under /api/services. Core serves no such route

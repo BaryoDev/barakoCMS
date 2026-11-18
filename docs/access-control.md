@@ -580,6 +580,7 @@ same rule, reading the sets once for the entry. The write rule has one home too,
 | `GET /api/contents` search, named type | searches only fields shown on every entry | |
 | `GET /api/contents` search, across types | a row is kept only when a value it shows holds the term | |
 | `GET /api/contents/{id}/history` | per entry, the current entry's rules | |
+| `GET /api/contents/types`, `GET /api/contents/types/{name}` | signed in, and the type's read permission: 404 for a type that is missing or not readable. A field the caller cannot read is left out, and its name is kept out of uniqueness rules, transition field lists and computed args. A reference to a type the caller cannot read, or that does not exist, is shown as null | |
 | `PUT /api/contents/{id}` | unreadable fields put back | 403 on a change |
 | `POST /api/contents`, bulk create, Portability import | | 403 on a value outside the Create set |
 | `POST /api/collections/{type}/push` | unreadable fields put back on an existing entry | 403 on a change, or on create |
@@ -761,7 +762,7 @@ as its owner, so it can never do more than the owner's own roles and capabilitie
 
 | Scope | What it allows |
 | --- | --- |
-| `content:read` | `GET` under `/api/contents` |
+| `content:read` | `GET` under `/api/contents`, and `GET /api/pages/tree` and `GET /api/blocks/schema` |
 | `content:write` | `POST`, `PUT`, `PATCH` and `DELETE` under `/api/contents`, except erase and rollback, and `POST /api/collections/{type}/push` |
 | `content:destructive` | `DELETE /api/contents/{id}/erase` and `POST /api/contents/{id}/rollback/{versionId}` |
 | `contenttype:read` | `GET` under `/api/content-types` and `/api/schemas` |
