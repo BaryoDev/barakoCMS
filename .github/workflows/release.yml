@@ -841,6 +841,70 @@ jobs:
             $PRERELEASE
           echo "::notice::Tagged v$VERSION and published the release."
 
+  close-milestone:
+    name: Close the release milestone
+    needs: [gate, tag-release]
+    if: needs.gate.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.gate.outputs.version }}
+    steps:
+      - name: Close the milestone and move what is left
+        run: |
+          set -euo pipefail
+          # barakocms.com/roadmap shows the first open milestone per repository and never looks at
+          # releases, so a milestone left open after its release keeps the page on an old version.
+          # Checked before anything else, because the value is matched against milestone titles.
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]] || {
+            echo "::error::'$VERSION' is not a version"; exit 1; }
+          # Prereleases leave their milestone open: the final release closes it.
+          case "$VERSION" in *-*) echo "::notice::$VERSION is a prerelease; milestone left open."; exit 0 ;; esac
+          # One "number title" line per milestone.
+          milestones() {
+            gh api --paginate "repos/$GITHUB_REPOSITORY/milestones?state=$1&per_page=100" \
+              --jq '.[] | "\(.number) \(.title)"'
+          }
+          number_of() { awk -v t="$1" '{ n = $1; sub(/^[0-9]+ /, "") } $0 == t { print n }'; }
+          open_list=$(milestones open)
+          ms=$(number_of "$VERSION" <<< "$open_list")
+          if [ -z "$ms" ]; then
+            echo "::notice::No open milestone named $VERSION."
+            exit 0
+          fi
+          open=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues?milestone=$ms&state=open&per_page=100" --jq '.[].number')
+          if [ -n "$open" ]; then
+            # Unfinished items roll forward to the lowest open milestone above this version, or to
+            # the next minor when there is none, so nothing drops off the roadmap.
+            next=""
+            while read -r t; do
+              if [ "$t" != "$VERSION" ] && [ "$(printf '%s\n%s\n' "$VERSION" "$t" | sort -V | head -1)" = "$VERSION" ]; then
+                next="$t"; break
+              fi
+            done < <(awk '{ sub(/^[0-9]+ /, ""); print }' <<< "$open_list" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V || true)
+            if [ -z "$next" ]; then
+              IFS=. read -r major minor _ <<< "$VERSION"
+              next="$major.$((minor + 1)).0"
+            fi
+            # The next minor may exist already, closed. Reopen it rather than fail on a duplicate.
+            next_ms=$(milestones all | number_of "$next")
+            if [ -z "$next_ms" ]; then
+              next_ms=$(gh api -X POST "repos/$GITHUB_REPOSITORY/milestones" -f title="$next" --jq '.number')
+            else
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/milestones/$next_ms" -f state=open >/dev/null
+            fi
+            [[ "$next_ms" =~ ^[0-9]+$ ]] || { echo "::error::no milestone number for $next"; exit 1; }
+            for n in $open; do
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/$n" -F milestone="$next_ms" >/dev/null
+              echo "Moved #$n to $next."
+            done
+          fi
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/milestones/$ms" -f state=closed >/dev/null
+          echo "::notice::Closed milestone $VERSION."
+
   # Org discussions (best-effort). Discord is handled by announce-discord below, NOT here: passing the
   # multiline changelog through a job-output into a reusable-workflow input silently emptied it, so
   # every Discord post fell back to a generic line. No DISCORD_WEBHOOK is passed here on purpose.
