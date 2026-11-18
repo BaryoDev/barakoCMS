@@ -90,7 +90,7 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         if (!isWrite && IsReadOnlyReadable(path))
             return false;
         await Deny(http, ApiKeyRefusalReason.Scope,
-            isWrite ? "This API key is read-only." : "A read-only API key reaches only the entry reads, workflow health and runs, modules, analytics and the overview.", ct);
+            isWrite ? "This API key is read-only." : "A read-only API key reaches only the entry reads, the page tree, the block schema, workflow health and runs, modules, analytics and the overview.", ct);
         return true;
     }
 
@@ -124,6 +124,7 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
         || Match(path, "/api/analytics")
         || path.TrimEnd('/').Equals("/api/workflows/health", StringComparison.OrdinalIgnoreCase)
         || IsMonitoringHealth(path)
+        || IsAuthoringRead(path)
         || path.TrimEnd('/').Equals("/api/overview", StringComparison.OrdinalIgnoreCase);
 
     // The scopes a request needs (any one of them), or null if API keys may not touch this path at all.
@@ -173,6 +174,12 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
                && segments[1].Equals("overview", StringComparison.OrdinalIgnoreCase);
     }
 
+    // GET /api/pages/tree and GET /api/blocks/schema, the exact path. The CLI reads them to author
+    // content, so content:read reaches them. Writes under either prefix stay closed to keys.
+    private static bool IsAuthoringRead(string path) =>
+        path.TrimEnd('/').Equals("/api/pages/tree", StringComparison.OrdinalIgnoreCase)
+        || path.TrimEnd('/').Equals("/api/blocks/schema", StringComparison.OrdinalIgnoreCase);
+
     private static string? RequiredScope(string path, bool isWrite)
     {
         if (Match(path, "/api/contents"))
@@ -191,6 +198,8 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
             return isWrite ? ApiKeyScopes.FilesWrite : ApiKeyScopes.FilesRead;
         if (IsServiceHeartbeat(path, isWrite))
             return ApiKeyScopes.ServicesHeartbeat;
+        if (!isWrite && IsAuthoringRead(path))
+            return ApiKeyScopes.ContentRead;
         return null;
     }
 
@@ -199,12 +208,15 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
     // cannot reach them with a content:write key (#653). The segment count is exact, and the
     // rollback shape excludes by-slug: GET /api/contents/by-slug/{type}/{slug} has the same five
     // segments with a type name where the action sits, and "rollback" and "erase" are valid names.
+    // The four-segment shape also excludes types: GET /api/contents/types/{name} has four segments
+    // with a type name where the action sits, so a type named "erase" is a plain read.
     private static bool IsDestructive(string path)
     {
         var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
         return segments.Length switch
         {
-            4 => segments[3].Equals("erase", StringComparison.OrdinalIgnoreCase),
+            4 => segments[3].Equals("erase", StringComparison.OrdinalIgnoreCase)
+                 && !segments[2].Equals("types", StringComparison.OrdinalIgnoreCase),
             5 => segments[3].Equals("rollback", StringComparison.OrdinalIgnoreCase)
                  && !segments[2].Equals("by-slug", StringComparison.OrdinalIgnoreCase),
             _ => false,
@@ -214,13 +226,14 @@ public sealed class ApiKeyScopeProcessor : IGlobalPreProcessor
     // /api/contents/{id}/share-links and /api/contents/{id}/share-links/{linkId}, closed to keys like
     // the site's share link routes and the preview route. A link is a credential for someone with
     // no account, and one a key made would outlive the key's own revocation. Matched by shape as
-    // above, and by-slug is excluded because "share-links" is a valid type name.
+    // above, and by-slug (any length) and types (four segments, where a type named share-links sits) are excluded because "share-links" is a valid type name.
     private static bool IsShareLinks(string path)
     {
         var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
         return segments.Length is 4 or 5
                && segments[3].Equals("share-links", StringComparison.OrdinalIgnoreCase)
-               && !segments[2].Equals("by-slug", StringComparison.OrdinalIgnoreCase);
+               && !segments[2].Equals("by-slug", StringComparison.OrdinalIgnoreCase)
+               && !(segments.Length == 4 && segments[2].Equals("types", StringComparison.OrdinalIgnoreCase));
     }
 
     // POST /api/services/{name}/heartbeat and nothing else under /api/services. Core serves no such route
