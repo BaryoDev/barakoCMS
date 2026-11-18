@@ -34,6 +34,8 @@ public class ArchitectureTests
             "returns the blueprints shipped in the assembly, a fixed set defined in code",
         ["barakoCMS.Features.Stations.ListStationsEndpoint"] =
             "grows: a tenant's station keys, created by its admins; behind manage_stations",
+        ["barakoCMS.Features.Content.Types.ListEndpoint"] =
+            "grows: a tenant's content type definitions plus the account's shared ones, created by admins; names only, filtered to types the caller may read",
     };
 
     // Features whose endpoints sit directly in barakoCMS.Features.<Feature> rather than in an action
