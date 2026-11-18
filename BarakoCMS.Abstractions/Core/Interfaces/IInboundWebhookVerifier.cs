@@ -21,7 +21,7 @@ public enum InboundWebhookScheme
 }
 
 /// <summary>One signed request a provider sent to a receiver.</summary>
-/// <param name="Provider">Names the sender, used to key duplicates. For example <c>resend</c>.</param>
+/// <param name="Provider">Names the sender, used to key duplicates and warnings. A fixed name from code, never request data. For example <c>resend</c>.</param>
 /// <param name="Scheme">How the request is signed.</param>
 /// <param name="Secret">The shared signing secret.</param>
 /// <param name="Body">The raw request body, exactly as received.</param>

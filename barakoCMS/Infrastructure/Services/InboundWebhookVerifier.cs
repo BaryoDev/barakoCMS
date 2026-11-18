@@ -15,6 +15,9 @@ public sealed class InboundWebhookVerifier(IDocumentSession session, ILogger<Inb
     // Warn once per provider, so a second receiver to fix is not hidden behind the first.
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> BodyOnlyWarned = new(StringComparer.Ordinal);
 
+    /// <summary>The 5.7 constructor, kept so a consumer compiled against it still binds.</summary>
+    public InboundWebhookVerifier(IDocumentSession session) : this(session, null) { }
+
     /// <summary>
     /// Five minutes either way, which is what the Svix spec suggests. Symmetric because the clocks
     /// on both machines can be wrong.
