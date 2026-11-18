@@ -232,7 +232,7 @@ public class WorkflowEnabledTests
         WorkflowStopHarness.TimesRun(control.Actions[0]).Should().Be(1);
 
         (await SetEnabledAsync(admin, off, true)).StatusCode.Should().Be(HttpStatusCode.OK);
-        await _harness.WithHostedRunnerPausedAsync(_harness.DrainAsync);
+        await _harness.WithHostedRunnerPausedAsync(() => _harness.DrainAsync());
 
         WorkflowStopHarness.TimesRun(stopped.Actions[0]).Should().Be(0, "switching it back on does not send what was waiting");
         (await _harness.LoadRunAsync(stopped.Id)).Status.Should().Be(RunStatus.Cancelled);
