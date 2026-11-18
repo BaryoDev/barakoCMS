@@ -1,1 +1,0 @@
-- **The run list's status counts had no index holding the tenant.** Workflow runs get three indexes, on the status, the workflow and status, and the entry and status, each with the tenant. `db-migrate` builds them on an existing database from the 5.7.2 `workflow-run-*-tenant-index` migrations.
