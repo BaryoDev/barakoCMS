@@ -396,3 +396,4 @@ function mergeData(current: Record<string, unknown>, patch: Record<string, unkno
 ### Task 12: hand-off for barakocms.com
 
 - [ ] Write the steps Arnel runs (not done by an agent): create a role allowed to read, create and update `post` and `page`, a user in it, and a key with `content:read` and `content:write`; store it where the agent reads it. Post them in the CLI PR.
+- [ ] The same hand-off names the barakocms.com upgrade that has to come first: rebuild the private CMS image at the core release from Task 4 (`scripts/build-cms-image.sh --core-ref vX.Y.Z` in barakocms-pro, arm64), get it onto the host (copy over ssh, or the read-only GHCR login in brain #11389), and set the new `BARAKO_TAG`. Until then `schema`, `types` and `pages tree` fail there; create, update and publish still work.
