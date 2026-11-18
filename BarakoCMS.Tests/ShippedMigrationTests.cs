@@ -94,6 +94,9 @@ public class ShippedMigrationTests
         ["core/5.6.1/event-tenant-timestamp-index"] = "8f2871189564c018fbcd36a4d912e1ed030225fd272fec8c29b919da732f9011",
         ["core/5.6.1/marten-9-59-projection-floors"] = "be34246455cbdde1390159329bf9adcc4a9a64f66b2769bbc08b8cf69df4c5e5",
         ["core/5.6.1/site-fonts-schema"] = "7d904b41867affd324d2141f320f372e2e8ff1168affc1d29a26ed345735cb2b",
+        ["core/5.7.2/workflow-run-content-status-tenant-index"] = "45a232374b304fa92d4ce54669c72a57bbe977f71c803012cc4372b608a4794e",
+        ["core/5.7.2/workflow-run-status-tenant-index"] = "0a32eab8f277752b2ffb3e029305c12361d308f36f882806361a2a474fc61a41",
+        ["core/5.7.2/workflow-run-workflow-status-tenant-index"] = "f4fd03182ba67853d97e752172ac35af3197a91982dc39d7de2ac21a644d387e",
         ["ExternalAuth/5.5.0/1270-external-auth-social-handoff"] = "187b21746f52fed4fa7d613a6ab155a6e27ba175b0852fde08f9297f3312dc9a",
         ["ExternalAuth/5.5.0/915-external-auth-provider-settings"] = "f10f22aacc47fba6f52349beae150b705ea93defc7ad4b1206ccaee89cbeaecb",
     };

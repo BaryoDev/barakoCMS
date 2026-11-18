@@ -1,1 +1,0 @@
-- **`PerformanceMiddleware` is marked obsolete.** Nothing in the application uses it. It stays in 5.x because the 4.x public type list pins it, and is planned for removal in 6.0.0.
