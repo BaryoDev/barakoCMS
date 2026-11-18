@@ -154,9 +154,34 @@ public class WorkflowRunCountIndexTests
         await ExecuteAsync(connection, "BEGIN");
         try
         {
-            // Sequential scans are off so a near-empty table does not decide the plan. The statement is
+            // The plan has to come from the data, not from whatever the shared database holds. On a
+            // near-empty table with stale or missing statistics the planner can rank the (tenant_id, id)
+            // primary key or a status-only index cheapest. So this seeds two tenants, then runs ANALYZE
+            // so the planner sees them. 'plan-check' has thousands of Status 1 runs and a handful of
+            // Status 0, which makes the primary key tenant range wide. 'plan-noise' has thousands of
+            // Status 0 runs on the workflow and content ids the filtered cases ask for, so a status-only,
+            // workflow-only or content-only index returns thousands of rows and only an index that
+            // carries the tenant stays narrow. The ids of 'plan-check' come from md5, so none can equal
+            // 00000000-0000-0000-0000-000000000001. Run ids differ per tenant. All of it sits in this
+            // transaction, so the ROLLBACK removes the rows and the statistics.
+            // Sequential scans are off so a small table does not decide the plan. The statement is
             // the shape RunQueries.CountByStatusAsync sends: equality on the status, the tenant and the
             // optional filter, then the first StatusCountCap + 1 ids.
+            await ExecuteAsync(connection,
+                "INSERT INTO public.mt_doc_workflow_runs (id, data, tenant_id) " +
+                "SELECT md5('plan-check-run-' || n)::uuid, " +
+                "jsonb_build_object('Status', CASE WHEN n <= 5 THEN 0 ELSE 1 END, " +
+                "'WorkflowDefinitionId', md5('plan-check-workflow-' || (n % 100))::uuid, " +
+                "'ContentId', md5('plan-check-content-' || (n % 100))::uuid), " +
+                "'plan-check' FROM generate_series(1, 5000) AS n");
+            await ExecuteAsync(connection,
+                "INSERT INTO public.mt_doc_workflow_runs (id, data, tenant_id) " +
+                "SELECT md5('plan-noise-run-' || n)::uuid, " +
+                "jsonb_build_object('Status', 0, " +
+                "'WorkflowDefinitionId', '00000000-0000-0000-0000-000000000001', " +
+                "'ContentId', '00000000-0000-0000-0000-000000000001'), " +
+                "'plan-noise' FROM generate_series(1, 5000) AS n");
+            await ExecuteAsync(connection, "ANALYZE public.mt_doc_workflow_runs");
             await ExecuteAsync(connection, "SET LOCAL enable_seqscan = off");
             await using var command = new NpgsqlCommand(
                 "EXPLAIN select id from public.mt_doc_workflow_runs " +
