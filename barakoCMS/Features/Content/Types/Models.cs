@@ -26,10 +26,14 @@ internal sealed record ReadableField(
     ComputedDefinition? Computed,
     string? BlockSchema)
 {
+    // A computation that reads a field the caller cannot see would name it, so it is left out.
+    private static ComputedDefinition? ReadableComputed(ComputedDefinition? c, ISet<string> hidden) =>
+        c is null || c.Args.Any(hidden.Contains) ? null : c;
+
     /// <summary>Where the block schema of a <c>blocks</c> field is served.</summary>
     public const string BlockSchemaRoute = "/api/blocks/schema";
 
-    public static ReadableField From(FieldDefinition f) => new(
+    public static ReadableField From(FieldDefinition f, ISet<string> hidden) => new(
         f.Name,
         f.Type,
         f.IsRequired,
@@ -42,7 +46,7 @@ internal sealed record ReadableField(
         f.JsonSchema,
         f.Currency,
         f.Scale,
-        f.Computed,
+        ReadableComputed(f.Computed, hidden),
         string.Equals(f.Type, "blocks", StringComparison.OrdinalIgnoreCase) ? BlockSchemaRoute : null);
 }
 
@@ -67,21 +71,36 @@ internal sealed record ReadableTypeResponse(
         CancellationToken ct)
     {
         var visible = new List<FieldDefinition>();
+        var hidden = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var field in d.Fields ?? [])
         {
             if (await sensitivity.MayReadFieldAsync(d.Name, field, null, user, ct))
                 visible.Add(field);
+            else
+                hidden.Add(field.Name);
         }
 
-        return From(d, visible);
-    }
+        // Nothing the caller cannot read is named anywhere in the shape. Copies, so the stored
+        // definition is not touched.
+        var lifecycle = d.Lifecycle is null ? null : new LifecycleDefinition
+        {
+            States = [.. d.Lifecycle.States],
+            InitialState = d.Lifecycle.InitialState,
+            Transitions = d.Lifecycle.Transitions.Select(t => new StateTransition
+            {
+                Name = t.Name,
+                From = t.From,
+                To = t.To,
+                RequiredFields = t.RequiredFields.Where(n => !hidden.Contains(n)).ToList(),
+                OptionalFields = t.OptionalFields.Where(n => !hidden.Contains(n)).ToList(),
+            }).ToList(),
+        };
+        // A rule that covers a hidden field is dropped whole, since a partial rule would mislead.
+        var uniqueness = d.Uniqueness?.Where(r => !r.Fields.Any(hidden.Contains)).ToList();
 
-    private static ReadableTypeResponse From(ContentTypeDefinition d, List<FieldDefinition> fields) => new(
-        d.Name,
-        d.DisplayName,
-        d.Description,
-        d.IsSingleton,
-        fields.Select(ReadableField.From).ToList(),
-        d.Lifecycle,
-        d.Uniqueness);
+        return new ReadableTypeResponse(
+            d.Name, d.DisplayName, d.Description, d.IsSingleton,
+            visible.Select(f => ReadableField.From(f, hidden)).ToList(),
+            lifecycle, uniqueness);
+    }
 }

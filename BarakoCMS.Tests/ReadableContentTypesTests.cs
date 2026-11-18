@@ -325,17 +325,31 @@ public class ReadableContentTypesTests
             Email = $"in_{Guid.NewGuid():n}@example.com",
             RoleIds = [secretRole.Id],
         };
+        var type = TypeOf(post, new FieldDefinition
+        {
+            Name = "Salary",
+            DisplayName = "Salary",
+            Type = "decimal",
+            // A role list only means something on a restricted level; on Public the service
+            // answers before it reads the list, and the API clears it.
+            Sensitivity = SensitivityLevel.Sensitive,
+            VisibleToRoles = [secretRole.Id.ToString()],
+        }, new FieldDefinition
+        {
+            Name = "Bonus",
+            DisplayName = "Bonus",
+            Type = "decimal",
+            Computed = new ComputedDefinition { Fn = "multiply", Args = ["Salary", "2"] },
+        });
+        type.Uniqueness = [new UniquenessRule { Name = "OnePerSalary", Fields = ["Salary"] }];
+        type.Lifecycle = new LifecycleDefinition
+        {
+            States = ["Draft", "Done"],
+            InitialState = "Draft",
+            Transitions = [new StateTransition { Name = "Finish", From = "Draft", To = "Done", RequiredFields = ["Salary", "Title"] }],
+        };
         await StoreAsync(
-            TypeOf(post, new FieldDefinition
-            {
-                Name = "Salary",
-                DisplayName = "Salary",
-                Type = "decimal",
-                // A role list only means something on a restricted level; on Public the service
-                // answers before it reads the list, so a Public field is shown to everyone.
-                Sensitivity = SensitivityLevel.Sensitive,
-                VisibleToRoles = [secretRole.Id.ToString()],
-            }),
+            type,
             secretRole,
             insider);
         var (_, outsider) = await UserWithAsync(Read(post));
@@ -344,7 +358,25 @@ public class ReadableContentTypesTests
         static List<string?> FieldNames(JsonElement body) =>
             body.GetProperty("fields").EnumerateArray().Select(f => f.GetProperty("name").GetString()).ToList();
 
-        FieldNames(await BodyAsync(await GetAsync($"{ListRoute}/{post}", outsider))).Should().NotContain("Salary");
-        FieldNames(await BodyAsync(await GetAsync($"{ListRoute}/{post}", insiderToken))).Should().Contain("Salary");
+        var outsiderRes = await GetAsync($"{ListRoute}/{post}", outsider);
+        var outsiderRaw = await outsiderRes.Content.ReadAsStringAsync(Ct);
+        outsiderRes.StatusCode.Should().Be(HttpStatusCode.OK, outsiderRaw);
+        outsiderRaw.Should().NotContain("Salary");
+        var seen = JsonDocument.Parse(outsiderRaw).RootElement;
+        FieldNames(seen).Should().Contain("Bonus");
+        seen.GetProperty("fields").EnumerateArray()
+            .Single(f => f.GetProperty("name").GetString() == "Bonus")
+            .GetProperty("computed").ValueKind.Should().Be(JsonValueKind.Null);
+        seen.GetProperty("lifecycle").GetProperty("transitions")[0].GetProperty("requiredFields")
+            .EnumerateArray().Select(x => x.GetString()).Should().Equal("Title");
+
+        var insiderRaw = await BodyAsync(await GetAsync($"{ListRoute}/{post}", insiderToken));
+        FieldNames(insiderRaw).Should().Contain("Salary");
+        insiderRaw.GetProperty("uniqueness").GetArrayLength().Should().Be(1);
+        insiderRaw.GetProperty("lifecycle").GetProperty("transitions")[0].GetProperty("requiredFields")
+            .EnumerateArray().Select(x => x.GetString()).Should().Equal("Salary", "Title");
+        insiderRaw.GetProperty("fields").EnumerateArray()
+            .Single(f => f.GetProperty("name").GetString() == "Bonus")
+            .GetProperty("computed").GetProperty("fn").GetString().Should().Be("multiply");
     }
 }
