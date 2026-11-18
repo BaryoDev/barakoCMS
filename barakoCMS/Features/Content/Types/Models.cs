@@ -19,6 +19,11 @@ internal sealed record ReadableField(
     bool Multiple,
     string? ItemType,
     string? ReferenceType,
+    object? DefaultValue,
+    System.Text.Json.JsonElement? JsonSchema,
+    string? Currency,
+    int? Scale,
+    ComputedDefinition? Computed,
     string? BlockSchema)
 {
     /// <summary>Where the block schema of a <c>blocks</c> field is served.</summary>
@@ -33,6 +38,11 @@ internal sealed record ReadableField(
         f.Multiple,
         f.ItemType,
         f.ReferenceType,
+        f.DefaultValue,
+        f.JsonSchema,
+        f.Currency,
+        f.Scale,
+        f.Computed,
         string.Equals(f.Type, "blocks", StringComparison.OrdinalIgnoreCase) ? BlockSchemaRoute : null);
 }
 
@@ -45,12 +55,33 @@ internal sealed record ReadableTypeResponse(
     LifecycleDefinition? Lifecycle,
     List<UniquenessRule>? Uniqueness)
 {
-    public static ReadableTypeResponse From(ContentTypeDefinition d) => new(
+    /// <summary>
+    /// The shape for this caller. A field is listed only when the caller reads it the way an entry
+    /// read would show it, which is the question <see cref="barakoCMS.Core.Interfaces.ISensitivityService"/>
+    /// already answers for filtering and searching, so the shape never names a field an entry hides.
+    /// </summary>
+    public static async Task<ReadableTypeResponse> ForAsync(
+        ContentTypeDefinition d,
+        barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
+        System.Security.Claims.ClaimsPrincipal user,
+        CancellationToken ct)
+    {
+        var visible = new List<FieldDefinition>();
+        foreach (var field in d.Fields ?? [])
+        {
+            if (await sensitivity.MayReadFieldAsync(d.Name, field, null, user, ct))
+                visible.Add(field);
+        }
+
+        return From(d, visible);
+    }
+
+    private static ReadableTypeResponse From(ContentTypeDefinition d, List<FieldDefinition> fields) => new(
         d.Name,
         d.DisplayName,
         d.Description,
         d.IsSingleton,
-        (d.Fields ?? []).Select(ReadableField.From).ToList(),
+        fields.Select(ReadableField.From).ToList(),
         d.Lifecycle,
         d.Uniqueness);
 }

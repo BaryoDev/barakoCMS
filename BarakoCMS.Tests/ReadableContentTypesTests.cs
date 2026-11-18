@@ -120,6 +120,12 @@ public class ReadableContentTypesTests
             Type = "richtext",
             Sensitivity = SensitivityLevel.Sensitive,
             VisibleToRoles = ["Editor"],
+        }, new FieldDefinition
+        {
+            Name = "Total",
+            DisplayName = "Total",
+            Type = "decimal",
+            Computed = new ComputedDefinition { Fn = "sum", Args = ["Title"] },
         }));
         var (_, token) = await UserWithAsync(Read(post));
 
@@ -129,6 +135,8 @@ public class ReadableContentTypesTests
         var fields = body.GetProperty("fields").EnumerateArray().ToList();
         var title = fields.Single(f => f.GetProperty("name").GetString() == "Title");
         title.GetProperty("isRequired").GetBoolean().Should().BeTrue();
+        fields.Single(f => f.GetProperty("name").GetString() == "Total")
+            .GetProperty("computed").GetProperty("fn").GetString().Should().Be("sum");
         foreach (var field in fields)
         {
             field.TryGetProperty("roles", out _).Should().BeFalse();
@@ -277,5 +285,66 @@ public class ReadableContentTypesTests
 
         (await BodyAsync(one)).GetProperty("name").GetString().Should().Be(room);
         NamesIn(await BodyAsync(list)).Should().Contain(room);
+    }
+
+    [Fact]
+    public async Task The_account_type_wins_over_a_tenant_type_of_the_same_name()
+    {
+        var room = NewName("room");
+        var own = TypeOf(room);
+        own.DisplayName = "Tenant display";
+        var shared = TypeOf(room);
+        shared.DisplayName = "Account display";
+        await StoreAsync(own, new AccountContentType
+        {
+            Id = Guid.NewGuid(),
+            AccountId = TenantAccount.DefaultId,
+            Name = room,
+            Definition = shared,
+        });
+        var (_, token) = await UserWithAsync(Read(room));
+
+        var one = await BodyAsync(await GetAsync($"{ListRoute}/{room}", token));
+        var list = await BodyAsync(await GetAsync(ListRoute, token));
+
+        one.GetProperty("displayName").GetString().Should().Be("Account display");
+        list.GetProperty("items").EnumerateArray()
+            .Single(i => i.GetProperty("name").GetString() == room)
+            .GetProperty("displayName").GetString().Should().Be("Account display");
+    }
+
+    [Fact]
+    public async Task A_field_hidden_from_the_callers_roles_is_left_out_of_the_shape()
+    {
+        var post = NewName("post");
+        var secretRole = new Role { Id = Guid.NewGuid(), Name = $"Finance_{Guid.NewGuid():n}", Permissions = [Read(post)] };
+        var insider = new User
+        {
+            Id = Guid.NewGuid(),
+            Username = $"in_{Guid.NewGuid():n}"[..14],
+            Email = $"in_{Guid.NewGuid():n}@example.com",
+            RoleIds = [secretRole.Id],
+        };
+        await StoreAsync(
+            TypeOf(post, new FieldDefinition
+            {
+                Name = "Salary",
+                DisplayName = "Salary",
+                Type = "decimal",
+                // A role list only means something on a restricted level; on Public the service
+                // answers before it reads the list, and the API clears it.
+                Sensitivity = SensitivityLevel.Sensitive,
+                VisibleToRoles = [secretRole.Id.ToString()],
+            }),
+            secretRole,
+            insider);
+        var (_, outsider) = await UserWithAsync(Read(post));
+        var insiderToken = _fixture.CreateToken(roles: [secretRole.Name], userId: insider.Id.ToString());
+
+        static List<string?> FieldNames(JsonElement body) =>
+            body.GetProperty("fields").EnumerateArray().Select(f => f.GetProperty("name").GetString()).ToList();
+
+        FieldNames(await BodyAsync(await GetAsync($"{ListRoute}/{post}", outsider))).Should().NotContain("Salary");
+        FieldNames(await BodyAsync(await GetAsync($"{ListRoute}/{post}", insiderToken))).Should().Contain("Salary");
     }
 }

@@ -30,6 +30,7 @@ internal sealed class ListEndpoint(IQuerySession session, IPermissionResolver pe
 
         // The account's definition wins over a tenant's own of the same name.
         var byName = new Dictionary<string, barakoCMS.Models.ContentTypeDefinition>(StringComparer.OrdinalIgnoreCase);
+        // TryAdd: a tenant holding two types whose names differ only by case lists the first.
         foreach (var d in own) byName.TryAdd(d.Name, d);
         foreach (var t in shared) byName[t.Definition.Name] = t.Definition;
 

@@ -12,7 +12,8 @@ namespace barakoCMS.Features.Content.Types;
 /// A type the caller may not read answers 404, the same as a name that does not exist. The check is
 /// the type-level read with no entry, so a rule limited to own entries still gets the shape.
 /// </remarks>
-internal sealed class GetEndpoint(IQuerySession session, IPermissionResolver permissionResolver)
+internal sealed class GetEndpoint(IQuerySession session, IPermissionResolver permissionResolver,
+    barakoCMS.Core.Interfaces.ISensitivityService sensitivity)
     : EndpointWithoutRequest<ReadableTypeResponse>
 {
     public override void Configure() => Get("/api/contents/types/{name}");
@@ -33,6 +34,6 @@ internal sealed class GetEndpoint(IQuerySession session, IPermissionResolver per
             return;
         }
 
-        await Send.OkAsync(ReadableTypeResponse.From(definition), ct);
+        await Send.OkAsync(await ReadableTypeResponse.ForAsync(definition, sensitivity, User, ct), ct);
     }
 }
