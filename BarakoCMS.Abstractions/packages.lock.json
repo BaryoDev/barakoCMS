@@ -30,15 +30,15 @@
       },
       "Marten": {
         "type": "Direct",
-        "requested": "[9.60.0, )",
-        "resolved": "9.60.0",
-        "contentHash": "ob6xgtYEan05ixyOWBR7VX5o0iRYHrmSNggJGbrzBDQVjggsnxMS9WIoYdUthyRubBPXCGlLjXQGxmqK7GGwQA==",
+        "requested": "[9.62.0, )",
+        "resolved": "9.62.0",
+        "contentHash": "CrsHvX7BwUhyNgcm121wMsjkbLIICeLwsLKKtyQ5lMxinYyCzA5gRnqdbjcW03L5U3a/F851H4nxSjPfUtODnQ==",
         "dependencies": {
           "JasperFx": "2.102.0",
           "JasperFx.Events": "2.102.0",
           "Microsoft.IO.RecyclableMemoryStream": "3.0.1",
-          "Weasel.Postgresql": "9.50.0",
-          "Weasel.Storage": "9.50.0"
+          "Weasel.Postgresql": "9.51.0",
+          "Weasel.Storage": "9.51.0"
         }
       },
       "Microsoft.Extensions.DependencyModel": {
@@ -179,31 +179,31 @@
       },
       "Weasel.Core": {
         "type": "Transitive",
-        "resolved": "9.50.0",
-        "contentHash": "1pkdHGPsR4sCdQApIaji5mm8SuuD8jIg7IY6EkrOzdDgialP2XPIAfnhdD1lyl1LTPfeD1Qn69IWpR2hSiT4Cg==",
+        "resolved": "9.51.0",
+        "contentHash": "BEqn6tFX+3q25gRRQtbz5yRjxmqs3g4Ivb4TSIWhSmqhMvLUzxNUwJRJFexrpIsHtIsa9MAQACI/Tg/l1WhIKA==",
         "dependencies": {
           "JasperFx": "2.101.0"
         }
       },
       "Weasel.Postgresql": {
         "type": "Transitive",
-        "resolved": "9.50.0",
-        "contentHash": "MG8McjMpX4+0KoTUsZXBXCTvwpXUH8quKuPyAouvyZp6u61HPLFV4526z6bfPmWhb+8w84bjeWp7+EsAdk6Img==",
+        "resolved": "9.51.0",
+        "contentHash": "Pu3EbjdrTeY1Kzq/ZjUUv8SerxG5tVzG7jjhYNfAqVEHp2798Ka5eUGLheEtNazGkLPYLdco2OO+ZWApumUUxQ==",
         "dependencies": {
           "JasperFx.Events": "2.101.0",
           "Npgsql": "9.0.4",
           "Npgsql.NetTopologySuite": "9.0.4",
           "Patched.DistributedLock.Postgres": "1.3.3",
-          "Weasel.Core": "9.50.0"
+          "Weasel.Core": "9.51.0"
         }
       },
       "Weasel.Storage": {
         "type": "Transitive",
-        "resolved": "9.50.0",
-        "contentHash": "b5a5UC/Kz4+dL7VGrze3I1VHb68Lq3YlR927I95mmDTD/36eEIyPwpsSUt1mwE02ix8N7qZ2E6Cwf/xV/n2gEw==",
+        "resolved": "9.51.0",
+        "contentHash": "s7iDXPSkmFklvVSYf/Y/NMSt2kcxmm+P+IM3JllH/UAKTg+rqhzBf/QLPaYonGQLALHEHxqwHPsuhn3a7vLoSw==",
         "dependencies": {
           "JasperFx.Events": "2.101.0",
-          "Weasel.Core": "9.50.0"
+          "Weasel.Core": "9.51.0"
         }
       }
     }
