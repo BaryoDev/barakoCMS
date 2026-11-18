@@ -26,6 +26,12 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
 
     public const string OtherNode = "a-node-that-is-not-this-one";
 
+    /// <summary>Polls of a drain before it checks that the backlog is shrinking.</summary>
+    private const int PollsPerCheck = 200;
+
+    // The runs this harness seeded in the default tenant, which is what a drain waits on.
+    private readonly List<Guid> _seeded = [];
+
     public static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     public static DateTimeOffset ParkedUntil => DateTimeOffset.UtcNow.AddHours(1);
@@ -125,6 +131,7 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
         session.Store(run);
         await session.SaveChangesAsync(Ct);
 
+        _seeded.Add(run.Id);
         return run;
     }
 
@@ -138,6 +145,7 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
         foreach (var run in runs) session.Store(run);
         await session.SaveChangesAsync(Ct);
 
+        _seeded.AddRange(runs.Select(r => r.Id));
         return runs;
     }
 
@@ -232,15 +240,105 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
                 })
                 .Build());
 
-    /// <summary>Runs a runner of the test's own until it finds nothing due.</summary>
-    public async Task DrainAsync()
+    /// <summary>
+    /// Runs a runner of the test's own until it finds nothing due, or until the test's own runs have
+    /// nothing due.
+    /// </summary>
+    /// <remarks>
+    /// The runner claims due work in every tenant, oldest first, and the database is shared with every
+    /// other class, so older due runs of other tests are claimed before the test's own. Waiting for the
+    /// whole database to go quiet is waiting on work that is not the test's. With the test's own runs
+    /// named (or seeded through this harness) the drain ends once none of them is due. Without any it
+    /// drains everything, as it always did.
+    ///
+    /// The poll limit is the loop detector. Past it, a drain that is still working through a backlog
+    /// that is getting smaller goes on, and one whose due work is not shrinking fails, saying which
+    /// workflows and actions the runner kept finding.
+    /// </remarks>
+    public async Task DrainAsync(params Guid[] runIds)
     {
+        var own = runIds.Length > 0 ? runIds : [.. _seeded];
         var runner = NewRunner();
 
         var polls = 0;
+        int? dueAtLastCheck = null;
+
         while (await runner.RunOnceAsync(Ct))
         {
-            (++polls).Should().BeLessThan(200, "the runner should drain rather than find work forever");
+            if (own.Length > 0 && !await AnyDueAsync(own))
+            {
+                return;
+            }
+
+            if (++polls % PollsPerCheck != 0)
+            {
+                continue;
+            }
+
+            var now = await DueSnapshotAsync();
+            if (dueAtLastCheck is { } before && now.Total >= before)
+            {
+                Assert.Fail(
+                    $"The runner should drain rather than find work forever, but it was still finding work after {polls} polls "
+                  + $"and the {now.Total} runs due had not gone down since the last check. Due now: {now.Describe()}");
+            }
+
+            dueAtLastCheck = now.Total;
+        }
+    }
+
+    private async Task<bool> AnyDueAsync(Guid[] runIds)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        await using var session = Store.QuerySession();
+        return await session.Query<WorkflowRun>()
+            .Where(WorkflowExecutors.DueFor(WorkflowExecutors.BuiltIn, now))
+            .Where(r => r.Id.IsOneOf(runIds))
+            .AnyAsync(Ct);
+    }
+
+    /// <summary>What the built-in runner would be offered at this moment, in every tenant that has unfinished runs.</summary>
+    private async Task<DueSnapshot> DueSnapshotAsync()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var store = Store;
+        var partitions = await barakoCMS.Infrastructure.Multitenancy.TenantPartitions.ListAsync(
+            store, factory.Services.GetRequiredService<IConfiguration>(), WorkflowRunner.PartitionsWithWorkSql, Ct);
+
+        var total = 0;
+        var sample = new List<(string Tenant, WorkflowRun Run)>();
+
+        foreach (var tenant in partitions)
+        {
+            await using var session = store.QuerySession(tenant);
+            var due = session.Query<WorkflowRun>().Where(WorkflowExecutors.DueFor(WorkflowExecutors.BuiltIn, now));
+
+            total += await due.CountAsync(Ct);
+            sample.AddRange((await due.OrderBy(r => r.CreatedAt).Take(500).ToListAsync(Ct)).Select(r => (tenant, r)));
+        }
+
+        return new DueSnapshot(total, sample);
+    }
+
+    private sealed record DueSnapshot(int Total, List<(string Tenant, WorkflowRun Run)> Sample)
+    {
+        /// <summary>The due runs grouped by tenant, workflow and the action each is waiting on, most first.</summary>
+        public string Describe()
+        {
+            var groups = Sample
+                .GroupBy(d => (
+                    d.Tenant,
+                    d.Run.WorkflowDefinitionId,
+                    d.Run.WorkflowName,
+                    Action: d.Run.Actions.OrderBy(a => a.Ordinal)
+                        .FirstOrDefault(a => a.Status is AttemptStatus.Pending or AttemptStatus.Running)?.ActionType ?? "(none)"))
+                .OrderByDescending(g => g.Count())
+                .Take(8)
+                .Select(g => $"{g.Count()} x tenant '{g.Key.Tenant}' workflow {g.Key.WorkflowDefinitionId} '{g.Key.WorkflowName}' "
+                           + $"action '{g.Key.Action}' (most tries so far {g.Max(d => d.Run.Actions.Count == 0 ? 0 : d.Run.Actions.Max(a => a.Attempts))})");
+
+            return $"{Total} due in all, looked at the oldest {Sample.Count}: " + string.Join("; ", groups);
         }
     }
 }

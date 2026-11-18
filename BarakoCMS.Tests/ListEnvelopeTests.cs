@@ -125,11 +125,14 @@ public class ListEnvelopeTests
         await AuthenticateAsync("SuperAdmin", "Admin");
 
         var first = await ReadPageAsync("/api/roles?page=1&pageSize=1");
-        var past = await ReadPageAsync("/api/roles?page=500&pageSize=1");
+
+        // The suite shares one database, so the end is wherever the other tests left it.
+        var pastTheEnd = first.TotalItems + 1000;
+        var past = await ReadPageAsync($"/api/roles?page={pastTheEnd}&pageSize=1");
 
         first.TotalItems.Should().BeGreaterThan(0);
         past.Items.Should().BeEmpty();
-        past.TotalItems.Should().Be(first.TotalItems);
+        past.TotalItems.Should().BeGreaterThanOrEqualTo(first.TotalItems, "a page past the end still counts every role");
     }
 
     private async Task<(List<string> Items, int TotalItems)> ReadPageAsync(string url)
