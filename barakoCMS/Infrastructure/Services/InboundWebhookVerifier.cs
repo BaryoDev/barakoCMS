@@ -12,8 +12,11 @@ namespace barakoCMS.Infrastructure.Services;
 public sealed class InboundWebhookVerifier(IDocumentSession session, ILogger<InboundWebhookVerifier>? logger = null)
     : IInboundWebhookVerifier
 {
-    // Warn once per provider, so a second misconfigured receiver is not hidden behind the first.
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> BodyOnlyRefusalLogged = new(StringComparer.Ordinal);
+    // Warn once per provider, so a second receiver to fix is not hidden behind the first.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> BodyOnlyWarned = new(StringComparer.Ordinal);
+
+    /// <summary>The 5.7 constructor, kept so a consumer compiled against it still binds.</summary>
+    public InboundWebhookVerifier(IDocumentSession session) : this(session, null) { }
 
     /// <summary>
     /// Five minutes either way, which is what the Svix spec suggests. Symmetric because the clocks
@@ -26,16 +29,18 @@ public sealed class InboundWebhookVerifier(IDocumentSession session, ILogger<Inb
     public InboundWebhookOutcome Verify(InboundWebhookRequest request, DateTimeOffset now)
     {
         var outcome = Check(request, now);
-        if (RefusedForNoTimestamp(request)
-            && BodyOnlyRefusalLogged.TryAdd(request.Provider, true))
+        if (BodyOnlyWithoutOptIn(request)
+            && BodyOnlyWarned.TryAdd(request.Provider, true))
             logger?.LogWarning(
-                "Inbound webhook {Provider} is configured with a plain HMAC and no timestamp header, so its requests are refused. "
-                + "Name a timestamp header, or set AllowBodyOnlySignature for a sender that cannot send one.",
+                "Inbound webhook {Provider} is configured with a plain HMAC and no timestamp header. Its requests are accepted "
+                + "with no replay window, and 6.0 will refuse them. Name a timestamp header, or set AllowBodyOnlySignature "
+                + "for a sender that cannot send one.",
                 request.Provider);
         return outcome;
     }
 
-    private static bool RefusedForNoTimestamp(InboundWebhookRequest request) =>
+    // Accepted in 5.x with a warning. 6.0 refuses it in Check.
+    private static bool BodyOnlyWithoutOptIn(InboundWebhookRequest request) =>
         request.Scheme == InboundWebhookScheme.Hmac
         && request.TimestampHeader is null
         && !request.AllowBodyOnlySignature;
@@ -51,9 +56,6 @@ public sealed class InboundWebhookVerifier(IDocumentSession session, ILogger<Inb
 
             var headers = new Dictionary<string, string>(request.Headers, StringComparer.OrdinalIgnoreCase);
             string Header(string? name) => name is not null && headers.TryGetValue(name, out var v) ? v : "";
-
-            if (RefusedForNoTimestamp(request))
-                return InboundWebhookOutcome.BadSignature;
 
             var isSvix = request.Scheme == InboundWebhookScheme.Svix;
             var timestampHeader = isSvix ? "svix-timestamp" : request.TimestampHeader;
