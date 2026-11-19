@@ -46,14 +46,13 @@ public class ListEnvelopeTests
         "/api/tenants/members",
         "/api/tenants/members/roles",
         "/api/settings",
-        "/api/accounting/accounts",
     ];
 
     [Theory]
     [MemberData(nameof(CollectionEndpoints))]
     public async Task A_collection_endpoint_returns_the_paginated_envelope(string url)
     {
-        await AuthenticateAsync("SuperAdmin", "Admin", "Accountant");
+        await AuthenticateAsync("SuperAdmin", "Admin");
 
         var response = await _client.GetAsync(url);
         response.IsSuccessStatusCode.Should().BeTrue("{0} returned {1}", url, response.StatusCode);

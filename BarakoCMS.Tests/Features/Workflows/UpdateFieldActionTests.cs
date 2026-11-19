@@ -89,10 +89,9 @@ public class UpdateFieldActionTests
     }
 
     /// <summary>
-    /// Not every Content document has an event stream: <c>BarakoCMS.Accounting</c> writes its
-    /// Account content straight through <c>session.Store</c>, bypassing <c>IContentWriter</c>
-    /// entirely, the same way this test seeds its content rather than going through
-    /// <see cref="SeedAsync"/>. <c>AppendOptimisticAsync</c> always tries to append to the
+    /// Not every Content document has an event stream: content written straight through
+    /// <c>session.Store</c> bypasses <c>IContentWriter</c> entirely, the same way
+    /// this test seeds its content rather than going through <see cref="SeedAsync"/>. <c>AppendOptimisticAsync</c> always tries to append to the
     /// document's stream regardless of its content type, and Marten refuses that append outright
     /// when no stream was ever started (<c>NonExistentStreamException</c>) rather than starting one.
     /// Reproduces the regression this caused directly: a field update on such content used to throw

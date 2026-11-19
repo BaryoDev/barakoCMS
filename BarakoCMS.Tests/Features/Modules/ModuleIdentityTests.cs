@@ -1,8 +1,7 @@
-#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using barakoCMS.Modules;
-using BarakoCMS.Accounting;
 using BarakoCMS.FeatureFlags;
 using BarakoCMS.Files;
+using BarakoCMS.Pages;
 using FluentAssertions;
 using Xunit;
 
@@ -25,7 +24,7 @@ public class ModuleIdentityTests
         public string? Category => "Gadgets";
     }
 
-    private static IBarakoModule[] FirstParty() => [new FilesModule(), new AccountingModule(), new FeatureFlagsModule()];
+    private static IBarakoModule[] FirstParty() => [new FilesModule(), new PagesModule(), new FeatureFlagsModule()];
 
     [Fact]
     public void A_module_that_declares_nothing_reports_no_identity()
@@ -56,7 +55,7 @@ public class ModuleIdentityTests
         }
 
         entries.Single(e => e.Name == "Files").PackageId.Should().Be("BarakoCMS.Files");
-        entries.Single(e => e.Name == "Accounting").Category.Should().Be(ModuleCategory.Business);
+        entries.Single(e => e.Name == "Pages").Category.Should().Be(ModuleCategory.Content);
     }
 
     [Fact]

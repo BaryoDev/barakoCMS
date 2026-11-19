@@ -1,8 +1,6 @@
-#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using BarakoCMS.Accounting;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,7 +15,7 @@ namespace BarakoCMS.Tests.Numbering;
 
 /// <summary>
 /// A content type declares a numbering rule and a created entry gets the next number, by the
-/// strategy the rule names; Accounting numbers through the same primitive (#584).
+/// strategy the rule names.
 /// </summary>
 [Collection("Integration1")]
 public class NumberingRuleTests : IAsyncLifetime
@@ -302,105 +300,27 @@ public class NumberingRuleTests : IAsyncLifetime
         values.Should().OnlyHaveUniqueItems();
     }
 
-    // ---- Accounting ------------------------------------------------------------------------
-
-    private async Task ExecAsync(string sql)
-    {
-        await using var connection = new NpgsqlConnection(_fixture.ConnectionString);
-        await connection.OpenAsync(Ct);
-        await using var command = new NpgsqlCommand(sql, connection);
-        await command.ExecuteNonQueryAsync(Ct);
-    }
-
-    private static string Migration(string file) =>
-        File.ReadAllText(Path.Combine(RepoPaths.Root, "migrations", "5.0.0", file));
+    // ---- the allocator ---------------------------------------------------------------------
 
     [Fact]
-    public async Task Journal_entry_numbering_continues_from_the_modules_own_count_after_the_migration()
+    public async Task The_allocator_the_legacy_constructors_use_shares_the_core_count()
     {
-        var tenant = "acct-" + Guid.NewGuid().ToString("n")[..8];
-        await ExecAsync(
-            "insert into public.mt_doc_accounting_number_sequences (tenant_id, id, data, mt_dotnet_type) "
-            + $"values ('{tenant}', 'JE-2031', '{{\"Id\":\"JE-2031\",\"Value\":41}}'::jsonb, 'BarakoCMS.Accounting.Domain.NumberSequence')");
-
-        await ExecAsync(Migration("accounting-number-sequences.sql"));
-        await ExecAsync(Migration("accounting-number-sequences.sql"));
-
         var store = _fixture.Services.GetRequiredService<IDocumentStore>();
-        var numbers = _fixture.Services.GetRequiredService<INumberAllocator>();
-        await using var session = store.LightweightSession(tenant);
-        var next = await numbers.NextAsync(session, JournalEntryHook.EntryNumbers, new DateTimeOffset(2031, 3, 1, 0, 0, 0, TimeSpan.Zero), Ct);
-        await session.SaveChangesAsync(Ct);
-
-        next.Formatted.Should().Be("JE-2031-000042", "the format is the one the module always wrote, and the count carries on");
-
-        await ExecAsync(Migration("rollback-accounting-number-sequences.sql"));
-        await using var read = store.QuerySession(tenant);
-        (await read.LoadAsync<BarakoCMS.Accounting.Domain.NumberSequence>("JE-2031", Ct))!.Value
-            .Should().Be(42, "a rollback hands the older module the count 5.0 reached");
-    }
-
-    [Fact]
-    public async Task A_posted_journal_entry_is_numbered_by_the_core_allocator_in_the_modules_format()
-    {
-        var suffix = Guid.NewGuid().ToString("N")[..6];
-        foreach (var (code, kind) in new[] { ($"1000-{suffix}", "Asset"), ($"4000-{suffix}", "Income") })
-        {
-            (await _client.PostAsJsonAsync("/api/contents", new
-            {
-                contentType = AccountingContentTypes.Account, status = 1,
-                data = new { Code = code, Name = code, Type = kind, IsActive = true },
-            }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
-        }
-
-        async Task<string> PostAsync()
-        {
-            var res = await _client.PostAsJsonAsync("/api/accounting/journal-entries", new
-            {
-                Date = "2033-03-01", Memo = "dues",
-                Lines = new object[]
-                {
-                    new { AccountCode = $"1000-{suffix}", Debit = 10m, Credit = 0m },
-                    new { AccountCode = $"4000-{suffix}", Debit = 0m, Credit = 10m },
-                },
-            }, Ct);
-            res.IsSuccessStatusCode.Should().BeTrue(await res.Content.ReadAsStringAsync(Ct));
-            return (await res.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("entryNumber").GetString()!;
-        }
-
-        var first = await PostAsync();
-        var second = await PostAsync();
-
-        first.Should().MatchRegex("^JE-2033-[0-9]{6}$");
-        int.Parse(second[^6..]).Should().Be(int.Parse(first[^6..]) + 1);
-
-        await using var connection = new NpgsqlConnection(_fixture.ConnectionString);
-        await connection.OpenAsync(Ct);
-        await using var command = new NpgsqlCommand(
-            "select last_value from public.barako_number_counters where series = 'accounting.je' and period = '2033' and tenant_id = '*DEFAULT*'", connection);
-        ((long)(await command.ExecuteScalarAsync(Ct))!).Should().Be(int.Parse(second[^6..]), "the count lives in the core counter");
-    }
-
-    [Fact]
-    public async Task The_allocator_the_legacy_accounting_constructors_use_shares_the_core_count()
-    {
-        var tenant = "acct-" + Guid.NewGuid().ToString("n")[..8];
-        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var series = new NumberSeries("legacy." + Guid.NewGuid().ToString("n")[..12]);
         var at = new DateTimeOffset(2034, 3, 1, 0, 0, 0, TimeSpan.Zero);
 
-        async Task<string> NextAsync(INumberAllocator numbers)
+        async Task<long> NextAsync(INumberAllocator numbers)
         {
-            await using var session = store.LightweightSession(tenant);
-            var next = await numbers.NextAsync(session, JournalEntryHook.EntryNumbers, at, Ct);
+            await using var session = store.LightweightSession();
+            var next = await numbers.NextAsync(session, series, at, Ct);
             await session.SaveChangesAsync(Ct);
-            return next.Formatted;
+            return next.Value;
         }
 
         var injected = await NextAsync(_fixture.Services.GetRequiredService<INumberAllocator>());
         var legacy = await NextAsync(barakoCMS.Infrastructure.Numbering.NumberAllocators.Gapless());
 
-        injected.Should().Be("JE-2034-000001");
-        legacy.Should().Be("JE-2034-000002", "a post through a legacy constructor counts on from the endpoint's number");
+        legacy.Should().Be(injected + 1, "a number taken through a legacy constructor counts on from the injected allocator's");
     }
 
 }

@@ -1,4 +1,3 @@
-#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using System.Net;
 using System.Net.Http.Headers;
 using FluentAssertions;
@@ -40,34 +39,16 @@ public class ModuleCapabilityTests
     [Fact]
     public async Task A_runtime_role_holding_a_module_capability_reaches_that_module()
     {
-        var client = await CallerHolding(BarakoCMS.Accounting.AccountingCapabilities.ViewLedger);
+        var client = await CallerHolding(BarakoCMS.FeatureFlags.FeatureFlagCapabilities.ManageFeatureFlags);
 
-        var balances = await client.GetAsync("/api/accounting/balances", TestContext.Current.CancellationToken);
-        var post = await client.SendAsync(
-            Probe("POST", "/api/accounting/journal-entries"), TestContext.Current.CancellationToken);
         var flags = await client.GetAsync("/api/feature-flags/admin", TestContext.Current.CancellationToken);
+        var export = await client.GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
 
-        balances.StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
-            "view_ledger is what the balances endpoint asks for");
-        balances.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized);
-        post.StatusCode.Should().Be(HttpStatusCode.Forbidden,
-            "reading the books and writing to them are two grants");
-        flags.StatusCode.Should().Be(HttpStatusCode.Forbidden,
-            "and a capability from one module says nothing about another");
-    }
-
-    /// <summary>The other half of the accounting split, so it holds in both directions.</summary>
-    [Fact]
-    public async Task Post_journal_entries_does_not_carry_the_ledger_with_it()
-    {
-        var client = await CallerHolding(BarakoCMS.Accounting.AccountingCapabilities.PostEntries);
-
-        var post = await client.SendAsync(
-            Probe("POST", "/api/accounting/journal-entries"), TestContext.Current.CancellationToken);
-        var balances = await client.GetAsync("/api/accounting/balances", TestContext.Current.CancellationToken);
-
-        post.StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
-        balances.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        flags.StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
+            "manage_feature_flags is what the admin endpoint asks for");
+        flags.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized);
+        export.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "a capability from one module says nothing about another");
     }
 
     /// <summary>
@@ -99,7 +80,7 @@ public class ModuleCapabilityTests
 
         foreach (var route in new[]
         {
-            "/api/accounting/balances", "/api/feature-flags/admin", "/api/portability/export",
+            "/api/feature-flags/admin", "/api/portability/export",
             "/api/client-errors", "/api/files",
         })
         {

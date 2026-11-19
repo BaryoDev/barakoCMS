@@ -1,10 +1,10 @@
 # migrations/removed
 
-The migration scripts of the modules removed in 5.5.0 (#1284), and of the stock reservation
-primitive. Core does not embed or run anything in this folder, and `scripts/lib-migrations.sh` does
+The migration scripts of the modules removed in 5.5.0 (#1284), of the Accounting module removed in
+6.0.0 (#1285), and of the stock reservation primitive. Core does not embed or run anything in this folder, and `scripts/lib-migrations.sh` does
 not plan it. The files are here so an operator who ran those modules can still drop what they made.
 
-Nothing in 5.5.0 touches these tables. A database that has them starts without errors, and
+Nothing in 5.5.0 or 6.0.0 touches these tables. A database that has them starts without errors, and
 `db-migrate --status` prints their old ledger rows as `not-loaded`.
 
 ## What is in here
@@ -40,6 +40,7 @@ If you replace a removed module with another package that keeps using its tables
 | Forms | `mt_doc_public_forms`, `mt_doc_form_email_verifications`, `mt_doc_form_email_budgets` | Forms |
 | Reports | `mt_doc_report_definitions` | Reports |
 | Notifications | `mt_doc_notifications` | Notifications |
+| Accounting | `mt_doc_accounting_accounts`, `mt_doc_accounting_journal_entries`, `mt_doc_accounting_mappings`, `mt_doc_accounting_number_sequences` | Accounting |
 | Pwa | `mt_doc_pwa_installs` | none (no migration file) |
 | DeviceTrust | `mt_doc_devices` | none (no migration file) |
 | Stock reservations (core) | `barako_stock_counters`, `barako_stock_holds`, `barako_stock_movements` | core, `5.2.0/580-stock-reservations` |
