@@ -125,6 +125,41 @@ token reuse.
 
 Logout is unchanged and does not end only the current session.
 
+### Listing and ending sessions
+
+| Route | Who | What |
+|---|---|---|
+| `GET /api/me/sessions` | the signed-in user | their live sessions, newest `lastSeenAt` first, paged |
+| `DELETE /api/me/sessions/{id}` | the signed-in user | ends one of their sessions, 204, or 404 when it is not theirs |
+| `POST /api/me/sessions/revoke-others` | the signed-in user | ends every session except the one the request came from, 204 |
+| `GET /api/users/{id}/sessions` | a global SuperAdmin | the same list for any user |
+| `DELETE /api/users/{id}/sessions/{sessionId}` | a global SuperAdmin | ends one of that user's sessions |
+| `DELETE /api/users/{id}/sessions` | a global SuperAdmin | ends all of that user's sessions |
+
+A live session is a refresh row that is not revoked, not expired and has a session id, so rows from
+before sessions are left out until their first refresh. Each item holds `id`, `device`,
+`signInMethod`, `signInIp`, `lastSeenIp`, `startedAt`, `lastSeenAt` and `current`. `current` is true
+for the session whose token made the request, and is always false on the admin list. Lists take
+`page` and `pageSize` and never return more than 100 items.
+
+Ending the session the request came from signs the caller out: the answer is still 204 and the next
+request is a 401. The routes share the `logout` rate limit, 30 a minute per address.
+
+The admin routes are for a global SuperAdmin only, a role in the user's own `RoleIds` and not one
+held through a tenant membership. A session spans tenants, so the list shows addresses from every
+tenant the user signs in to, and a tenant administrator does not see them. A SuperAdmin may use them
+on themselves. A tenant administrator's view of sessions is not built.
+
+Every end writes `auth.session.revoked` with the actor as the caller, `targetType` `User`, `targetId`
+the user, and the session id in `metadata.sessionId`. It holds no device text and no address. The
+entry goes to the tenant the request came in on.
+
+### API keys
+
+`GET /api/api-keys` returns `lastUsedIp` beside `lastUsedAt` for each key. Both are written in one
+patch, at most once every five minutes per key, so the address is at most five minutes stale. It is
+null for a key not used since this was recorded. The usage endpoint does not return it.
+
 ### Rows from before sessions
 
 A refresh row written before this change has no `SessionId`. Its next refresh gives the new row one,
