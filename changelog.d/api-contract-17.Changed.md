@@ -1,0 +1,1 @@
+- **The API contract moves from 16 to 17.** `DELETE /api/accounts/{slug}/content-types/{name}` answers 200 with a body instead of 204 when API keys name the type. Deploy a barakoBrew that accepts 17 before or with this release.

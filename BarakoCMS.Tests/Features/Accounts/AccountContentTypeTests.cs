@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using BarakoCMS.Diagnostics;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
@@ -120,6 +121,95 @@ public class AccountContentTypeTests
         var validator = scope.ServiceProvider.GetRequiredService<IContentValidatorService>();
         var (_, errors) = await validator.ValidateAsync(type, data, null);
         return errors;
+    }
+
+    private async Task<Guid> StoreKeyAsync(string[] contentTypes, string tenant = Tenant.DefaultSlug, bool revoked = false, DateTime? expiresAt = null)
+    {
+        var id = Guid.NewGuid();
+        var secret = "bcms_" + Guid.NewGuid().ToString("N");
+        await StoreAsync(new ApiKey
+        {
+            Id = id, Name = "warn-test", KeyHash = ApiKeyService.Hash(secret), Prefix = secret[..12],
+            UserId = Guid.NewGuid(), TenantSlug = tenant, Scopes = ["content:write"],
+            ContentTypes = [.. contentTypes], Revoked = revoked, ExpiresAt = expiresAt,
+        });
+        return id;
+    }
+
+    private async Task<List<Guid>> DeleteWarningsAsync(HttpClient manager, TenantAccount account, string name)
+    {
+        var response = await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct);
+        if (response.StatusCode == HttpStatusCode.NoContent) return [];
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        return body.GetProperty("apiKeyWarnings").EnumerateArray().Select(w => w.GetProperty("keyId").GetGuid()).ToList();
+    }
+
+    [Fact]
+    public async Task Deleting_a_type_names_the_live_key_that_uses_it_and_still_deletes()
+    {
+        var account = await AccountAsync();
+        var manager = await ManagerAsync(account.Id);
+        var name = await CreateSharedTypeAsync(manager, account);
+        var key = await StoreKeyAsync([name.ToUpperInvariant()]);
+        await StoreKeyAsync(["unrelated"]);
+
+        (await DeleteWarningsAsync(manager, account, name)).Should().ContainSingle().Which.Should().Be(key);
+
+        (await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound, "the first delete went through");
+    }
+
+    [Fact]
+    public async Task The_warning_carries_the_key_name_and_prefix_and_never_the_hash()
+    {
+        var account = await AccountAsync();
+        var manager = await ManagerAsync(account.Id);
+        var name = await CreateSharedTypeAsync(manager, account);
+        await StoreKeyAsync([name]);
+
+        var response = await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct);
+        var text = await response.Content.ReadAsStringAsync(Ct);
+        var warning = JsonDocument.Parse(text).RootElement.GetProperty("apiKeyWarnings")[0];
+
+        warning.GetProperty("name").GetString().Should().Be("warn-test");
+        warning.GetProperty("prefix").GetString().Should().StartWith("bcms_");
+        text.Should().NotContainEquivalentOf("hash");
+    }
+
+    [Fact]
+    public async Task A_key_of_another_tenant_is_not_listed_on_a_type_delete()
+    {
+        var account = await AccountAsync();
+        var manager = await ManagerAsync(account.Id);
+        var name = await CreateSharedTypeAsync(manager, account);
+        await StoreKeyAsync([name], tenant: await TenantAsync(null));
+
+        (await DeleteWarningsAsync(manager, account, name)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_revoked_or_expired_key_is_not_listed_on_a_type_delete()
+    {
+        var account = await AccountAsync();
+        var manager = await ManagerAsync(account.Id);
+        var name = await CreateSharedTypeAsync(manager, account);
+        await StoreKeyAsync([name], revoked: true);
+        await StoreKeyAsync([name], expiresAt: DateTime.UtcNow.AddDays(-1));
+
+        (await DeleteWarningsAsync(manager, account, name)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_type_no_key_names_deletes_with_204_and_no_warning()
+    {
+        var account = await AccountAsync();
+        var manager = await ManagerAsync(account.Id);
+        var name = await CreateSharedTypeAsync(manager, account);
+        await StoreKeyAsync(["other-type"]);
+
+        (await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
 
     [Fact]

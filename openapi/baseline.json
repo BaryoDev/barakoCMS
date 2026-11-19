@@ -1071,6 +1071,18 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesAccountsContentTypesDeleteDeleteResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "apiKeyWarnings": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesApiKeysApiKeyWarning"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesAccountsListRequest": {
         "allOf": [
           {
@@ -1287,6 +1299,28 @@
             "type": "string"
           },
           "tenantSlug": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesApiKeysApiKeyWarning": {
+        "additionalProperties": false,
+        "properties": {
+          "contentTypes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "keyId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
             "type": "string"
           }
         },
@@ -14927,6 +14961,16 @@
           }
         ],
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsContentTypesDeleteDeleteResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
           "204": {
             "description": "No Content"
           },

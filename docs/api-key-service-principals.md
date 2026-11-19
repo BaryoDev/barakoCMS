@@ -128,3 +128,5 @@ keys until core is upgraded again. The script needs no change.
 ## Usage
 
 `GET /api/api-keys/{id}/usage` (tenant admin) returns when the key was last used, its refusals in the last 24 hours by reason (scope, content type, expired, revoked) and by content type, and the content types it names that no longer exist. The refusals are counted in memory, so each replica has its own and a restart clears them. A refused request for a type the key does not name and the tenant does not have is counted as `other`. `barakocms_api_key_refusals_total` counts the same refusals by reason only, since `/metrics` is anonymous.
+
+Deleting an account content type (`DELETE /api/accounts/{slug}/content-types/{name}`) still goes through, and answers 200 with `apiKeyWarnings` (key id, name, prefix, matching types) when live keys of the caller's tenant name the type. Revoked and expired keys are not listed. It answers 204 when no key names it.
