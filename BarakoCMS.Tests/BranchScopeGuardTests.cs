@@ -148,9 +148,14 @@ public class BranchScopeGuardTests(SampleProbeHost host) : IClassFixture<SampleP
         var holdsA = await KeyOfAsync(s.Creator);
         var holdsNone = await KeyOfAsync(await WriterAsync(host));
 
+        // Each key signs in on its own scope: the auth handler caches its result per scope.
+        ClaimsPrincipal first, second;
+        using (var scopeOne = host.Services.CreateScope()) first = await Authenticate(scopeOne, holdsA);
+        using (var scopeTwo = host.Services.CreateScope()) second = await Authenticate(scopeTwo, holdsNone);
+        second.Should().NotBeSameAs(first);
+        second.FindFirst("UserId")!.Value.Should().NotBe(first.FindFirst("UserId")!.Value);
+
         using var scope = host.Services.CreateScope();
-        var first = await Authenticate(scope, holdsA);
-        var second = await Authenticate(scope, holdsNone);
         var guard = scope.ServiceProvider.GetRequiredService<IBranchScopeGuard>();
 
         var entry = new Content { ContentType = s.Scoped, BranchId = s.A };
@@ -160,8 +165,19 @@ public class BranchScopeGuardTests(SampleProbeHost host) : IClassFixture<SampleP
 
         var one = await guard.FilterAsync(first, Ct);
         var two = await guard.FilterAsync(second, Ct);
-        ((object[])one!.Parameters[1]).Should().Equal(s.A.ToString());
-        ((object[])two!.Parameters[1]).Should().BeEmpty();
+        var query = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var types = new[] { s.Scoped, s.Open };
+        var seenByFirst = (await query.Query<Content>()
+            .Where(c => types.Contains(c.ContentType) && c.MatchesSql(one!.Sql, one.Parameters))
+            .ToListAsync(Ct)).Select(r => r.Id).ToList();
+        var seenBySecond = (await query.Query<Content>()
+            .Where(c => types.Contains(c.ContentType) && c.MatchesSql(two!.Sql, two.Parameters))
+            .ToListAsync(Ct)).Select(r => r.Id).ToList();
+
+        seenByFirst.Should().NotBeEmpty();
+        seenByFirst.Should().Contain(s.InA);
+        seenByFirst.Should().Contain(s.OpenEntry);
+        seenBySecond.Should().BeEquivalentTo([s.OpenEntry]);
     }
 
     private static async Task<ClaimsPrincipal> Authenticate(IServiceScope scope, string key)
