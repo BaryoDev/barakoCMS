@@ -1,4 +1,3 @@
-#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using System.Reflection;
 using barakoCMS.Infrastructure.Migrations;
 using barakoCMS.Modules;
@@ -20,12 +19,9 @@ public class ShippedMigrationTests
         "4.2.0/stored-files-parent-index",
         "4.6.0/external-auth-identities",
         "4.8.0/external-auth-used-nonces",
-        "5.0.0/accounting-number-sequences",
         "5.0.0/pages-settings",
         "5.0.0/files-storage-settings",
         "5.1.0/915-external-auth-role-maps",
-        "5.3.0/accounting-journal-lifecycle",
-        "5.3.0/accounting-mappings",
         "5.5.0/915-external-auth-provider-settings",
         "5.5.0/1270-external-auth-social-handoff",
     ];
@@ -57,7 +53,6 @@ public class ShippedMigrationTests
         ["ExternalAuth/4.8.0/external-auth-used-nonces"] = "3c5a28d80e303db280fee5124aa24073666476fd22fd5254fae1c3d3b20c7f5f",
         ["core/4.9.0/gapless-numbering"] = "546a734ce315e86e89aa05de8ad598f40825343001a73a958f6265bdbab88b5d",
         ["core/4.9.0/stations"] = "24c899bb202fbcef6316181dc965947e243cafd89a5d4b16ee9aa704f9dbabe5",
-        ["Accounting/5.0.0/accounting-number-sequences"] = "1b0c692e36b40fdebbe07a951be5c405e981d2eac6bfc7d58eed09d75194cd80",
         ["core/5.0.0/blocks"] = "157480041989f0e2c94ecdabaab38be675f36090ba2f997a17581d3e7a624d96",
         ["core/5.0.0/field-changes"] = "ea34638b75ca37c5cf1e6363a07e685e9feb86e6c43d6f439c740af11efbbf0b",
         ["Files/5.0.0/files-storage-settings"] = "cdad1c10b7f0e90cc1a9c91b513260d78413b2abc25b03f05741e22aa37be7fd",
@@ -82,8 +77,6 @@ public class ShippedMigrationTests
         ["core/5.2.0/workflow-schedule-claims"] = "51d6a157ef250942f01f3d4d5060fbdee32e9efee187f7551d7a42721e4f4371",
         ["core/5.3.0/945-account-content-types"] = "0c45c34c4bf1bbd4ceb84601a4283030f022a1c75f3988ae546fa7f5e53dbd54",
         ["core/5.3.0/98-locale-settings"] = "feb469f6ed7c50b4cbb368e1e3784b6551a68645e42d088d4802a4baabc0a77c",
-        ["Accounting/5.3.0/accounting-journal-lifecycle"] = "9729574df1abebb11b7e8e5f27e826053f8abf4d22ac71b7379b9bf41f918d29",
-        ["Accounting/5.3.0/accounting-mappings"] = "aa1c2f31888dd847149609343ba3e03b0a04f6aa6af17669f27d9d3143c3c1d5",
         ["core/5.5.0/1280-tenant-domains"] = "cc9c0fc18afc4b0e09084448fb1d2e05ec2e877c8d3d28b2e630934fb712d7d1",
         ["core/5.5.0/896-tenant-settings"] = "d7fdba21ff90021f8b31f107a6e62710389b07bee5f61e565ba8b267f954d07d",
         ["core/5.5.0/906-service-principals"] = "65fc1292fdbec962d9fb4ba2f8d31e518f2e80da014d081060f7383cdf4cae3c",
@@ -102,7 +95,7 @@ public class ShippedMigrationTests
     };
 
     /// <summary>
-    /// The scripts of the modules removed in 5.5.0, kept under migrations/removed so an existing
+    /// The scripts of the modules removed in 5.5.0 and 6.0.0, kept under migrations/removed so an existing
     /// database can still drop or roll back what they made. Core ships none of them, and none may be
     /// edited: the release notes point operators at these files.
     /// </summary>
@@ -113,6 +106,8 @@ public class ShippedMigrationTests
         ["4.6.0/rollback-forms-email-verification.sql"] = "050c75b40cb67f74a419ae1791408b8a5ca8d9b3254cb7e45a746e13f955019e",
         ["4.7.0/forms-tenant-policy-restore.sql"] = "fed503d62bd158382f74db7dea413a15f1ccb4ee3df25a9efec469a450e0dae3",
         ["4.7.0/rollback-forms-tenant-policy-restore.sql"] = "def5dbb35b0a8214f93e6463a2f42b5a3a747efe43de307030a60498dcf963f1",
+        ["5.0.0/accounting-number-sequences.sql"] = "1b0c692e36b40fdebbe07a951be5c405e981d2eac6bfc7d58eed09d75194cd80",
+        ["5.0.0/rollback-accounting-number-sequences.sql"] = "273e8ebc6967a9d28d9d7238ed2485d5efd21605b1f7418f13fcd1c58f80cf79",
         ["5.2.0/253-comments.sql"] = "6fa6040b649fb8de053d0a0562d0a4d9f67e6bb226484f2fa92cc279ba48375c",
         ["5.2.0/580-stock-reservations.sql"] = "9ef9947628be0b15a2d13b58778a42ffb4d400daa2709dd3faede73960eda970",
         ["5.2.0/585-documents.sql"] = "803bc108e5819f96927eb90a4d312b6db8df1afbafca9b92a1890f8da2eb1ccb",
@@ -135,10 +130,14 @@ public class ShippedMigrationTests
         ["5.2.0/rollback-report-definitions.sql"] = "c84728e74ca1e0566e0534c73b6d2fc8676cbd5f893097406b65bb421c0fbd3d",
         ["5.2.0/rollback-scheduled-entries.sql"] = "594617d3fa337c980af816bbf79a4b2d4e4ddbd4f91cd2ae0423b438109199fc",
         ["5.2.0/scheduled-entries.sql"] = "5d53624df8efaf75dade91db2d193845524941866665ae9b39aab5b5f9a13249",
+        ["5.3.0/accounting-journal-lifecycle.sql"] = "9729574df1abebb11b7e8e5f27e826053f8abf4d22ac71b7379b9bf41f918d29",
+        ["5.3.0/accounting-mappings.sql"] = "aa1c2f31888dd847149609343ba3e03b0a04f6aa6af17669f27d9d3143c3c1d5",
         ["5.3.0/252-tagging.sql"] = "bf0bb73ee9191fe00ebfc54d302cb9867fe589a934d0bf6e8d78add6323999fc",
         ["5.3.0/833-services.sql"] = "763e0ea446188d93a8b0876c49665eb67f76e5fa729afe4dda7bc31001171411",
         ["5.3.0/rollback-252-tagging.sql"] = "604056f74deaaa0fd488a6ec4ed17ea0032712c9ba960e83e9ee60b99037d986",
         ["5.3.0/rollback-833-services.sql"] = "b5995cf3a2485eb5a7990dda41d5533f2173a036b860938d1baea9a1aa0311d9",
+        ["5.3.0/rollback-accounting-mappings.sql"] = "70d66e124727ce4cd199759d8c3e3f587b6be304d53c3047865fc05829a06fa6",
+        ["drop/accounting.sql"] = "f7ab63fb6821caea3ced16372a85d28c86b6ea41777722f8551967797470cbcc",
         ["drop/booking.sql"] = "6950429f131b3ba7055447786eb622f4794725bd0d5e5cdcd5e9d631c3fe74fc",
         ["drop/comments.sql"] = "7bffd7a032b8547c3984cec13fd68aaea11297217d59bf4f75781de574080a07",
         ["drop/contacts.sql"] = "15ad49d480f8fa5be8f6be82cb5ecea04a94a4bdd5678b99b03b7cad631b1966",
@@ -160,7 +159,6 @@ public class ShippedMigrationTests
         [
             new BarakoCMS.Files.FilesModule(),
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
-            new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
         ]);
 
@@ -202,7 +200,7 @@ public class ShippedMigrationTests
     }
 
     /// <summary>
-    /// The scripts under migrations/removed are what the 5.5.0 release notes tell an operator to
+    /// The scripts under migrations/removed are what the release notes tell an operator to
     /// run. Core ships none of them, and each is pinned so a later edit is a decision.
     /// </summary>
     [Fact]
@@ -232,7 +230,6 @@ public class ShippedMigrationTests
         [
             new BarakoCMS.Files.FilesModule(),
             new BarakoCMS.ExternalAuth.ExternalAuthModule(),
-            new BarakoCMS.Accounting.AccountingModule(),
             new BarakoCMS.Pages.PagesModule(),
         ];
 
@@ -241,9 +238,6 @@ public class ShippedMigrationTests
 
         var owned = all.Where(m => m.Owner != ShippedMigrations.CoreOwner).Select(m => m.Key).ToList();
         owned.Should().Equal(
-            "Accounting/5.0.0/accounting-number-sequences",
-            "Accounting/5.3.0/accounting-journal-lifecycle",
-            "Accounting/5.3.0/accounting-mappings",
             "ExternalAuth/4.6.0/external-auth-identities",
             "ExternalAuth/4.8.0/external-auth-used-nonces",
             "ExternalAuth/5.1.0/915-external-auth-role-maps",

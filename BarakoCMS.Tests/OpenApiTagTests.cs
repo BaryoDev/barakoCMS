@@ -103,7 +103,6 @@ public class OpenApiTagTests
         // line means two branches adding two tags touch two different lines and git merges them.
         var expected = new[]
         {
-            "Accounting",
             "Accounts",
             "Activity",
             "AI",
@@ -169,7 +168,7 @@ public class OpenApiTagTests
     [InlineData("barakoCMS.Features.Content.Create", "Content")]
     [InlineData("barakoCMS.Features.ContentType.SetPublicDelivery", "ContentType")]
     [InlineData("barakoCMS.Features.Public", "Public")]
-    [InlineData("BarakoCMS.Accounting.Features.Reports", "Accounting")]
+    [InlineData("BarakoCMS.Pages.Features.Tree", "Pages")]
     [InlineData("BarakoCMS.Files.S3", "Files.S3")]
     [InlineData("BarakoCMS.Files.Features.Upload", "Files")]
     [InlineData("BarakoCMS.AI.Features", "AI")]

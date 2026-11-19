@@ -15,7 +15,7 @@
 
 BarakoCMS is a headless, API-first CMS built on [FastEndpoints](https://fast-endpoints.com/) and
 [Marten](https://martendb.io/) (event sourcing over PostgreSQL). The core stays small and generic;
-everything else, from accounting to email, file storage and auth providers, ships as **opt-in
+everything else, from email to file storage and auth providers, ships as **opt-in
 modules** you compose per project, and it's **multi-tenant** out of the box.
 
 This repository is the API, and its own surface is Swagger (`/swagger`, on when `Swagger:Enabled`
@@ -123,7 +123,6 @@ project, through the same `IBarakoModule` contract you can implement yourself.
 
 | Module | Package | What it adds |
 | --- | --- | --- |
-| **Accounting** | [`BarakoCMS.Accounting`](https://www.nuget.org/packages/BarakoCMS.Accounting) | **Deprecated, removed in 6.0 (#1285).** A double-entry **ledger**: chart of accounts, balanced journal entries, balances, and per-account ledgers. |
 | **Import** | [`BarakoCMS.Import`](https://www.nuget.org/packages/BarakoCMS.Import) | **Bulk import** `.xlsx`/CSV into content via [Talaan](https://github.com/BaryoDev/Talaan), through the CMS's own validation, permissions, and event sourcing. |
 | **Files** | [`BarakoCMS.Files`](https://www.nuget.org/packages/BarakoCMS.Files) | **File upload/download** stored in Postgres via Marten: receipts, photos, documents. |
 | **Files.S3** | [`BarakoCMS.Files.S3`](https://www.nuget.org/packages/BarakoCMS.Files.S3) | Stores the Files module's uploads in S3-compatible object storage (AWS S3, Cloudflare R2, SeaweedFS) instead of Postgres. Public files get a direct URL; private files are proxied through the API. |
@@ -144,7 +143,7 @@ builder.Services.AddBarakoCMS(builder.Configuration);
 await app.RunBarakoModuleSeedersAsync(); // module baseline data (roles, reference data)
 ```
 
-`BarakoCMS__Modules__Enabled=Accounting,Files` chooses which of the referenced modules run. Unset,
+`BarakoCMS__Modules__Enabled=Import,Files` chooses which of the referenced modules run. Unset,
 all of them run and the API logs one warning saying so; an empty string is core only; a name that
 matches nothing refuses to start and lists the names it knows. Turning a module off leaves its data
 in the database. `GET /api/modules` lists each module with `enabled`. A module that needs
@@ -221,10 +220,9 @@ BarakoCMS is headless, so you build the frontend. These BaryoDev packages help:
                                               | IBarakoModule
                     +-------------------------+-------------------------+
                     v                         v                         v
-              Accounting                    Files <-- Files.S3        AI
-              FeatureFlags                  Import                    Diagnostics
-              Portability                   Email.Smtp
-              Pages
+              FeatureFlags                  Files <-- Files.S3        AI
+              Portability                   Import                    Diagnostics
+              Pages                         Email.Smtp
               ExternalAuth
                     |                         |                         |
                     +-------------------------+-------------------------+
@@ -245,7 +243,7 @@ The question every contribution runs into, so here is the answer we use.
 | Test | Because |
 | --- | --- |
 | Two sensible projects would disagree about wanting it | Core is what nobody gets a choice about, and every choice belongs to the person deploying |
-| It names a vendor, a product or a business domain | `Stripe`, `S3`, `Accounting`. Core's vocabulary is content, users, tenants, permissions and nothing else |
+| It names a vendor, a product or a business domain | `Stripe`, `S3`, `Ledger`. Core's vocabulary is content, users, tenants, permissions and nothing else |
 | It brings a dependency core does not already carry | An SDK, an API client, a file format. Core's dependency list is a promise to everyone who installs it |
 | Removing it still leaves a working CMS | If content, auth, tenancy and delivery survive without it, it was never core |
 

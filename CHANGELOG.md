@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **BarakoCMS.Accounting is removed.** This is the 6.0 removal announced in 5.5.0. The package, its endpoints under `/api/accounting`, its capabilities `view_ledger` and `post_journal_entries`, and its `Accountant` role seeding are gone. Remove the package reference and `Accounting` from `BarakoCMS:Modules:Enabled`, since the host refuses to start on a module name it does not know. `INumberAllocator` stays in core, and so does the `accounting.je` counter row in `barako_number_counters`, which core no longer reads or writes. `NumberAllocators`, the static helper the module's legacy constructors used, is removed. Existing roles keep the `view_ledger` and `post_journal_entries` capabilities they hold. They are now unknown capabilities, refused on a role update only when `Roles:RefuseUnknownCapabilities` is on.
+  - **Dropping the tables is up to you.** Nothing in core touches them. To drop them, run `migrations/removed/drop/accounting.sql`. It drops `mt_doc_accounting_accounts`, `mt_doc_accounting_journal_entries`, `mt_doc_accounting_mappings` and `mt_doc_accounting_number_sequences` and deletes the `Accounting` ledger rows from `barako_migrations`. Every row in those tables is lost, so take a backup first. Accounts and journal entries stored as content entries stay in the content tables. Safe to run twice. The file header gives the `psql` command.
+  - **The module's migration scripts moved** to `migrations/removed/5.0.0` and `migrations/removed/5.3.0`, unedited, next to the other removed scripts. Core no longer plans or runs them.
+  - **The API contract number.** The module's endpoints were not part of the core host's `openapi/baseline.json`, so the baseline has no change. Deleting the module project counts as raising the contract number for `scripts/contract-versions.py`.
+
 ## [5.8.0] - 2026-11-18
 
 This release adds read-only content type shape routes for the CLI, API key reads of the page tree and block schema, dry run on field changes and batches, a run's due time, and a check that stops a computed field showing more than its inputs. It also closes a way to widen a member's roles through their profile, requires a timestamp on plain HMAC inbound webhooks from 6.0, and indexes the run list counts. The API contract version moves from 15 to 16 (`ApiContract.Version`, for the computed field check). The delivery contract stays at 10. Run `db-migrate` after upgrading: the migrations are under `migrations/5.7.2`.

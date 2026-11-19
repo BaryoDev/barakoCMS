@@ -12,7 +12,7 @@ namespace barakoCMS.Infrastructure.OpenApi;
 /// <code>
 /// barakoCMS.Features.Content.Create      -> Content
 /// barakoCMS.Features.ContentType.List    -> ContentType
-/// BarakoCMS.Accounting.Features.Reports  -> Accounting
+/// BarakoCMS.Pages.Features.Tree          -> Pages
 /// BarakoCMS.Files.S3.Features           -> Files.S3
 /// BarakoCMS.ExternalAuth                 -> ExternalAuth
 /// </code>

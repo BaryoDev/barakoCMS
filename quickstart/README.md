@@ -71,7 +71,7 @@ Each module block in `.env` is optional. Fill it in and `docker compose up -d` a
 
 Every module in the image is registered unless `BarakoCMS__Modules__Enabled` says otherwise. Unset,
 all of them run and the API logs one warning saying so at boot. Set it to a comma-separated list of
-module names (`BarakoCMS__Modules__Enabled=Accounting,Files`) to run only those, or to an empty
+module names (`BarakoCMS__Modules__Enabled=Import,Files`) to run only those, or to an empty
 string for core only. A name that matches nothing stops the boot and lists the names available.
 Turning a module off leaves its data in the database; `GET /api/modules` shows each module with
 `enabled`. See `MODULES.md` in the repository. `docker-compose.yml` passes a fixed set of variables

@@ -1103,15 +1103,6 @@
           "Microsoft.Extensions.DependencyModel": "[10.0.15, )"
         }
       },
-      "barakocms.accounting": {
-        "type": "Project",
-        "dependencies": {
-          "BarakoCMS": "[5.8.0, )",
-          "BarakoCMS.Abstractions": "[5.8.0, )",
-          "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
-        }
-      },
       "barakocms.ai": {
         "type": "Project",
         "dependencies": {

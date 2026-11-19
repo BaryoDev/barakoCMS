@@ -1,4 +1,3 @@
-#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using System.Reflection;
 using barakoCMS.Models;
 using barakoCMS.Modules;
@@ -172,7 +171,6 @@ public class ModuleCapabilityDefaultsTests
         Type[] known =
         [
             typeof(BarakoCMS.AI.AiCapabilities),
-            typeof(BarakoCMS.Accounting.AccountingCapabilities),
             typeof(BarakoCMS.Diagnostics.DiagnosticsCapabilities),
             typeof(BarakoCMS.FeatureFlags.FeatureFlagCapabilities),
             typeof(BarakoCMS.Files.FileCapabilities),
@@ -222,112 +220,6 @@ public class ModuleCapabilityDefaultsTests
     }
 
     /// <summary>
-    /// The Accounting module seeds a role of its own. Renamed, it is found by its id: the seed does
-    /// not store a new Accountant over it, which would discard the name and every permission an
-    /// operator gave it.
-    /// </summary>
-    [Fact]
-    public async Task The_accounting_seed_keeps_an_accountant_role_that_was_renamed()
-    {
-        var id = BarakoCMS.Accounting.AccountingModule.AccountantRoleId;
-        var original = await LoadAsync(id);
-        original.Should().NotBeNull("the fixture seeds the Accounting module, which creates the role");
-
-        var renamed = NewName("Bookkeeper");
-
-        try
-        {
-            using (var scope = _factory.Services.CreateScope())
-            {
-                var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-                var role = await session.LoadAsync<Role>(id, Ct);
-                role!.Name = renamed;
-
-                // Held already, so the grant below has nothing to write and the only thing the
-                // seed could store is a role of its own.
-                role.SystemCapabilities =
-                [
-                    BarakoCMS.Accounting.AccountingCapabilities.ViewLedger,
-                    BarakoCMS.Accounting.AccountingCapabilities.PostEntries,
-                    BarakoCMS.Accounting.AccountingCapabilities.ManageMappings,
-                ];
-                role.Permissions =
-                [
-                    new ContentTypePermission { ContentTypeSlug = "renamed-accountant-marker", Read = new PermissionRule { Enabled = true } },
-                ];
-                session.Store(role);
-                await session.SaveChangesAsync(Ct);
-            }
-
-            using (var scope = _factory.Services.CreateScope())
-            {
-                var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-                await new BarakoCMS.Accounting.AccountingModule().SeedAsync(new ModuleSeedContext(session, scope.ServiceProvider), Ct);
-                await session.SaveChangesAsync(Ct);
-            }
-
-            var after = await LoadAsync(id);
-            after.Should().NotBeNull();
-            after!.Name.Should().Be(renamed);
-            after.Permissions.Should().ContainSingle()
-                .Which.ContentTypeSlug.Should().Be("renamed-accountant-marker");
-            after.SystemCapabilities.Should().HaveCount(3);
-            (await LoadByNameAsync("Accountant")).Should().BeNull("no second role was made under the seeded name");
-        }
-        finally
-        {
-            using var scope = _factory.Services.CreateScope();
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(original!);
-            await session.SaveChangesAsync(CancellationToken.None);
-        }
-    }
-
-    /// <summary>
-    /// A host on core 5.0.x calls the Marten-typed seed. The first-party module keeps that override,
-    /// so the grants still happen there.
-    /// </summary>
-    [Fact]
-    public async Task The_obsolete_marten_seed_of_a_first_party_module_still_grants()
-    {
-        var id = BarakoCMS.Accounting.AccountingModule.AccountantRoleId;
-        var original = await LoadAsync(id);
-        original.Should().NotBeNull("the fixture seeds the Accounting module, which creates the role");
-
-        try
-        {
-            using (var scope = _factory.Services.CreateScope())
-            {
-                var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-                var role = await session.LoadAsync<Role>(id, Ct);
-                role!.SystemCapabilities = [];
-                session.Store(role);
-                await session.SaveChangesAsync(Ct);
-            }
-
-            using (var scope = _factory.Services.CreateScope())
-            {
-                var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-#pragma warning disable CS0618 // the older member is the thing under test
-                await new BarakoCMS.Accounting.AccountingModule().SeedAsync(session, scope.ServiceProvider, Ct);
-                await session.SaveChangesAsync(Ct);
-            }
-
-            var after = await LoadAsync(id);
-            after!.SystemCapabilities.Should().NotBeEmpty();
-            after.SystemCapabilities.Should().Contain(BarakoCMS.Accounting.AccountingCapabilities.PostEntries);
-            after.SystemCapabilities.Should().Contain(BarakoCMS.Accounting.AccountingCapabilities.ViewLedger);
-        }
-        finally
-        {
-            using var scope = _factory.Services.CreateScope();
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(original!);
-            await session.SaveChangesAsync(CancellationToken.None);
-        }
-    }
-
-    /// <summary>
     /// A role stored on the session and not saved yet is granted there. The host's sessions read the
     /// database, so without looking at the pending changes the role was skipped.
     /// </summary>
@@ -350,56 +242,6 @@ public class ModuleCapabilityDefaultsTests
         }
 
         (await LoadAsync(role.Id))!.SystemCapabilities.Should().Equal("cap_one");
-    }
-
-    /// <summary>
-    /// The Accounting module creates its Accountant role and grants to it in one seed. On a database
-    /// without the role, one start leaves it holding its defaults.
-    /// </summary>
-    [Fact]
-    public async Task The_accounting_seed_grants_its_own_role_on_the_first_start()
-    {
-        var id = BarakoCMS.Accounting.AccountingModule.AccountantRoleId;
-        var original = await LoadAsync(id);
-        original.Should().NotBeNull("the fixture seeds the Accounting module, which creates the role");
-
-        try
-        {
-            using (var scope = _factory.Services.CreateScope())
-            {
-                var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-                session.Delete<Role>(id);
-                await session.SaveChangesAsync(Ct);
-            }
-
-            (await LoadAsync(id)).Should().BeNull("the test starts from a database without the role");
-
-            using (var scope = _factory.Services.CreateScope())
-            {
-                var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-                await new BarakoCMS.Accounting.AccountingModule().SeedAsync(new ModuleSeedContext(session, scope.ServiceProvider), Ct);
-                await session.SaveChangesAsync(Ct);
-            }
-
-            var created = await LoadAsync(id);
-            created.Should().NotBeNull();
-            created!.Name.Should().Be("Accountant");
-            created.SystemCapabilities.Should().HaveCount(3);
-            created.SystemCapabilities.Should().BeEquivalentTo(
-                new[]
-                {
-                    BarakoCMS.Accounting.AccountingCapabilities.ViewLedger,
-                    BarakoCMS.Accounting.AccountingCapabilities.PostEntries,
-                    BarakoCMS.Accounting.AccountingCapabilities.ManageMappings,
-                });
-        }
-        finally
-        {
-            using var scope = _factory.Services.CreateScope();
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(original!);
-            await session.SaveChangesAsync(CancellationToken.None);
-        }
     }
 
     private static List<string> Constants(Type type) =>
@@ -441,51 +283,6 @@ public class ModuleCapabilityDefaultsTests
 
         changed.Should().Be(0);
         (await LoadAsync(tenants.Id))!.SystemCapabilities.Should().BeEmpty();
-    }
-
-    /// <summary>
-    /// A tenant's role that took the name Accountant before the module was installed is not adopted
-    /// as the module's role: the seed makes the platform Accountant and grants to that.
-    /// </summary>
-    [Fact]
-    public async Task The_accounting_seed_does_not_adopt_a_tenants_role_named_Accountant()
-    {
-        var id = BarakoCMS.Accounting.AccountingModule.AccountantRoleId;
-        var original = await LoadAsync(id);
-        original.Should().NotBeNull("the fixture seeds the Accounting module, which creates the role");
-        var tenants = new Role { Id = Guid.NewGuid(), Name = "Accountant", TenantSlug = $"mc-{Guid.NewGuid():N}"[..16] };
-
-        try
-        {
-            using (var scope = _factory.Services.CreateScope())
-            {
-                var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-                session.Delete<Role>(id);
-                session.Store(tenants);
-                await session.SaveChangesAsync(Ct);
-            }
-
-            using (var scope = _factory.Services.CreateScope())
-            {
-                var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-                await new BarakoCMS.Accounting.AccountingModule().SeedAsync(new ModuleSeedContext(session, scope.ServiceProvider), Ct);
-                await session.SaveChangesAsync(Ct);
-            }
-
-            var created = await LoadAsync(id);
-            created.Should().NotBeNull("the module's own role is made under its id");
-            created!.IsPlatform.Should().BeTrue();
-            created.SystemCapabilities.Should().HaveCount(3);
-            (await LoadAsync(tenants.Id))!.SystemCapabilities.Should().BeEmpty();
-        }
-        finally
-        {
-            using var scope = _factory.Services.CreateScope();
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Delete<Role>(tenants.Id);
-            session.Store(original!);
-            await session.SaveChangesAsync(CancellationToken.None);
-        }
     }
 
     [Fact]

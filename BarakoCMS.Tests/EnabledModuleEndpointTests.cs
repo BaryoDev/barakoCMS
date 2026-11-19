@@ -1,4 +1,3 @@
-#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -102,7 +101,7 @@ public sealed class EnabledModuleEndpointTests(EnabledModuleEndpointTests.Host h
     [Fact]
     public async Task A_module_left_off_the_enabled_list_has_no_endpoints()
     {
-        var response = await host.App.GetTestClient().GetAsync("/api/accounting/accounts", TestContext.Current.CancellationToken);
+        var response = await host.App.GetTestClient().GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -115,8 +114,8 @@ public sealed class EnabledModuleEndpointTests(EnabledModuleEndpointTests.Host h
     public async Task The_describe_document_lists_what_the_enabled_modules_bring_and_nothing_from_one_left_off()
     {
         var seen = host.App.Services.GetRequiredService<barakoCMS.Modules.ModuleCatalogue>().Entries;
-        seen.Should().Contain(e => e.Name == "Accounting" && !e.Enabled,
-            "the control: Accounting is installed here and switched off, so its absence below is the filter");
+        seen.Should().Contain(e => e.Name == "Portability" && !e.Enabled,
+            "the control: Portability is installed here and switched off, so its absence below is the filter");
 
         var userId = await SeedUserAsync(barakoCMS.Models.SystemRoles.SuperAdminRoleId);
         var response = await Client(fixture.CreateToken(["SuperAdmin"], userId.ToString()))
@@ -137,7 +136,7 @@ public sealed class EnabledModuleEndpointTests(EnabledModuleEndpointTests.Host h
         capabilities.Should().ContainKey(BarakoCMS.FeatureFlags.FeatureFlagCapabilities.ManageFeatureFlags);
         capabilities[BarakoCMS.FeatureFlags.FeatureFlagCapabilities.ManageFeatureFlags].Should().Be("FeatureFlags",
             "a capability an enabled module's endpoint asks for is listed under that module");
-        capabilities.Should().NotContainKey(BarakoCMS.Accounting.AccountingCapabilities.ViewLedger,
+        capabilities.Should().NotContainKey(BarakoCMS.Portability.PortabilityCapabilities.ExportContent,
             "a module left off serves no endpoint, so its capability is not one this deployment has");
     }
 

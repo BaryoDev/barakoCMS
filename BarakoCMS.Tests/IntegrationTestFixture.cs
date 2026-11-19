@@ -1,4 +1,3 @@
-#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using FastEndpoints;
 using static BarakoCMS.Tests.ModuleSchemaTestHelper;
 using barakoCMS.Modules;
@@ -524,17 +523,6 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             services.RemoveAll<BarakoCMS.AI.IEmbeddingClient>();
             services.AddSingleton<BarakoCMS.AI.IEmbeddingClient, FakeEmbeddingClient>();
 
-            // Accounting: registers its content lifecycle hooks (the balance invariant and the
-            // chart-of-accounts rules), so the generic /api/contents endpoint can be tested with
-            // real domain rules attached — the whole point of modelling accounting as content.
-            new BarakoCMS.Accounting.AccountingModule().ConfigureServices(services, ctx.Configuration);
-            // The host registers a module's workflow actions right after its services; do the same so
-            // the workflow validator and the runner know Accounting.PostJournal and Accounting.Reverse.
-            var accountingModule = new BarakoCMS.Accounting.AccountingModule();
-            accountingModule.ConfigureWorkflowActions(
-                new barakoCMS.Features.Workflows.ModuleWorkflowActionRegistry().For(services, accountingModule));
-            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Accounting.AccountingModule(), opts));
-
             // The fixture module: a capability, a content hook and a gated endpoint for the tests
             // of core mechanisms that need a module and not a domain.
             new BarakoCMS.Testing.Fixture.FixtureModule().ConfigureServices(services, ctx.Configuration);
@@ -633,7 +621,6 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     [
         typeof(BarakoCMS.Files.FilesModule).Assembly,
         typeof(BarakoCMS.AI.AiModule).Assembly,
-        typeof(BarakoCMS.Accounting.AccountingModule).Assembly,
         typeof(BarakoCMS.Testing.Fixture.FixtureModule).Assembly,
         typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
         typeof(BarakoCMS.Pages.PagesModule).Assembly,

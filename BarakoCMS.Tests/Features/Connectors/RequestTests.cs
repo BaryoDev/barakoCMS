@@ -371,7 +371,7 @@ public class RequestTests
     /// <remarks>
     /// Composing empty would make "the query matched nothing" and "the field is genuinely empty"
     /// produce the identical value, with nothing in the sent request to tell them apart afterwards.
-    /// For a payload a payment or accounting provider reads, that is a silent wrong value, which is
+    /// For a payload a payment provider reads, that is a silent wrong value, which is
     /// the failure this whole composer exists to avoid. <c>{{query.rows}}</c> does not need this: an
     /// empty array is still a real, distinguishable answer to "how many rows matched".
     /// </remarks>

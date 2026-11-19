@@ -1,4 +1,3 @@
-#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -389,6 +388,31 @@ public class UniquenessWritePathTests
         (await check.LoadAsync<Content>(target, Ct))!.Data["Badge"].ToString().Should().Be("Y-3");
     }
 
+    [Fact]
+    public async Task CheckUniquenessAsync_before_a_store_refuses_a_value_a_committed_entry_holds()
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var tenant = $"unl-{Guid.NewGuid():N}"[..14];
+        var type = NewType();
+        await StoreTypeAsync(store, tenant, Badges(type));
+
+        await using (var seed = store.LightweightSession(tenant))
+        {
+            seed.Store(new Content { Id = Guid.NewGuid(), ContentType = type, Data = new() { ["Badge"] = "Z-1" } });
+            await seed.SaveChangesAsync(Ct);
+        }
+
+        await using var session = store.LightweightSession(tenant);
+        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
+        var duplicate = new Content { Id = Guid.NewGuid(), ContentType = type, Data = new() { ["Badge"] = "Z-1" } };
+
+        var check = async () => await writer.CheckUniquenessAsync(duplicate, Ct);
+
+        var refused = await check.Should().ThrowAsync<ContentUniquenessException>();
+        refused.Which.Rule.Should().Be(BadgeRule);
+        (await CountAsync(store, tenant, type)).Should().Be(1, "nothing was stored");
+    }
+
     private static async Task<barakoCMS.Features.Workflows.WorkflowActionResult> RunUpdateFieldAsync(
         IDocumentStore store, string tenant, Guid contentId, string value)
     {
@@ -401,64 +425,5 @@ public class UniquenessWritePathTests
             new Dictionary<string, string> { ["Field"] = "data.Badge", ["Value"] = value },
             new Content { Id = contentId, LastModifiedBy = Guid.NewGuid() },
             Ct);
-    }
-
-    // ---- the accounting module, which stores accounts around the writer ---------------------------
-
-    /// <summary>
-    /// <c>POST /api/accounting/accounts</c> stores the entry with <c>session.Store</c> from the
-    /// caller's values, so it applies the account type's rules itself.
-    /// </summary>
-    [Fact]
-    public async Task An_account_created_through_the_accounting_route_is_held_to_the_account_types_rules()
-    {
-        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
-        var tenant = $"una-{Guid.NewGuid():N}"[..14].ToLowerInvariant();
-        var userId = Guid.NewGuid();
-
-        using (var scope = _fixture.Services.CreateScope())
-        {
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = tenant, Name = tenant });
-            session.Store(new User
-            {
-                Id = userId,
-                Username = $"una-{Guid.NewGuid():n}"[..14],
-                Email = $"una-{Guid.NewGuid():n}@example.com",
-                RoleIds = [SystemRoles.SuperAdminRoleId],
-            });
-            session.Store(new Membership
-            {
-                Id = Guid.NewGuid(),
-                UserId = userId,
-                TenantSlug = tenant,
-                Status = MembershipStatus.Active,
-                RoleIds = [SystemRoles.SuperAdminRoleId],
-            });
-            await session.SaveChangesAsync(Ct);
-        }
-
-        var account = BarakoCMS.Accounting.AccountingContentTypes.AccountDefinition();
-        account.Uniqueness = [new UniquenessRule { Name = "OneAccountPerName", Fields = ["Name"] }];
-        await StoreTypeAsync(store, tenant, account);
-
-        var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-            "Bearer", _fixture.CreateToken(
-                roles: ["SuperAdmin", "Admin"],
-                userId: userId.ToString(),
-                additionalClaims: new Dictionary<string, string> { ["tenant"] = tenant }));
-        client.DefaultRequestHeaders.Add("X-Tenant", tenant);
-
-        var first = await client.PostAsJsonAsync("/api/accounting/accounts", new { code = "1000", name = "Cash" }, Ct);
-        first.StatusCode.Should().Be(HttpStatusCode.Created, await first.Content.ReadAsStringAsync(Ct));
-
-        var second = await client.PostAsJsonAsync("/api/accounting/accounts", new { code = "1001", name = "Cash" }, Ct);
-        var body = await second.Content.ReadAsStringAsync(Ct);
-        second.StatusCode.Should().Be(HttpStatusCode.Conflict, body);
-        body.Should().Contain("OneAccountPerName");
-
-        await using var check = store.QuerySession(tenant);
-        (await check.Query<Content>().CountAsync(c => c.ContentType == account.Name, Ct)).Should().Be(1);
     }
 }
