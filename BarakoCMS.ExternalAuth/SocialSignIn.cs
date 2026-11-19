@@ -160,8 +160,16 @@ public static class SocialSignIn
     private static async Task RecordBlockedAsync(
         IDocumentSession session, string club, User user, HttpContext http, CancellationToken ct)
     {
+        // The club comes from the caller and TenantSignIn accepts an unregistered one, so an audit
+        // row is only filed under a tenant that exists. Anything else goes to the default tenant.
+        var slug = TenantSlugs.Normalise(club);
+        if (slug != Tenant.DefaultSlug && !await session.Query<Tenant>().AnyAsync(t => t.Slug == slug, ct))
+        {
+            slug = Tenant.DefaultSlug;
+        }
+
         await barakoCMS.Infrastructure.Auth.AccountBlock.RecordRefusedLoginAsync(
-            session, club, user, barakoCMS.Infrastructure.DeviceContext.From(http).IpAddress, ct);
+            session, slug, user, barakoCMS.Infrastructure.DeviceContext.From(http).IpAddress, ct);
         await session.SaveChangesAsync(ct);
     }
 
