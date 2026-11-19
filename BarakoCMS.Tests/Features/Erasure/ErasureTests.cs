@@ -560,14 +560,21 @@ public class ErasureTests
             ContentType = "erasure-probe",
             WorkflowName = "probe",
             TriggerEvent = "Created",
+            // Terminal throughout, so the runner's due query (Status Pending or Running) and its
+            // compensation pass (a Pending or Running compensation) never select the probe and
+            // overwrite the error text the erasure assertions read.
+            Status = barakoCMS.Models.RunStatus.Succeeded,
+            NextDueAt = null,
+            CompletedAt = DateTimeOffset.UtcNow,
             Actions =
             [
                 new barakoCMS.Models.WorkflowActionAttempt
                 {
                     ActionType = "Webhook",
+                    Status = barakoCMS.Models.AttemptStatus.Succeeded,
                     Outputs = new Dictionary<string, string> { ["email"] = needle },
                     Error = "refused " + needle,
-                    Compensation = new barakoCMS.Models.CompensationState { Error = "undo " + needle },
+                    Compensation = new barakoCMS.Models.CompensationState { Status = barakoCMS.Models.CompensationStatus.Failed, Error = "undo " + needle },
                     History = [new barakoCMS.Models.WorkflowAttemptEntry { Number = 1, Error = needle }],
                 },
             ],
