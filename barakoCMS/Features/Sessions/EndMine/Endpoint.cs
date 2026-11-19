@@ -41,6 +41,13 @@ internal sealed class Endpoint(IDocumentSession session, IMemoryCache cache, Ten
             return;
         }
 
+        // Signing out clears the cookie too, or the browser keeps presenting a refresh token the
+        // server has already revoked.
+        if (SessionRoutes.CurrentOf(User) == req.Id)
+        {
+            RefreshTokenCookie.Clear(HttpContext);
+        }
+
         await Send.NoContentAsync(ct);
     }
 }
