@@ -227,7 +227,7 @@ internal class Endpoint : Endpoint<Request, Response>
         // /api/auth/mfa/verify. This takes precedence over device approval — MFA is the stronger factor.
         if (await _mfa.IsEnabledAsync(user.Id, ct))
         {
-            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(_config, user.Id);
+            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(_config, user.Id, null, "password");
             await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.mfa.challenge", user.Id, user.Username,
                 ipAddress: device.IpAddress, ct: ct);
             await _documentSession.SaveChangesAsync(ct);
@@ -275,7 +275,9 @@ internal class Endpoint : Endpoint<Request, Response>
 
         // Mint through the issuer so the tenant-access check runs. `X-Tenant` is client-supplied, so
         // valid credentials alone must not be enough to get a token scoped to an arbitrary tenant.
-        var issued = await _tokenIssuer.IssueAccessTokenAsync(user, _tenant.Slug, gate.Claims, ct);
+        var sessionId = Guid.NewGuid();
+        var issued = await _tokenIssuer.IssueAccessTokenAsync(
+            user, _tenant.Slug, barakoCMS.Infrastructure.Auth.SessionRevocation.With(gate.Claims, sessionId), ct);
         if (!issued.Allowed)
         {
             // Same message as bad credentials on purpose: telling an attacker "right password,
@@ -298,7 +300,8 @@ internal class Endpoint : Endpoint<Request, Response>
         var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var refreshTokenExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
         
-        var refreshToken = RefreshToken.Issue(user.Id, refreshTokenString, refreshTokenExpiry, device.DeviceId);
+        var refreshToken = RefreshToken.StartSession(
+            user.Id, refreshTokenString, refreshTokenExpiry, device, "password", sessionId);
 
         _documentSession.Store(refreshToken);
         await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.succeeded", user.Id, user.Username,

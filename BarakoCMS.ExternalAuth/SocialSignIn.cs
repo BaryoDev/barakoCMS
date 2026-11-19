@@ -169,7 +169,7 @@ public static class SocialSignIn
         var profile = (profileOverride ?? new ProfileData(identity.Name, identity.Picture, null, null, provider))
             with { AccountKey = key };
         return (await IssueForUserAsync(
-            session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, beforeFinalCommit, mapped), false);
+            session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, beforeFinalCommit, mapped, provider), false);
     }
 
     /// <summary>A new local user for a verified address, stored on the session.</summary>
@@ -221,8 +221,10 @@ public static class SocialSignIn
         CancellationToken ct,
         ProfileData? profile,
         Action<IDocumentSession>? beforeFinalCommit,
-        MappedRoles? mapped)
+        MappedRoles? mapped,
+        string provider)
     {
+        var method = SignInMethodFor(provider);
         // Open sign-up makes this person a member before the issuer looks for one. Committed now,
         // with the account it may have just created, because the issuer reads memberships from
         // the database and nothing queued by beforeFinalCommit is in the session yet.
@@ -251,7 +253,7 @@ public static class SocialSignIn
             FacebookDeletionFlow.StageKeepOnSignIn(session, user.Id);
             beforeFinalCommit?.Invoke(session);
             await session.SaveChangesAsync(ct); // persist the user/profile created above
-            var challenge = await MfaChallengeAsync(session, config, user, tenantSlug, mapped, ct);
+            var challenge = await MfaChallengeAsync(session, config, user, tenantSlug, mapped, method, ct);
             return Tokens.MfaRequired(challenge);
         }
 
@@ -267,14 +269,16 @@ public static class SocialSignIn
         if (mapped is not null)
         {
             return await IssueWithGrantAsync(
-                session, http, user, tenantSlug, mapped, deviceClaims, device, beforeFinalCommit, ct);
+                session, http, user, tenantSlug, mapped, deviceClaims, device, method, beforeFinalCommit, ct);
         }
 
         // A provider proving the person owns an email address says who they are, not which clubs
         // they belong to — `club` arrives from the caller exactly like the X-Tenant header does.
         // Mint through core's issuer so this module is held to the same membership check as the
         // password and OTP flows rather than re-deciding it here.
-        var issued = await tokenIssuer.IssueAccessTokenAsync(user, tenantSlug, deviceClaims, ct);
+        var sessionId = Guid.NewGuid();
+        var issued = await tokenIssuer.IssueAccessTokenAsync(
+            user, tenantSlug, barakoCMS.Infrastructure.Auth.SessionRevocation.With(deviceClaims, sessionId), ct);
         if (!issued.Allowed)
         {
             // The user record and any profile merge above are still worth persisting; they are not
@@ -293,7 +297,7 @@ public static class SocialSignIn
             return Tokens.Denied();
         }
 
-        var refresh = StageRefreshToken(session, user, issued.RefreshLifetime, device.DeviceId);
+        var refresh = StageRefreshToken(session, user, issued.RefreshLifetime, device, method, sessionId);
         FacebookDeletionFlow.StageKeepOnSignIn(session, user.Id);
         beforeFinalCommit?.Invoke(session);
         await session.SaveChangesAsync(ct);
@@ -307,7 +311,7 @@ public static class SocialSignIn
     /// </summary>
     private static async Task<string> MfaChallengeAsync(
         IDocumentSession session, IConfiguration config, User user, string tenantSlug, MappedRoles? mapped,
-        CancellationToken ct)
+        string method, CancellationToken ct)
     {
         barakoCMS.Infrastructure.Auth.Mfa.PendingExternalGrant? grant = null;
         if (mapped is not null && tenantSlug != Tenant.DefaultSlug)
@@ -317,22 +321,25 @@ public static class SocialSignIn
             grant = roles.Count == 0 ? null : new(tenantSlug, mapped.Provider, roles);
         }
 
-        return barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(config, user.Id, grant).Token;
+        return barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(config, user.Id, grant, method).Token;
     }
 
-    private static string StageRefreshToken(IDocumentSession session, User user, TimeSpan lifetime, string? deviceId)
+    /// <summary>
+    /// <c>social:&lt;provider&gt;</c>, with the <c>oauth:</c> prefix core's constants carry dropped so
+    /// the value reads <c>social:google</c>.
+    /// </summary>
+    private static string SignInMethodFor(string provider)
+    {
+        var name = provider.StartsWith("oauth:", StringComparison.OrdinalIgnoreCase) ? provider[6..] : provider;
+        return $"social:{name}";
+    }
+
+    private static string StageRefreshToken(
+        IDocumentSession session, User user, TimeSpan lifetime, DeviceContext device, string method, Guid sessionId)
     {
         var refresh = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-        session.Store(new RefreshToken
-        {
-            Id = Guid.NewGuid(),
-            TokenHash = RefreshToken.HashOf(refresh),
-            UserId = user.Id,
-            ExpiresAt = DateTime.UtcNow.Add(lifetime),
-            CreatedAt = DateTime.UtcNow,
-            IsRevoked = false,
-            DeviceId = deviceId,
-        });
+        session.Store(RefreshToken.StartSession(
+            user.Id, refresh, DateTime.UtcNow.Add(lifetime), device, method, sessionId));
         return refresh;
     }
 
@@ -350,11 +357,12 @@ public static class SocialSignIn
     /// </remarks>
     private static async Task<Tokens> IssueWithGrantAsync(
         IDocumentSession session, HttpContext http, User user, string tenantSlug, MappedRoles mapped,
-        IReadOnlyList<Claim> deviceClaims, DeviceContext device, Action<IDocumentSession>? beforeFinalCommit,
-        CancellationToken ct)
+        IReadOnlyList<Claim> deviceClaims, DeviceContext device, string method,
+        Action<IDocumentSession>? beforeFinalCommit, CancellationToken ct)
     {
         await session.SaveChangesAsync(ct);
 
+        var sessionId = Guid.NewGuid();
         var granted = false;
         var transaction = http.RequestServices.GetRequiredService<barakoCMS.Infrastructure.Services.IContentBatchRunner>();
         var tokens = await transaction.RunAsync<Tokens?>(async (scope, token) =>
@@ -369,13 +377,14 @@ public static class SocialSignIn
             await writes.SaveChangesAsync(token);
 
             var issued = await scope.GetRequiredService<ITokenIssuer>()
-                .IssueAccessTokenAsync(user, tenantSlug, deviceClaims, token);
+                .IssueAccessTokenAsync(
+                    user, tenantSlug, barakoCMS.Infrastructure.Auth.SessionRevocation.With(deviceClaims, sessionId), token);
             if (!issued.Allowed)
             {
                 return new barakoCMS.Infrastructure.Services.ContentBatchOutcome<Tokens?>(null, Commit: false);
             }
 
-            var refresh = StageRefreshToken(writes, user, issued.RefreshLifetime, device.DeviceId);
+            var refresh = StageRefreshToken(writes, user, issued.RefreshLifetime, device, method, sessionId);
             FacebookDeletionFlow.StageKeepOnSignIn(writes, user.Id);
             beforeFinalCommit?.Invoke(writes);
             return new barakoCMS.Infrastructure.Services.ContentBatchOutcome<Tokens?>(

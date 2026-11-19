@@ -66,7 +66,7 @@ internal class Endpoint(
         if (await mfa.IsEnabledAsync(user.Id, ct))
         {
             if (!await TrySaveAsync(ct)) { ThrowError(Refused); return; }
-            var (challenge, _) = MfaChallengeToken.Create(config, user.Id);
+            var (challenge, _) = MfaChallengeToken.Create(config, user.Id, null, "link");
             await Send.ResponseAsync(new MagicLinkConfirmResponse { RequiresMfa = true, MfaChallengeToken = challenge });
             return;
         }
@@ -96,7 +96,9 @@ internal class Endpoint(
         var device = DeviceContext.From(HttpContext);
         var deviceClaims = await deviceGate.TrustOnOtpAsync(user, device, ct);
 
-        var issued = await tokenIssuer.IssueAccessTokenAsync(user, tenant.Slug, deviceClaims, ct);
+        var sessionId = Guid.NewGuid();
+        var issued = await tokenIssuer.IssueAccessTokenAsync(
+            user, tenant.Slug, SessionRevocation.With(deviceClaims, sessionId), ct);
         if (!issued.Allowed)
         {
             await TrySaveAsync(ct);
@@ -106,7 +108,7 @@ internal class Endpoint(
 
         var refresh = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var refreshExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
-        session.Store(RefreshToken.Issue(user.Id, refresh, refreshExpiry, device.DeviceId));
+        session.Store(RefreshToken.StartSession(user.Id, refresh, refreshExpiry, device, "link", sessionId));
 
         // Losing this save means a concurrent request spent the link, so no tokens may be returned.
         if (!await TrySaveAsync(ct)) { ThrowError(Refused); return; }
