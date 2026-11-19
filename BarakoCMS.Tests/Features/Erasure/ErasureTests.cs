@@ -404,6 +404,90 @@ public class ErasureTests
         (await ScalarAsync("select count(*) from public.mt_doc_contents where id = @p", erased)).Should().Be(0);
     }
 
+    /// <summary>
+    /// A cascade that throws rolls back the whole erase.
+    /// </summary>
+    /// <remarks>
+    /// The first extra cascade queues a delete of a row of its own and the second throws, so the
+    /// row only survives if nothing was committed before the cascades finished. Each check reads the
+    /// table directly or through a fresh session, so a save made ahead of the cascades shows up as a
+    /// missing row.
+    /// </remarks>
+    [Fact]
+    public async Task A_cascade_that_throws_leaves_the_entry_and_its_rows_in_place()
+    {
+        await AuthenticateAsync("SuperAdmin");
+        var needle = $"rollback-{Guid.NewGuid():n}";
+        var erased = await SeedAsync(needle);
+        var linkId = Guid.NewGuid();
+        var otherRow = await StoreMessageAsync(erased, needle);
+        using (var seed = _factory.Services.CreateScope())
+        {
+            var session = seed.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new barakoCMS.Models.SiteShareLink
+            {
+                Id = linkId,
+                Label = "Rollback",
+                KeyHash = Guid.NewGuid().ToString("N"),
+                CreatedAt = DateTimeOffset.UtcNow,
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(1),
+                EntryId = erased,
+            });
+            await session.SaveChangesAsync();
+        }
+
+        var client = _factory.WithWebHostBuilder(b => b.ConfigureServices(s =>
+            s.AddScoped<barakoCMS.Core.Interfaces.IContentErasureCascade>(_ => new QueuesDelete(otherRow))
+                .AddScoped<barakoCMS.Core.Interfaces.IContentErasureCascade, Throws>()))
+            .CreateClient();
+        client.DefaultRequestHeaders.Authorization = _client.DefaultRequestHeaders.Authorization;
+
+        (await StoredMessageIdsAsync(otherRow)).Should().HaveCount(1, "the row has to be there first");
+        (await ScalarAsync("select count(*) from public.mt_events where stream_id = @p", erased))
+            .Should().BeGreaterThan(0, "the events have to be there first");
+
+        HttpStatusCode? status = null;
+        Exception? thrown = null;
+        try
+        {
+            status = (await client.DeleteAsync($"/api/contents/{erased}/erase")).StatusCode;
+        }
+        catch (Exception ex)
+        {
+            thrown = ex;
+        }
+
+        (thrown is not null || status!.Value >= HttpStatusCode.InternalServerError)
+            .Should().BeTrue("the erase fails when a cascade throws, and does not report success");
+
+        using var scope = _factory.Services.CreateScope();
+        var query = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        (await query.LoadAsync<barakoCMS.Models.Content>(erased)).Should().NotBeNull("the document is still there");
+        (await ScalarAsync("select count(*) from public.mt_doc_contents where id = @p", erased)).Should().Be(1);
+        (await ScalarAsync("select count(*) from public.mt_events where stream_id = @p", erased))
+            .Should().BeGreaterThan(0, "the events are still there");
+        (await ScalarAsync("select count(*) from public.mt_streams where id = @p", erased))
+            .Should().Be(1, "the stream is still there");
+        (await query.LoadAsync<barakoCMS.Models.SiteShareLink>(linkId)).Should().NotBeNull("the share link is still there");
+        (await StoredMessageIdsAsync(otherRow)).Should().HaveCount(1,
+            "the delete the earlier cascade queued did not commit on its own");
+    }
+
+    private sealed class QueuesDelete(Guid messageId) : barakoCMS.Core.Interfaces.IContentErasureCascade
+    {
+        public Task QueueAsync(IDocumentSession session, Guid contentId, string contentType, CancellationToken ct)
+        {
+            session.Delete<barakoCMS.Models.OutboxMessage>(messageId);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class Throws : barakoCMS.Core.Interfaces.IContentErasureCascade
+    {
+        public Task QueueAsync(IDocumentSession session, Guid contentId, string contentType, CancellationToken ct) =>
+            throw new InvalidOperationException("a module could not queue its delete");
+    }
+
     private sealed class ConflictOnce(IServiceScopeFactory scopes, Guid runId) : barakoCMS.Core.Interfaces.IContentErasureCascade
     {
         public int Calls;
