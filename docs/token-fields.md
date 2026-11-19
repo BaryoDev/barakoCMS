@@ -72,11 +72,9 @@ cannot set it.
 The rule lives in the content writer, which every one of these ends at, so a route added later gets
 it without asking. Two ways around the writer exist: code that stores a `Content` document through
 the session itself, and the obsolete synchronous `IContentWriter.Create` and `Append`, which cannot
-read a content type. Entries written either way get no token and keep whatever they were given. One
-of the first is reachable over HTTP: the Accounting module's `POST /api/accounting/accounts` and its
-account upsert store the account entry directly and replace its data whole. A token field added to
-the account type would not be filled for those entries, and an upsert would remove a stored one, so
-the next save through the writer would issue a different token. Do not put a token field on it.
+read a content type. Entries written either way get no token and keep whatever they were given. A module that stores entries the first way and replaces their data
+whole does not fill a token field, and an upsert would remove a stored one, so the next save through the writer would issue a
+different token. Do not put a token field on a type such a module writes.
 
 ## Entries that predate the field
 

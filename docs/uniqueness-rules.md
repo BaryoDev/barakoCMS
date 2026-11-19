@@ -98,15 +98,13 @@ because the caller may have no right to read that entry. Nothing of the refused 
 | Collection sync | Checked on each entry. The run stops at that item and is logged at error level; the items written before it stay. |
 | `POST /api/public/forms/{slug}` | Checked like a create, `409`. A submission has no creator, so a `$createdBy` rule does not count it. |
 | Workflow `UpdateField` and `CreateTask` | Checked; the action fails and the run records the failure. `UpdateField` checks an entry with no event stream too. |
-| `POST /api/accounting/accounts` and `AccountService.UpsertAsync` | They store account entries with `session.Store`, around the writer, and apply the account type's rules themselves through `ContentWriter.CheckUniquenessAsync`. `409` from the route. |
 | `DELETE /api/contents/{id}/erase` and any delete | Nothing to release: the check reads the stored entries, and a removed entry holds nothing. |
 | Event-sourced types | The writer folds the stream and checks the entry it is about to store, as for every other type. |
 
 Two writes go around the content writer and are not checked: the stream rebuild
 (`POST /api/content-types/{name}/rebuild`), which stores what the stream already says, and the data
 seeder. Neither takes values from a caller. A module that stores entries with `session.Store`
-applies the rules by calling `ContentWriter.CheckUniquenessAsync` before it stores, as the
-accounting module does.
+applies the rules by calling `ContentWriter.CheckUniquenessAsync` before it stores.
 
 A write that is refused because another write of the same values has not finished within five
 seconds (see below) is also a `409`, whose message says to try again.

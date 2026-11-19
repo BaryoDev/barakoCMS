@@ -19,7 +19,7 @@ Authorization: Bearer <token>
 ```json
 {
   "items": [
-    { "name": "Accounting", "contractVersion": 0, "enabled": true, "schemaState": "ready", "schemaChanges": [] },
+    { "name": "Import", "contractVersion": 0, "enabled": true, "schemaState": "ready", "schemaChanges": [] },
     { "name": "Files", "contractVersion": 0, "enabled": false, "schemaState": "unknown", "schemaChanges": [] }
   ],
   "page": 1,

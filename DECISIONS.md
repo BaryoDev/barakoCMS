@@ -495,7 +495,7 @@ work means one per feature area and one per module.
 ```ts
 const client = createClient({ baseUrl, tenant })   // base: transport, auth, tenancy
 client.use(coreApi)          // generated, ships in the package
-client.use(accountingApi)    // generated, ships with the Accounting module
+client.use(filesApi)         // generated, ships with the Files module
 client.use(myCrmApi)         // generated from your own instance
 ```
 

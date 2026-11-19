@@ -56,8 +56,8 @@ update lands does not undo the update.
 
 ```json
 {
-  "name": "Accounting",
-  "slug": "accounting",
+  "name": "Records",
+  "slug": "records",
   "baseUrl": "https://api.provider.example",
   "auth": "OAuth2ClientCredentials",
   "settings": {

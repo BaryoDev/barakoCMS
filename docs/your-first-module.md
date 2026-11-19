@@ -237,9 +237,8 @@ public sealed class GlossaryTermHook : IContentLifecycleHook
 `context.Reader` reads other entries, so a hook can check a write against content that already
 exists without naming a Marten type. A hook that needs the write session itself (locks, number
 allocation) still overrides the older `OnBeforeSaveAsync(ContentLifecycleContext, ...)`, which is
-obsolete and removed in 6.0.0, and uses `context.Session` to store something atomically with the entry. The real example of that is
-[`BarakoCMS.Accounting/JournalEntryHook.cs`](../BarakoCMS.Accounting/JournalEntryHook.cs): it checks
-every referenced account exists and allocates the next entry number inside the write transaction,
+obsolete and removed in 6.0.0, and uses `context.Session` to store something atomically with the entry. An example is a hook that checks
+every referenced entry exists and allocates the next entry number inside the write transaction,
 so a rejected entry never uses a number.
 
 One rule ships ready made. A reference to the entry's own type is not a parent just because it
