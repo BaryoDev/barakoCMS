@@ -283,52 +283,7 @@ internal sealed class UpdateConnectorEndpoint(
         connector.ProbePath = string.IsNullOrWhiteSpace(req.ProbePath) ? "/" : req.ProbePath.Trim();
         connector.UpdatedAt = DateTime.UtcNow;
 
-        var changedSecrets = new List<string>();
-
-        if (req.Secrets is not null)
-        {
-            var existing = await session.Query<ConnectorSecret>()
-                .Where(s => s.ConnectorId == connector.Id)
-                .ToListAsync(ct);
-
-            foreach (var (key, value) in req.Secrets)
-            {
-                var current = existing.FirstOrDefault(s => s.Key == key);
-
-                if (string.IsNullOrWhiteSpace(value))
-                {
-                    // Empty removes it. Absent leaves it alone, which is the case that matters: the
-                    // form cannot show the current value, so it cannot send it back unchanged.
-                    if (current is not null)
-                    {
-                        session.Delete(current);
-                        connector.SecretKeys.Remove(key);
-                        changedSecrets.Add($"{key} cleared");
-                    }
-                    continue;
-                }
-
-                if (current is null)
-                {
-                    session.Store(new ConnectorSecret
-                    {
-                        Id = Guid.NewGuid(),
-                        ConnectorId = connector.Id,
-                        Key = key,
-                        ProtectedValue = protector.Protect(value),
-                    });
-                    if (!connector.SecretKeys.Contains(key)) connector.SecretKeys.Add(key);
-                }
-                else
-                {
-                    current.ProtectedValue = protector.Protect(value);
-                    current.UpdatedAt = DateTime.UtcNow;
-                    session.Store(current);
-                }
-
-                changedSecrets.Add($"{key} set");
-            }
-        }
+        var changedSecrets = await ApplySecretsAsync(connector, req.Secrets, ct);
 
         await ConnectorInboundWriter.ApplyAsync(session, protector, connector, req.Inbound, changedSecrets, ct);
 
@@ -343,6 +298,57 @@ internal sealed class UpdateConnectorEndpoint(
         await session.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(ConnectorResponse.From(connector), cancellation: ct);
+    }
+
+    private async Task<List<string>> ApplySecretsAsync(
+        Connector connector, Dictionary<string, string>? secrets, CancellationToken ct)
+    {
+        var changedSecrets = new List<string>();
+        if (secrets is null) return changedSecrets;
+
+        var existing = await session.Query<ConnectorSecret>()
+            .Where(s => s.ConnectorId == connector.Id)
+            .ToListAsync(ct);
+
+        foreach (var (key, value) in secrets)
+        {
+            var current = existing.FirstOrDefault(s => s.Key == key);
+
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                // Empty removes it. Absent leaves it alone, which is the case that matters: the
+                // form cannot show the current value, so it cannot send it back unchanged.
+                if (current is not null)
+                {
+                    session.Delete(current);
+                    connector.SecretKeys.Remove(key);
+                    changedSecrets.Add($"{key} cleared");
+                }
+                continue;
+            }
+
+            if (current is null)
+            {
+                session.Store(new ConnectorSecret
+                {
+                    Id = Guid.NewGuid(),
+                    ConnectorId = connector.Id,
+                    Key = key,
+                    ProtectedValue = protector.Protect(value),
+                });
+                if (!connector.SecretKeys.Contains(key)) connector.SecretKeys.Add(key);
+            }
+            else
+            {
+                current.ProtectedValue = protector.Protect(value);
+                current.UpdatedAt = DateTime.UtcNow;
+                session.Store(current);
+            }
+
+            changedSecrets.Add($"{key} set");
+        }
+
+        return changedSecrets;
     }
 }
 
