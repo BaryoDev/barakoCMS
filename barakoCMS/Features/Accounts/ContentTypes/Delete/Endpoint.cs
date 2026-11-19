@@ -12,7 +12,7 @@ internal sealed class Request
 {
     /// <summary>Run the same checks as the delete and report which API keys name the type, deleting nothing.</summary>
     [QueryParam]
-    public bool DryRun { get; set; }
+    public bool? DryRun { get; set; }
 }
 
 /// <summary>What a dry run answers. A real delete answers 204 with no body.</summary>
@@ -43,6 +43,7 @@ internal sealed class Endpoint(
     {
         Delete("/api/accounts/{slug}/content-types/{name}");
         Definition.ChecksCapability(SystemCapabilities.ManageTenants);
+        Description(b => b.Produces(204));
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -65,7 +66,7 @@ internal sealed class Endpoint(
             ThrowIfAnyErrors(StatusCodes.Status409Conflict);
         }
 
-        if (req.DryRun)
+        if (req.DryRun == true)
         {
             var slugs = tenantIds.Select(TenantScopes.SlugFor).ToList();
             var impact = await ApiKeyContentTypeImpact.ImpactAsync(session, slugs, tenant.Slug, [name], ct);
