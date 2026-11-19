@@ -167,18 +167,24 @@ internal sealed class CollectionSyncService(
                 return false;
             }
 
-            budget -= await SweepTenantAsync(slug, nowUtc, budget, ct);
+            budget -= await SweepTenantAsync(slug, nowUtc, budget, ct, lease.IsHeldAsync);
         }
 
         return true;
     }
 
     /// <summary>Runs up to <paramref name="budget"/> due syncs in one partition.</summary>
+    /// <param name="sweepHeld">
+    /// Asks whether the sweep's own lock is still held, before each sync. Null when the caller holds
+    /// none, which is a test calling this directly.
+    /// </param>
     /// <returns>
     /// How many were run. A sync that was left for a later tick is not one of them, so it takes
     /// nothing from what the caller has left for the tenants after this one.
     /// </returns>
-    public async Task<int> SweepTenantAsync(string? martenTenantId, DateTime nowUtc, int budget, CancellationToken ct)
+    public async Task<int> SweepTenantAsync(
+        string? martenTenantId, DateTime nowUtc, int budget, CancellationToken ct,
+        Func<CancellationToken, Task<bool>>? sweepHeld = null)
     {
         using var scope = services.CreateScopeForTenant(martenTenantId);
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -205,6 +211,14 @@ internal sealed class CollectionSyncService(
 
             ct.ThrowIfCancellationRequested();
 
+            if (sweepHeld is not null && !await sweepHeld(ct))
+            {
+                logger.LogWarning(
+                    "The collection sync sweep lost its advisory lock; stopping before sync {Slug} for tenant {Tenant}",
+                    sync.Slug, martenTenantId ?? "(default)");
+                break;
+            }
+
             using var span = BarakoTracing.StartTenantWork(BarakoTracing.CollectionSyncRunSpan, session.TenantId);
             span?.SetTag(BarakoTracing.CollectionSyncIdTag, sync.Id.ToString());
             span?.SetTag(BarakoTracing.CollectionSyncOutcomeTag, "left");
@@ -225,6 +239,16 @@ internal sealed class CollectionSyncService(
                 {
                     logger.LogInformation(
                         "Collection sync {Slug} for tenant {Tenant} left for a later tick: another run is filling '{ContentType}'",
+                        sync.Slug, martenTenantId ?? "(default)", sync.ContentType);
+                    continue;
+                }
+
+                // A run's own lock can be lost, with the connection it lives on, between taking it and
+                // starting. Another run may be filling the collection by now, so this one stands down.
+                if (!await held.IsHeldAsync(ct))
+                {
+                    logger.LogWarning(
+                        "Collection sync {Slug} for tenant {Tenant} not run: the lock on '{ContentType}' was lost before it started",
                         sync.Slug, martenTenantId ?? "(default)", sync.ContentType);
                     continue;
                 }

@@ -270,6 +270,106 @@ public class CollectionSyncRunLockTests : IDisposable
     }
 
     /// <remarks>
+    /// The lock's backend goes after the lock was taken and before the sweep starts the run, which
+    /// is what a failover or an idle cull in that gap looks like. Revert the <c>IsHeldAsync</c>
+    /// check in <c>SweepTenantAsync</c> to see it red: the run fetches and writes without the lock.
+    /// </remarks>
+    [Fact]
+    public async Task The_sweep_runs_nothing_once_the_lock_on_its_collection_is_gone()
+    {
+        var source = new ParkedSource();
+        var setup = await _syncs.ArrangeAsync(source.Answer);
+
+        TerminateHolderOnce(setup.Type);
+        try
+        {
+            await SweepAsync();
+        }
+        finally
+        {
+            CollectionSyncLock.AfterLockHeld = null;
+        }
+
+        source.Calls.Should().Be(0, "a run without its lock must not fetch");
+        (await _syncs.EntriesAsync(setup.Type)).Should().BeEmpty("and writes nothing");
+        (await _syncs.GetSyncAsync(setup)).GetProperty("lastRunAt").ValueKind.Should().Be(
+            JsonValueKind.Null, "the sync stays due, so a later tick runs it");
+
+        await SweepAsync();
+
+        source.Calls.Should().Be(1, "the control: with the lock intact the same sync runs");
+        (await _syncs.EntriesAsync(setup.Type)).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task A_manual_run_whose_lock_is_gone_before_it_starts_answers_409_and_writes_nothing()
+    {
+        var source = new ParkedSource();
+        var setup = await _syncs.ArrangeAsync(source.Answer);
+
+        TerminateHolderOnce(setup.Type);
+        HttpResponseMessage refused;
+        try
+        {
+            refused = await PostRunAsync(setup);
+        }
+        finally
+        {
+            CollectionSyncLock.AfterLockHeld = null;
+        }
+
+        var body = await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict, "got {0}", body);
+        source.Calls.Should().Be(0);
+        (await _syncs.EntriesAsync(setup.Type)).Should().BeEmpty();
+        (await _syncs.GetSyncAsync(setup)).GetProperty("lastRunAt").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    /// <remarks>
+    /// Two versions overlap during a rolling deploy, one taking the lock with raw SQL and one through
+    /// the lease, so each has to refuse while the other holds it.
+    /// </remarks>
+    [Fact]
+    public async Task The_lock_and_the_raw_hash_key_older_versions_took_exclude_each_other()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var type = "keyed" + Guid.NewGuid().ToString("n")[..10];
+        var name = CollectionSyncLock.NameFor(DefaultTenantId(), type);
+
+        await using (var old = Store.Storage.Database.CreateConnection())
+        {
+            await old.OpenAsync(ct);
+            await using (var take = old.CreateCommand())
+            {
+                take.CommandText = "select pg_advisory_lock(hashtextextended(@name, 0))";
+                take.Parameters.AddWithValue("name", name);
+                await take.ExecuteScalarAsync(ct);
+            }
+
+            (await HoldAsync(type)).Should().BeNull("a lock taken the old way blocks the new way");
+        }
+
+        await using var held = await HoldAsync(type);
+        held.Should().NotBeNull("the control: the old holder is gone");
+        (await IsFreeAsync(name)).Should().BeFalse("a lock taken the new way blocks the old way");
+    }
+
+    /// <summary>Ends the backend that holds this collection's lock, once, as soon as the lock is taken.</summary>
+    private void TerminateHolderOnce(string type)
+    {
+        var name = CollectionSyncLock.NameFor(DefaultTenantId(), type);
+        var done = 0;
+        CollectionSyncLock.AfterLockHeld = async (held, _) =>
+        {
+            if (held != name || Interlocked.Exchange(ref done, 1) == 1) return;
+
+            var backend = await LockBackendAsync(type, granted: true);
+            backend.Should().NotBeNull("the control: the lock is held on a backend of its own");
+            await KillAsync(backend!.Value);
+        };
+    }
+
+    /// <remarks>
     /// The run has taken the lock and is inside its fetch when the lock's connection goes. It writes
     /// its entries all the same, and the unlock that then fails is not its outcome.
     /// </remarks>
@@ -727,24 +827,40 @@ public class CollectionSyncRunLockTests : IDisposable
     }
 
     /// <summary>
-    /// Holds the collection's lock, starts a run, and once Postgres shows that run queued behind the
-    /// lock does <paramref name="meanwhile"/> and lets the lock go.
+    /// Holds the collection's lock, starts a run, and once that run has tried the lock and been
+    /// refused (so it is waiting for it) does <paramref name="meanwhile"/> and lets the lock go.
     /// </summary>
+    /// <remarks>
+    /// The wait polls <c>pg_try_advisory_lock</c>, so Postgres has no queued waiter to show. The lock
+    /// reports each refusal through <see cref="CollectionSyncLock.OnRefused"/> instead.
+    /// </remarks>
     private async Task<HttpResponseMessage> RunWhileQueuedAsync(CollectionSyncTests.Setup setup, Func<Task> meanwhile)
     {
         Task<HttpResponseMessage> waiting;
-
-        await using (var held = await HoldAsync(setup.Type))
+        var name = CollectionSyncLock.NameFor(DefaultTenantId(), setup.Type);
+        var refused = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        CollectionSyncLock.OnRefused = n =>
         {
-            held.Should().NotBeNull("the control: nothing else is filling this collection");
+            if (n == name) refused.TrySetResult();
+        };
 
-            waiting = PostRunAsync(setup);
+        try
+        {
+            await using (var held = await HoldAsync(setup.Type))
+            {
+                held.Should().NotBeNull("the control: nothing else is filling this collection");
 
-            await UntilAsync(
-                async () => await LockBackendAsync(setup.Type, granted: false) is not null,
-                "the run should be queued behind the lock");
+                waiting = PostRunAsync(setup);
 
-            await meanwhile();
+                (await Task.WhenAny(refused.Task, Task.Delay(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken)))
+                    .Should().BeSameAs(refused.Task, "the run should be waiting behind the lock");
+
+                await meanwhile();
+            }
+        }
+        finally
+        {
+            CollectionSyncLock.OnRefused = null;
         }
 
         return await waiting;

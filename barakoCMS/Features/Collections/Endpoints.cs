@@ -493,6 +493,15 @@ internal sealed class RunCollectionSyncEndpoint(
             return;
         }
 
+        // The lock lives on a connection of its own, and a lost one freed it. Another run may be
+        // filling the collection now, so this one answers 409 rather than write beside it.
+        if (!await held.IsHeldAsync(ct))
+        {
+            HttpContext.Response.Headers.RetryAfter = "1";
+            ThrowError($"The lock on '{lockedType}' was lost before the run started. Nothing was run; try again.", 409);
+            return;
+        }
+
         // Read again now that no other run can be writing it. The copy above may predate a run that
         // finished while this one waited, and the runner saves the whole document.
         sync = await session.LoadAsync<CollectionSync>(sync.Id, ct);

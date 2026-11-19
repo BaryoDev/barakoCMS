@@ -1,5 +1,5 @@
 using System.Data;
-using System.Globalization;
+using barakoCMS.Infrastructure.Services;
 using Npgsql;
 
 namespace barakoCMS.Infrastructure.Sync;
@@ -15,31 +15,47 @@ namespace barakoCMS.Infrastructure.Sync;
 /// derived from: two syncs filling one collection with the same key write the same entry.
 ///
 /// The same mechanism as the sweep's own lock in <see cref="CollectionSyncService"/>: a session
-/// scoped advisory lock on a connection held open for the run. A process that dies mid-run frees it
-/// when the connection drops. A transaction scoped lock would not do, because a run commits once
-/// per entry.
+/// scoped advisory lock taken through <see cref="AdvisoryLease"/> on a connection held open for the
+/// run. A process that dies mid-run frees it when the connection drops. A transaction scoped lock
+/// would not do, because a run commits once per entry.
 ///
 /// The lock is only as good as its connection. If that connection is lost while the run is still
-/// writing, the lock is gone and another run can start beside it.
+/// writing, the lock is gone and another run can start beside it. <see cref="IsHeldAsync"/> asks
+/// whether it is still there, and the sweep and the run endpoint ask before they start a run.
+///
+/// The key is <c>hashtextextended(name, 0)</c>, worked out by the server, so it is the one earlier
+/// versions took with raw SQL and two versions overlapping during a rolling deploy exclude each other.
 /// </remarks>
 internal sealed class CollectionSyncLock : IAsyncDisposable
 {
-    private const string Try = "select pg_try_advisory_lock(hashtextextended(@name, 0))";
-    private const string Wait = "select pg_advisory_lock(hashtextextended(@name, 0))";
-    private const string Release = "select pg_advisory_unlock(hashtextextended(@name, 0))";
+    private const string KeySql = "select hashtextextended(@name, 0)";
 
-    private const int CommandTimeoutMarginSeconds = 5;
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(25);
 
     private readonly NpgsqlConnection _connection;
+    private readonly AdvisoryLease _lease;
     private readonly string _name;
     private readonly ILogger _logger;
 
-    private CollectionSyncLock(NpgsqlConnection connection, string name, ILogger logger)
+    private CollectionSyncLock(NpgsqlConnection connection, AdvisoryLease lease, string name, ILogger logger)
     {
         _connection = connection;
+        _lease = lease;
         _name = name;
         _logger = logger;
     }
+
+    /// <summary>Tests only: runs once the lock is held, with its name, before the caller gets it.</summary>
+    internal static Func<string, CancellationToken, Task>? AfterLockHeld { get; set; }
+
+    /// <summary>Tests only: runs each time a try finds the lock held, so a test can tell a run is waiting.</summary>
+    internal static Action<string>? OnRefused { get; set; }
+
+    /// <summary>
+    /// Whether this run still owns the lock. False when its connection was lost, which freed the lock
+    /// and let another run start. Always true behind a suspected pooler, where it cannot be checked.
+    /// </summary>
+    public Task<bool> IsHeldAsync(CancellationToken ct) => _lease.IsHeldAsync(ct);
 
     /// <summary>The text the lock key is hashed from.</summary>
     /// <remarks>Lower case, as the entry id is, so <c>Package</c> and <c>package</c> are one collection.</remarks>
@@ -71,9 +87,44 @@ internal sealed class CollectionSyncLock : IAsyncDisposable
         {
             await connection.OpenAsync(ct);
 
-            if (await TakeAsync(connection, name, wait, ct))
+            long key;
+            await using (var hash = connection.CreateCommand())
             {
-                return new CollectionSyncLock(connection, name, logger);
+                hash.CommandText = KeySql;
+                hash.Parameters.AddWithValue("name", name);
+                key = Convert.ToInt64(await hash.ExecuteScalarAsync(ct));
+            }
+
+            // Polls pg_try_advisory_lock, the way SchemaApplyLock does, so a holder that is wedged
+            // ends the wait as a refusal. The token ends it early.
+            var started = System.Diagnostics.Stopwatch.StartNew();
+            AdvisoryLease? lease;
+            while ((lease = await AdvisoryLease.TryAcquireAsync(connection, key, ct)) is null)
+            {
+                OnRefused?.Invoke(name);
+
+                var left = wait - started.Elapsed;
+                if (left <= TimeSpan.Zero)
+                {
+                    break;
+                }
+
+                await Task.Delay(left < PollInterval ? left : PollInterval, ct);
+            }
+
+            if (lease is not null)
+            {
+                if (lease.PoolerSuspected)
+                {
+                    AdvisoryLease.ReportPooler(logger, key);
+                }
+
+                if (AfterLockHeld is { } hook)
+                {
+                    await hook(name, ct);
+                }
+
+                return new CollectionSyncLock(connection, lease, name, logger);
             }
         }
         catch
@@ -86,59 +137,6 @@ internal sealed class CollectionSyncLock : IAsyncDisposable
 
         await connection.DisposeAsync();
         return null;
-    }
-
-    /// <remarks>
-    /// The wait is Postgres's own queue, not a loop of tries. The sweep takes the next sync of the
-    /// same collection a few milliseconds after it lets go of the last, so a caller trying again
-    /// every so often would lose to it each time. A queued waiter is handed the lock at the release.
-    ///
-    /// <c>lock_timeout</c> is set for one transaction, so it never outlives this on a pooled
-    /// connection. A session lock taken inside a transaction stays held after it ends.
-    /// </remarks>
-    private static async Task<bool> TakeAsync(
-        NpgsqlConnection connection, string name, TimeSpan wait, CancellationToken ct)
-    {
-        if (wait <= TimeSpan.Zero)
-        {
-            await using var once = connection.CreateCommand();
-            once.CommandText = Try;
-            once.Parameters.AddWithValue("name", name);
-
-            return (bool?)await once.ExecuteScalarAsync(ct) ?? false;
-        }
-
-        await using var transaction = await connection.BeginTransactionAsync(ct);
-
-        await using (var limit = connection.CreateCommand())
-        {
-            limit.Transaction = transaction;
-            limit.CommandText = "select set_config('lock_timeout', @milliseconds, true)";
-            limit.Parameters.AddWithValue(
-                "milliseconds", Math.Max(1, (long)wait.TotalMilliseconds).ToString(CultureInfo.InvariantCulture));
-            await limit.ExecuteScalarAsync(ct);
-        }
-
-        try
-        {
-            await using var take = connection.CreateCommand();
-            take.Transaction = transaction;
-            take.CommandText = Wait;
-            take.Parameters.AddWithValue("name", name);
-
-            // The server ends the wait, through lock_timeout. The connection's own command timeout
-            // may be shorter than the wait, and would end it first with an error that is not a
-            // refusal, so this command gets one that outlasts it.
-            take.CommandTimeout = (int)Math.Ceiling(wait.TotalSeconds) + CommandTimeoutMarginSeconds;
-            await take.ExecuteScalarAsync(ct);
-        }
-        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.LockNotAvailable)
-        {
-            return false;
-        }
-
-        await transaction.CommitAsync(ct);
-        return true;
     }
 
     /// <summary>Closes a connection that may hold the lock, releasing whatever it holds first.</summary>
@@ -187,12 +185,14 @@ internal sealed class CollectionSyncLock : IAsyncDisposable
     {
         try
         {
-            await using var release = _connection.CreateCommand();
-            release.CommandText = Release;
-            release.Parameters.AddWithValue("name", _name);
-            await release.ExecuteScalarAsync(CancellationToken.None);
+            if (!await _lease.ReleaseAsync())
+            {
+                // The connection was gone or refused the unlock, so it is closed the careful way.
+                await DropAsync(_connection, _logger);
+                return;
+            }
 
-            await _connection.DisposeAsync();
+            await _lease.DisposeAsync();
         }
         catch (Exception ex)
         {
