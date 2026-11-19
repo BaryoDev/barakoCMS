@@ -25,6 +25,21 @@ internal static class SessionRevocation
 
     private const int Attempts = 4;
 
+    /// <summary>
+    /// Is this a second insert of one id or unique value, at any depth? Marten wraps the Npgsql
+    /// error (SQLSTATE 23505) at a depth that varies by command, so the chain is walked.
+    /// </summary>
+    private static bool IsUniqueViolation(Exception? ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is JasperFx.DocumentAlreadyExistsException or Npgsql.PostgresException { SqlState: "23505" })
+                return true;
+        }
+
+        return false;
+    }
+
     public static Claim ClaimFor(Guid sessionId) => new(ClaimType, sessionId.ToString());
 
     /// <summary>The claims with <c>sid</c> added, the way <c>did</c> comes with the device claims.</summary>
@@ -41,7 +56,8 @@ internal static class SessionRevocation
     /// <summary>
     /// Ends the session: stores the revoke key and revokes its live refresh rows with reason
     /// <c>session_revoked</c>, in one save. Saves itself, and retries when a refresh rotates the row
-    /// between the read and the write, since the successor is then the row to revoke.
+    /// between the read and the write, since the successor is then the row to revoke, and when another
+    /// end of the same session inserts the key first, which counts as already ended.
     /// </summary>
     public static async Task EndAsync(
         IDocumentSession session, IMemoryCache? cache, Guid userId, Guid sessionId, CancellationToken ct)
@@ -75,8 +91,11 @@ internal static class SessionRevocation
             {
                 await session.SaveChangesAsync(ct);
             }
-            catch (JasperFx.ConcurrencyException) when (attempt < Attempts)
+            catch (Exception ex) when (attempt < Attempts
+                && (ex is JasperFx.ConcurrencyException || IsUniqueViolation(ex)))
             {
+                // A second end of the same session inserted the key first. The session is ended, and
+                // the next pass finds that row and updates it instead of inserting another.
                 session.EjectAllPendingChanges();
                 continue;
             }
