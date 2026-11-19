@@ -87,6 +87,54 @@ The security gain is not that the token stopped existing in the response. It is 
 **persisting** it. A page that holds a credential for a few milliseconds during sign-in is a much
 smaller target than one that keeps it in storage for a week.
 
+## Sessions
+
+Each sign-in is a session with its own id. The id is on the refresh row (`SessionId`) and in every
+access token the session mints, as a `sid` claim. Rotation keeps it, so the id names the sign-in and
+not one refresh token. A tenant switch copies `sid` from the token it was given, so a person signed
+in on two tenants from one sign-in holds one session, not two.
+
+The refresh row also records, for a later list of sessions:
+
+- `SessionStartedAt`, `Device`, `SignInIp` and `SignInMethod`, set at sign-in and carried across
+  rotation.
+- `LastSeenAt` and `LastSeenIp`, moved on each refresh.
+
+`SignInMethod` is `password`, `code`, `link` or `social:<provider>`, with `+mfa` added when a second
+factor was used. The MFA challenge carries the first factor to verify, so a sign-in that goes
+through it records both.
+
+`Device` is built from the user agent as "Chrome on macOS", or "Unknown device" when neither the
+browser nor the system is recognised. The raw header is never stored. Control characters are
+stripped and the text is cut at 80 characters. The device id is cut at 128 characters when written.
+
+`SignInIp` and `LastSeenIp` are the address the API sees. Behind a proxy that is the proxy's
+address unless `ForwardedHeaders:KnownProxies` lists it. Set that if you want real client addresses
+in the session record.
+
+### Ending one session
+
+Ending a session stores a revoke key `sid:<id>` that lasts as long as the session can, and revokes
+the session's refresh row with reason `session_revoked`. The token check and the realtime hub look
+up the token's `jti` and its `sid:` key in one query, and refuse the token if either is there. Like
+the `jti` check, it fails closed when the store cannot be read. Other sessions of the same user are
+not touched.
+
+A refresh that loses a race to this answers 401 and revokes nothing else. It is not treated as
+token reuse.
+
+Logout is unchanged and does not end only the current session.
+
+### Rows from before sessions
+
+A refresh row written before this change has no `SessionId`. Its next refresh gives the new row one,
+and the access token minted by that refresh carries it.
+
+### Erasing a user
+
+Rotation clears `Device`, `SignInIp` and `LastSeenIp` on the row it retires. Erasing a user blanks
+the same three fields on every row of that user, used rows included.
+
 ## What this needs from your deployment
 
 The cookie is `SameSite=Lax`, which means the browser sends it when the admin and the API are the

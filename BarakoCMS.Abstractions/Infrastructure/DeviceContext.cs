@@ -36,6 +36,35 @@ public sealed record DeviceContext(string UserAgent, string IpAddress, string? D
         if (string.IsNullOrWhiteSpace(ua))
             return "an unknown device";
 
+        var (browser, os) = Detect(ua);
+        if (browser != null && os != null) return $"{browser} on {os}";
+        if (browser != null) return browser;
+        if (os != null) return os;
+        return ua.Length > 80 ? ua[..80] + "…" : ua;
+    }
+
+    public const string UnknownDevice = "Unknown device";
+    public const int MaxStoredDescription = 80;
+
+    /// <summary>
+    /// The text kept on a session: "Browser on OS", the browser, the OS, or "Unknown device". Never
+    /// the raw user-agent, so nothing a client typed is stored. Control characters are removed and the
+    /// result is at most 80 characters.
+    /// </summary>
+    public static string StoredDescription(string? ua)
+    {
+        if (string.IsNullOrWhiteSpace(ua))
+            return UnknownDevice;
+
+        var (browser, os) = Detect(ua);
+        var text = browser != null && os != null ? $"{browser} on {os}" : browser ?? os ?? UnknownDevice;
+        var clean = new string(text.Where(c => !char.IsControl(c)).ToArray()).Trim();
+        if (clean.Length == 0) return UnknownDevice;
+        return clean.Length > MaxStoredDescription ? clean[..MaxStoredDescription] : clean;
+    }
+
+    private static (string? Browser, string? Os) Detect(string ua)
+    {
         var browser =
             ua.Contains("Edg") ? "Edge" :
             ua.Contains("OPR") || ua.Contains("Opera") ? "Opera" :
@@ -51,10 +80,6 @@ public sealed record DeviceContext(string UserAgent, string IpAddress, string? D
             ua.Contains("Windows") ? "Windows" :
             ua.Contains("Linux") ? "Linux" :
             null;
-
-        if (browser != null && os != null) return $"{browser} on {os}";
-        if (browser != null) return browser;
-        if (os != null) return os;
-        return ua.Length > 80 ? ua[..80] + "…" : ua;
+        return (browser, os);
     }
 }

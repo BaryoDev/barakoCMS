@@ -109,11 +109,12 @@ internal class VerifyEndpoint(
         return current;
     }
 
-    private (string Token, DateTime Expiry) StoreRefreshToken(Guid userId, string? deviceId, TimeSpan lifetime)
+    private (string Token, DateTime Expiry) StoreRefreshToken(
+        Guid userId, barakoCMS.Infrastructure.DeviceContext device, Guid sessionId, TimeSpan lifetime)
     {
         var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var expiry = DateTime.UtcNow.Add(lifetime);
-        session.Store(RefreshToken.Issue(userId, token, expiry, deviceId));
+        session.Store(RefreshToken.StartSession(userId, token, expiry, device, "code", sessionId));
         return (token, expiry);
     }
 
@@ -180,7 +181,7 @@ internal class VerifyEndpoint(
             // Refuse on a lost race instead of issuing the challenge: the code was consumed by
             // the request that won, and one code must not yield two challenges.
             if (!await TrySaveAsync(ct)) { ThrowError("Invalid or expired code."); return; }
-            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(config, user.Id);
+            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(config, user.Id, null, "code");
             await Send.ResponseAsync(new OtpVerifyResponse { RequiresMfa = true, MfaChallengeToken = challenge });
             return;
         }
@@ -192,7 +193,9 @@ internal class VerifyEndpoint(
 
         // Proving control of the mailbox says who you are, not which tenants you belong to — the
         // issuer still decides whether a token for this tenant may be minted.
-        var issued = await tokenIssuer.IssueAccessTokenAsync(user, tenant.Slug, deviceClaims, ct);
+        var sessionId = Guid.NewGuid();
+        var issued = await tokenIssuer.IssueAccessTokenAsync(
+            user, tenant.Slug, barakoCMS.Infrastructure.Auth.SessionRevocation.With(deviceClaims, sessionId), ct);
         if (!issued.Allowed)
         {
             await TrySaveAsync(ct); // keep the code consumed; refused either way
@@ -200,11 +203,7 @@ internal class VerifyEndpoint(
             return;
         }
 
-        var jti = issued.Jti;
-        var accessTokenExpiry = issued.ExpiresAt;
-        var jwtToken = issued.Token;
-
-        var (refreshTokenString, refreshTokenExpiry) = StoreRefreshToken(user.Id, device.DeviceId, issued.RefreshLifetime);
+        var (refreshTokenString, refreshTokenExpiry) = StoreRefreshToken(user.Id, device, sessionId, issued.RefreshLifetime);
         // The one that must not be best-effort. Losing here means another request consumed this
         // code, so returning the tokens computed above would mint a second session from one code,
         // which is the race the optimistic concurrency was added to stop.
@@ -216,8 +215,8 @@ internal class VerifyEndpoint(
 
         await Send.ResponseAsync(new OtpVerifyResponse
         {
-            Token = jwtToken,
-            Expiry = accessTokenExpiry,
+            Token = issued.Token,
+            Expiry = issued.ExpiresAt,
             RefreshToken = refreshTokenString,
             RefreshTokenExpiry = refreshTokenExpiry,
         });

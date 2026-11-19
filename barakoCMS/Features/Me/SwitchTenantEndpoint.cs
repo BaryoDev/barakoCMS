@@ -151,6 +151,11 @@ internal class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenant
         if (!string.IsNullOrEmpty(did))
             extraClaims.Add(new("did", did));
 
+        // The same sign-in, so the same session id. Ending it ends this token as well.
+        var sid = User.FindFirst(barakoCMS.Infrastructure.Auth.SessionRevocation.ClaimType)?.Value;
+        if (Guid.TryParse(sid, out var sessionId))
+            extraClaims.Add(barakoCMS.Infrastructure.Auth.SessionRevocation.ClaimFor(sessionId));
+
         // This endpoint already performed the membership check correctly and was the model for
         // ITokenIssuer; it now delegates so there is exactly one implementation to keep right.
         // The bearer middleware refuses a token without exp, so it is always here.

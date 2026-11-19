@@ -42,14 +42,14 @@ internal class VerifyEndpoint(
     {
         var device = DeviceContext.From(HttpContext);
 
-        var challenge = MfaChallengeToken.Validated(config, req.ChallengeToken);
+        var challenge = MfaChallengeToken.ValidatedChallenge(config, req.ChallengeToken);
         if (challenge is null)
         {
             ThrowError("Your sign-in session expired. Enter your password again.");
             return;
         }
 
-        var user = await query.LoadAsync<User>(challenge.Value.UserId, ct);
+        var user = await query.LoadAsync<User>(challenge.UserId, ct);
         if (user is null || !await mfa.IsEnabledAsync(user.Id, ct))
         {
             // The challenge was minted for this user, so this is an odd state; stay generic.
@@ -80,7 +80,7 @@ internal class VerifyEndpoint(
         // Completing MFA proves possession of this device; trust it and bind the token to it, so
         // MFA-issued tokens carry the same device claim (did) as the password and OTP paths.
         var deviceClaims = await deviceGate.TrustOnOtpAsync(user, device, ct);
-        var signedIn = await SignInAsync(user, challenge.Value.Grant, deviceClaims, device, ct);
+        var signedIn = await SignInAsync(user, challenge.Grant, deviceClaims, device, MethodWithMfa(challenge.FirstFactor), ct);
         if (signedIn is null)
         {
             ThrowError("Invalid code.");
@@ -107,8 +107,9 @@ internal class VerifyEndpoint(
     /// </summary>
     private async Task<SignedIn?> SignInAsync(
         User user, PendingExternalGrant? grant, IReadOnlyList<Claim> deviceClaims, DeviceContext device,
-        CancellationToken ct)
+        string method, CancellationToken ct)
     {
+        var sessionId = Guid.NewGuid();
         var granted = false;
         SignedIn? signedIn;
         try
@@ -120,13 +121,13 @@ internal class VerifyEndpoint(
                 await writes.SaveChangesAsync(token);
 
                 var issued = await scope.GetRequiredService<ITokenIssuer>()
-                    .IssueAccessTokenAsync(user, tenant.Slug, deviceClaims, token);
+                    .IssueAccessTokenAsync(user, tenant.Slug, SessionRevocation.With(deviceClaims, sessionId), token);
                 if (!issued.Allowed)
                 {
                     return new ContentBatchOutcome<SignedIn?>(null, Commit: false);
                 }
 
-                var result = await StageSignInAsync(writes, user, issued, device, token);
+                var result = await StageSignInAsync(writes, user, issued, device, sessionId, method, token);
                 return new ContentBatchOutcome<SignedIn?>(result, Commit: true);
             }, ct);
         }
@@ -185,12 +186,17 @@ internal class VerifyEndpoint(
     /// </summary>
     private static string SpentGrantJti(PendingExternalGrant grant) => $"mfa-grant:{grant.Id:N}";
 
+    /// <summary>The first factor the challenge carries, with the second added. A challenge without one is a password.</summary>
+    private static string MethodWithMfa(string? firstFactor) =>
+        $"{(string.IsNullOrEmpty(firstFactor) ? "password" : firstFactor)}+mfa";
+
     private async Task<SignedIn> StageSignInAsync(
-        IDocumentSession writes, User user, TokenIssueResult issued, DeviceContext device, CancellationToken ct)
+        IDocumentSession writes, User user, TokenIssueResult issued, DeviceContext device, Guid sessionId,
+        string method, CancellationToken ct)
     {
         var refresh = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var refreshExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
-        writes.Store(RefreshToken.Issue(user.Id, refresh, refreshExpiry, device.DeviceId));
+        writes.Store(RefreshToken.StartSession(user.Id, refresh, refreshExpiry, device, method, sessionId));
         await AuditLog.RecordAsync(writes, tenant.Slug, "auth.mfa.succeeded", user.Id, user.Username,
             ipAddress: device.IpAddress, ct: ct);
         return new SignedIn(issued, refresh, refreshExpiry);

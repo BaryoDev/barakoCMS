@@ -1,5 +1,6 @@
 using barakoCMS.Core.Interfaces;
 using System.IdentityModel.Tokens.Jwt;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Auth.Stations;
 using barakoCMS.Infrastructure.Envelope;
 using barakoCMS.Infrastructure.Middleware;
@@ -131,7 +132,8 @@ public sealed class RealtimeHub(TopicRegistry topics, TenantContext tenant, ISer
 
         var jti = user.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
         if (jti is not null
-            && await services.GetRequiredService<ITokenRevocationService>().IsTokenRevokedAsync(jti, ct))
+            && await services.GetRequiredService<ITokenRevocationService>().IsTokenRevokedAsync(
+                jti, user.FindFirst(SessionRevocation.ClaimType)?.Value, ct))
             throw new HubException("This token has been revoked.");
 
         if (await SessionEpochCheck.IsBeforeSessionEpochAsync(

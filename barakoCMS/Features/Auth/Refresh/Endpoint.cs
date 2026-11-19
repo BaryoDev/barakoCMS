@@ -44,17 +44,35 @@ internal class Endpoint : Endpoint<Request, Response>
         barakoCMS.Infrastructure.Auth.RevokeRefreshTokens.ForUserAsync(
             _documentSession, userId, reason, ct, Resolve<barakoCMS.Infrastructure.Services.ISessionEpochService>());
 
-    private async Task RevokeAfterRaceAsync(Guid userId, CancellationToken ct)
+    private async Task RevokeAfterRaceAsync(Guid userId, Guid sessionId, CancellationToken ct)
     {
+        // The rotation never committed, so drop it before looking: the session still holds it.
+        _documentSession.EjectAllPendingChanges();
+
+        // Losing to a session end is not reuse: answer 401 and leave the user's other sessions alone.
+        if (await barakoCMS.Infrastructure.Auth.SessionRevocation.IsEndedAsync(_documentSession, sessionId, ct))
+        {
+            ThrowError("Refresh token has been revoked. Please log in again.", 401);
+            return;
+        }
+
         _logger.LogWarning(
             "Concurrent refresh-token use detected for UserId: {UserId}. Rejecting duplicate rotation.",
             userId);
 
-        // The rotation never committed, so drop it before revoking: the session still holds it.
-        _documentSession.EjectAllPendingChanges();
         await RevokeSessionsAsync(userId, "reuse_detected", ct);
         await _documentSession.SaveChangesAsync(ct);
         ThrowError("Refresh token was already used. Please log in again.", 401);
+    }
+
+    private static List<System.Security.Claims.Claim> RefreshClaims(RefreshToken refreshToken, Guid sessionId)
+    {
+        var claims = new List<System.Security.Claims.Claim>();
+        // Preserve device binding so DeviceTrust enforcement still applies to refreshed tokens.
+        if (!string.IsNullOrEmpty(refreshToken.DeviceId))
+            claims.Add(new("did", refreshToken.DeviceId));
+        claims.Add(barakoCMS.Infrastructure.Auth.SessionRevocation.ClaimFor(sessionId));
+        return claims;
     }
 
     private async Task<User> LoadUsableUserAsync(RefreshToken refreshToken, CancellationToken ct)
@@ -146,10 +164,9 @@ internal class Endpoint : Endpoint<Request, Response>
         // out with a token scoped to a tenant you never belonged to. The issuer re-checks every time,
         // which also means a membership revoked mid-session stops working at the next refresh rather
         // than lingering until the refresh token expires.
-        var extraClaims = new List<System.Security.Claims.Claim>();
-        // Preserve device binding so DeviceTrust enforcement still applies to refreshed tokens.
-        if (!string.IsNullOrEmpty(refreshToken.DeviceId))
-            extraClaims.Add(new("did", refreshToken.DeviceId));
+        // A row from before sessions had no id. Its next refresh gives the new row one.
+        var sessionId = refreshToken.SessionId ?? Guid.NewGuid();
+        var extraClaims = RefreshClaims(refreshToken, sessionId);
 
         var issued = await _tokenIssuer.IssueAccessTokenAsync(user, _tenant.Slug, extraClaims, ct);
         if (!issued.Allowed)
@@ -169,17 +186,18 @@ internal class Endpoint : Endpoint<Request, Response>
         var newRefreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var newRefreshTokenExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
         
-        var newRefreshToken = RefreshToken.Issue(
-            user.Id, newRefreshTokenString, newRefreshTokenExpiry,
-            // Carried across rotation. Without this the binding survived exactly one refresh: the
-            // token being exchanged still had it, the one replacing it did not, so device trust
-            // stopped enforcing anything from the second refresh onward and nothing said so.
-            refreshToken.DeviceId);
+        // Device binding, session id and sign-in facts carry across rotation. Without the device id,
+        // device trust stopped enforcing anything from the second refresh onward.
+        var newRefreshToken = refreshToken.Successor(
+            newRefreshTokenString, newRefreshTokenExpiry,
+            barakoCMS.Infrastructure.DeviceContext.From(HttpContext), sessionId);
 
         // Revoke old refresh token (rotation)
         refreshToken.IsRevoked = true;
         refreshToken.RevokedReason = "used";
         refreshToken.RevokedAt = DateTime.UtcNow;
+        // The used row keeps no address or device text. The new row holds them.
+        refreshToken.ClearIdentifiers();
 
         _documentSession.Update(refreshToken);
         _documentSession.Store(newRefreshToken);
@@ -194,7 +212,7 @@ internal class Endpoint : Endpoint<Request, Response>
         }
         catch (JasperFx.ConcurrencyException)
         {
-            await RevokeAfterRaceAsync(refreshToken.UserId, ct);
+            await RevokeAfterRaceAsync(refreshToken.UserId, sessionId, ct);
             return;
         }
 
