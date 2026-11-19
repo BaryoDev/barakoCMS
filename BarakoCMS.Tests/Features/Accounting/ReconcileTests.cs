@@ -289,6 +289,101 @@ public class ReconcileTests(IntegrationTestFixture fixture)
         mismatch.GetProperty("journalAmount").GetDecimal().Should().Be(40m);
     }
 
+    private async Task<Content> FeeSubjectAsync(string type, decimal amount, decimal fee, string number)
+    {
+        var subject = new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = type,
+            CreatedAt = June(12),
+            Data = new Dictionary<string, object> { ["Amount"] = amount, ["Fee"] = fee, ["Number"] = number },
+        };
+        using var scope = fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(subject);
+        await session.SaveChangesAsync(Ct);
+        return subject;
+    }
+
+    private async Task<JsonElement> ReconcileBodyAsync(string url)
+    {
+        var client = await _callers.SuperAdminAsync(null);
+        var response = await client.GetAsync(url, Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        return await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+    }
+
+    [Fact]
+    public async Task Amount_fields_sum_the_named_fields_and_the_default_still_reads_only_Total()
+    {
+        var type = NewType();
+        var subject = await FeeSubjectAsync(type, 100m, 20m, "F-1");
+        await PostAsync(subject, await AmountMappingAsync(), amount: 120m);
+
+        var named = await ReconcileBodyAsync(Url(type) + "&amountFields=Amount,Fee");
+        var byDefault = await ReconcileBodyAsync(Url(type));
+
+        named.GetProperty("checked").GetInt32().Should().Be(1);
+        named.GetProperty("mismatches").GetArrayLength().Should().Be(0);
+        var mismatch = byDefault.GetProperty("mismatches").EnumerateArray().Should().ContainSingle().Subject;
+        mismatch.GetProperty("subjectAmount").GetDecimal().Should().Be(0m);
+        mismatch.GetProperty("journalAmount").GetDecimal().Should().Be(120m);
+    }
+
+    [Fact]
+    public async Task Amount_fields_drop_blanks_and_repeats_and_ignore_case()
+    {
+        var type = NewType();
+        var subject = await FeeSubjectAsync(type, 100m, 20m, "F-2");
+        await PostAsync(subject, await AmountMappingAsync(), amount: 120m);
+
+        var body = await ReconcileBodyAsync(Url(type) + "&amountFields=Amount,%20,,amount,Fee,Fee");
+
+        body.GetProperty("checked").GetInt32().Should().Be(1);
+        body.GetProperty("mismatches").GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_named_amount_field_that_is_not_public_is_a_400()
+    {
+        var type = NewType();
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = type,
+                Fields =
+                [
+                    new FieldDefinition { Name = "Amount", DisplayName = "Amount", Type = "decimal" },
+                    new FieldDefinition { Name = "Fee", DisplayName = "Fee", Type = "decimal", Sensitivity = SensitivityLevel.Sensitive },
+                ],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var client = await _callers.SuperAdminAsync(null);
+
+        (await client.GetAsync(Url(type) + "&amountFields=Amount,Fee", Ct)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await client.GetAsync(Url(type) + "&amountFields=Amount", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task More_than_eight_amount_fields_is_a_400_and_eight_is_accepted()
+    {
+        var client = await _callers.SuperAdminAsync(null);
+        var eight = string.Join(',', Enumerable.Range(1, 8).Select(n => "F" + n));
+
+        var over = await client.GetAsync(Url(NewType()) + "&amountFields=" + eight + ",F9", Ct);
+        var at = await client.GetAsync(Url(NewType()) + "&amountFields=" + eight, Ct);
+
+        over.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await over.Content.ReadAsStringAsync(Ct)).Should().Contain("at most 8");
+        at.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
     private async Task<string> AmountMappingAsync()
     {
         var cash = await AccountingTestData.AccountAsync(fixture, "1010", AccountType.Asset);
