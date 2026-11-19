@@ -69,8 +69,8 @@ internal sealed class InboundResponse
 /// <summary>The inbound section of a save.</summary>
 internal sealed class SaveConnectorInbound
 {
-    /// <summary><c>Hmac</c> or <c>Svix</c>.</summary>
-    public string Scheme { get; set; } = "Hmac";
+    /// <summary><c>Hmac</c> or <c>Svix</c>. Absent means Hmac on create and the stored scheme on update.</summary>
+    public string? Scheme { get; set; }
 
     /// <summary>The provider event names this connector may send. Empty means any.</summary>
     public List<string>? AllowedEvents { get; set; }

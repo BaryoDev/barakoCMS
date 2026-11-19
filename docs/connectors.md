@@ -68,17 +68,20 @@ both directions. The section is optional, and a connector stored without one wor
 ```
 
 - `scheme` is `Hmac` or `Svix`, the schemes `IInboundWebhookVerifier` checks. A `Svix` secret is the
-  base64 key, optionally prefixed `whsec_`, and is refused on save when it is not base64.
+  base64 key, optionally prefixed `whsec_`, and is refused on save when it is not base64. Left out on
+  create it means `Hmac`; left out on an update it keeps the stored scheme.
 - `allowedEvents` lists the provider event names the connector may send. Empty means any. At most
-  100 names.
+  100 names. Left out on an update it keeps the stored list; send `[]` to clear it.
 - `secret` is write only, like `secrets`. It is encrypted under `Connectors:Key` and stored as the
   secret `InboundSecret`, and no endpoint returns it. The read has `inbound.secretSet` and lists
   `InboundSecret` in `secretKeys`. On an update, an absent `secret` keeps the stored one and an empty
-  string removes it. An update with no `inbound` leaves the section alone. Moving `baseUrl` does not
+  string removes it. `InboundSecret` is set only here: the plain `secrets` map refuses that key. An
+  update with no `inbound` leaves the section alone. Moving `baseUrl` does not
   ask for `InboundSecret` again, because it is never sent to that address.
 
 The configuration export (`connectors` section) carries `inbound.scheme` and `inbound.allowedEvents`,
-and `InboundSecret` by name only, the same as every other held secret.
+and `InboundSecret` by name only, the same as every other held secret. A document that puts a
+`secret` in `inbound`, or lists `InboundSecret` in `secrets` with no `inbound` section, is refused.
 
 Connectors are hard deletes (below), so a deleted connector and its `InboundSecret` are gone.
 

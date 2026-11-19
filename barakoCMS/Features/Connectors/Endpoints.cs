@@ -127,7 +127,7 @@ internal sealed class CreateConnectorEndpoint(
             return;
         }
 
-        if ((req.Secrets is { Count: > 0 } || !string.IsNullOrWhiteSpace(req.Inbound?.Secret)) && !protector.IsConfigured)
+        if (ConnectorRules.CarriesSecret(req) && !protector.IsConfigured)
         {
             // Fail closed and name the setting. Storing the credential in the clear because no key
             // was configured is the one outcome nobody would choose and nobody would notice.
@@ -218,6 +218,7 @@ internal sealed class UpdateConnectorEndpoint(
         // The slug is what a request definition references, so it is not editable here. Renaming it
         // would break every reference silently, and the delete path already refuses for that reason.
         req.Slug = connector.Slug;
+        ConnectorInboundWriter.KeepStored(req.Inbound, connector.Inbound);
 
         var problem = ConnectorRules.Check(req);
         if (problem is not null)
@@ -226,34 +227,13 @@ internal sealed class UpdateConnectorEndpoint(
             return;
         }
 
-        if ((req.Secrets is { Count: > 0 } || !string.IsNullOrWhiteSpace(req.Inbound?.Secret)) && !protector.IsConfigured)
+        if (ConnectorRules.CarriesSecret(req) && !protector.IsConfigured)
         {
             ThrowError("Connectors:Key is not configured, so a credential cannot be stored. Set it and restart.", 400);
             return;
         }
 
-        if (!ConnectorOrigin.Same(connector.BaseUrl, req.BaseUrl))
-        {
-            // An absent secret normally means "keep it", because the form cannot show it. That cannot
-            // hold across a move to another origin: the credential was entered for the old one, and
-            // whoever edits the connector may never have seen it. Each stored secret has to be
-            // entered again or cleared in the same request.
-            var storedKeys = await session.Query<ConnectorSecret>()
-                .Where(s => s.ConnectorId == connector.Id)
-                .Select(s => s.Key)
-                .ToListAsync(ct);
-
-            // The inbound secret verifies what the party sends here and is never sent to the base URL.
-            foreach (var key in storedKeys.Distinct()
-                         .Where(k => k != ConnectorSecretKeys.InboundSecret && (req.Secrets is null || !req.Secrets.ContainsKey(k))))
-            {
-                AddError(new FluentValidation.Results.ValidationFailure($"secrets.{key}",
-                    $"The base URL now points at a different scheme, host or port, so the stored {key} "
-                    + "has to be entered again, or cleared, before the connector can be saved."));
-            }
-
-            ThrowIfAnyErrors();
-        }
+        await RequireSecretsReenteredAsync(connector, req, ct);
 
         // The client secret goes to the token URL and nowhere else, so the same reasoning applies to
         // it: an edit must not send a secret its editor cannot read somewhere nobody entered it for.
@@ -298,6 +278,31 @@ internal sealed class UpdateConnectorEndpoint(
         await session.SaveChangesAsync(ct);
 
         await Send.ResponseAsync(ConnectorResponse.From(connector), cancellation: ct);
+    }
+
+    private async Task RequireSecretsReenteredAsync(Connector connector, SaveConnectorRequest req, CancellationToken ct)
+    {
+        if (ConnectorOrigin.Same(connector.BaseUrl, req.BaseUrl)) return;
+
+        // An absent secret normally means "keep it", because the form cannot show it. That cannot
+        // hold across a move to another origin: the credential was entered for the old one, and
+        // whoever edits the connector may never have seen it. Each stored secret has to be
+        // entered again or cleared in the same request.
+        var storedKeys = await session.Query<ConnectorSecret>()
+            .Where(s => s.ConnectorId == connector.Id)
+            .Select(s => s.Key)
+            .ToListAsync(ct);
+
+        // The inbound secret verifies what the party sends here and is never sent to the base URL.
+        foreach (var key in storedKeys.Distinct()
+                     .Where(k => k != ConnectorSecretKeys.InboundSecret && (req.Secrets is null || !req.Secrets.ContainsKey(k))))
+        {
+            AddError(new FluentValidation.Results.ValidationFailure($"secrets.{key}",
+                $"The base URL now points at a different scheme, host or port, so the stored {key} "
+                + "has to be entered again, or cleared, before the connector can be saved."));
+        }
+
+        ThrowIfAnyErrors();
     }
 
     private async Task<List<string>> ApplySecretsAsync(
@@ -456,6 +461,8 @@ internal sealed class TestConnectorEndpoint(
 
 internal static class ConnectorRules
 {
+    internal static bool CarriesSecret(SaveConnectorRequest req) =>
+        req.Secrets is { Count: > 0 } || !string.IsNullOrWhiteSpace(req.Inbound?.Secret);
 
     /// <summary>Returns the reason a request is not acceptable, or null.</summary>
     internal static string? Check(SaveConnectorRequest req)
@@ -502,6 +509,11 @@ internal static class ConnectorRules
                  + "which are encrypted and never returned.";
         }
 
+        if (req.Secrets?.Keys.Any(k => string.Equals(k, ConnectorSecretKeys.InboundSecret, StringComparison.OrdinalIgnoreCase)) == true)
+        {
+            return $"{ConnectorSecretKeys.InboundSecret} is set through the inbound section (inbound.secret), not through secrets.";
+        }
+
         return CheckInbound(req.Inbound);
     }
 
@@ -512,7 +524,7 @@ internal static class ConnectorRules
     {
         if (inbound is null) return null;
 
-        if (!Enum.TryParse<InboundWebhookScheme>(inbound.Scheme, ignoreCase: true, out var scheme)
+        if (!Enum.TryParse<InboundWebhookScheme>(inbound.Scheme ?? nameof(InboundWebhookScheme.Hmac), ignoreCase: true, out var scheme)
             || !Enum.IsDefined(scheme))
         {
             return $"Inbound scheme must be one of: {string.Join(", ", Enum.GetNames<InboundWebhookScheme>())}.";
@@ -559,6 +571,15 @@ internal static class ConnectorRules
 /// </summary>
 internal static class ConnectorInboundWriter
 {
+    /// <summary>An inbound section that leaves out the scheme or the events keeps what is stored.</summary>
+    public static void KeepStored(SaveConnectorInbound? inbound, ConnectorInbound? stored)
+    {
+        if (inbound is null || stored is null) return;
+
+        inbound.Scheme ??= stored.Scheme;
+        inbound.AllowedEvents ??= stored.AllowedEvents.ToList();
+    }
+
     public static async Task ApplyAsync(
         IDocumentSession session, IConnectorSecretProtector protector, Connector connector,
         SaveConnectorInbound? inbound, List<string> changed, CancellationToken ct)
@@ -567,7 +588,7 @@ internal static class ConnectorInboundWriter
 
         connector.Inbound = new ConnectorInbound
         {
-            Scheme = Enum.Parse<InboundWebhookScheme>(inbound.Scheme, ignoreCase: true).ToString(),
+            Scheme = Enum.Parse<InboundWebhookScheme>(inbound.Scheme ?? nameof(InboundWebhookScheme.Hmac), ignoreCase: true).ToString(),
             AllowedEvents = (inbound.AllowedEvents ?? []).Select(e => e.Trim()).Distinct(StringComparer.Ordinal).ToList(),
         };
 
