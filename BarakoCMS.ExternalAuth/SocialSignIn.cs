@@ -224,7 +224,6 @@ public static class SocialSignIn
         MappedRoles? mapped,
         string provider)
     {
-        var method = SignInMethodFor(provider);
         // Open sign-up makes this person a member before the issuer looks for one. Committed now,
         // with the account it may have just created, because the issuer reads memberships from
         // the database and nothing queued by beforeFinalCommit is in the session yet.
@@ -253,7 +252,7 @@ public static class SocialSignIn
             FacebookDeletionFlow.StageKeepOnSignIn(session, user.Id);
             beforeFinalCommit?.Invoke(session);
             await session.SaveChangesAsync(ct); // persist the user/profile created above
-            var challenge = await MfaChallengeAsync(session, config, user, tenantSlug, mapped, method, ct);
+            var challenge = await MfaChallengeAsync(session, config, user, tenantSlug, mapped, SignInMethodFor(provider), ct);
             return Tokens.MfaRequired(challenge);
         }
 
@@ -269,7 +268,7 @@ public static class SocialSignIn
         if (mapped is not null)
         {
             return await IssueWithGrantAsync(
-                session, http, user, tenantSlug, mapped, deviceClaims, device, method, beforeFinalCommit, ct);
+                session, http, user, tenantSlug, mapped, deviceClaims, device, SignInMethodFor(provider), beforeFinalCommit, ct);
         }
 
         // A provider proving the person owns an email address says who they are, not which clubs
@@ -277,8 +276,7 @@ public static class SocialSignIn
         // Mint through core's issuer so this module is held to the same membership check as the
         // password and OTP flows rather than re-deciding it here.
         var sessionId = Guid.NewGuid();
-        var issued = await tokenIssuer.IssueAccessTokenAsync(
-            user, tenantSlug, barakoCMS.Infrastructure.Auth.SessionRevocation.With(deviceClaims, sessionId), ct);
+        var issued = await tokenIssuer.IssueAccessTokenAsync(user, tenantSlug, barakoCMS.Infrastructure.Auth.SessionRevocation.With(deviceClaims, sessionId), ct);
         if (!issued.Allowed)
         {
             // The user record and any profile merge above are still worth persisting; they are not
@@ -288,8 +286,6 @@ public static class SocialSignIn
             return Tokens.Denied();
         }
 
-        var jwt = issued.Token;
-
         // Again in the transaction that commits the token: the gate above may have committed and
         // released the first hold, and the person may have been erased since.
         if (signUp is null && !await FacebookDeletionFlow.HoldPendingForSignInAsync(session, user.Id, ct))
@@ -297,12 +293,12 @@ public static class SocialSignIn
             return Tokens.Denied();
         }
 
-        var refresh = StageRefreshToken(session, user, issued.RefreshLifetime, device, method, sessionId);
+        var refresh = StageRefreshToken(session, user, issued.RefreshLifetime, device, SignInMethodFor(provider), sessionId);
         FacebookDeletionFlow.StageKeepOnSignIn(session, user.Id);
         beforeFinalCommit?.Invoke(session);
         await session.SaveChangesAsync(ct);
 
-        return new Tokens(jwt, refresh);
+        return new Tokens(issued.Token, refresh);
     }
 
     /// <summary>

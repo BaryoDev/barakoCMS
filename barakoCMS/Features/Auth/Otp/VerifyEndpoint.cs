@@ -203,10 +203,6 @@ internal class VerifyEndpoint(
             return;
         }
 
-        var jti = issued.Jti;
-        var accessTokenExpiry = issued.ExpiresAt;
-        var jwtToken = issued.Token;
-
         var (refreshTokenString, refreshTokenExpiry) = StoreRefreshToken(user.Id, device, sessionId, issued.RefreshLifetime);
         // The one that must not be best-effort. Losing here means another request consumed this
         // code, so returning the tokens computed above would mint a second session from one code,
@@ -219,8 +215,8 @@ internal class VerifyEndpoint(
 
         await Send.ResponseAsync(new OtpVerifyResponse
         {
-            Token = jwtToken,
-            Expiry = accessTokenExpiry,
+            Token = issued.Token,
+            Expiry = issued.ExpiresAt,
             RefreshToken = refreshTokenString,
             RefreshTokenExpiry = refreshTokenExpiry,
         });
