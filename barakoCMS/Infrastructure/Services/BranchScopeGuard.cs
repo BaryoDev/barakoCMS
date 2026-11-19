@@ -11,9 +11,12 @@ namespace barakoCMS.Infrastructure.Services;
 /// </summary>
 /// <remarks>
 /// One rule for the change feed and the content routes. The caller's branches and the set of
-/// branch scoped types are read once per request.
+/// branch scoped types are read once per request, and the caller's branches are cached by reference
+/// to the <see cref="ClaimsPrincipal"/>, so two different principals in one scope get two answers.
+/// Resolve it from DI, scoped to the request. A module that counts or lists content for a caller
+/// combines <see cref="FilterAsync"/> with <see cref="IPermissionResolver.ReadPredicateAsync"/>.
 /// </remarks>
-internal interface IBranchScopeGuard
+public interface IBranchScopeGuard
 {
     /// <summary>True when the stored type of that name is branch scoped.</summary>
     Task<bool> IsScopedAsync(string contentType, CancellationToken ct);
@@ -31,11 +34,18 @@ internal interface IBranchScopeGuard
     /// A SQL condition over the content table (alias <c>d</c>) that keeps the rows the caller may
     /// reach, with its parameters, or null when no stored type is branch scoped.
     /// </summary>
+    /// <remarks>
+    /// The condition is for <c>MatchesSql</c> over the content table and nothing else. Its text can
+    /// change in any release, so pass <see cref="BranchScopeFilter.Sql"/> and
+    /// <see cref="BranchScopeFilter.Parameters"/> through unchanged and do not parse or extend them.
+    /// </remarks>
     Task<BranchScopeFilter?> FilterAsync(ClaimsPrincipal caller, CancellationToken ct);
 }
 
 /// <summary>A condition for <c>MatchesSql</c> and the values of its two <c>?</c> placeholders.</summary>
-internal sealed record BranchScopeFilter(string Sql, object[] Parameters);
+/// <param name="Sql">The condition, written against the content table aliased <c>d</c>.</param>
+/// <param name="Parameters">The values of the <c>?</c> placeholders, in order.</param>
+public sealed record BranchScopeFilter(string Sql, object[] Parameters);
 
 internal sealed class BranchScopeGuard(IQuerySession session, IBranchMembership membership) : IBranchScopeGuard
 {
