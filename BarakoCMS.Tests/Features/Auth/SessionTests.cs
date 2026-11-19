@@ -434,7 +434,11 @@ public class SessionTests
                 new SymmetricSecurityKey(System.Text.Encoding.ASCII.GetBytes(host.JwtKey)), SecurityAlgorithms.HmacSha256)));
 
         await using var connection = await Realtime.RealtimeHubTests.ConnectAsync(host, token);
-        await connection.InvokeAsync("Subscribe", "probe.tickets");
+
+        // Control: the same token and subscribe go through while the session is live, so the refusal
+        // below is the sid check and not the hub refusing this caller.
+        var live = () => connection.InvokeAsync("Subscribe", "probe.tickets");
+        await live.Should().NotThrowAsync("the session is live");
 
         await using (var session = host.OpenSession())
         {
@@ -451,7 +455,7 @@ public class SessionTests
         }
 
         var act = () => connection.InvokeAsync("Subscribe", "probe.tickets");
-        await act.Should().ThrowAsync<Exception>();
+        await act.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>().WithMessage("*revoked*");
     }
 
     [Fact]
@@ -479,30 +483,72 @@ public class SessionTests
     [Fact]
     public async Task Refresh_racing_a_session_end_signs_out_only_that_session()
     {
-        // The two requests start together, so across rounds the refresh wins sometimes and loses
-        // others. Either way the other session must stay signed in, and the loser must not be a
-        // reuse detection, which revokes every session the user has.
-        for (var round = 0; round < 8; round++)
+        var user = await SeedUserAsync();
+        var racing = await LoginAsync(user);
+        var bystander = await LoginAsync(user);
+        var racingSid = Sid(racing.Token);
+        racingSid.Should().NotBeNullOrEmpty();
+
+        // The refresh stands at its save, with the row already read. The end commits and revokes that
+        // row meanwhile, so the refresh's save is stale and loses every time.
+        var gate = new WriteBarrierLogger(2, "refreshtoken");
+        var host = _fixture.WithWebHostBuilder(b =>
+            b.ConfigureServices(s => s.ConfigureMarten(o => o.Logger(gate))));
+        var client = host.CreateClient();
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
+        client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", ChromeOnMac);
+
+        var refresh = client.PostAsJsonAsync("/api/auth/refresh", new { refreshToken = racing.Refresh }, Ct);
+        (await Task.Run(gate.WaitUntilHeld, Ct)).Should().BeTrue("the refresh has to reach its save");
+        await EndSessionAsync(user.Id, racingSid!);
+        gate.Release();
+        var response = await refresh;
+
+        gate.Reached.Should().BeTrue();
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "the refresh lost to the end");
+        var rows = await RowsAsync(user.Id);
+        rows.Where(r => r.RevokedReason == "reuse_detected").Should().BeEmpty("losing to an end is not reuse");
+        var racingRows = rows.Where(r => r.SessionId == racingSid).ToList();
+        racingRows.Should().ContainSingle("the lost refresh stored no successor");
+        racingRows[0].IsRevoked.Should().BeTrue();
+        racingRows[0].RevokedReason.Should().Be("session_revoked");
+
+        using (var scope = _fixture.Services.CreateScope())
         {
-            var user = await SeedUserAsync();
-            var racing = await LoginAsync(user);
-            var bystander = await LoginAsync(user);
-            var racingSid = Sid(racing.Token);
-            racingSid.Should().NotBeNullOrEmpty();
-
-            var refresh = RefreshAsync(racing.Refresh);
-            var end = EndSessionAsync(user.Id, racingSid!);
-            await Task.WhenAll(refresh, end.ContinueWith(_ => { }, TaskScheduler.Default));
-
-            var status = (await refresh).StatusCode;
-            status.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.Unauthorized);
-
-            var rows = await RowsAsync(user.Id);
-            rows.Where(r => r.RevokedReason == "reuse_detected").Should().BeEmpty($"round {round}");
-            var other = rows.Single(r => r.SessionId == Sid(bystander.Token));
-            other.IsRevoked.Should().BeFalse($"round {round}: the other session is untouched");
-            (await WhoAmIAsync(bystander.Token)).StatusCode.Should().Be(HttpStatusCode.OK, $"round {round}");
+            var query = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+            (await SessionRevocation.IsEndedAsync(query, Guid.Parse(racingSid!), Ct)).Should().BeTrue();
         }
+
+        (await WhoAmIAsync(racing.Token)).StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "the access token from before the end is refused");
+        rows.Single(r => r.SessionId == Sid(bystander.Token)).IsRevoked.Should().BeFalse("the other session is untouched");
+        (await WhoAmIAsync(bystander.Token)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Ending_one_session_twice_at_once_ends_it_once()
+    {
+        var sessionId = Guid.NewGuid();
+        var barrier = new WriteBarrierLogger(2, "revokedtoken");
+        var host = _fixture.WithWebHostBuilder(b =>
+            b.ConfigureServices(s => s.ConfigureMarten(o => o.Logger(barrier))));
+
+        // Both read before either writes, so both insert the same key and one gets the unique violation.
+        var ends = Enumerable.Range(0, 2).Select(_ => Task.Run(async () =>
+        {
+            using var scope = host.Services.CreateScope();
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            await SessionRevocation.EndAsync(session, null, Guid.NewGuid(), sessionId, Ct);
+        }, Ct)).ToList();
+        await Task.WhenAll(ends);
+
+        barrier.Reached.Should().BeTrue("both ends have to stand at the key's insert together");
+        using var check = _fixture.Services.CreateScope();
+        var query = check.ServiceProvider.GetRequiredService<IQuerySession>();
+        (await SessionRevocation.IsEndedAsync(query, sessionId, Ct)).Should().BeTrue();
+        var key = $"sid:{sessionId}";
+        (await query.Query<RevokedToken>().Where(r => r.TokenJti == key).ToListAsync(Ct))
+            .Should().ContainSingle("a session is one key however many ends race");
     }
 
     [Fact]
