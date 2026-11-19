@@ -22,7 +22,6 @@ internal sealed class Endpoint(IQuerySession session) : Endpoint<Request, Pagina
     {
         Get("/api/users/{id}/sessions");
         Definition.RequireCapability(SystemCapabilities.ManageUsers, "SuperAdmin");
-        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.LogoutPolicy));
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)

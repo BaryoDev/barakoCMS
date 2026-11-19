@@ -13,7 +13,6 @@ internal sealed class Endpoint(IQuerySession session) : Endpoint<Request, Pagina
     public override void Configure()
     {
         Get("/api/me/sessions");
-        Options(x => x.RequireRateLimiting(barakoCMS.Infrastructure.Security.RateLimitSetup.LogoutPolicy));
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
