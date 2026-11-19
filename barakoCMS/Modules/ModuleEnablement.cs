@@ -7,7 +7,7 @@ namespace barakoCMS.Modules;
 /// </summary>
 /// <remarks>
 /// <c>BarakoCMS:Modules:Enabled</c> is read as an array or as one comma-separated string, so both
-/// <c>"Enabled": ["Accounting", "Files"]</c> in JSON and <c>BarakoCMS__Modules__Enabled=Accounting,Files</c>
+/// <c>"Enabled": ["Pages", "Files"]</c> in JSON and <c>BarakoCMS__Modules__Enabled=Pages,Files</c>
 /// in the environment work. Names match <see cref="IBarakoModule.Name"/> without regard to case.
 ///
 /// Three states, and they are different on purpose:
@@ -36,7 +36,7 @@ internal static class ModuleEnablement
     public const string UnsetWarning =
         "BarakoCMS:Modules:Enabled is not set, so every module found runs: {Modules}. Set it to the "
         + "names that should run, as an array or a comma-separated string (for example the "
-        + "environment variable " + EnabledEnvironmentVariable + "=Accounting,Files), or to an empty "
+        + "environment variable " + EnabledEnvironmentVariable + "=Pages,Files), or to an empty "
         + "string for core only.";
 
     /// <summary>

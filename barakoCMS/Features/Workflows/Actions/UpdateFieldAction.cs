@@ -406,9 +406,9 @@ internal class UpdateFieldAction : IWorkflowAction
             // Optimistic rather than a plain Store: a document type keeps last-write-wins today,
             // but this stops being true the moment a type turns on optimistic concurrency, and
             // nothing here can assume it never will. That guard needs a stream to guard, though,
-            // and not every Content document has one: BarakoCMS.Accounting writes Account content
-            // straight through session.Store, bypassing IContentWriter and starting no stream for
-            // it at all, the way this action itself did before #571. AppendOptimisticAsync always
+            // and not every Content document has one: content written straight through
+            // session.Store, bypassing IContentWriter, starts no stream for it at all, the way
+            // this action itself did before #571. AppendOptimisticAsync always
             // tries to append to the document's stream regardless of its content type's sourcing
             // policy, and Marten refuses to append to a stream that has never been started rather
             // than create one implicitly, so a content with no stream has nothing that call can do.

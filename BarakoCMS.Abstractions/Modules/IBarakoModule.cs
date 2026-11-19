@@ -7,8 +7,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace barakoCMS.Modules;
 
 /// <summary>
-/// An optional, self-contained feature module layered on top of barakoCMS core (e.g. accounting,
-/// CRM, events). A host opts in by registering modules when calling <c>AddBarakoCMS</c>; core stays
+/// An optional, self-contained feature module layered on top of barakoCMS core (e.g. files,
+/// pages). A host opts in by registering modules when calling <c>AddBarakoCMS</c>; core stays
 /// generic and knows nothing about any particular module.
 ///
 /// A module can contribute DI services, its own strongly-typed Marten documents, FastEndpoints
@@ -17,7 +17,7 @@ namespace barakoCMS.Modules;
 /// </summary>
 public interface IBarakoModule
 {
-    /// <summary>Stable identifier for logging/diagnostics, e.g. "Accounting".</summary>
+    /// <summary>Stable identifier for logging/diagnostics, e.g. "Files".</summary>
     string Name { get; }
 
     /// <summary>

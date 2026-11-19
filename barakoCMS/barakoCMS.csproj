@@ -53,7 +53,7 @@
          which holds the scripts of modules that no longer exist, and the files a
          module ships from its own assembly so the ledger carries them under that module. -->
     <EmbeddedResource Include="..\migrations\**\*.sql"
-                      Exclude="..\migrations\tenancy\**;..\migrations\removed\**;..\migrations\**\rollback-*.sql;..\migrations\4.2.0\stored-files-parent-index.sql;..\migrations\4.6.0\external-auth-identities.sql;..\migrations\4.8.0\external-auth-used-nonces.sql;..\migrations\5.0.0\accounting-number-sequences.sql;..\migrations\5.0.0\pages-settings.sql;..\migrations\5.0.0\files-storage-settings.sql;..\migrations\5.1.0\915-external-auth-role-maps.sql;..\migrations\5.3.0\accounting-journal-lifecycle.sql;..\migrations\5.3.0\accounting-mappings.sql;..\migrations\5.5.0\915-external-auth-provider-settings.sql;..\migrations\5.5.0\1270-external-auth-social-handoff.sql"
+                      Exclude="..\migrations\tenancy\**;..\migrations\removed\**;..\migrations\**\rollback-*.sql;..\migrations\4.2.0\stored-files-parent-index.sql;..\migrations\4.6.0\external-auth-identities.sql;..\migrations\4.8.0\external-auth-used-nonces.sql;..\migrations\5.0.0\pages-settings.sql;..\migrations\5.0.0\files-storage-settings.sql;..\migrations\5.1.0\915-external-auth-role-maps.sql;..\migrations\5.5.0\915-external-auth-provider-settings.sql;..\migrations\5.5.0\1270-external-auth-social-handoff.sql"
                       LogicalName="barako-migrations/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
@@ -103,9 +103,6 @@
          internal: it is how the host scopes a module's settings, not public API, and CLAUDE.md
          section 6 means anything public here is a compatibility commitment. -->
     <InternalsVisibleTo Include="BarakoCMS.Tests" />
-    <!-- The accounting reports apply the same branch rule as the content routes, which is
-         internal for the reason above. -->
-    <InternalsVisibleTo Include="BarakoCMS.Accounting" />
     <!-- The tag assignment lists hide an entry of another branch the way the content routes do. -->
     <!-- Semantic search counts visitors the way public delivery does. -->
     <InternalsVisibleTo Include="BarakoCMS.AI" />
