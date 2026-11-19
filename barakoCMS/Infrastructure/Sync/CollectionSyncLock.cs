@@ -30,7 +30,7 @@ internal sealed class CollectionSyncLock : IAsyncDisposable
 {
     private const string KeySql = "select hashtextextended(@name, 0)";
 
-    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(25);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(5);
 
     private readonly NpgsqlConnection _connection;
     private readonly AdvisoryLease _lease;
@@ -109,7 +109,10 @@ internal sealed class CollectionSyncLock : IAsyncDisposable
                     break;
                 }
 
-                await Task.Delay(left < PollInterval ? left : PollInterval, ct);
+                // A little jitter, so a waiter does not poll in step with a sweep that takes the lock
+                // again right after letting it go.
+                var pause = PollInterval + TimeSpan.FromMilliseconds(Random.Shared.Next(0, 4));
+                await Task.Delay(left < pause ? left : pause, ct);
             }
 
             if (lease is not null)
