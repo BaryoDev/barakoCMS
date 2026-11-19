@@ -503,9 +503,10 @@ public class ConnectorTests
     }
 
     [Fact]
-    public async Task Another_tenant_cannot_see_a_connector_with_an_inbound_section()
+    public async Task Another_tenant_cannot_see_a_connector_with_an_inbound_section_and_the_owner_reads_its_scheme()
     {
         var slug = NewSlug();
+        var ownSlug = NewSlug();
         var store = _factory.Services.GetRequiredService<IDocumentStore>();
         await using (var session = store.LightweightSession("conn-inbound-other"))
         {
@@ -518,9 +519,73 @@ public class ConnectorTests
         }
 
         var client = await AdminClient();
+        (await client.PostAsJsonAsync("/api/connectors",
+            WithInbound(ownSlug, new { scheme = "Svix", allowedEvents = Array.Empty<string>() }),
+            TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
+
+        var own = await Body(client, $"/api/connectors/{ownSlug}");
+        using (var json = System.Text.Json.JsonDocument.Parse(own))
+        {
+            json.RootElement.GetProperty("inbound").GetProperty("scheme").GetString().Should().Be("Svix");
+        }
+
         var res = await client.GetAsync($"/api/connectors/{slug}", TestContext.Current.CancellationToken);
 
         res.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task An_update_with_an_inbound_object_that_leaves_out_scheme_and_events_keeps_the_stored_values()
+    {
+        var client = await AdminClient();
+        var slug = NewSlug();
+        (await client.PostAsJsonAsync("/api/connectors",
+            WithInbound(slug, new { scheme = "Svix", allowedEvents = new[] { "paid" } }),
+            TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
+
+        var res = await client.PutAsJsonAsync($"/api/connectors/{slug}",
+            WithInbound(slug, new { secret = Convert.ToBase64String("inbound-fake"u8.ToArray()) }),
+            TestContext.Current.CancellationToken);
+
+        res.IsSuccessStatusCode.Should().BeTrue(await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        using var json = System.Text.Json.JsonDocument.Parse(await Body(client, $"/api/connectors/{slug}"));
+        var inbound = json.RootElement.GetProperty("inbound");
+        inbound.GetProperty("scheme").GetString().Should().Be("Svix");
+        inbound.GetProperty("allowedEvents").EnumerateArray().Select(e => e.GetString()).Should().Equal("paid");
+        inbound.GetProperty("secretSet").GetBoolean().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_create_whose_inbound_leaves_out_the_scheme_means_Hmac()
+    {
+        var client = await AdminClient();
+        var slug = NewSlug();
+
+        var res = await client.PostAsJsonAsync("/api/connectors",
+            WithInbound(slug, new { allowedEvents = Array.Empty<string>() }), TestContext.Current.CancellationToken);
+
+        res.IsSuccessStatusCode.Should().BeTrue(await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        (await Body(client, $"/api/connectors/{slug}")).Should().Contain("\"scheme\":\"Hmac\"");
+    }
+
+    [Fact]
+    public async Task The_plain_secrets_map_refuses_InboundSecret_on_create_and_on_update()
+    {
+        var client = await AdminClient();
+        var slug = NewSlug();
+        var viaSecrets = new Dictionary<string, string> { ["InboundSecret"] = InboundValue };
+
+        var create = await client.PostAsJsonAsync("/api/connectors",
+            WithInbound(slug, new { scheme = "Hmac" }, viaSecrets), TestContext.Current.CancellationToken);
+        create.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await create.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().Contain("inbound.secret");
+
+        (await client.PostAsJsonAsync("/api/connectors",
+            WithInbound(slug, new { scheme = "Hmac" }), TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
+
+        var update = await client.PutAsJsonAsync($"/api/connectors/{slug}",
+            WithInbound(slug, new { scheme = "Hmac" }, viaSecrets), TestContext.Current.CancellationToken);
+        update.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     private Task<HttpClient> AdminClient() =>

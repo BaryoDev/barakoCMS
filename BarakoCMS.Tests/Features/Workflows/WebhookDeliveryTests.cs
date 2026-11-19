@@ -674,12 +674,10 @@ public class WebhookDeliveryTests
     [Fact]
     public async Task A_webhook_naming_a_connector_that_does_not_exist_fails_with_no_request()
     {
-        using var listener = new RecordingListener();
         var slug = "missing" + Guid.NewGuid().ToString("N")[..8];
 
         var result = await RunConnectorActionAsync("webhook-conn-missing", new() { ["Connector"] = slug });
 
-        listener.WasCalled.Should().BeFalse();
         result.Succeeded.Should().BeFalse();
         result.Error.Should().Contain(slug).And.Contain("does not exist");
     }
@@ -708,6 +706,38 @@ public class WebhookDeliveryTests
             guard: new OutboundAddressGuard(isBlocked: _ => true));
 
         result.Succeeded.Should().BeFalse();
+        result.Error.Should().Contain("not allowed", "the early guard of the action refused the connector's URL");
+        await using var check = _fixture.Services.GetRequiredService<IDocumentStore>().QuerySession("webhook-conn-blocked");
+        (await check.Query<WebhookDelivery>().ToListAsync(TestContext.Current.CancellationToken))
+            .Should().ContainSingle(d => d.Error != null && d.Error.Contains("not allowed"));
+    }
+
+    [Fact]
+    public async Task A_webhook_naming_a_disabled_connector_fails_with_no_request()
+    {
+        using var listener = new RecordingListener();
+        var slug = "off" + Guid.NewGuid().ToString("N")[..8];
+        await StoreConnectorAsync("webhook-conn-off", slug, listener.Url, signingSecret: null, enabled: false);
+
+        var result = await RunConnectorActionAsync("webhook-conn-off", new() { ["Connector"] = slug });
+
+        listener.WasCalled.Should().BeFalse();
+        result.Succeeded.Should().BeFalse();
+        result.Error.Should().Contain(slug).And.Contain("disabled");
+    }
+
+    [Fact]
+    public async Task A_webhook_naming_a_connector_whose_signing_secret_cannot_be_decrypted_fails_permanently_with_no_request()
+    {
+        using var listener = new RecordingListener();
+        var slug = "badkey" + Guid.NewGuid().ToString("N")[..8];
+        await StoreConnectorAsync("webhook-conn-badkey", slug, listener.Url, signingSecret: "not-a-ciphertext", storeAsCiphertext: true);
+
+        var result = await RunConnectorActionAsync("webhook-conn-badkey", new() { ["Connector"] = slug }, allowInsecureSignedUrls: true);
+
+        listener.WasCalled.Should().BeFalse();
+        result.Succeeded.Should().BeFalse();
+        result.Error.Should().Contain("could not be decrypted");
     }
 
     [Fact]
@@ -782,13 +812,14 @@ public class WebhookDeliveryTests
         optional.Should().Contain("Connector");
     }
 
-    private async Task StoreConnectorAsync(string tenant, string slug, string baseUrl, string? signingSecret)
+    private async Task StoreConnectorAsync(string tenant, string slug, string baseUrl, string? signingSecret,
+        bool enabled = true, bool storeAsCiphertext = false)
     {
         var store = _fixture.Services.GetRequiredService<IDocumentStore>();
         var protector = _fixture.Services.GetRequiredService<barakoCMS.Infrastructure.Connectors.IConnectorSecretProtector>();
         await using var session = store.LightweightSession(tenant);
 
-        var connector = new Connector { Id = Guid.NewGuid(), Name = "Hooks", Slug = slug, BaseUrl = baseUrl, Enabled = true };
+        var connector = new Connector { Id = Guid.NewGuid(), Name = "Hooks", Slug = slug, BaseUrl = baseUrl, Enabled = enabled };
         if (signingSecret is not null)
         {
             connector.SecretKeys.Add(barakoCMS.Infrastructure.Connectors.ConnectorSecretKeys.SigningSecret);
@@ -797,7 +828,7 @@ public class WebhookDeliveryTests
                 Id = Guid.NewGuid(),
                 ConnectorId = connector.Id,
                 Key = barakoCMS.Infrastructure.Connectors.ConnectorSecretKeys.SigningSecret,
-                ProtectedValue = protector.Protect(signingSecret),
+                ProtectedValue = storeAsCiphertext ? signingSecret : protector.Protect(signingSecret),
             });
         }
 
