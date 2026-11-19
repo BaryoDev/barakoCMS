@@ -135,6 +135,34 @@ and the access token minted by that refresh carries it.
 Rotation clears `Device`, `SignInIp` and `LastSeenIp` on the row it retires. Erasing a user blanks
 the same three fields on every row of that user, used rows included.
 
+## Blocking an account
+
+`POST /api/users/{userId}/block` and `/unblock` are for a global SuperAdmin. They refuse your own
+account (400) and any user holding the SuperAdmin role, in their global roles or in a membership
+(403). A user who does not exist is a 404. A block is global: it is separate from `LockoutUntil`, which
+the failed-login counter sets and a password reset clears. Both are audited, as `auth.account.blocked`
+and `auth.account.unblocked`. Repeating either changes nothing and is not audited twice.
+
+Blocking stores `BlockedAt` and `BlockedBy` on the user, revokes every refresh row, and caches
+the session epoch as the far future while `BlockedAt` is set, so every access token is refused on
+the next request, a token minted in the same second as the block included. Other instances catch up
+when their cached epoch expires, as for any revocation.
+
+A blocked user gets no token on any path. The token issuer reads the stored row, so password,
+code, link, MFA completion, social sign-in, the OIDC id token grant, refresh and tenant switch all
+refuse, and so does a step-up code. Each answers as it does for a wrong password or an unknown
+account, with the same work. A blocked password attempt is audited as `auth.login.blocked` with
+reason `account_blocked`. Code and link requests send no mail and store nothing. A challenge or code
+issued before the block does not finish. An API key owned by the user is refused with 401, and works
+again after unblock. A service principal key does not read its creator and keeps working.
+
+Unblocking clears both fields and sets `TokensValidFrom` to the next whole second. Sessions and
+tokens the block ended stay ended, so the person signs in again. A token minted in that remaining
+fraction of a second is refused too, because token times and the epoch are compared in whole seconds.
+`FailedLoginAttempts` and `LockoutUntil` are left as they were.
+
+`GET /api/users` returns `"blocked": true` on a blocked account and omits the field otherwise.
+
 ## What this needs from your deployment
 
 The cookie is `SameSite=Lax`, which means the browser sends it when the admin and the API are the

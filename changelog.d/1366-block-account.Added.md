@@ -1,0 +1,1 @@
+- **A SuperAdmin can block an account.** `POST /api/users/{userId}/block` and `/unblock` stop a user signing in by any method, end their sessions and tokens, and refuse the API keys they own until unblocked. A blocked sign-in answers like a wrong password and is audited as `auth.login.blocked`. Not for yourself or another SuperAdmin. See `docs/session-and-token-storage.md`.

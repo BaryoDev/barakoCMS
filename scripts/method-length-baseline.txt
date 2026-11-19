@@ -24,8 +24,8 @@
 139 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapGlobalDocuments
 133 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapTenantScopedDocuments
 86 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.ResolveConnectionString
-189 barakoCMS/Features/Auth/Login/Endpoint.cs::Endpoint.HandleAsync
-98 barakoCMS/Features/Auth/Otp/VerifyEndpoint.cs::VerifyEndpoint.HandleAsync
+181 barakoCMS/Features/Auth/Login/Endpoint.cs::Endpoint.HandleAsync
+96 barakoCMS/Features/Auth/Otp/VerifyEndpoint.cs::VerifyEndpoint.HandleAsync
 140 barakoCMS/Features/Auth/Refresh/Endpoint.cs::Endpoint.HandleAsync
 125 barakoCMS/Features/Collections/Endpoints.cs::CollectionSyncRules.CheckAsync
 78 barakoCMS/Features/Collections/Endpoints.cs::RunCollectionSyncEndpoint.HandleAsync
