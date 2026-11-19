@@ -181,7 +181,7 @@ internal sealed record ApiKeyListItem(
     Guid Id, string Name, string Prefix, List<string> Scopes, string TenantSlug,
     DateTime? ExpiresAt, DateTime? LastUsedAt, bool Revoked, DateTime CreatedAt, List<string> ContentTypes,
     Guid? ServicePrincipalId = null, bool ReadOnly = false,
-    Guid? ReplacedBy = null, Guid? Replaces = null, string Kind = ApiKeyKinds.User);
+    Guid? ReplacedBy = null, Guid? Replaces = null, string Kind = ApiKeyKinds.User, string? LastUsedIp = null);
 
 /// <summary>What a key is, as the key list says it, derived from what is stored so old keys answer too.</summary>
 internal static class ApiKeyKinds
@@ -221,7 +221,7 @@ internal class ListApiKeysEndpoint(IQuerySession session) : Endpoint<ListRequest
         await Send.OkAsync(page.Map(k => new ApiKeyListItem(
                     k.Id, k.Name, k.Prefix, k.Scopes, k.TenantSlug,
                     k.ExpiresAt, k.LastUsedAt, k.Revoked, k.CreatedAt, k.ContentTypes ?? new(),
-                    k.ServicePrincipalId, k.ReadOnly, k.ReplacedByKeyId, k.ReplacesKeyId, ApiKeyKinds.Of(k))), ct);
+                    k.ServicePrincipalId, k.ReadOnly, k.ReplacedByKeyId, k.ReplacesKeyId, ApiKeyKinds.Of(k), k.LastUsedIp)), ct);
     }
 }
 

@@ -60,6 +60,12 @@ public class ApiKey
     /// <summary>Best-effort last-use timestamp (throttled, not written on every request).</summary>
     public DateTime? LastUsedAt { get; set; }
 
+    /// <summary>
+    /// The address of the request that last updated <see cref="LastUsedAt"/>, written in the same
+    /// patch, so it is at most five minutes stale. Null on a key not used since this was recorded.
+    /// </summary>
+    public string? LastUsedIp { get; set; }
+
     /// <summary>Revoked keys are refused immediately — revocation does not wait for expiry.</summary>
     public bool Revoked { get; set; }
 

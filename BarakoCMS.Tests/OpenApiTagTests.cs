@@ -140,6 +140,7 @@ public class OpenApiTagTests
             "Roles",
             "Seo",
             "ServicePrincipals",
+            "Sessions",
             "Settings",
             "Site",
             "Stations",
