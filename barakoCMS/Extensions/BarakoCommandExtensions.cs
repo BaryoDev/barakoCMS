@@ -186,11 +186,14 @@ public static class BarakoCommandExtensions
                 BadImageFormatException image => image.FileName,
                 _ => null,
             };
-            Console.Error.WriteLine(
-                $"JasperFx could not read an assembly in {AppContext.BaseDirectory} while looking for " +
-                $"command extensions: {missing ?? ex.Message}");
-            Console.Error.WriteLine(
-                "The folder holds an assembly the host's deps.json does not list. Run the command from a publish output.");
+            var reason = $"JasperFx could not read an assembly in {AppContext.BaseDirectory} while looking for " +
+                         $"command extensions: {missing ?? ex.Message}";
+            const string advice =
+                "The folder holds an assembly the host's deps.json does not list. Run the command from a publish output.";
+            Console.Error.WriteLine(reason);
+            Console.Error.WriteLine(advice);
+            // The console lines above skip the file and remote sinks, so log it too.
+            Log.Fatal(ex, "{Reason} {Advice}", reason, advice);
             return 1;
         }
     }
