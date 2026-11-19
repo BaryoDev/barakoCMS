@@ -151,6 +151,10 @@ internal class Endpoint : Endpoint<Request, Response>
         if (!string.IsNullOrEmpty(refreshToken.DeviceId))
             extraClaims.Add(new("did", refreshToken.DeviceId));
 
+        // A row from before sessions had no id. Its next refresh gives the new row one.
+        var sessionId = refreshToken.SessionId ?? Guid.NewGuid();
+        extraClaims.Add(barakoCMS.Infrastructure.Auth.SessionRevocation.ClaimFor(sessionId));
+
         var issued = await _tokenIssuer.IssueAccessTokenAsync(user, _tenant.Slug, extraClaims, ct);
         if (!issued.Allowed)
         {
@@ -169,17 +173,19 @@ internal class Endpoint : Endpoint<Request, Response>
         var newRefreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var newRefreshTokenExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
         
-        var newRefreshToken = RefreshToken.Issue(
-            user.Id, newRefreshTokenString, newRefreshTokenExpiry,
-            // Carried across rotation. Without this the binding survived exactly one refresh: the
-            // token being exchanged still had it, the one replacing it did not, so device trust
-            // stopped enforcing anything from the second refresh onward and nothing said so.
-            refreshToken.DeviceId);
+        // The device binding, session id and sign-in facts are carried across rotation. Without the
+        // device id the binding survived exactly one refresh, and device trust stopped enforcing
+        // anything from the second refresh onward.
+        var newRefreshToken = refreshToken.Successor(
+            newRefreshTokenString, newRefreshTokenExpiry,
+            barakoCMS.Infrastructure.DeviceContext.From(HttpContext), sessionId);
 
         // Revoke old refresh token (rotation)
         refreshToken.IsRevoked = true;
         refreshToken.RevokedReason = "used";
         refreshToken.RevokedAt = DateTime.UtcNow;
+        // The used row keeps no address or device text. The new row holds them.
+        refreshToken.ClearIdentifiers();
 
         _documentSession.Update(refreshToken);
         _documentSession.Store(newRefreshToken);
@@ -194,6 +200,14 @@ internal class Endpoint : Endpoint<Request, Response>
         }
         catch (JasperFx.ConcurrencyException)
         {
+            // Losing to a session end is not reuse: answer 401 and leave the user's other sessions alone.
+            _documentSession.EjectAllPendingChanges();
+            if (await barakoCMS.Infrastructure.Auth.SessionRevocation.IsEndedAsync(_documentSession, sessionId, ct))
+            {
+                ThrowError("Refresh token has been revoked. Please log in again.", 401);
+                return;
+            }
+
             await RevokeAfterRaceAsync(refreshToken.UserId, ct);
             return;
         }
