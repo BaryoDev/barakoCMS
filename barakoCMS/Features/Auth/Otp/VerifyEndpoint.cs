@@ -55,16 +55,6 @@ internal class VerifyEndpoint(
         Options(x => x.RequireRateLimiting("auth"));
     }
 
-    /// <summary>
-    /// Saves, reporting a lost optimistic-concurrency race rather than throwing.
-    /// </summary>
-    /// <remarks>
-    /// <c>OtpCode</c> carries optimistic concurrency so two requests holding the same code cannot
-    /// both consume it. That closes the race, but it means the loser's save throws, and an uncaught
-    /// <c>ConcurrencyException</c> leaves this endpoint answering 500 to what is really just a code
-    /// that has already been used. The loser is refused with the same message every other rejection
-    /// here uses, so a caller cannot tell a lost race from a bad code.
-    /// </remarks>
     /// <summary>The same answer for an unknown address and a blocked one. A blocked one is audited.</summary>
     private async Task RefuseUnknownOrBlockedAsync(User? user, CancellationToken ct)
     {
@@ -78,6 +68,16 @@ internal class VerifyEndpoint(
         ThrowError("Invalid or expired code.");
     }
 
+    /// <summary>
+    /// Saves, reporting a lost optimistic-concurrency race rather than throwing.
+    /// </summary>
+    /// <remarks>
+    /// <c>OtpCode</c> carries optimistic concurrency so two requests holding the same code cannot
+    /// both consume it. That closes the race, but it means the loser's save throws, and an uncaught
+    /// <c>ConcurrencyException</c> leaves this endpoint answering 500 to what is really just a code
+    /// that has already been used. The loser is refused with the same message every other rejection
+    /// here uses, so a caller cannot tell a lost race from a bad code.
+    /// </remarks>
     private async Task<bool> TrySaveAsync(CancellationToken ct)
     {
         try
