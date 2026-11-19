@@ -258,6 +258,15 @@ public class ImportWritePathTests
             if (title == "refuse")
                 return ["The probe hook refused this entry."];
 
+            // Reads the entries stored before this one, the way a module rule that looks at its own
+            // type does. In an import those include the earlier entries of the same bundle.
+            if (title.StartsWith("once-", StringComparison.Ordinal))
+            {
+                var earlier = await ((IContentHookContext)context).Reader.ListAsync(HookType, 0, 1000, ct);
+                if (earlier.Any(c => c.Data.TryGetValue("Title", out var other) && other?.ToString() == title))
+                    return [$"Title '{title}' is already in use."];
+            }
+
             context.Data["Stamp"] = "hooked";
             return [];
         }
@@ -330,6 +339,24 @@ public class ImportWritePathTests
         status.Should().Be(HttpStatusCode.BadRequest, body);
         body.Should().Contain("The probe hook refused this entry.");
         (await StoredEntriesAsync(HookType)).Should().NotContain(c => c.Data["Title"].ToString() == "refuse");
+    }
+
+    [Fact]
+    public async Task An_entry_a_hook_refuses_because_of_an_earlier_entry_in_the_bundle_refuses_the_import()
+    {
+        var admin = await AdminAsync(HookHost());
+        var title = $"once-{Guid.NewGuid():n}";
+
+        var (status, body) = await ImportAsync(admin, [HookTypeWithLifecycle()],
+        [
+            Record(HookType, new() { ["Title"] = title }),
+            Record(HookType, new() { ["Title"] = title }),
+        ]);
+
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("contents[1]").And.Contain($"Title '{title}' is already in use.");
+        (await StoredEntriesAsync(HookType)).Should().NotContain(c => c.Data["Title"].ToString() == title,
+            "the import is all or nothing");
     }
 
     /// <summary>

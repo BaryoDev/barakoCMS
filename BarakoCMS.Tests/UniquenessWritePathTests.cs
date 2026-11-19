@@ -388,6 +388,31 @@ public class UniquenessWritePathTests
         (await check.LoadAsync<Content>(target, Ct))!.Data["Badge"].ToString().Should().Be("Y-3");
     }
 
+    [Fact]
+    public async Task CheckUniquenessAsync_before_a_store_refuses_a_value_a_committed_entry_holds()
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var tenant = $"unl-{Guid.NewGuid():N}"[..14];
+        var type = NewType();
+        await StoreTypeAsync(store, tenant, Badges(type));
+
+        await using (var seed = store.LightweightSession(tenant))
+        {
+            seed.Store(new Content { Id = Guid.NewGuid(), ContentType = type, Data = new() { ["Badge"] = "Z-1" } });
+            await seed.SaveChangesAsync(Ct);
+        }
+
+        await using var session = store.LightweightSession(tenant);
+        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
+        var duplicate = new Content { Id = Guid.NewGuid(), ContentType = type, Data = new() { ["Badge"] = "Z-1" } };
+
+        var check = async () => await writer.CheckUniquenessAsync(duplicate, Ct);
+
+        var refused = await check.Should().ThrowAsync<ContentUniquenessException>();
+        refused.Which.Rule.Should().Be(BadgeRule);
+        (await CountAsync(store, tenant, type)).Should().Be(1, "nothing was stored");
+    }
+
     private static async Task<barakoCMS.Features.Workflows.WorkflowActionResult> RunUpdateFieldAsync(
         IDocumentStore store, string tenant, Guid contentId, string value)
     {

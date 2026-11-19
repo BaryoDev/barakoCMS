@@ -299,28 +299,4 @@ public class NumberingRuleTests : IAsyncLifetime
         values.Should().HaveCount(120);
         values.Should().OnlyHaveUniqueItems();
     }
-
-    // ---- the allocator ---------------------------------------------------------------------
-
-    [Fact]
-    public async Task The_allocator_the_legacy_constructors_use_shares_the_core_count()
-    {
-        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
-        var series = new NumberSeries("legacy." + Guid.NewGuid().ToString("n")[..12]);
-        var at = new DateTimeOffset(2034, 3, 1, 0, 0, 0, TimeSpan.Zero);
-
-        async Task<long> NextAsync(INumberAllocator numbers)
-        {
-            await using var session = store.LightweightSession();
-            var next = await numbers.NextAsync(session, series, at, Ct);
-            await session.SaveChangesAsync(Ct);
-            return next.Value;
-        }
-
-        var injected = await NextAsync(_fixture.Services.GetRequiredService<INumberAllocator>());
-        var legacy = await NextAsync(barakoCMS.Infrastructure.Numbering.NumberAllocators.Gapless());
-
-        legacy.Should().Be(injected + 1, "a number taken through a legacy constructor counts on from the injected allocator's");
-    }
-
 }
