@@ -538,10 +538,14 @@ public class SessionTests
         await using var host = _fixture.WithWebHostBuilder(b =>
             b.ConfigureServices(s => s.ConfigureMarten(o => o.Listeners.Add(barrier))));
 
+        // Started here, once. The first read of Services builds the host, and two threads making it
+        // at once build two, leaving one running that nothing disposes.
+        var services = host.Services;
+
         // Both read before either writes, so both insert the same key and one gets the unique violation.
         var ends = Enumerable.Range(0, 2).Select(_ => Task.Run(async () =>
         {
-            using var scope = host.Services.CreateScope();
+            using var scope = services.CreateScope();
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             await SessionRevocation.EndAsync(session, null, Guid.NewGuid(), sessionId, Ct);
         }, Ct)).ToList();
