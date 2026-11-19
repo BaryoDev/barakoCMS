@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using BarakoCMS.Diagnostics;
+using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
@@ -55,15 +56,51 @@ public class AccountContentTypeTests
         return slug;
     }
 
-    private async Task<HttpClient> ManagerAsync(Guid accountId)
+    private async Task<HttpClient> ManagerAsync(Guid accountId, string? tenantSlug = null)
     {
         var userId = Guid.NewGuid();
         await StoreAsync(
             new User { Id = userId, Username = $"am-{userId:N}"[..14], Email = $"am-{userId:N}@example.com", RoleIds = [] },
             new TenantAccountManager { Id = Guid.NewGuid(), AccountId = accountId, UserId = userId });
         var client = _fixture.CreateClient();
+        if (tenantSlug is null)
+        {
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+                _fixture.CreateToken(roles: [$"Account Manager {userId:N}"], userId: userId.ToString()));
+            return client;
+        }
+
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
-            _fixture.CreateToken(roles: [$"Account Manager {userId:N}"], userId: userId.ToString()));
+            _fixture.CreateToken(
+                roles: [$"Account Manager {userId:N}"],
+                userId: userId.ToString(),
+                additionalClaims: new Dictionary<string, string> { ["tenant"] = tenantSlug }));
+        client.DefaultRequestHeaders.Add("X-Tenant", tenantSlug);
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
+        return client;
+    }
+
+    /// <summary>An account manager in a tenant who also holds ManageApiKeys there, through an Admin membership.</summary>
+    private async Task<HttpClient> KeyReadingManagerAsync(Guid accountId, string tenantSlug)
+    {
+        var userId = Guid.NewGuid();
+        var username = Unique("u");
+        await StoreAsync(
+            new User { Id = userId, Username = username, Email = $"{Unique("m")}@example.com" },
+            new Membership
+            {
+                Id = Guid.NewGuid(), UserId = userId, TenantSlug = tenantSlug,
+                Status = MembershipStatus.Active, RoleIds = [SystemRoles.AdminRoleId],
+            },
+            new TenantAccountManager { Id = Guid.NewGuid(), AccountId = accountId, UserId = userId });
+        var client = _fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+            _fixture.CreateToken(
+                roles: ["Admin", $"Account Manager {userId:N}"],
+                userId: userId.ToString(),
+                additionalClaims: new Dictionary<string, string> { ["tenant"] = tenantSlug, ["Username"] = username }));
+        client.DefaultRequestHeaders.Add("X-Tenant", tenantSlug);
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
         return client;
     }
 
@@ -120,6 +157,194 @@ public class AccountContentTypeTests
         var validator = scope.ServiceProvider.GetRequiredService<IContentValidatorService>();
         var (_, errors) = await validator.ValidateAsync(type, data, null);
         return errors;
+    }
+
+    private async Task<Guid> StoreKeyAsync(string[] contentTypes, string tenant = Tenant.DefaultSlug, bool revoked = false, DateTime? expiresAt = null)
+    {
+        var id = Guid.NewGuid();
+        var secret = "bcms_" + Guid.NewGuid().ToString("N");
+        await StoreAsync(new ApiKey
+        {
+            Id = id, Name = "warn-test", KeyHash = ApiKeyService.Hash(secret), Prefix = secret[..12],
+            UserId = Guid.NewGuid(), TenantSlug = tenant, Scopes = ["content:write"],
+            ContentTypes = [.. contentTypes], Revoked = revoked, ExpiresAt = expiresAt,
+        });
+        return id;
+    }
+
+    private async Task<JsonElement> DryRunAsync(HttpClient manager, TenantAccount account, string name)
+    {
+        var response = await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}?dryRun=true", Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        return await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+    }
+
+    private async Task<bool> TypeExistsAsync(HttpClient manager, TenantAccount account, string name)
+    {
+        var response = await manager.GetAsync($"/api/accounts/{account.Slug}/content-types", Ct);
+        return (await response.Content.ReadAsStringAsync(Ct)).Contains(name, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_dry_run_delete_names_the_live_key_that_uses_the_type_and_deletes_nothing()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var manager = await KeyReadingManagerAsync(account.Id, inA);
+        var name = await CreateSharedTypeAsync(await ManagerAsync(account.Id), account);
+        var key = await StoreKeyAsync([name.ToUpperInvariant()], inA);
+        await StoreKeyAsync(["unrelated"], inA);
+
+        var body = await DryRunAsync(manager, account, name);
+
+        body.GetProperty("dryRun").GetBoolean().Should().BeTrue();
+        body.GetProperty("apiKeysAffected").GetInt32().Should().Be(1);
+        body.GetProperty("apiKeyWarnings").EnumerateArray().Select(w => w.GetProperty("keyId").GetGuid())
+            .Should().ContainSingle().Which.Should().Be(key);
+        (await TypeExistsAsync(manager, account, name)).Should().BeTrue("a dry run deletes nothing");
+    }
+
+    [Fact]
+    public async Task A_real_delete_of_a_type_a_key_names_answers_204_with_no_body_and_the_type_is_gone()
+    {
+        var account = await AccountAsync();
+        var manager = await ManagerAsync(account.Id);
+        var name = await CreateSharedTypeAsync(manager, account);
+        await StoreKeyAsync([name]);
+
+        var response = await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await response.Content.ReadAsStringAsync(Ct)).Should().BeEmpty();
+        (await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_caller_without_manage_api_keys_gets_the_count_and_no_key_names()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var manager = await ManagerAsync(account.Id, inA);
+        var name = await CreateSharedTypeAsync(manager, account);
+        await StoreKeyAsync([name], inA);
+
+        var body = await DryRunAsync(manager, account, name);
+
+        body.GetProperty("apiKeysAffected").GetInt32().Should().Be(1);
+        body.GetProperty("apiKeyWarnings").GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task The_dry_run_warning_has_exactly_the_key_id_name_prefix_and_types_and_never_the_hash()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var name = Unique("room");
+        await StoreAsync(new AccountContentType
+        {
+            Id = Guid.NewGuid(), AccountId = account.Id, Name = name,
+            Definition = new ContentTypeDefinition { Id = Guid.NewGuid(), Name = name, DisplayName = "Room", Fields = [] },
+        });
+        await StoreKeyAsync([name], inA);
+        var client = await KeyReadingManagerAsync(account.Id, inA);
+
+        var body = await DryRunAsync(client, account, name);
+
+        var warning = body.GetProperty("apiKeyWarnings")[0];
+        warning.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo("keyId", "name", "prefix", "contentTypes");
+        warning.GetProperty("name").GetString().Should().Be("warn-test");
+        warning.GetProperty("prefix").GetString().Should().StartWith("bcms_");
+        body.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo("dryRun", "apiKeysAffected", "apiKeyWarnings");
+    }
+
+    [Fact]
+    public async Task A_key_of_a_tenant_outside_the_account_is_not_counted_on_a_type_dry_run()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var manager = await ManagerAsync(account.Id, inA);
+        var name = await CreateSharedTypeAsync(manager, account);
+        await StoreKeyAsync([name], await TenantAsync(null));
+
+        (await DryRunAsync(manager, account, name)).GetProperty("apiKeysAffected").GetInt32().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_key_of_a_sibling_tenant_of_the_account_is_counted_but_not_named_to_a_caller_in_the_first_tenant()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var inB = await TenantAsync(account.Id);
+        var manager = await KeyReadingManagerAsync(account.Id, inA);
+        var name = await CreateSharedTypeAsync(manager, account);
+        var own = await StoreKeyAsync([name], inA);
+        await StoreKeyAsync([name], inB);
+
+        var body = await DryRunAsync(manager, account, name);
+
+        body.GetProperty("apiKeysAffected").GetInt32().Should().Be(2, "the delete removes the type for every tenant of the account");
+        body.GetProperty("apiKeyWarnings").EnumerateArray().Select(w => w.GetProperty("keyId").GetGuid())
+            .Should().ContainSingle().Which.Should().Be(own, "names are limited to the caller's tenant");
+    }
+
+    [Fact]
+    public async Task A_revoked_or_expired_key_is_not_counted_and_one_not_yet_expired_is_on_a_type_dry_run()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var manager = await ManagerAsync(account.Id, inA);
+        var name = await CreateSharedTypeAsync(manager, account);
+        await StoreKeyAsync([name], inA, revoked: true);
+        await StoreKeyAsync([name], inA, expiresAt: DateTime.UtcNow.AddDays(-1));
+        await StoreKeyAsync([name], inA, expiresAt: DateTime.UtcNow.AddDays(1));
+
+        (await DryRunAsync(manager, account, name)).GetProperty("apiKeysAffected").GetInt32().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_dry_run_of_a_type_that_has_entries_answers_409_like_the_real_delete()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var manager = await ManagerAsync(account.Id, inA);
+        var name = await CreateSharedTypeAsync(manager, account);
+        await StoreInTenantAsync(inA, new Content { Id = Guid.NewGuid(), ContentType = name, Data = new() { ["Title"] = "Suite" } });
+
+        var dry = await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}?dryRun=true", Ct);
+        var real = await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct);
+
+        real.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        dry.StatusCode.Should().Be(real.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_dry_run_from_a_caller_who_does_not_manage_the_account_answers_403_like_the_real_delete()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var name = await CreateSharedTypeAsync(await ManagerAsync(account.Id), account);
+        var tenantAdmin = await TenantAdminAsync(inA);
+
+        var dry = await tenantAdmin.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}?dryRun=true", Ct);
+        var real = await tenantAdmin.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct);
+
+        real.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        dry.StatusCode.Should().Be(real.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_dry_run_of_an_unknown_type_answers_what_the_real_delete_answers()
+    {
+        var account = await AccountAsync();
+        var manager = await ManagerAsync(account.Id);
+        var name = Unique("nope");
+
+        var real = await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct);
+        var dry = await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}?dryRun=true", Ct);
+
+        real.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        dry.StatusCode.Should().Be(real.StatusCode);
     }
 
     [Fact]
