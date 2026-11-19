@@ -305,6 +305,20 @@ public class ReconcileTests(IntegrationTestFixture fixture)
         return subject;
     }
 
+    private async Task DeclareAsync(string type, params string[] fields)
+    {
+        using var scope = fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = type,
+            DisplayName = type,
+            Fields = [.. fields.Select(f => new FieldDefinition { Name = f, DisplayName = f, Type = "decimal" })],
+        });
+        await session.SaveChangesAsync(Ct);
+    }
+
     private async Task<JsonElement> ReconcileBodyAsync(string url)
     {
         var client = await _callers.SuperAdminAsync(null);
@@ -317,6 +331,7 @@ public class ReconcileTests(IntegrationTestFixture fixture)
     public async Task Amount_fields_sum_the_named_fields_and_the_default_still_reads_only_Total()
     {
         var type = NewType();
+        await DeclareAsync(type, "Amount", "Fee");
         var subject = await FeeSubjectAsync(type, 100m, 20m, "F-1");
         await PostAsync(subject, await AmountMappingAsync(), amount: 120m);
 
@@ -334,6 +349,7 @@ public class ReconcileTests(IntegrationTestFixture fixture)
     public async Task Amount_fields_drop_blanks_and_repeats_and_ignore_case()
     {
         var type = NewType();
+        await DeclareAsync(type, "Amount", "Fee");
         var subject = await FeeSubjectAsync(type, 100m, 20m, "F-2");
         await PostAsync(subject, await AmountMappingAsync(), amount: 120m);
 
@@ -374,14 +390,51 @@ public class ReconcileTests(IntegrationTestFixture fixture)
     public async Task More_than_eight_amount_fields_is_a_400_and_eight_is_accepted()
     {
         var client = await _callers.SuperAdminAsync(null);
-        var eight = string.Join(',', Enumerable.Range(1, 8).Select(n => "F" + n));
+        var names = Enumerable.Range(1, 9).Select(n => "F" + n).ToArray();
+        var eight = string.Join(',', names.Take(8));
+        var overType = NewType();
+        var atType = NewType();
+        await DeclareAsync(overType, names);
+        await DeclareAsync(atType, names);
 
-        var over = await client.GetAsync(Url(NewType()) + "&amountFields=" + eight + ",F9", Ct);
-        var at = await client.GetAsync(Url(NewType()) + "&amountFields=" + eight, Ct);
+        var over = await client.GetAsync(Url(overType) + "&amountFields=" + eight + ",F9", Ct);
+        var at = await client.GetAsync(Url(atType) + "&amountFields=" + eight, Ct);
 
         over.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await over.Content.ReadAsStringAsync(Ct)).Should().Contain("at most 8");
         at.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task An_amount_field_the_type_does_not_declare_is_a_400_even_when_the_data_holds_it()
+    {
+        var type = NewType();
+        await DeclareAsync(type, "Amount");
+        await FeeSubjectAsync(type, 100m, 20m, "F-3");
+        var client = await _callers.SuperAdminAsync(null);
+
+        var response = await client.GetAsync(Url(type) + "&amountFields=Amount,Fee", Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(Ct)).Should().Contain("Fee");
+    }
+
+    [Fact]
+    public async Task A_dotted_amount_field_name_is_a_400()
+    {
+        var type = NewType();
+        await DeclareAsync(type, "Amount");
+        var client = await _callers.SuperAdminAsync(null);
+
+        (await client.GetAsync(Url(type) + "&amountFields=Amount.Value", Ct)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Amount_fields_for_a_type_with_no_definition_is_a_400()
+    {
+        var client = await _callers.SuperAdminAsync(null);
+
+        (await client.GetAsync(Url(NewType()) + "&amountFields=Amount", Ct)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     private async Task<string> AmountMappingAsync()

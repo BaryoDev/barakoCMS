@@ -21,8 +21,9 @@ public sealed record ReconcileResponse(int Checked, List<ReconcileRow> Mismatche
 /// </summary>
 /// <remarks>
 /// A subject's amount is its <c>Total</c> field, or the sum of the fields <c>amountFields</c> names
-/// (comma separated, at most 8 after blanks and repeats are dropped, more is a 400). A named field the
-/// subject does not hold counts as zero, as a missing <c>Total</c> does. It matches when the entries a workflow run posted for
+/// (comma separated, at most 8 after blanks and repeats are dropped, more is a 400). Each name must be a field the
+/// type declares (matched without regard to case and read under its declared name), or the answer is a 400,
+/// as it is when the type cannot be found. Without <c>amountFields</c> a missing <c>Total</c> counts as zero. It matches when the entries a workflow run posted for
 /// it add up to that amount, or when the posting was reversed (a reversed posting is settled, however
 /// large the subject still reads, and only the key that was reversed). Only entries a workflow run made count, as when the action looks
 /// for its own posting. <c>Number</c> and every amount field are read only when the type marks them Public,
@@ -62,8 +63,23 @@ public class ReconcileEndpoint(IQuerySession session, IPermissionResolver permis
         else if (to < from || to.DayNumber - from.DayNumber + 1 > MaxDays)
             AddError($"The range must run forward and cover at most {MaxDays} days.");
         var amountFields = ParseAmountFields(req.AmountFields);
+        var named = req.AmountFields?.Split(',').Any(n => !string.IsNullOrWhiteSpace(n)) == true;
         if (amountFields.Count > MaxAmountFields)
+        {
             AddError($"amountFields names {amountFields.Count} fields, at most {MaxAmountFields} are allowed.");
+        }
+        if (ValidationFailures.Count == 0 && named)
+        {
+            var declared = await DeclaredAsync(req.ContentType, amountFields, ct);
+            if (declared.Error is { } error)
+            {
+                AddError(error);
+            }
+            else
+            {
+                amountFields = declared.Names;
+            }
+        }
         if (ValidationFailures.Count == 0 && await NotPublicAsync(req.ContentType, amountFields, ct) is { } field)
             AddError($"'{field}' is not a public field of '{req.ContentType}', so it cannot be reconciled.");
         if (ValidationFailures.Count > 0)
@@ -88,6 +104,27 @@ public class ReconcileEndpoint(IQuerySession session, IPermissionResolver permis
         var names = (value ?? string.Empty).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         return names.Count == 0 ? ["Total"] : names;
+    }
+
+    private async Task<(List<string> Names, string? Error)> DeclaredAsync(string contentType, List<string> names, CancellationToken ct)
+    {
+        var definition = await AccountContentTypes.ResolveAsync(session, contentType, ct);
+        if (definition is null)
+        {
+            return ([], $"'{contentType}' was not found, so its amount fields cannot be checked.");
+        }
+        var declared = new List<string>();
+        foreach (var name in names)
+        {
+            var match = definition.Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+            {
+                return ([], $"'{name}' is not a field of '{contentType}', so it cannot be reconciled.");
+            }
+            declared.Add(match.Name);
+        }
+
+        return (declared.Distinct(StringComparer.Ordinal).ToList(), null);
     }
 
     private async Task<string?> NotPublicAsync(string contentType, List<string> amountFields, CancellationToken ct)
