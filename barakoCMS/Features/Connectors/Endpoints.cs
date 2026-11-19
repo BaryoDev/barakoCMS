@@ -1,3 +1,4 @@
+using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
@@ -126,7 +127,7 @@ internal sealed class CreateConnectorEndpoint(
             return;
         }
 
-        if (req.Secrets is { Count: > 0 } && !protector.IsConfigured)
+        if ((req.Secrets is { Count: > 0 } || !string.IsNullOrWhiteSpace(req.Inbound?.Secret)) && !protector.IsConfigured)
         {
             // Fail closed and name the setting. Storing the credential in the clear because no key
             // was configured is the one outcome nobody would choose and nobody would notice.
@@ -153,6 +154,7 @@ internal sealed class CreateConnectorEndpoint(
         };
 
         connector.SecretKeys = StoreSecrets(connector.Id, req.Secrets);
+        await ConnectorInboundWriter.ApplyAsync(session, protector, connector, req.Inbound, [], ct);
         session.Store(connector);
 
         await ConnectorGate.AuditAsync(session, tenant.Slug, "connector.created", connector, User, ct: ct);
@@ -224,7 +226,7 @@ internal sealed class UpdateConnectorEndpoint(
             return;
         }
 
-        if (req.Secrets is { Count: > 0 } && !protector.IsConfigured)
+        if ((req.Secrets is { Count: > 0 } || !string.IsNullOrWhiteSpace(req.Inbound?.Secret)) && !protector.IsConfigured)
         {
             ThrowError("Connectors:Key is not configured, so a credential cannot be stored. Set it and restart.", 400);
             return;
@@ -241,7 +243,9 @@ internal sealed class UpdateConnectorEndpoint(
                 .Select(s => s.Key)
                 .ToListAsync(ct);
 
-            foreach (var key in storedKeys.Distinct().Where(k => req.Secrets is null || !req.Secrets.ContainsKey(k)))
+            // The inbound secret verifies what the party sends here and is never sent to the base URL.
+            foreach (var key in storedKeys.Distinct()
+                         .Where(k => k != ConnectorSecretKeys.InboundSecret && (req.Secrets is null || !req.Secrets.ContainsKey(k))))
             {
                 AddError(new FluentValidation.Results.ValidationFailure($"secrets.{key}",
                     $"The base URL now points at a different scheme, host or port, so the stored {key} "
@@ -325,6 +329,8 @@ internal sealed class UpdateConnectorEndpoint(
                 changedSecrets.Add($"{key} set");
             }
         }
+
+        await ConnectorInboundWriter.ApplyAsync(session, protector, connector, req.Inbound, changedSecrets, ct);
 
         session.Store(connector);
 
@@ -490,7 +496,43 @@ internal static class ConnectorRules
                  + "which are encrypted and never returned.";
         }
 
+        return CheckInbound(req.Inbound);
+    }
+
+    private const int MaxAllowedEvents = 100;
+    private const int MaxEventNameLength = 200;
+
+    private static string? CheckInbound(SaveConnectorInbound? inbound)
+    {
+        if (inbound is null) return null;
+
+        if (!Enum.TryParse<InboundWebhookScheme>(inbound.Scheme, ignoreCase: true, out var scheme)
+            || !Enum.IsDefined(scheme))
+        {
+            return $"Inbound scheme must be one of: {string.Join(", ", Enum.GetNames<InboundWebhookScheme>())}.";
+        }
+
+        var events = inbound.AllowedEvents ?? [];
+        if (events.Count > MaxAllowedEvents) return $"Inbound allowedEvents holds at most {MaxAllowedEvents} names.";
+        if (events.Any(e => string.IsNullOrWhiteSpace(e) || e.Length > MaxEventNameLength || e.Any(char.IsControl)))
+        {
+            return $"Inbound allowedEvents names are not blank, at most {MaxEventNameLength} characters and have no control characters.";
+        }
+
+        // Verification reads a Svix secret as base64, and a secret that is not would answer every
+        // delivery as a bad signature with nothing to say why.
+        if (scheme == InboundWebhookScheme.Svix && !string.IsNullOrWhiteSpace(inbound.Secret) && !IsSvixSecret(inbound.Secret))
+        {
+            return "A Svix inbound secret is the base64 key, optionally prefixed whsec_.";
+        }
+
         return null;
+    }
+
+    private static bool IsSvixSecret(string secret)
+    {
+        var key = secret.StartsWith("whsec_", StringComparison.Ordinal) ? secret["whsec_".Length..] : secret;
+        return key.Length > 0 && Convert.TryFromBase64String(key, new byte[key.Length], out _);
     }
 
     /// <summary>
@@ -503,4 +545,60 @@ internal static class ConnectorRules
         ConnectorSettingKeys.ClientId, ConnectorSettingKeys.Scope, ConnectorSettingKeys.Audience,
         ConnectorSettingKeys.ClientAuth, ConnectorSettingKeys.IdempotencyHeader,
     };
+}
+
+/// <summary>
+/// Writes the inbound section of a save: the scheme and events on the connector, the secret as a
+/// protected <see cref="ConnectorSecret"/> like every other credential of it.
+/// </summary>
+internal static class ConnectorInboundWriter
+{
+    public static async Task ApplyAsync(
+        IDocumentSession session, IConnectorSecretProtector protector, Connector connector,
+        SaveConnectorInbound? inbound, List<string> changed, CancellationToken ct)
+    {
+        if (inbound is null) return;
+
+        connector.Inbound = new ConnectorInbound
+        {
+            Scheme = Enum.Parse<InboundWebhookScheme>(inbound.Scheme, ignoreCase: true).ToString(),
+            AllowedEvents = (inbound.AllowedEvents ?? []).Select(e => e.Trim()).Distinct(StringComparer.Ordinal).ToList(),
+        };
+
+        if (inbound.Secret is null) return;
+
+        var existing = await session.Query<ConnectorSecret>()
+            .FirstOrDefaultAsync(s => s.ConnectorId == connector.Id && s.Key == ConnectorSecretKeys.InboundSecret, ct);
+
+        if (string.IsNullOrWhiteSpace(inbound.Secret))
+        {
+            if (existing is null) return;
+
+            session.Delete(existing);
+            connector.SecretKeys.Remove(ConnectorSecretKeys.InboundSecret);
+            changed.Add($"{ConnectorSecretKeys.InboundSecret} cleared");
+            return;
+        }
+
+        if (existing is null)
+        {
+            session.Store(new ConnectorSecret
+            {
+                Id = Guid.NewGuid(),
+                ConnectorId = connector.Id,
+                Key = ConnectorSecretKeys.InboundSecret,
+                ProtectedValue = protector.Protect(inbound.Secret.Trim()),
+            });
+            if (!connector.SecretKeys.Contains(ConnectorSecretKeys.InboundSecret))
+                connector.SecretKeys.Add(ConnectorSecretKeys.InboundSecret);
+        }
+        else
+        {
+            existing.ProtectedValue = protector.Protect(inbound.Secret.Trim());
+            existing.UpdatedAt = DateTime.UtcNow;
+            session.Store(existing);
+        }
+
+        changed.Add($"{ConnectorSecretKeys.InboundSecret} set");
+    }
 }
