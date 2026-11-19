@@ -43,7 +43,7 @@ internal sealed class Endpoint(
     {
         Delete("/api/accounts/{slug}/content-types/{name}");
         Definition.ChecksCapability(SystemCapabilities.ManageTenants);
-        Description(b => b.Produces(204));
+        Description(b => b.Produces<Response>(200).Produces(204));
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
