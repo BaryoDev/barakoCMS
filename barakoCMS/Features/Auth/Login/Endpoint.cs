@@ -292,16 +292,13 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        var jti = issued.Jti;
         var accessTokenExpiry = issued.ExpiresAt;
         var jwtToken = issued.Token;
 
         // The refresh token lives seven days, or the tenant's session length when that is shorter.
         var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var refreshTokenExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
-        
-        var refreshToken = RefreshToken.StartSession(
-            user.Id, refreshTokenString, refreshTokenExpiry, device, "password", sessionId);
+        var refreshToken = RefreshToken.StartSession(user.Id, refreshTokenString, refreshTokenExpiry, device, "password", sessionId);
 
         _documentSession.Store(refreshToken);
         await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.succeeded", user.Id, user.Username,

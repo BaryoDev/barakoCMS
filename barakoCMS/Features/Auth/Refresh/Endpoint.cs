@@ -186,9 +186,8 @@ internal class Endpoint : Endpoint<Request, Response>
         var newRefreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var newRefreshTokenExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
         
-        // The device binding, session id and sign-in facts are carried across rotation. Without the
-        // device id the binding survived exactly one refresh, and device trust stopped enforcing
-        // anything from the second refresh onward.
+        // Device binding, session id and sign-in facts carry across rotation. Without the device id,
+        // device trust stopped enforcing anything from the second refresh onward.
         var newRefreshToken = refreshToken.Successor(
             newRefreshTokenString, newRefreshTokenExpiry,
             barakoCMS.Infrastructure.DeviceContext.From(HttpContext), sessionId);
