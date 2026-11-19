@@ -153,6 +153,46 @@ public class SweepLockLossTests
         swept.Should().BeFalse("a sweep that lost its lock did not cover every tenant");
     }
 
+    /// <remarks>
+    /// Two due syncs of different collections in one tenant. The sweep's lock is killed while the
+    /// first one fetches, so only the per-sync <c>sweepHeld</c> check in
+    /// <c>CollectionSyncService.SweepTenantAsync</c> can stop the second: the per-tenant check has
+    /// already passed, and the second sync's own lock is on a connection of its own. Revert to see it
+    /// red: delete the <c>sweepHeld</c> block before each sync, and the second sync fetches.
+    /// </remarks>
+    [Fact]
+    public async Task The_collection_sync_sweep_stops_before_the_next_sync_once_its_lock_is_gone()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = Store;
+        var syncs = new Features.Collections.CollectionSyncTests(_factory);
+        try
+        {
+            var calls = 0;
+
+            // Whichever sync the sweep reaches first kills the lock while it fetches.
+            (System.Net.HttpStatusCode, string) Fetch()
+            {
+                if (Interlocked.Increment(ref calls) == 1)
+                    Task.Run(() => TerminateHolderAsync(store, CollectionSyncSweepKey, ct), ct).GetAwaiter().GetResult();
+                return (System.Net.HttpStatusCode.OK, Features.Collections.CollectionSyncTests.TwoPackages);
+            }
+
+            await syncs.ArrangeAsync(Fetch);
+            await syncs.ArrangeAsync(Fetch);
+
+            var sweep = ActivatorUtilities.CreateInstance<CollectionSyncService>(syncs.Host.Services);
+            var swept = await sweep.TrySweepAsync(DateTime.UtcNow, ct);
+
+            swept.Should().BeFalse("a sweep that lost its lock did not cover every sync");
+            Volatile.Read(ref calls).Should().Be(1, "the lock was gone before the second sync, so it was left for the next tick");
+        }
+        finally
+        {
+            (syncs as IDisposable)?.Dispose();
+        }
+    }
+
     private static IConfiguration RefusingConfiguration() => new ConfigurationBuilder()
         .AddInMemoryCollection(new Dictionary<string, string?> { [AdvisoryLease.RefuseBehindPoolerKey] = "true" })
         .Build();
