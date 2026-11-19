@@ -86,6 +86,28 @@ public class MigrationHostTests
     }
 
     /// <summary>
+    /// The test output holds the xunit assemblies, which barakoCMS.deps.json does not list. JasperFx
+    /// fails while it scans them for extensions, so the host names the problem and exits 1 instead
+    /// of crashing with a stack trace.
+    /// </summary>
+    [Fact]
+    public async Task db_apply_from_a_folder_with_a_stray_assembly_exits_0_or_names_the_problem()
+    {
+        await using var database = await MigrationScratchDatabase.CreateAsync(_factory, started: false);
+
+        var apply = await RunHostAsync(CoreAssembly, database.ConnectionString, "db-apply");
+
+        // The scan fails on macOS and may not on other systems, so exit 0 is as good as the message.
+        if (apply.ExitCode == 0)
+            return;
+
+        apply.ExitCode.Should().Be(1, $"output:\n{Truncate(apply.Output)}");
+        apply.Output.Should().Contain("JasperFx could not read an assembly in");
+        apply.Output.Should().Contain("Run the command from a publish output");
+        apply.Output.Should().NotContain("   at JasperFx", "the scan failure is reported, not dumped");
+    }
+
+    /// <summary>
     /// The fixture's own start was the first against its database, in this process, through
     /// <c>Program.cs</c>. Without the rows it writes, the first <c>db-migrate</c> on an install that
     /// began on this release would run every file that has no skip query against a schema that is
