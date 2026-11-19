@@ -39,7 +39,7 @@ public sealed class TokenIssuer(
         if (string.IsNullOrEmpty(slug))
             return TokenIssueResult.Denied("no tenant supplied");
 
-        var denial = await CheckTenantAccessAsync(user, slug, ct);
+        var denial = await CheckBlockedAsync(user, ct) ?? await CheckTenantAccessAsync(user, slug, ct);
         if (denial is not null)
         {
             // Warn, not info: on a multi-tenant deployment this is someone presenting an X-Tenant
@@ -132,6 +132,9 @@ public sealed class TokenIssuer(
 
         return (mustEnroll, refreshLifetime);
     }
+
+    private async Task<string?> CheckBlockedAsync(User user, CancellationToken ct) =>
+        await AccountBlock.IsStoredAsync(session, user.Id, ct) ? "account blocked" : null;
 
     /// <summary>
     /// Returns null when the user may hold a token for this tenant, otherwise the reason they may not.
