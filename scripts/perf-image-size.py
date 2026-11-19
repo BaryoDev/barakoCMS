@@ -28,18 +28,38 @@ def die(message):
     sys.exit(1)
 
 
+def gzip_size(name, first, chunks):
+    """Decompressed size of a gzip layer, counting every member and failing on a truncated one."""
+    decomp = zlib.decompressobj(31)
+    started = False  # the current decompressor has been given input
+    raw = 0
+    try:
+        for chunk in [first, *chunks]:
+            data = chunk
+            while data:
+                started = True
+                out = decomp.decompress(data, CHUNK)
+                raw += len(out)
+                if decomp.eof:
+                    data = decomp.unused_data
+                    decomp = zlib.decompressobj(31)
+                    started = False
+                else:
+                    data = decomp.unconsumed_tail
+    except zlib.error as err:
+        die(f"layer {name} is not valid gzip: {err}")
+    if started:
+        die(f"layer {name} is a truncated gzip stream")
+    return raw
+
+
 def measure_layer(name, fileobj, size):
     """Returns (uncompressed, compressed) for one layer, reading it in chunks."""
     magic = fileobj.read(4)
     rest = lambda: iter(lambda: fileobj.read(CHUNK), b"")
 
     if magic[:2] == b"\x1f\x8b":
-        decomp = zlib.decompressobj(31)
-        raw = len(decomp.decompress(magic))
-        for chunk in rest():
-            raw += len(decomp.decompress(chunk))
-        raw += len(decomp.flush())
-        return raw, size
+        return gzip_size(name, magic, rest()), size
 
     if magic == b"\x28\xb5\x2f\xfd":
         die(f"layer {name} is zstd compressed, which python3 cannot decompress")
@@ -72,7 +92,9 @@ def main():
 
         layers = []
         for entry in manifest if isinstance(manifest, list) else []:
-            layers.extend(entry.get("Layers") or [])
+            for layer in entry.get("Layers") or []:
+                if layer not in layers:  # a shared layer is counted once
+                    layers.append(layer)
         if not layers:
             die("manifest.json names no layers")
 

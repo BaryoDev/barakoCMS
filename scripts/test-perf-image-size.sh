@@ -55,6 +55,26 @@ archive(os.path.join(tmp, "missing.tar"), [("blobs/gz.tar.gz", gz_blob)],
         ["blobs/gz.tar.gz", "blobs/nope.tar"])
 archive(os.path.join(tmp, "empty.tar"), [], [])
 
+# Several gzip members in one layer, each counted.
+part1, part2, part3 = b"x" * 70000, os.urandom(4000), b"C" * 90000
+multi_blob = gzip.compress(part1, 6) + gzip.compress(part2, 6) + gzip.compress(part3, 6)
+archive(os.path.join(tmp, "multi.tar"), [("blobs/m.tar.gz", multi_blob)], ["blobs/m.tar.gz"])
+print(len(part1) + len(part2) + len(part3), len(multi_blob), file=open(os.path.join(tmp, "multi.expected"), "w"))
+
+# A gzip layer cut short.
+archive(os.path.join(tmp, "trunc.tar"), [("blobs/t.tar.gz", gz_blob[: len(gz_blob) // 2])], ["blobs/t.tar.gz"])
+
+# One layer named twice.
+archive(os.path.join(tmp, "dup.tar"), [("blobs/plain.tar", plain_layer)],
+        ["blobs/plain.tar", "blobs/plain.tar"])
+print(len(plain_layer), len(gzip.compress(plain_layer, 6)), file=open(os.path.join(tmp, "dup.expected"), "w"))
+
+# Classic <id>/layer.tar plain layer next to an OCI blobs/sha256/<hex> gzip layer.
+hexid = "ab" * 32
+archive(os.path.join(tmp, "mixed.tar"),
+        [(hexid + "/layer.tar", plain_layer), ("blobs/sha256/" + hexid, gz_blob)],
+        [hexid + "/layer.tar", "blobs/sha256/" + hexid])
+
 uncompressed = len(gz_layer) + len(plain_layer)
 compressed = len(gz_blob) + len(gzip.compress(plain_layer, 6))
 print(uncompressed, compressed)
@@ -80,6 +100,40 @@ fi
 
 out=$(python3 scripts/perf-image-size.py "$tmp/empty.tar" 2>&1); status=$?
 if [ "$status" -ne 0 ]; then check "a manifest with no layers fails" ok; else check "a manifest with no layers fails" bad; fi
+
+read -r want < "$tmp/multi.expected"
+got=$(python3 scripts/perf-image-size.py "$tmp/multi.tar" 2>&1); status=$?
+if [ "$status" -eq 0 ] && [ "$got" = "$want" ]; then
+    check "a multi-member gzip layer counts every member ($want)" ok
+else
+    echo "        expected '$want', got '$got' (exit $status)"
+    check "a multi-member gzip layer counts every member" bad
+fi
+
+out=$(python3 scripts/perf-image-size.py "$tmp/trunc.tar" 2>&1); status=$?
+if [ "$status" -ne 0 ] && printf '%s\n' "$out" | grep -qF "blobs/t.tar.gz"; then
+    check "a truncated gzip layer fails and names the layer" ok
+else
+    echo "        exit $status: $out"
+    check "a truncated gzip layer fails and names the layer" bad
+fi
+
+read -r want < "$tmp/dup.expected"
+got=$(python3 scripts/perf-image-size.py "$tmp/dup.tar" 2>&1); status=$?
+if [ "$status" -eq 0 ] && [ "$got" = "$want" ]; then
+    check "a layer named twice is counted once ($want)" ok
+else
+    echo "        expected '$want', got '$got' (exit $status)"
+    check "a layer named twice is counted once" bad
+fi
+
+got=$(python3 scripts/perf-image-size.py "$tmp/mixed.tar" 2>&1); status=$?
+if [ "$status" -eq 0 ] && [ "$got" = "$expected" ]; then
+    check "a classic layer.tar and an OCI blob layer give $expected" ok
+else
+    echo "        expected '$expected', got '$got' (exit $status)"
+    check "a classic layer.tar and an OCI blob layer give the expected sizes" bad
+fi
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
