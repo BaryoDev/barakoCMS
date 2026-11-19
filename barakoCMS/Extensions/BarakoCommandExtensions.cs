@@ -76,7 +76,7 @@ public static class BarakoCommandExtensions
 
         try
         {
-            return await MigrationCommand.RunAsync(LedgerFor(store), shipped, args[1..], Console.Out, stop.Token);
+            return await MigrationCommand.RunAsync(LedgerFor(store, host.Services.GetService<IConfiguration>()), shipped, args[1..], Console.Out, stop.Token);
         }
         finally
         {
@@ -105,7 +105,7 @@ public static class BarakoCommandExtensions
             if (shipped.Count == 0)
                 return none;
 
-            var ledger = LedgerFor(store);
+            var ledger = LedgerFor(store, services.GetService<IConfiguration>());
             if (!ledger.SchemaSupported)
             {
                 Log.Warning(
@@ -159,10 +159,11 @@ public static class BarakoCommandExtensions
 
     // The store's own connection object, not one rebuilt from its ConnectionString: Npgsql takes the
     // password out of that string unless Persist Security Info is set.
-    private static MigrationLedger LedgerFor(IDocumentStore store) =>
+    private static MigrationLedger LedgerFor(IDocumentStore store, IConfiguration? configuration) =>
         new(() => store.Storage.Database.CreateConnection(),
             $"barakoCMS {typeof(MigrationLedger).Assembly.GetName().Version}",
-            store.Options.DatabaseSchemaName);
+            store.Options.DatabaseSchemaName,
+            configuration);
 
     /// <summary>
     /// JasperFx opens every dll next to the host to look for its extension attribute. A dll the
