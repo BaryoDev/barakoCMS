@@ -7,15 +7,26 @@ using Marten;
 
 namespace barakoCMS.Features.Accounts.ContentTypes.Delete;
 
-/// <summary>Sent in place of 204 when live API keys of the caller's tenant name the removed type.</summary>
-internal sealed record DeleteResponse(List<ApiKeyWarning> ApiKeyWarnings);
+internal sealed class Request
+{
+    /// <summary>Run the same checks as the delete and report which API keys name the type, deleting nothing.</summary>
+    [QueryParam]
+    public bool DryRun { get; set; }
+}
+
+/// <summary>What a dry run answers. A real delete answers 204 with no body.</summary>
+/// <param name="DryRun">Always true.</param>
+/// <param name="ApiKeysAffected">How many live keys of the caller's tenant name the type.</param>
+/// <param name="ApiKeyWarnings">Those keys, or empty when the caller may not read API keys.</param>
+internal sealed record Response(bool DryRun, int ApiKeysAffected, List<ApiKeyWarning> ApiKeyWarnings)
+    : barakoCMS.Core.Validation.IDryRunResponse;
 
 /// <summary>DELETE /api/accounts/{slug}/content-types/{name}: remove an account-owned type.</summary>
 /// <remarks>
-/// The delete goes through either way. When live API keys of the caller's tenant (not revoked, not
-/// expired) name the type, the answer is 200 with <c>apiKeyWarnings</c> listing them (id, name,
-/// prefix, the matching types), since those keys can no longer push to it. Otherwise 204.
-/// 
+/// With <c>?dryRun=true</c> it runs the same checks and deletes nothing, answering 200 with how many
+/// live API keys (not revoked, not expired) of the caller's tenant only name the type. The keys
+/// themselves (id, name, prefix, types) are listed only for a caller who may read API keys, since
+/// the delete is gated on ManageTenants and key names are key data. Without it the answer is 204.
 /// Refused while an entry of the type exists in any tenant of the account, counted on a session
 /// opened for each tenant so it holds under <c>Tenancy:DatabaseEnforcement</c>, since the entries
 /// would be left with no type to validate them. A tenant that cannot be read fails the request
@@ -24,7 +35,7 @@ internal sealed record DeleteResponse(List<ApiKeyWarning> ApiKeyWarnings);
 internal sealed class Endpoint(
     IDocumentSession session,
     IDocumentStore store,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : EndpointWithoutRequest<DeleteResponse>
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
@@ -32,7 +43,7 @@ internal sealed class Endpoint(
         Definition.ChecksCapability(SystemCapabilities.ManageTenants);
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var account = await AccountOwnedTypes.ManagedAsync(
             HttpContext, session, Route<string>("slug") ?? string.Empty,
@@ -52,11 +63,17 @@ internal sealed class Endpoint(
             ThrowIfAnyErrors(StatusCodes.Status409Conflict);
         }
 
+        if (req.DryRun)
+        {
+            var affected = await ApiKeyContentTypeImpact.KeysNamingAsync(session, tenant.Slug, [name], ct);
+            var mayRead = await CapabilityGateProcessor.HoldsAsync(HttpContext, ListApiKeysEndpoint.Gate, ct);
+            await Send.OkAsync(new Response(true, affected.Count, mayRead ? affected : []), ct);
+            return;
+        }
+
         session.Delete(owned);
         await AccountTypeAudit.RecordAsync(session, User, tenant.Slug, "accountcontenttype.deleted", account, name, null, ct);
-        var warnings = await ApiKeyContentTypeImpact.KeysNamingAsync(session, tenant.Slug, [name], ct);
         await session.SaveChangesAsync(ct);
-        if (warnings.Count == 0) await Send.NoContentAsync(ct);
-        else await Send.OkAsync(new DeleteResponse(warnings), ct);
+        await Send.NoContentAsync(ct);
     }
 }

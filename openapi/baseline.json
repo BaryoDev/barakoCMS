@@ -1071,7 +1071,7 @@
         },
         "type": "object"
       },
-      "BarakoCMSFeaturesAccountsContentTypesDeleteDeleteResponse": {
+      "BarakoCMSFeaturesAccountsContentTypesDeleteResponse": {
         "additionalProperties": false,
         "properties": {
           "apiKeyWarnings": {
@@ -1079,6 +1079,13 @@
               "$ref": "#/components/schemas/BarakoCMSFeaturesApiKeysApiKeyWarning"
             },
             "type": "array"
+          },
+          "apiKeysAffected": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "dryRun": {
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -14958,6 +14965,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Run the same checks as the delete and report which API keys name the type, deleting nothing.",
+            "in": "query",
+            "name": "dryRun",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -14965,7 +14980,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsContentTypesDeleteDeleteResponse"
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesAccountsContentTypesDeleteResponse"
                 }
               }
             },

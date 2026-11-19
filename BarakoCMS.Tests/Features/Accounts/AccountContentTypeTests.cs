@@ -136,17 +136,21 @@ public class AccountContentTypeTests
         return id;
     }
 
-    private async Task<List<Guid>> DeleteWarningsAsync(HttpClient manager, TenantAccount account, string name)
+    private async Task<JsonElement> DryRunAsync(HttpClient manager, TenantAccount account, string name)
     {
-        var response = await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct);
-        if (response.StatusCode == HttpStatusCode.NoContent) return [];
+        var response = await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}?dryRun=true", Ct);
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
-        var body = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
-        return body.GetProperty("apiKeyWarnings").EnumerateArray().Select(w => w.GetProperty("keyId").GetGuid()).ToList();
+        return await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+    }
+
+    private async Task<bool> TypeExistsAsync(HttpClient manager, TenantAccount account, string name)
+    {
+        var response = await manager.GetAsync($"/api/accounts/{account.Slug}/content-types", Ct);
+        return (await response.Content.ReadAsStringAsync(Ct)).Contains(name, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task Deleting_a_type_names_the_live_key_that_uses_it_and_still_deletes()
+    public async Task A_dry_run_delete_names_the_live_key_that_uses_the_type_and_deletes_nothing()
     {
         var account = await AccountAsync();
         var manager = await ManagerAsync(account.Id);
@@ -154,14 +158,17 @@ public class AccountContentTypeTests
         var key = await StoreKeyAsync([name.ToUpperInvariant()]);
         await StoreKeyAsync(["unrelated"]);
 
-        (await DeleteWarningsAsync(manager, account, name)).Should().ContainSingle().Which.Should().Be(key);
+        var body = await DryRunAsync(manager, account, name);
 
-        (await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct))
-            .StatusCode.Should().Be(HttpStatusCode.NotFound, "the first delete went through");
+        body.GetProperty("dryRun").GetBoolean().Should().BeTrue();
+        body.GetProperty("apiKeysAffected").GetInt32().Should().Be(1);
+        body.GetProperty("apiKeyWarnings").EnumerateArray().Select(w => w.GetProperty("keyId").GetGuid())
+            .Should().ContainSingle().Which.Should().Be(key);
+        (await TypeExistsAsync(manager, account, name)).Should().BeTrue("a dry run deletes nothing");
     }
 
     [Fact]
-    public async Task The_warning_carries_the_key_name_and_prefix_and_never_the_hash()
+    public async Task A_real_delete_of_a_type_a_key_names_answers_204_with_no_body_and_the_type_is_gone()
     {
         var account = await AccountAsync();
         var manager = await ManagerAsync(account.Id);
@@ -169,27 +176,80 @@ public class AccountContentTypeTests
         await StoreKeyAsync([name]);
 
         var response = await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct);
-        var text = await response.Content.ReadAsStringAsync(Ct);
-        var warning = JsonDocument.Parse(text).RootElement.GetProperty("apiKeyWarnings")[0];
 
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await response.Content.ReadAsStringAsync(Ct)).Should().BeEmpty();
+        (await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_caller_without_manage_api_keys_gets_the_count_and_no_key_names()
+    {
+        var account = await AccountAsync();
+        var manager = await ManagerAsync(account.Id);
+        var name = await CreateSharedTypeAsync(manager, account);
+        await StoreKeyAsync([name]);
+
+        var body = await DryRunAsync(manager, account, name);
+
+        body.GetProperty("apiKeysAffected").GetInt32().Should().Be(1);
+        body.GetProperty("apiKeyWarnings").GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task The_dry_run_warning_carries_the_key_name_and_prefix_and_never_the_hash_for_a_caller_who_reads_keys()
+    {
+        var account = await AccountAsync();
+        var name = Unique("room");
+        await StoreAsync(new AccountContentType
+        {
+            Id = Guid.NewGuid(), AccountId = account.Id, Name = name,
+            Definition = new ContentTypeDefinition { Id = Guid.NewGuid(), Name = name, DisplayName = "Room", Fields = [] },
+        });
+        await StoreKeyAsync([name]);
+        var userId = Guid.NewGuid();
+        var username = Unique("u");
+        await StoreAsync(
+            new User { Id = userId, Username = username, Email = $"{Unique("m")}@example.com" },
+            new Membership
+            {
+                Id = Guid.NewGuid(), UserId = userId, TenantSlug = Tenant.DefaultSlug,
+                Status = MembershipStatus.Active, RoleIds = [SystemRoles.AdminRoleId],
+            },
+            new TenantAccountManager { Id = Guid.NewGuid(), AccountId = account.Id, UserId = userId });
+        var client = _fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+            _fixture.CreateToken(
+                roles: ["Admin", $"Account Manager {userId:N}"],
+                userId: userId.ToString(),
+                additionalClaims: new Dictionary<string, string> { ["tenant"] = Tenant.DefaultSlug, ["Username"] = username }));
+        client.DefaultRequestHeaders.Add("X-Tenant", Tenant.DefaultSlug);
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
+
+        var response = await client.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}?dryRun=true", Ct);
+        var text = await response.Content.ReadAsStringAsync(Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, text);
+        var warning = JsonDocument.Parse(text).RootElement.GetProperty("apiKeyWarnings")[0];
         warning.GetProperty("name").GetString().Should().Be("warn-test");
         warning.GetProperty("prefix").GetString().Should().StartWith("bcms_");
         text.Should().NotContainEquivalentOf("hash");
     }
 
     [Fact]
-    public async Task A_key_of_another_tenant_is_not_listed_on_a_type_delete()
+    public async Task A_key_of_another_tenant_is_not_counted_on_a_type_dry_run()
     {
         var account = await AccountAsync();
         var manager = await ManagerAsync(account.Id);
         var name = await CreateSharedTypeAsync(manager, account);
         await StoreKeyAsync([name], tenant: await TenantAsync(null));
 
-        (await DeleteWarningsAsync(manager, account, name)).Should().BeEmpty();
+        (await DryRunAsync(manager, account, name)).GetProperty("apiKeysAffected").GetInt32().Should().Be(0);
     }
 
     [Fact]
-    public async Task A_revoked_or_expired_key_is_not_listed_on_a_type_delete()
+    public async Task A_revoked_or_expired_key_is_not_counted_on_a_type_dry_run()
     {
         var account = await AccountAsync();
         var manager = await ManagerAsync(account.Id);
@@ -197,19 +257,21 @@ public class AccountContentTypeTests
         await StoreKeyAsync([name], revoked: true);
         await StoreKeyAsync([name], expiresAt: DateTime.UtcNow.AddDays(-1));
 
-        (await DeleteWarningsAsync(manager, account, name)).Should().BeEmpty();
+        (await DryRunAsync(manager, account, name)).GetProperty("apiKeysAffected").GetInt32().Should().Be(0);
     }
 
     [Fact]
-    public async Task A_type_no_key_names_deletes_with_204_and_no_warning()
+    public async Task A_dry_run_of_an_unknown_type_answers_what_the_real_delete_answers()
     {
         var account = await AccountAsync();
         var manager = await ManagerAsync(account.Id);
-        var name = await CreateSharedTypeAsync(manager, account);
-        await StoreKeyAsync(["other-type"]);
+        var name = Unique("nope");
 
-        (await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct))
-            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        var real = await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}", Ct);
+        var dry = await manager.DeleteAsync($"/api/accounts/{account.Slug}/content-types/{name}?dryRun=true", Ct);
+
+        real.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        dry.StatusCode.Should().Be(real.StatusCode);
     }
 
     [Fact]
