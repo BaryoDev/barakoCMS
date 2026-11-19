@@ -114,7 +114,7 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAu
     private static async Task<List<Claim>?> OwnerClaimsAsync(IQuerySession lookup, ApiKey key, string slug, CancellationToken ct)
     {
         var user = await lookup.LoadAsync<User>(key.UserId, ct);
-        if (user is null)
+        if (user is null || AccountBlock.Is(user))
             return null;
 
         // A key must not outlive its owner's access to the tenant: mirror the token-issuer membership

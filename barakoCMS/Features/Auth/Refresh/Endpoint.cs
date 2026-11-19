@@ -84,9 +84,10 @@ internal class Endpoint : Endpoint<Request, Response>
             ThrowError("User not found", 401);
         }
 
-        if (barakoCMS.Infrastructure.Auth.AccountLockout.LockedMessage(user) is not null)
+        if (barakoCMS.Infrastructure.Auth.AccountLockout.LockedMessage(user) is not null
+            || barakoCMS.Infrastructure.Auth.AccountBlock.Is(user))
         {
-            _logger.LogWarning("Refresh refused for locked account. UserId: {UserId}", user.Id);
+            _logger.LogWarning("Refresh refused for locked or blocked account. UserId: {UserId}", user.Id);
             ThrowError("Invalid refresh token", 401);
         }
 

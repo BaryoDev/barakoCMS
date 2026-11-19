@@ -50,7 +50,7 @@ internal class VerifyEndpoint(
         }
 
         var user = await query.LoadAsync<User>(challenge.UserId, ct);
-        if (user is null || !await mfa.IsEnabledAsync(user.Id, ct))
+        if (user is null || barakoCMS.Infrastructure.Auth.AccountBlock.Is(user) || !await mfa.IsEnabledAsync(user.Id, ct))
         {
             // The challenge was minted for this user, so this is an odd state; stay generic.
             ThrowError("Invalid code.");

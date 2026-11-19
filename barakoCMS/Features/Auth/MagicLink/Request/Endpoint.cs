@@ -47,7 +47,7 @@ internal class Endpoint(
 
         if (!string.IsNullOrWhiteSpace(address) && address.Contains('@'))
         {
-            var exists = await session.Query<User>().AnyAsync(u => u.NormalizedEmail == address, ct);
+            var exists = await session.Query<User>().AnyAsync(u => u.NormalizedEmail == address && u.BlockedAt == null, ct);
             if (exists)
             {
                 // The outcome is not reflected: the response must be identical for every address.

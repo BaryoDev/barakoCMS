@@ -53,7 +53,7 @@ internal class Endpoint(
         session.Update(link);
 
         var user = await session.Query<User>()
-            .Where(u => u.NormalizedEmail == link.Email)
+            .Where(u => u.NormalizedEmail == link.Email && u.BlockedAt == null)
             .FirstOrDefaultAsync(ct);
         if (user is null)
         {

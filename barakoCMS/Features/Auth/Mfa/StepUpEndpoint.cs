@@ -35,7 +35,7 @@ internal class StepUpEndpoint(
         }
 
         var user = await query.LoadAsync<User>(userId, ct);
-        if (user is null)
+        if (user is null || barakoCMS.Infrastructure.Auth.AccountBlock.Is(user))
         {
             ThrowError("Invalid code.");
             return;

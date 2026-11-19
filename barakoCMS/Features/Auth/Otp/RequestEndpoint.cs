@@ -66,7 +66,7 @@ internal class RequestEndpoint(
         }
 
         var user = await session.Query<User>()
-            .Where(u => u.NormalizedEmail == email)
+            .Where(u => u.NormalizedEmail == email && u.BlockedAt == null)
             .FirstOrDefaultAsync(ct);
         if (user == null)
         {
