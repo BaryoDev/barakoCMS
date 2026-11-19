@@ -626,6 +626,46 @@ pipeline it runs and what it can rely on there.
 A module that ships from its own repository instead starts from the `dotnet new barakocms-module`
 template. See [Writing a module outside this repository](../MODULES.md#writing-a-module-outside-this-repository).
 
+## Counting or listing content for a caller
+
+An endpoint that counts or lists entries for the signed-in caller has to apply two limits, the
+caller's read rules and the caller's branches. Resolve `IPermissionResolver` and `IBranchScopeGuard`
+from DI and use both:
+
+```csharp
+// user is the caller's User document, principal is their ClaimsPrincipal, contentType the type asked for.
+var read = await resolver.ReadPredicateAsync(user, contentType, ct);
+if (!read.Compiled)
+{
+    // No SQL for this caller's rules. Check each entry with CanPerformActionAsync instead,
+    // or skip the type unless the caller may read it at all.
+    if (!await resolver.CanPerformActionAsync(user, contentType, "read", null, ct))
+        return 0;
+}
+
+var rows = session.Query<Content>().Where(c => c.ContentType == contentType);
+if (read.Compiled && read.Sql == ReadPredicate.Nothing.Sql)
+    return 0;
+if (read.Compiled && read.Sql != ReadPredicate.All.Sql)
+    rows = rows.Where(c => c.MatchesSql(read.Sql, read.Parameters));
+
+var branches = await guard.FilterAsync(principal, ct);
+if (branches is not null)
+    rows = rows.Where(c => c.MatchesSql(branches.Sql, branches.Parameters));
+
+var total = await rows.CountAsync(ct);
+```
+
+`ReadPredicateAsync` returns a predicate that is not `Compiled` (null `Sql`) when the resolver cannot
+express the rules in SQL. Never count every row then: evaluate each entry with
+`CanPerformActionAsync`, as the snippet's early check does for a caller with no read rule at all.
+`ReadPredicate.Nothing` means no rows, and `ReadPredicate.All` means no condition to add.
+`FilterAsync` returns null when no stored type is branch scoped, and then there is nothing to add.
+
+The filter's SQL is a condition for `MatchesSql` over the content table aliased `d`, and nothing
+else. Pass `Sql` and `Parameters` through unchanged. Do not parse it, extend it or run it against
+another table. Its body can change in a minor release, so only the call is a contract.
+
 ## What to build next
 
 Core does not ship business modules such as contacts, tagging or comments. Pick a primitive that
