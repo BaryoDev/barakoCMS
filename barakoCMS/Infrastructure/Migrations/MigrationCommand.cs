@@ -45,19 +45,34 @@ internal static class MigrationCommand
             return 1;
         }
 
+        try
+        {
+            return await DispatchAsync(ledger, shipped, args, output, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // A lock refused behind a pooler (Leadership:RefuseBehindPooler) is a result, not a crash.
+            output.WriteLine(ex.Message);
+            return 1;
+        }
+    }
+
+    private static Task<int> DispatchAsync(
+        MigrationLedger ledger, IReadOnlyList<ShippedMigration> shipped, string[] args, TextWriter output, CancellationToken ct)
+    {
         switch (args)
         {
             case []:
-                return await ApplyAsync(ledger, shipped, output, ct);
+                return ApplyAsync(ledger, shipped, output, ct);
             case ["--status"]:
-                return await StatusAsync(ledger, shipped, output, ct);
+                return StatusAsync(ledger, shipped, output, ct);
             case ["--record", var key]:
-                return await RecordAsync(ledger, shipped, key, output, ct);
+                return RecordAsync(ledger, shipped, key, output, ct);
             case ["--forget", var key]:
-                return await ForgetAsync(ledger, shipped, key, output, ct);
+                return ForgetAsync(ledger, shipped, key, output, ct);
             default:
                 output.WriteLine(Usage);
-                return 1;
+                return Task.FromResult(1);
         }
     }
 

@@ -6,6 +6,7 @@ using System.Text.Json;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Features.Public;
 using barakoCMS.Infrastructure.Attributes;
+using barakoCMS.Infrastructure.Connectors;
 using barakoCMS.Infrastructure.Http;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Security;
@@ -22,13 +23,15 @@ namespace barakoCMS.Features.Workflows.Actions;
 /// <remarks>
 /// With a <c>Secret</c> parameter every delivery is signed; see <see cref="WebhookSigning"/> and
 /// <c>docs/webhooks.md</c>. With or without one, every delivery leaves a <see cref="WebhookDelivery"/>
-/// behind saying what was sent and what came back.
+/// behind saying what was sent and what came back. A <c>Connector</c> parameter names a connector of
+/// the same tenant in place of <c>Url</c> and <c>Secret</c>: its base URL is the target and its
+/// <c>SigningSecret</c> signs the delivery. In that case <c>Url</c> is not required.
 /// </remarks>
 [WorkflowActionMetadata(
     Description = "Send HTTP POST requests to external webhooks, signed when a Secret is set",
     Group = WorkflowActionGroup.Delivery,
     RequiredParameters = new[] { "Url" },
-    OptionalParameters = new[] { "Secret" },
+    OptionalParameters = new[] { "Secret", "Connector" },
     ExampleJson = @"{""Type"":""Webhook"",""Parameters"":{""Url"":""https://example.com/webhook"",""Secret"":""a shared secret, optional""}}"
 )]
 internal class WebhookAction : IWorkflowAction
@@ -41,6 +44,10 @@ internal class WebhookAction : IWorkflowAction
     private readonly OutboundAddressGuard _addressGuard;
     private readonly ILogger<WebhookAction> _logger;
     private readonly bool _allowInsecureSignedUrls;
+    private readonly IConnectorSecretProtector? _connectorProtector;
+
+    /// <summary>The parameter that names a connector in place of a URL and a secret.</summary>
+    public const string ConnectorParameter = "Connector";
 
     /// <summary>
     /// Creates a new WebhookAction.
@@ -51,8 +58,10 @@ internal class WebhookAction : IWorkflowAction
         ISecretProtector protector,
         OutboundAddressGuard addressGuard,
         ILogger<WebhookAction> logger,
-        IConfiguration? configuration = null)
+        IConfiguration? configuration = null,
+        IConnectorSecretProtector? connectorProtector = null)
     {
+        _connectorProtector = connectorProtector;
         _httpClientFactory = httpClientFactory;
         _session = session;
         _protector = protector;
@@ -87,6 +96,13 @@ internal class WebhookAction : IWorkflowAction
     internal async Task<WorkflowActionResult> RunAsync(
         Dictionary<string, string> parameters, barakoCMS.Models.Content content, OutboundOverride? custom, CancellationToken ct)
     {
+        if (!string.IsNullOrWhiteSpace(parameters.GetValueOrDefault(ConnectorParameter)))
+        {
+            var (resolved, refusal) = await ResolveConnectorAsync(parameters, ct);
+            if (refusal is not null) return refusal;
+            parameters = resolved!;
+        }
+
         var url = parameters.GetValueOrDefault("Url");
         if (string.IsNullOrEmpty(url))
         {
@@ -123,39 +139,8 @@ internal class WebhookAction : IWorkflowAction
                 $"Webhook to {Redact(url)} was not sent. {WebhookSigning.InsecureSignedUrlReason}");
         }
 
-        string? secret = null;
-        if (WebhookSigning.HasSecret(parameters))
-        {
-            var stored = parameters[WebhookSigning.SecretParameter];
-            secret = _protector.Unprotect(stored);
-            if (secret is null)
-            {
-                // Refused rather than sent unsigned. A receiver that checks signatures would reject
-                // it anyway, and one that does not would never learn that signing had silently
-                // stopped.
-                //
-                // Two different reasons land here and an operator needs to know which. A value that
-                // is not shaped like an envelope at all was saved before this Secret was ever
-                // protected (a workflow from before #524, or a custom action from before #526) and no
-                // key will ever decrypt it; recreating the workflow is the only fix. A value that is
-                // shaped right but still will not decrypt is a rotated Secrets:Key, and the fix is to
-                // enter the secret again.
-                if (!WebhookSigning.CouldBeCiphertext(stored))
-                {
-                    _logger.LogWarning("The webhook secret for {Url} is not protected. Skipping webhook action.", Redact(url));
-                    delivery.Error = "The secret is not protected. Recreate the workflow.";
-                    await RecordAsync(delivery, ct);
-                    return WorkflowActionResult.PermanentFailure(
-                        $"The webhook secret for {Redact(url)} is not protected. Recreate the workflow.");
-                }
-
-                _logger.LogWarning("The webhook secret for {Url} could not be decrypted. Skipping webhook action.", Redact(url));
-                delivery.Error = "The webhook secret could not be decrypted. Enter it again on the workflow.";
-                await RecordAsync(delivery, ct);
-                return WorkflowActionResult.PermanentFailure(
-                    $"The webhook secret for {Redact(url)} could not be decrypted (Secrets:Key changed?). Enter it again on the workflow.");
-            }
-        }
+        var (secret, secretRefusal) = await UnprotectSecretAsync(parameters, url, delivery, ct);
+        if (secretRefusal is not null) return secretRefusal;
 
         // From the session and never from the parameters, which a workflow author writes. The runner,
         // the engine and a Conditional's children all build this action in a scope opened for the
@@ -305,6 +290,93 @@ internal class WebhookAction : IWorkflowAction
             return WorkflowActionResult.Failure(
                 $"Webhook to {Redact(url)} failed unexpectedly ({ex.GetType().Name}).");
         }
+    }
+
+    /// <summary>
+    /// The plaintext of the action's Secret, null when it has none, or the refusal when it cannot be read.
+    /// </summary>
+    private async Task<(string? Secret, WorkflowActionResult? Refusal)> UnprotectSecretAsync(
+        Dictionary<string, string> parameters, string url, WebhookDelivery delivery, CancellationToken ct)
+    {
+        if (!WebhookSigning.HasSecret(parameters)) return (null, null);
+
+        var stored = parameters[WebhookSigning.SecretParameter];
+        var secret = _protector.Unprotect(stored);
+        if (secret is not null) return (secret, null);
+
+        // Refused rather than sent unsigned. A receiver that checks signatures would reject
+        // it anyway, and one that does not would never learn that signing had silently
+        // stopped.
+        //
+        // Two different reasons land here and an operator needs to know which. A value that
+        // is not shaped like an envelope at all was saved before this Secret was ever
+        // protected (a workflow from before #524, or a custom action from before #526) and no
+        // key will ever decrypt it; recreating the workflow is the only fix. A value that is
+        // shaped right but still will not decrypt is a rotated Secrets:Key, and the fix is to
+        // enter the secret again.
+        if (!WebhookSigning.CouldBeCiphertext(stored))
+        {
+            _logger.LogWarning("The webhook secret for {Url} is not protected. Skipping webhook action.", Redact(url));
+            delivery.Error = "The secret is not protected. Recreate the workflow.";
+            await RecordAsync(delivery, ct);
+            return (null, WorkflowActionResult.PermanentFailure(
+                $"The webhook secret for {Redact(url)} is not protected. Recreate the workflow."));
+        }
+
+        _logger.LogWarning("The webhook secret for {Url} could not be decrypted. Skipping webhook action.", Redact(url));
+        delivery.Error = "The webhook secret could not be decrypted. Enter it again on the workflow.";
+        await RecordAsync(delivery, ct);
+        return (null, WorkflowActionResult.PermanentFailure(
+            $"The webhook secret for {Redact(url)} could not be decrypted (Secrets:Key changed?). Enter it again on the workflow."));
+    }
+
+    /// <summary>
+    /// The parameters with the connector's base URL and signing secret in place of <c>Url</c> and
+    /// <c>Secret</c>, or the failure when the connector cannot be used.
+    /// </summary>
+    /// <remarks>
+    /// Read through the run's own session, which is the run's tenant, so another tenant's connector is
+    /// simply not found. The secret is put back as an <see cref="ISecretProtector"/> envelope so the
+    /// address checks and signing below run the one path a typed Secret does. A missing connector
+    /// fails the action before any request is built, and the message names the slug and no URL.
+    /// </remarks>
+    private async Task<(Dictionary<string, string>? Parameters, WorkflowActionResult? Refusal)> ResolveConnectorAsync(
+        Dictionary<string, string> parameters, CancellationToken ct)
+    {
+        var slug = parameters[ConnectorParameter].Trim();
+
+        if (!string.IsNullOrWhiteSpace(parameters.GetValueOrDefault("Url")) || WebhookSigning.HasSecret(parameters))
+        {
+            return (null, WorkflowActionResult.PermanentFailure(
+                $"Webhook names connector '{slug}' and also a Url or Secret. Name the connector or the Url, not both."));
+        }
+
+        var connector = await _session.Query<Connector>().FirstOrDefaultAsync(c => c.Slug == slug, ct);
+        if (connector is null)
+        {
+            return (null, WorkflowActionResult.Failure($"Webhook names connector '{slug}', which does not exist."));
+        }
+
+        if (!connector.Enabled)
+        {
+            return (null, WorkflowActionResult.Failure($"Connector '{connector.Slug}' is disabled."));
+        }
+
+        var resolved = new Dictionary<string, string>(parameters) { ["Url"] = connector.BaseUrl };
+
+        var stored = await _session.Query<ConnectorSecret>()
+            .FirstOrDefaultAsync(x => x.ConnectorId == connector.Id && x.Key == ConnectorSecretKeys.SigningSecret, ct);
+        if (stored is null) return (resolved, null);
+
+        var plaintext = _connectorProtector?.Unprotect(stored.ProtectedValue);
+        if (plaintext is null)
+        {
+            return (null, WorkflowActionResult.PermanentFailure(
+                $"The signing secret of connector '{connector.Slug}' could not be decrypted under the current Connectors:Key. Enter it again on the connector."));
+        }
+
+        resolved[WebhookSigning.SecretParameter] = _protector.Protect(plaintext);
+        return (resolved, null);
     }
 
     /// <summary>

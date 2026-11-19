@@ -824,6 +824,15 @@ public static class ConnectorSecretKeys
     public const string ClientSecret = "ClientSecret";
 
     public static readonly string[] All = [Token, Password, ApiKey, ClientSecret];
+
+    /// <summary>
+    /// Signs what a Webhook action sends to this connector. Not an auth credential, so it is not in
+    /// <see cref="All"/>.
+    /// </summary>
+    public const string SigningSecret = "SigningSecret";
+
+    /// <summary>Verifies what this connector's party sends to us. Never leaves this host.</summary>
+    public const string InboundSecret = "InboundSecret";
 }
 
 /// <summary>Non-secret settings the auth modes read.</summary>

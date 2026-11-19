@@ -23,7 +23,7 @@ default.
 One run at a time fills a collection. `POST /api/collection-syncs/{slug}/run` waits up to five
 seconds for another run that is writing to the same content type, whether the sweep started it or
 another caller did, and then runs. If the collection is still busy after that it answers 409 with a
-`Retry-After` header and runs nothing. The lock is on the content type, so this covers a different
+`Retry-After` header and runs nothing. A run whose lock is lost before it starts also answers 409, with `Retry-After: 1`. The lock is on the content type, so this covers a different
 sync that fills the same collection: a caller running several syncs of one type in turn, while the
 sweep works through the same ones, waits for whichever the sweep is on.
 `CollectionSyncs:RunLockWaitSeconds` changes the wait, from 0 (answer 409 at once) to 30, and a

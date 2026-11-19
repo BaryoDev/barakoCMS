@@ -654,6 +654,229 @@ public class WebhookDeliveryTests
         return "sha256=" + Convert.ToHexStringLower(hmac.ComputeHash(material));
     }
 
+    private const string ConnectorSigningValue = "connector-signing-not-real";
+
+    [Fact]
+    public async Task A_webhook_naming_a_connector_posts_to_its_url_signed_with_its_signing_secret()
+    {
+        using var listener = new RecordingListener();
+        var slug = "hook" + Guid.NewGuid().ToString("N")[..8];
+        await StoreConnectorAsync("webhook-conn-a", slug, listener.Url, signingSecret: ConnectorSigningValue);
+
+        var sent = await SendViaConnectorAsync("webhook-conn-a", slug, allowInsecureSignedUrls: true);
+
+        listener.WasCalled.Should().BeTrue("the connector's base URL is the target");
+        var timestamp = listener.LastHeaders[WebhookSigning.TimestampHeader];
+        Recipe(ConnectorSigningValue, timestamp, listener.LastBodyBytes!).Should().Be(listener.LastHeaders[WebhookSigning.SignatureHeader]);
+        sent.Result.Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_webhook_naming_a_connector_that_does_not_exist_fails_with_no_request()
+    {
+        var slug = "missing" + Guid.NewGuid().ToString("N")[..8];
+
+        var result = await RunConnectorActionAsync("webhook-conn-missing", new() { ["Connector"] = slug });
+
+        result.Succeeded.Should().BeFalse();
+        result.Error.Should().Contain(slug).And.Contain("does not exist");
+    }
+
+    [Fact]
+    public async Task A_webhook_cannot_use_another_tenants_connector()
+    {
+        using var listener = new RecordingListener();
+        var slug = "theirs" + Guid.NewGuid().ToString("N")[..8];
+        await StoreConnectorAsync("webhook-conn-owner", slug, listener.Url, signingSecret: null);
+
+        var result = await RunConnectorActionAsync("webhook-conn-intruder", new() { ["Connector"] = slug });
+
+        listener.WasCalled.Should().BeFalse("the connector belongs to a different tenant");
+        result.Succeeded.Should().BeFalse();
+        result.Error.Should().Contain("does not exist");
+    }
+
+    [Fact]
+    public async Task A_webhook_naming_a_connector_is_refused_a_blocked_host_like_the_request_action()
+    {
+        var slug = "blocked" + Guid.NewGuid().ToString("N")[..8];
+        await StoreConnectorAsync("webhook-conn-blocked", slug, "https://internal.example.test/hook", signingSecret: null);
+
+        var result = await RunConnectorActionAsync("webhook-conn-blocked", new() { ["Connector"] = slug },
+            guard: new OutboundAddressGuard(isBlocked: _ => true));
+
+        result.Succeeded.Should().BeFalse();
+        result.Error.Should().Contain("not allowed", "the early guard of the action refused the connector's URL");
+        await using var check = _fixture.Services.GetRequiredService<IDocumentStore>().QuerySession("webhook-conn-blocked");
+        (await check.Query<WebhookDelivery>().ToListAsync(TestContext.Current.CancellationToken))
+            .Should().ContainSingle(d => d.Error != null && d.Error.Contains("not allowed"));
+    }
+
+    [Fact]
+    public async Task A_webhook_naming_a_disabled_connector_fails_with_no_request()
+    {
+        using var listener = new RecordingListener();
+        var slug = "off" + Guid.NewGuid().ToString("N")[..8];
+        await StoreConnectorAsync("webhook-conn-off", slug, listener.Url, signingSecret: null, enabled: false);
+
+        var result = await RunConnectorActionAsync("webhook-conn-off", new() { ["Connector"] = slug });
+
+        listener.WasCalled.Should().BeFalse();
+        result.Succeeded.Should().BeFalse();
+        result.Error.Should().Contain(slug).And.Contain("disabled");
+    }
+
+    [Fact]
+    public async Task A_webhook_naming_a_connector_whose_signing_secret_cannot_be_decrypted_fails_permanently_with_no_request()
+    {
+        using var listener = new RecordingListener();
+        var slug = "badkey" + Guid.NewGuid().ToString("N")[..8];
+        await StoreConnectorAsync("webhook-conn-badkey", slug, listener.Url, signingSecret: "not-a-ciphertext", storeAsCiphertext: true);
+
+        var result = await RunConnectorActionAsync("webhook-conn-badkey", new() { ["Connector"] = slug }, allowInsecureSignedUrls: true);
+
+        listener.WasCalled.Should().BeFalse();
+        result.Succeeded.Should().BeFalse();
+        result.Error.Should().Contain("could not be decrypted");
+    }
+
+    [Fact]
+    public async Task A_webhook_with_url_and_secret_and_no_connector_still_runs()
+    {
+        using var listener = new RecordingListener();
+
+        var sent = await SendAsync("webhook-conn-old", listener.Url, secret: Secret, allowInsecureSignedUrls: true);
+
+        listener.WasCalled.Should().BeTrue();
+        listener.LastHeaders.Should().ContainKey(WebhookSigning.SignatureHeader);
+        sent.Result.Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Saving_a_workflow_that_sets_connector_with_url_or_secret_is_refused()
+    {
+        var client = await AdminClientAsync();
+
+        foreach (var extra in new[] { "Url", "Secret" })
+        {
+            var created = await client.PostAsJsonAsync("/api/workflows", new
+            {
+                name = "Both " + Guid.NewGuid().ToString("N")[..8],
+                triggerContentType = "article",
+                triggerEvent = "Published",
+                actions = new[]
+                {
+                    new { type = "Webhook", parameters = new Dictionary<string, string> { ["Connector"] = "company-hooks", [extra] = "https://hooks.example.com/x" } },
+                },
+            }, TestContext.Current.CancellationToken);
+
+            var body = await created.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            created.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
+            body.Should().Contain("actions[0].parameters.Connector");
+        }
+    }
+
+    [Fact]
+    public async Task Saving_a_workflow_whose_webhook_names_only_a_connector_is_accepted()
+    {
+        var client = await AdminClientAsync();
+
+        var created = await client.PostAsJsonAsync("/api/workflows", new
+        {
+            name = "Connector hook " + Guid.NewGuid().ToString("N")[..8],
+            triggerContentType = "article",
+            triggerEvent = "Published",
+            actions = new[]
+            {
+                new { type = "Webhook", parameters = new Dictionary<string, string> { ["Connector"] = "company-hooks" } },
+            },
+        }, TestContext.Current.CancellationToken);
+
+        created.StatusCode.Should().Be(HttpStatusCode.OK, await created.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task The_action_catalog_lists_the_connector_parameter_of_the_webhook_action()
+    {
+        var client = await AdminClientAsync();
+
+        var response = await client.GetAsync("/api/workflows/actions", TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body);
+
+        using var json = JsonDocument.Parse(body);
+        var webhook = json.RootElement.EnumerateArray()
+            .First(a => string.Equals(a.GetProperty("type").GetString(), "Webhook", StringComparison.OrdinalIgnoreCase));
+        var optional = webhook.GetProperty("optionalParameters").EnumerateArray().Select(p => p.GetString()).ToList();
+        optional.Should().NotBeEmpty();
+        optional.Should().Contain("Connector");
+    }
+
+    private async Task StoreConnectorAsync(string tenant, string slug, string baseUrl, string? signingSecret,
+        bool enabled = true, bool storeAsCiphertext = false)
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var protector = _fixture.Services.GetRequiredService<barakoCMS.Infrastructure.Connectors.IConnectorSecretProtector>();
+        await using var session = store.LightweightSession(tenant);
+
+        var connector = new Connector { Id = Guid.NewGuid(), Name = "Hooks", Slug = slug, BaseUrl = baseUrl, Enabled = enabled };
+        if (signingSecret is not null)
+        {
+            connector.SecretKeys.Add(barakoCMS.Infrastructure.Connectors.ConnectorSecretKeys.SigningSecret);
+            session.Store(new ConnectorSecret
+            {
+                Id = Guid.NewGuid(),
+                ConnectorId = connector.Id,
+                Key = barakoCMS.Infrastructure.Connectors.ConnectorSecretKeys.SigningSecret,
+                ProtectedValue = storeAsCiphertext ? signingSecret : protector.Protect(signingSecret),
+            });
+        }
+
+        session.Store(connector);
+        await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+    }
+
+    private async Task<Sent> SendViaConnectorAsync(string tenant, string slug, bool allowInsecureSignedUrls)
+    {
+        var result = await RunConnectorActionAsync(tenant, new() { ["Connector"] = slug }, allowInsecureSignedUrls: allowInsecureSignedUrls);
+
+        await using var check = _fixture.Services.GetRequiredService<IDocumentStore>().QuerySession(tenant);
+        var rows = await check.Query<WebhookDelivery>().OrderByDescending(d => d.CreatedAt).ToListAsync(TestContext.Current.CancellationToken);
+        rows.Should().NotBeEmpty("a delivery leaves a row");
+        return new Sent(result, rows[0], null);
+    }
+
+    private async Task<barakoCMS.Features.Workflows.WorkflowActionResult> RunConnectorActionAsync(
+        string tenant, Dictionary<string, string> parameters, OutboundAddressGuard? guard = null, bool allowInsecureSignedUrls = false)
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var protector = _fixture.Services.GetRequiredService<ISecretProtector>();
+        var connectorProtector = _fixture.Services.GetRequiredService<barakoCMS.Infrastructure.Connectors.IConnectorSecretProtector>();
+        guard ??= new OutboundAddressGuard(isBlocked: _ => false);
+
+        var content = new Content
+        {
+            Id = Guid.NewGuid(),
+            ContentType = $"{tenant}-record",
+            Status = ContentStatus.Published,
+            Sensitivity = SensitivityLevel.Public,
+            Data = new Dictionary<string, object> { ["Title"] = "hello" },
+        };
+
+        await using var session = store.LightweightSession(tenant);
+        using var handler = OutboundHttpHandler.Create(guard);
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            [WebhookSigning.AllowInsecureSignedUrlsKey] = allowInsecureSignedUrls ? "true" : "false",
+        }).Build();
+
+        var action = new WebhookAction(
+            new SingleClientFactory(client), session, protector, guard, NullLogger<WebhookAction>.Instance, configuration, connectorProtector);
+
+        return await action.RunAsync(parameters, content, TestContext.Current.CancellationToken);
+    }
+
     private sealed record Sent(barakoCMS.Features.Workflows.WorkflowActionResult Result, WebhookDelivery Delivery, string? Ciphertext);
 
     /// <summary>

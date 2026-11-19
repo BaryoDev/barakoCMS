@@ -56,8 +56,30 @@ public class Connector
     /// <summary>The status code and round trip of the last test. Never a response body.</summary>
     public string? LastTestResult { get; set; }
 
+    /// <summary>
+    /// How this party signs what it sends to us, or null for a connector that only goes outward.
+    /// A connector stored before this existed reads as null and works as it did.
+    /// </summary>
+    public ConnectorInbound? Inbound { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// The inbound half of a <see cref="Connector"/>: the signature scheme and the events it may send.
+/// </summary>
+/// <remarks>
+/// The inbound signing secret is not here. It is a <see cref="ConnectorSecret"/> named
+/// <c>InboundSecret</c>, encrypted like every other credential of the connector.
+/// </remarks>
+public class ConnectorInbound
+{
+    /// <summary>A name of <c>InboundWebhookScheme</c>: <c>Hmac</c> or <c>Svix</c>.</summary>
+    public string Scheme { get; set; } = "Hmac";
+
+    /// <summary>The provider event names this connector may send. Empty means any.</summary>
+    public List<string> AllowedEvents { get; set; } = new();
 }
 
 public enum ConnectorAuth

@@ -1,3 +1,4 @@
+using barakoCMS.Core.Validation;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
@@ -20,10 +21,13 @@ public sealed record ReconcileResponse(int Checked, List<ReconcileRow> Mismatche
 /// content type made in the range with what the workflow posted for it.
 /// </summary>
 /// <remarks>
-/// A subject's amount is its <c>Total</c> field. It matches when the entries a workflow run posted for
+/// A subject's amount is its <c>Total</c> field, or the sum of the fields <c>amountFields</c> names
+/// (comma separated, at most 8 after blanks and repeats are dropped, more is a 400). Each name must be a field the
+/// type declares (matched without regard to case and read under its declared name), or the answer is a 400,
+/// as it is when the type cannot be found. Without <c>amountFields</c> a missing <c>Total</c> counts as zero. It matches when the entries a workflow run posted for
 /// it add up to that amount, or when the posting was reversed (a reversed posting is settled, however
 /// large the subject still reads, and only the key that was reversed). Only entries a workflow run made count, as when the action looks
-/// for its own posting. <c>Total</c> and <c>Number</c> are read only when the type marks them Public,
+/// for its own posting. <c>Number</c> and every amount field are read only when the type marks them Public,
 /// since this route is open to anyone who may view the ledger and not to anyone who may read the
 /// subject. <c>from</c> and <c>to</c> are dates, both days included, at most 366 days apart.
 /// </remarks>
@@ -33,6 +37,7 @@ public class ReconcileEndpoint(IQuerySession session, IPermissionResolver permis
     private const int BatchSize = 200;
     private const int ListCap = 500;
     private const int MaxDays = 366;
+    private const int MaxAmountFields = 8;
 
     public class Request
     {
@@ -40,6 +45,7 @@ public class ReconcileEndpoint(IQuerySession session, IPermissionResolver permis
         public DateOnly? From { get; set; }
         public DateOnly? To { get; set; }
         public string? ActionKey { get; set; }
+        public string? AmountFields { get; set; }
     }
 
     public override void Configure()
@@ -57,7 +63,25 @@ public class ReconcileEndpoint(IQuerySession session, IPermissionResolver permis
             AddError("from and to are required.");
         else if (to < from || to.DayNumber - from.DayNumber + 1 > MaxDays)
             AddError($"The range must run forward and cover at most {MaxDays} days.");
-        if (ValidationFailures.Count == 0 && await NotPublicAsync(req.ContentType, ct) is { } field)
+        var amountFields = ParseAmountFields(req.AmountFields);
+        var named = req.AmountFields?.Split(',').Any(n => !string.IsNullOrWhiteSpace(n)) == true;
+        if (amountFields.Count > MaxAmountFields)
+        {
+            AddError($"amountFields names {amountFields.Count} fields, at most {MaxAmountFields} are allowed.");
+        }
+        if (ValidationFailures.Count == 0 && named)
+        {
+            var declared = await DeclaredAsync(req.ContentType, amountFields, ct);
+            if (declared.Error is { } error)
+            {
+                AddError(error);
+            }
+            else
+            {
+                amountFields = declared.Names;
+            }
+        }
+        if (ValidationFailures.Count == 0 && await NotPublicAsync(req.ContentType, amountFields, named, ct) is { } field)
             AddError($"'{field}' is not a public field of '{req.ContentType}', so it cannot be reconciled.");
         if (ValidationFailures.Count > 0)
         {
@@ -72,17 +96,49 @@ public class ReconcileEndpoint(IQuerySession session, IPermissionResolver permis
             return;
         }
 
-        await Send.ResponseAsync(await ReconcileAsync(req, user, ct), cancellation: ct);
+        await Send.ResponseAsync(await ReconcileAsync(req, user, amountFields, ct), cancellation: ct);
     }
 
-    private async Task<string?> NotPublicAsync(string contentType, CancellationToken ct)
+    /// <summary>The named fields, trimmed, without blanks or repeats (names match without regard to case); <c>Total</c> when none are named.</summary>
+    private static List<string> ParseAmountFields(string? value)
+    {
+        var names = (value ?? string.Empty).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return names.Count == 0 ? ["Total"] : names;
+    }
+
+    private async Task<(List<string> Names, string? Error)> DeclaredAsync(string contentType, List<string> names, CancellationToken ct)
     {
         var definition = await AccountContentTypes.ResolveAsync(session, contentType, ct);
-        return definition?.Fields.FirstOrDefault(f => f.Sensitivity != SensitivityLevel.Public
-            && (string.Equals(f.Name, "Total", StringComparison.OrdinalIgnoreCase) || string.Equals(f.Name, "Number", StringComparison.OrdinalIgnoreCase)))?.Name;
+        if (definition is null)
+        {
+            return ([], $"'{contentType}' was not found, so its amount fields cannot be checked.");
+        }
+        var declared = new List<string>();
+        foreach (var name in names)
+        {
+            var match = definition.Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+            {
+                return ([], $"'{name}' is not a field of '{contentType}', so it cannot be reconciled.");
+            }
+            declared.Add(match.Name);
+        }
+
+        return (declared.Distinct(StringComparer.Ordinal).ToList(), null);
     }
 
-    private async Task<ReconcileResponse> ReconcileAsync(Request req, User user, CancellationToken ct)
+    private async Task<string?> NotPublicAsync(string contentType, List<string> amountFields, bool named, CancellationToken ct)
+    {
+        var definition = await AccountContentTypes.ResolveAsync(session, contentType, ct);
+        return definition?.Fields.FirstOrDefault(f =>
+            (f.Sensitivity != SensitivityLevel.Public
+                && (string.Equals(f.Name, "Number", StringComparison.OrdinalIgnoreCase)
+                    || amountFields.Contains(f.Name, StringComparer.OrdinalIgnoreCase)))
+            || (named && PublicFields.IsOwnerHidden(f) && amountFields.Contains(f.Name, StringComparer.OrdinalIgnoreCase)))?.Name;
+    }
+
+    private async Task<ReconcileResponse> ReconcileAsync(Request req, User user, List<string> amountFields, CancellationToken ct)
     {
         var start = req.From!.Value.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
         var end = req.To!.Value.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
@@ -115,7 +171,7 @@ public class ReconcileEndpoint(IQuerySession session, IPermissionResolver permis
             foreach (var subject in subjects)
             {
                 checkedCount++;
-                Compare(subject, postings.GetValueOrDefault(subject.Id) ?? [], req.ActionKey, response);
+                Compare(subject, postings.GetValueOrDefault(subject.Id) ?? [], req.ActionKey, amountFields, response);
             }
 
             if (batch.Count < BatchSize)
@@ -147,7 +203,7 @@ public class ReconcileEndpoint(IQuerySession session, IPermissionResolver permis
         return result;
     }
 
-    private static void Compare(Content subject, IReadOnlyList<Content> entries, string? actionKey, ReconcileResponse response)
+    private static void Compare(Content subject, IReadOnlyList<Content> entries, string? actionKey, List<string> amountFields, ReconcileResponse response)
     {
         string KeyOf(Content e) => (ContentData.AsString(ContentData.Get(e.Data, "Reference")) ?? string.Empty)[33..];
         IReadOnlyList<Content> mine = string.IsNullOrWhiteSpace(actionKey)
@@ -166,7 +222,7 @@ public class ReconcileEndpoint(IQuerySession session, IPermissionResolver permis
         }
 
         var live = mine.Where(e => e.LifecycleState != AccountingContentTypes.VoidedState).ToList();
-        var subjectAmount = ContentData.AsDecimal(ContentData.Get(subject.Data, "Total"));
+        var subjectAmount = amountFields.Sum(f => ContentData.AsDecimal(ContentData.Get(subject.Data, f)));
         var number = ContentData.AsString(ContentData.Get(subject.Data, "Number"));
         if (live.Count == 0)
         {

@@ -179,6 +179,111 @@ public class MigrationLedgerTests
         (await database.RunsAsync()).Should().Equal("first");
     }
 
+    /// <remarks>
+    /// The backend holding the migration lock is ended after the first file and before the second.
+    /// Revert the <c>IsHeldAsync</c> check in <c>ApplyLockedAsync</c> to see it red: the second file
+    /// runs with no lock held.
+    /// </remarks>
+    [Fact]
+    public async Task A_run_stops_before_the_next_file_once_its_lock_is_gone()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await MigrationScratchDatabase.CreateAsync(_factory);
+        var ledger = database.Ledger();
+        ledger.BeforeStep = async (migration, token) =>
+        {
+            if (migration.Key != "core/4.6.0/second") return;
+
+            await using var admin = new NpgsqlConnection(database.ConnectionString);
+            await admin.OpenAsync(token);
+            await using var kill = new NpgsqlCommand(
+                "select count(*) from (select pg_terminate_backend(pid) from pg_locks where locktype = 'advisory' "
+                + "and database = (select oid from pg_database where datname = current_database()) and granted and ((classid::bigint << 32) | objid::bigint) = @key) t", admin);
+            kill.Parameters.AddWithValue("key", MigrationLedger.LockKey);
+            Convert.ToInt32(await kill.ExecuteScalarAsync(token)).Should().Be(1, "one backend held the lock");
+            await database.WaitForAsync(
+                "select not exists (select 1 from pg_locks where locktype = 'advisory' and granted "
+                + "and database = (select oid from pg_database where datname = current_database()) "
+                + "and ((classid::bigint << 32) | objid::bigint) = " + MigrationLedger.LockKey + ")",
+                "the lock to go with its backend");
+        };
+
+        var result = await ledger.ApplyAsync([Insert("first"), Insert("second"), Insert("third")], Quiet, ct);
+
+        result.Outcome.Should().Be(MigrationRunOutcome.Failed);
+        result.FailedKey.Should().Be("core/4.6.0/second");
+        result.Error.Should().Contain("lock").And.Contain("lost");
+        result.Applied.Should().Equal("core/4.6.0/first");
+        (await database.RunsAsync()).Should().Equal(new[] { "first" }, "no file runs once the lock is gone");
+        (await database.LedgerAsync()).Should().Equal("core/4.6.0/first applied");
+    }
+
+    private static Microsoft.Extensions.Configuration.IConfiguration Refusing(bool on) =>
+        new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Leadership:RefuseBehindPooler"] = on ? "true" : "false" })
+            .Build();
+
+    /// <summary>Revert to see it red: delete the pooler refusal in <c>UnderLockAsync</c>.</summary>
+    [Fact]
+    public async Task A_run_behind_a_pooler_is_refused_when_refusal_is_on_and_applies_when_it_is_off()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await MigrationScratchDatabase.CreateAsync(_factory);
+        ShippedMigration[] shipped = [Insert("first")];
+
+        barakoCMS.Infrastructure.Services.AdvisoryLease.ForcePoolerSuspected = true;
+        try
+        {
+            var refused = () => database.Ledger(configuration: Refusing(true)).ApplyAsync(shipped, Quiet, ct);
+
+            await refused.Should().ThrowAsync<InvalidOperationException>().WithMessage("*pooler*");
+            (await database.RunsAsync()).Should().BeEmpty("a refused run changes nothing");
+
+            var allowed = await database.Ledger(configuration: Refusing(false)).ApplyAsync(shipped, Quiet, ct);
+
+            allowed.Outcome.Should().Be(MigrationRunOutcome.Completed, "off is today's behaviour, so existing deployments start");
+            (await database.RunsAsync()).Should().Equal("first");
+
+            (await database.Ledger().ForgetAsync("core", "4.6.0/first", ct)).Should().Be(1, "no configuration at all is off too");
+        }
+        finally
+        {
+            barakoCMS.Infrastructure.Services.AdvisoryLease.ForcePoolerSuspected = null;
+        }
+    }
+
+    /// <remarks>
+    /// An older build took this lock with <c>pg_try_advisory_lock(8242026901)</c>, and the lease takes
+    /// the same key, so a run of either version refuses while the other holds it.
+    /// </remarks>
+    [Fact]
+    public async Task A_run_holds_the_same_key_an_older_build_took_by_hand()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var database = await MigrationScratchDatabase.CreateAsync(_factory);
+        var ledger = database.Ledger();
+        var holding = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+        ledger.BeforeStep = async (_, _) =>
+        {
+            holding.SetResult();
+            await release.Task;
+        };
+
+        var running = ledger.ApplyAsync([Insert("first")], Quiet, ct);
+        await holding.Task;
+
+        await using (var other = new NpgsqlConnection(database.ConnectionString))
+        {
+            await other.OpenAsync(ct);
+            await using var take = new NpgsqlCommand("select pg_try_advisory_lock(8242026901)", other);
+            (await take.ExecuteScalarAsync(ct)).Should().Be(false, "the run holds the key the old SQL takes");
+        }
+
+        release.SetResult();
+        (await running).Outcome.Should().Be(MigrationRunOutcome.Completed);
+    }
+
     [Fact]
     public async Task What_a_file_raises_as_a_notice_reaches_the_operator()
     {
