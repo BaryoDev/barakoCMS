@@ -139,7 +139,8 @@ internal class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenant
 
         // A locked account gets no new token from a token it already holds, the same refusal the
         // refresh endpoint makes.
-        if (barakoCMS.Infrastructure.Auth.AccountLockout.LockedMessage(user) is not null)
+        if (barakoCMS.Infrastructure.Auth.AccountLockout.LockedMessage(user) is not null
+            || barakoCMS.Infrastructure.Auth.AccountBlock.Is(user))
         {
             await Send.UnauthorizedAsync(ct);
             return;

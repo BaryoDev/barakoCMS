@@ -55,6 +55,19 @@ internal class VerifyEndpoint(
         Options(x => x.RequireRateLimiting("auth"));
     }
 
+    /// <summary>The same answer for an unknown address and a blocked one. A blocked one is audited.</summary>
+    private async Task RefuseUnknownOrBlockedAsync(User? user, CancellationToken ct)
+    {
+        if (user is not null)
+        {
+            await barakoCMS.Infrastructure.Auth.AccountBlock.RecordRefusedLoginAsync(
+                session, tenant.Slug, user, barakoCMS.Infrastructure.DeviceContext.From(HttpContext).IpAddress, ct);
+        }
+
+        await TrySaveAsync(ct);
+        ThrowError("Invalid or expired code.");
+    }
+
     /// <summary>
     /// Saves, reporting a lost optimistic-concurrency race rather than throwing.
     /// </summary>
@@ -166,10 +179,9 @@ internal class VerifyEndpoint(
         var user = await session.Query<User>()
             .Where(u => u.NormalizedEmail == email)
             .FirstOrDefaultAsync(ct);
-        if (user == null)
+        if (user == null || barakoCMS.Infrastructure.Auth.AccountBlock.Is(user))
         {
-            await TrySaveAsync(ct);
-            ThrowError("Invalid or expired code.");
+            await RefuseUnknownOrBlockedAsync(user, ct);
             return;
         }
 

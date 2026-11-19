@@ -38,6 +38,18 @@ internal class VerifyEndpoint(
         Options(x => x.RequireRateLimiting("auth"));
     }
 
+    private async Task RefuseAsync(User? user, DeviceContext device, CancellationToken ct)
+    {
+        if (user is not null && barakoCMS.Infrastructure.Auth.AccountBlock.Is(user))
+        {
+            await barakoCMS.Infrastructure.Auth.AccountBlock.RecordRefusedLoginAsync(
+                session, tenant.Slug, user, device.IpAddress, ct);
+            await session.SaveChangesAsync(ct);
+        }
+
+        ThrowError("Invalid code.");
+    }
+
     public override async Task HandleAsync(VerifyRequest req, CancellationToken ct)
     {
         var device = DeviceContext.From(HttpContext);
@@ -50,10 +62,10 @@ internal class VerifyEndpoint(
         }
 
         var user = await query.LoadAsync<User>(challenge.UserId, ct);
-        if (user is null || !await mfa.IsEnabledAsync(user.Id, ct))
+        if (user is null || barakoCMS.Infrastructure.Auth.AccountBlock.Is(user) || !await mfa.IsEnabledAsync(user.Id, ct))
         {
             // The challenge was minted for this user, so this is an odd state; stay generic.
-            ThrowError("Invalid code.");
+            await RefuseAsync(user, device, ct);
             return;
         }
 

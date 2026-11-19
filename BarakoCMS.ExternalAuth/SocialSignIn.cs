@@ -129,39 +129,24 @@ public static class SocialSignIn
         // A link whose user has been deleted is treated as no link. Otherwise removing an account
         // would lock its provider identity out for good, with nothing an administrator could undo.
         var user = link is null ? null : await session.LoadAsync<User>(link.UserId, ct);
+        if (barakoCMS.Infrastructure.Auth.AccountBlock.Is(user))
+        {
+            await RecordBlockedAsync(session, club, user!, http, ct);
+            return (Tokens.Denied(), false);
+        }
+
         var signUp = await SignUpPolicy.DecideAsync(session, club, ct);
         var created = false;
 
         if (user is null)
         {
-            var email = identity.Email;
-            if (email is null || !identity.EmailVerified)
+            var match = await MatchByEmailAsync(session, http, identity, key, provider, club, signUp, ct);
+            if (match.User is null)
             {
-                return (Tokens.Denied(), true);
+                return (Tokens.Denied(), match.EmailNotVerified);
             }
 
-            user = await session.Query<User>().FirstOrDefaultAsync(u => u.NormalizedEmail == email, ct);
-            if (user is null)
-            {
-                if (signUp.Outcome == SignUpOutcome.Refused)
-                {
-                    return (Tokens.Denied(), false);
-                }
-
-                user = await NewUserAsync(session, email, ct);
-                created = true;
-            }
-
-            // An address the operator chose to trust, and the provider did not vouch for, may sign
-            // in to the account holding it, but is not made permanent. A new account is its own.
-            if (created || !identity.EmailTrustedByOperator)
-            {
-                session.Store(new ExternalIdentity
-                {
-                    Id = key, Issuer = identity.Issuer, Subject = identity.Subject,
-                    UserId = user.Id, Provider = provider, LinkedAt = DateTime.UtcNow,
-                });
-            }
+            (user, created) = (match.User, match.Created);
         }
 
         var mapped = await MappedRolesAsync(session, config, identity, provider, club, ct);
@@ -170,6 +155,69 @@ public static class SocialSignIn
             with { AccountKey = key };
         return (await IssueForUserAsync(
             session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, beforeFinalCommit, mapped, provider), false);
+    }
+
+    private static async Task RecordBlockedAsync(
+        IDocumentSession session, string club, User user, HttpContext http, CancellationToken ct)
+    {
+        // The club comes from the caller and TenantSignIn accepts an unregistered one, so an audit
+        // row is only filed under a tenant that exists. Anything else goes to the default tenant.
+        var slug = TenantSlugs.Normalise(club);
+        if (slug != Tenant.DefaultSlug && !await session.Query<Tenant>().AnyAsync(t => t.Slug == slug, ct))
+        {
+            slug = Tenant.DefaultSlug;
+        }
+
+        await barakoCMS.Infrastructure.Auth.AccountBlock.RecordRefusedLoginAsync(
+            session, slug, user, barakoCMS.Infrastructure.DeviceContext.From(http).IpAddress, ct);
+        await session.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Links an unknown identity by its verified address, to the local user holding it or to a new
+    /// one. A null user is a refusal. A blocked account is refused before any link is stored.
+    /// </summary>
+    private static async Task<(User? User, bool Created, bool EmailNotVerified)> MatchByEmailAsync(
+        IDocumentSession session, HttpContext http, OidcIdentity identity, string key, string provider, string club,
+        SignUpDecision signUp, CancellationToken ct)
+    {
+        var email = identity.Email;
+        if (email is null || !identity.EmailVerified)
+        {
+            return (null, false, true);
+        }
+
+        var user = await session.Query<User>().FirstOrDefaultAsync(u => u.NormalizedEmail == email, ct);
+        if (barakoCMS.Infrastructure.Auth.AccountBlock.Is(user))
+        {
+            await RecordBlockedAsync(session, club, user!, http, ct);
+            return (null, false, false);
+        }
+
+        var created = false;
+        if (user is null)
+        {
+            if (signUp.Outcome == SignUpOutcome.Refused)
+            {
+                return (null, false, false);
+            }
+
+            user = await NewUserAsync(session, email, ct);
+            created = true;
+        }
+
+        // An address the operator chose to trust, and the provider did not vouch for, may sign
+        // in to the account holding it, but is not made permanent. A new account is its own.
+        if (created || !identity.EmailTrustedByOperator)
+        {
+            session.Store(new ExternalIdentity
+            {
+                Id = key, Issuer = identity.Issuer, Subject = identity.Subject,
+                UserId = user.Id, Provider = provider, LinkedAt = DateTime.UtcNow,
+            });
+        }
+
+        return (user, created, false);
     }
 
     /// <summary>A new local user for a verified address, stored on the session.</summary>

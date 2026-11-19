@@ -135,6 +135,48 @@ and the access token minted by that refresh carries it.
 Rotation clears `Device`, `SignInIp` and `LastSeenIp` on the row it retires. Erasing a user blanks
 the same three fields on every row of that user, used rows included.
 
+## Blocking an account
+
+`POST /api/users/{userId}/block` and `/unblock` are for a global SuperAdmin. They refuse your own
+account (400) and any user holding the SuperAdmin role, in their global roles or in a membership
+(403). A user who does not exist is a 404 whose error reads "No account has that id.", so a console can tell it from a server with no block route, which answers 404 with no body. A block is global: it is separate from `LockoutUntil`, which
+the failed-login counter sets and a password reset clears. Both are audited, as `auth.account.blocked`
+and `auth.account.unblocked`. Repeating either changes nothing and is not audited twice.
+
+Block and unblock take a per-user advisory lock inside their transaction, so two calls at once run
+one after the other and only the call that changed `BlockedAt` writes the audit row.
+
+Blocking stores `BlockedAt` and `BlockedBy` on the user, revokes every refresh row, and caches
+the session epoch as the far future while `BlockedAt` is set, so every access token is refused on
+the next request, a token minted in the same second as the block included. Blocking a user who is
+already blocked revokes refresh rows again, because a sign-in can commit its row between the first
+block's query and its commit, but it does not audit again.
+
+A blocked user gets no token on any path. The token issuer reads the stored row, so password,
+code, link, MFA completion, social sign-in, the OIDC id token grant, refresh and tenant switch all
+refuse, and so does a step-up code. Each answers as it does for a wrong password or an unknown
+account, with the same work. A blocked password attempt is audited as `auth.login.blocked` with
+reason `account_blocked`. Code and link requests send no mail and store nothing. A challenge or code
+issued before the block does not finish. An API key owned by the user is refused with 401, and works
+again after unblock. A service principal key does not read its creator and keeps working.
+
+Unblocking clears both fields, revokes every refresh row (any row alive then was minted during the
+block), and sets `TokensValidFrom` to the next whole second. Sessions and tokens the block ended stay
+ended, so the person signs in again. `FailedLoginAttempts` and `LockoutUntil` are left as they were.
+
+What to expect from this:
+
+- Other instances keep a cached epoch for up to 30 seconds (`SessionEpochService.CacheDuration`).
+  After a block, an access token can still pass on another instance for that long. After an unblock,
+  another instance can refuse a fresh sign-in for up to the same 30 seconds.
+- The epoch check fails open when the database cannot be read. The token issuer reads the stored
+  row, so new sign-ins, refreshes and tenant switches close at once even then.
+- A sign-in in the same second as the unblock is refused by the epoch, because token times and the
+  epoch are compared in whole seconds. The person signs in a second time.
+- Blocking the last Admin of a tenant is allowed. A SuperAdmin can still manage that tenant.
+
+`GET /api/users` returns `"blocked": true` on a blocked account and omits the field otherwise.
+
 ## What this needs from your deployment
 
 The cookie is `SameSite=Lax`, which means the browser sends it when the admin and the API are the

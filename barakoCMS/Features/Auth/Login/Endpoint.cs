@@ -121,6 +121,27 @@ internal class Endpoint : Endpoint<Request, Response>
     }
 
     /// <summary>
+    /// Answers a locked or blocked account like a wrong password, with the same verify. A block is
+    /// audited with its own reason so an administrator can tell it from a lock.
+    /// </summary>
+    private async Task RefuseLockedOrBlockedAsync(
+        barakoCMS.Models.User user, Request req, barakoCMS.Infrastructure.DeviceContext device, CancellationToken ct)
+    {
+        BCrypt.Net.BCrypt.Verify(req.Password, DummyPasswordHash);
+
+        var blocked = barakoCMS.Infrastructure.Auth.AccountBlock.Is(user);
+        _logger.LogWarning("Login attempt for {State} account: {Username}", blocked ? "blocked" : "locked", req.Username);
+
+        var metadata = blocked
+            ? new Dictionary<string, object> { ["reason"] = barakoCMS.Infrastructure.Auth.AccountBlock.LoginAuditReason }
+            : new Dictionary<string, object> { ["reason"] = "locked_out", ["lockoutUntil"] = user.LockoutUntil!.Value };
+        await AuditLog.RecordAsync(_documentSession, _tenant.Slug, barakoCMS.Infrastructure.Auth.AccountBlock.LoginAuditAction,
+            user.Id, user.Username, metadata: metadata, ipAddress: device.IpAddress, ct: ct);
+        await _documentSession.SaveChangesAsync(ct);
+        ThrowError("Invalid credentials", 401);
+    }
+
+    /// <summary>
     /// Refuses a tenant that does not allow passwords, before the account is looked at, so the
     /// answer is the same for every username and says only what the tenant allows.
     /// </summary>
@@ -156,18 +177,10 @@ internal class Endpoint : Endpoint<Request, Response>
         // the same verify. An account that does not exist never locks, so any distinct answer here
         // tells a caller the username is real, and a stated duration tells them when to lock it
         // again. The owner hears about the lock by email instead, when it is set (#640).
-        if (user.LockoutUntil.HasValue && user.LockoutUntil.Value > DateTime.UtcNow)
+        if (barakoCMS.Infrastructure.Auth.AccountBlock.Is(user)
+            || (user.LockoutUntil.HasValue && user.LockoutUntil.Value > DateTime.UtcNow))
         {
-            BCrypt.Net.BCrypt.Verify(req.Password, DummyPasswordHash);
-
-            _logger.LogWarning(
-                "Login attempt for locked account: {Username}, Lockout until: {LockoutUntil}",
-                req.Username, user.LockoutUntil.Value);
-
-            await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.blocked", user.Id, user.Username,
-                metadata: new() { ["reason"] = "locked_out", ["lockoutUntil"] = user.LockoutUntil.Value }, ipAddress: device.IpAddress, ct: ct);
-            await _documentSession.SaveChangesAsync(ct);
-            ThrowError("Invalid credentials", 401);
+            await RefuseLockedOrBlockedAsync(user, req, device, ct);
             return;
         }
 
