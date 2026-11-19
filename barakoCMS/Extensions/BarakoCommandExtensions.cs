@@ -192,8 +192,9 @@ public static class BarakoCommandExtensions
                 "The folder holds an assembly the host's deps.json does not list. Run the command from a publish output.";
             Console.Error.WriteLine(reason);
             Console.Error.WriteLine(advice);
-            // The console lines above skip the file and remote sinks, so log it too.
-            Log.Fatal(ex, "{Reason} {Advice}", reason, advice);
+            // The console lines above skip the file and remote sinks, so log it too. The exception goes
+            // in by type only: its stack trace is the dump this handler exists to replace.
+            Log.Fatal("{Reason} {Advice} ({ExceptionType})", reason, advice, ex.GetType().Name);
             return 1;
         }
     }
