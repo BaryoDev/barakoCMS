@@ -723,6 +723,9 @@ jobs:
       - name: Prove the budget comparison can fail
         run: bash scripts/test-perf-budget.sh
 
+      - name: Prove the image size is read from the saved layers
+        run: bash scripts/test-perf-image-size.sh
+
       - name: Measure the image and the running API
         run: bash scripts/perf-measure.sh "$RUNNER_TEMP/perf.json"
 
