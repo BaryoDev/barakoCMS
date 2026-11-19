@@ -2911,7 +2911,8 @@
             "type": "array"
           },
           "scheme": {
-            "description": "Hmac or Svix.",
+            "description": "Hmac or Svix. Absent means Hmac on create and the stored scheme on update.",
+            "nullable": true,
             "type": "string"
           },
           "secret": {
