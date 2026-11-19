@@ -969,6 +969,12 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
                     continue;
                 }
 
+                if (action.Type == "Webhook" && requiredParam == "Url"
+                    && !string.IsNullOrWhiteSpace(action.Parameters.GetValueOrDefault(WebhookAction.ConnectorParameter)))
+                {
+                    continue;
+                }
+
                 if (!action.Parameters.ContainsKey(requiredParam) ||
                     string.IsNullOrWhiteSpace(action.Parameters[requiredParam]))
                 {
@@ -982,8 +988,29 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             }
         }
 
-        if (action.Type is "Webhook" or "Publish"
-            && WebhookSigning.IsInsecureSignedUrl(action.Parameters.GetValueOrDefault("Url"), action.Parameters, _allowInsecureSignedUrls))
+        ValidateWebhookParameters(action, fieldPrefix, result);
+    }
+
+    private void ValidateWebhookParameters(WorkflowAction action, string fieldPrefix, WorkflowValidationResult result)
+    {
+        if (action.Type is not ("Webhook" or "Publish")) return;
+
+        if (action.Type == "Webhook" && !string.IsNullOrWhiteSpace(action.Parameters.GetValueOrDefault(WebhookAction.ConnectorParameter)))
+        {
+            if (!string.IsNullOrWhiteSpace(action.Parameters.GetValueOrDefault("Url")) || WebhookSigning.HasSecret(action.Parameters))
+            {
+                result.Errors.Add(new ValidationError
+                {
+                    Field = $"{fieldPrefix}.parameters.{WebhookAction.ConnectorParameter}",
+                    Message = "Name a Connector or a Url and Secret, not both"
+                });
+                result.IsValid = false;
+            }
+
+            return;
+        }
+
+        if (WebhookSigning.IsInsecureSignedUrl(action.Parameters.GetValueOrDefault("Url"), action.Parameters, _allowInsecureSignedUrls))
         {
             result.Errors.Add(new ValidationError
             {

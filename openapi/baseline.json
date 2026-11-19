@@ -2882,6 +2882,15 @@
             "format": "guid",
             "type": "string"
           },
+          "inbound": {
+            "description": "Null for a connector with no inbound section.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesConnectorsInboundResponse"
+              }
+            ]
+          },
           "lastTestResult": {
             "nullable": true,
             "type": "string"
@@ -2919,6 +2928,50 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesConnectorsInboundResponse": {
+        "additionalProperties": false,
+        "description": "The inbound section as the API describes it. The secret is only ever reported as set or not.",
+        "properties": {
+          "allowedEvents": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "scheme": {
+            "type": "string"
+          },
+          "secretSet": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesConnectorsSaveConnectorInbound": {
+        "additionalProperties": false,
+        "description": "The inbound section of a save.",
+        "properties": {
+          "allowedEvents": {
+            "description": "The provider event names this connector may send. Empty means any.",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "scheme": {
+            "description": "Hmac or Svix. Absent means Hmac on create and the stored scheme on update.",
+            "nullable": true,
+            "type": "string"
+          },
+          "secret": {
+            "description": "The inbound signing secret. Write only, and handled like Secrets:\nabsent keeps the stored one, an empty value removes it.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesConnectorsSaveConnectorRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2930,6 +2983,15 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "inbound": {
+            "description": "How this party signs what it sends to us. Absent on update leaves the stored section alone.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesConnectorsSaveConnectorInbound"
+              }
+            ]
           },
           "name": {
             "type": "string"

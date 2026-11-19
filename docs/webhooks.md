@@ -92,6 +92,14 @@ If `Secrets:Key` is rotated, stored secrets can no longer be decrypted. The acti
 send rather than sending unsigned, marks the attempt as a permanent failure with that reason, and
 the fix is to enter the secret again on the workflow.
 
+## Naming a connector instead
+
+`Connector` can stand in for `Url` and `Secret`. It names a connector of the same tenant
+([connectors.md](connectors.md)): its `baseUrl` is the target and its `SigningSecret`, when it has
+one, signs the delivery with the recipe below. Setting `Connector` together with `Url` or `Secret` is
+refused on save, a connector that is missing or disabled at run time fails the action with no
+request, and a signed delivery to an `http` base URL follows the rule in the next section.
+
 ## Signed deliveries need https
 
 A `Webhook` with a `Secret` must use an `https` URL. Over `http` the body and the signature travel
