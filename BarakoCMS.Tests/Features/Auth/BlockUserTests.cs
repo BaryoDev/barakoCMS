@@ -48,7 +48,9 @@ public class BlockUserTests
         var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
         if (bearer is not null)
+        {
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
+        }
         return client;
     }
 
@@ -257,8 +259,46 @@ public class BlockUserTests
     {
         var node = JsonNode.Parse(body);
         if (node is JsonObject obj)
+        {
             obj.Remove("traceId");
+        }
         return node?.ToJsonString() ?? string.Empty;
+    }
+
+    private async Task<int> RefusedLoginsAsync(Guid userId)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var rows = await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<AuditEvent>()
+            .Where(e => e.Action == "auth.login.blocked" && e.ActorUserId == userId)
+            .ToListAsync(Ct);
+        rows.Should().OnlyContain(r => r.Metadata != null && r.Metadata["reason"].ToString() == "account_blocked");
+        return rows.Count;
+    }
+
+    /// <summary>
+    /// Runs one refused sign-in and expects it to leave an auth.login.blocked row. The token issuer
+    /// would refuse most of these anyway, so the row is what proves the path's own check ran.
+    /// </summary>
+    private async Task AuditedAsync(Guid userId, string path, Func<Task> attempt)
+    {
+        var before = await RefusedLoginsAsync(userId);
+        await attempt();
+        (await RefusedLoginsAsync(userId)).Should().Be(before + 1, path + " is audited as account_blocked");
+    }
+
+    private async Task StoreRefreshAsync(Guid userId, string raw)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new RefreshToken
+        {
+            Id = Guid.NewGuid(),
+            Token = raw,
+            UserId = userId,
+            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            CreatedAt = DateTime.UtcNow,
+        });
+        await session.SaveChangesAsync(Ct);
     }
 
     private async Task<List<AuditEvent>> AuditAsync(string action, Guid target)
@@ -323,19 +363,22 @@ public class BlockUserTests
         var password = await SeedUserAsync();
         await LoginAsync(password);
         await BlockedAsync(password);
-        (await LoginRawAsync(password.Username, Password)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        await AuditedAsync(password.Id, "password", async () =>
+            (await LoginRawAsync(password.Username, Password)).StatusCode.Should().Be(HttpStatusCode.Unauthorized));
 
         // Emailed code.
         var code = await SeedUserAsync();
         await SeedOtpAsync(code.Email);
         await BlockedAsync(code);
-        (await VerifyOtpAsync(code.Email)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        await AuditedAsync(code.Id, "code", async () =>
+            (await VerifyOtpAsync(code.Email)).StatusCode.Should().Be(HttpStatusCode.BadRequest));
 
         // Emailed link.
         var link = await SeedUserAsync();
         var token = await SeedLinkAsync(link.Email);
         await BlockedAsync(link);
-        (await ConfirmLinkAsync(token)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        await AuditedAsync(link.Id, "link", async () =>
+            (await ConfirmLinkAsync(token)).StatusCode.Should().Be(HttpStatusCode.BadRequest));
 
         // Second factor: the password step is refused before any challenge exists.
         var (mfaUser, _) = await EnrolledUserAsync();
@@ -355,8 +398,10 @@ public class BlockUserTests
             (await SocialAsync(social.Email, provider, subject)).Allowed.Should().BeTrue(provider + " before the block");
             await BlockedAsync(social);
 
-            (await SocialAsync(social.Email, provider, subject)).Allowed.Should().BeFalse(provider + " by its link");
-            (await SocialAsync(social.Email, provider)).Allowed.Should().BeFalse(provider + " by address");
+            await AuditedAsync(social.Id, provider + " by its link", async () =>
+                (await SocialAsync(social.Email, provider, subject)).Allowed.Should().BeFalse());
+            await AuditedAsync(social.Id, provider + " by address", async () =>
+                (await SocialAsync(social.Email, provider)).Allowed.Should().BeFalse());
         }
 
         // The OIDC id token grant.
@@ -364,8 +409,10 @@ public class BlockUserTests
         var oidcSubject = "sub-" + Guid.NewGuid().ToString("N");
         (await OidcAsync(oidc.Email, oidcSubject)).Allowed.Should().BeTrue("before the block");
         await BlockedAsync(oidc);
-        (await OidcAsync(oidc.Email, oidcSubject)).Allowed.Should().BeFalse("by its link");
-        (await OidcAsync(oidc.Email)).Allowed.Should().BeFalse("by address");
+        await AuditedAsync(oidc.Id, "oidc by its link", async () =>
+            (await OidcAsync(oidc.Email, oidcSubject)).Allowed.Should().BeFalse());
+        await AuditedAsync(oidc.Id, "oidc by address", async () =>
+            (await OidcAsync(oidc.Email)).Allowed.Should().BeFalse());
 
         // Nothing above left a live session behind for a blocked user.
         (await RefreshRowsAsync(password.Id, liveOnly: true)).Should().Be(0);
@@ -392,7 +439,9 @@ public class BlockUserTests
         responses.Should().OnlyContain(r => r.StatusCode == HttpStatusCode.Unauthorized);
         var bodies = new List<string>();
         foreach (var response in responses)
+        {
             bodies.Add(Comparable(await response.Content.ReadAsStringAsync(Ct)));
+        }
         bodies.Should().HaveCount(3);
         bodies.Distinct().Should().ContainSingle("the three answers are the same: {0}", string.Join(" | ", bodies));
 
@@ -489,8 +538,10 @@ public class BlockUserTests
         var code = await SeedUserAsync();
         await SeedOtpAsync(code.Email);
         await BlockedAsync(code);
+        var codeBefore = await RefusedLoginsAsync(code.Id);
         var otp = await VerifyOtpAsync(code.Email);
         otp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await RefusedLoginsAsync(code.Id)).Should().Be(codeBefore + 1, "the code path is audited as account_blocked");
         (await otp.Content.ReadAsStringAsync(Ct)).Should().NotContain("refreshToken\":\"");
         (await RefreshRowsAsync(code.Id, liveOnly: false)).Should().Be(0);
 
@@ -498,15 +549,19 @@ public class BlockUserTests
         var link = await SeedUserAsync();
         var token = await SeedLinkAsync(link.Email);
         await BlockedAsync(link);
+        var linkBefore = await RefusedLoginsAsync(link.Id);
         (await ConfirmLinkAsync(token)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await RefusedLoginsAsync(link.Id)).Should().Be(linkBefore + 1, "the link path is audited as account_blocked");
         (await RefreshRowsAsync(link.Id, liveOnly: false)).Should().Be(0);
 
         // Second factor: the password step passed, the block came before the code.
         var (mfaUser, secret) = await EnrolledUserAsync();
         var challenge = await MfaChallengeAsync(mfaUser);
         await BlockedAsync(mfaUser);
+        var mfaBefore = await RefusedLoginsAsync(mfaUser.Id);
         var verify = await VerifyMfaAsync(challenge, secret);
         verify.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await RefusedLoginsAsync(mfaUser.Id)).Should().Be(mfaBefore + 1, "the MFA path is audited as account_blocked");
         (await verify.Content.ReadAsStringAsync(Ct)).Should().NotContain("refreshToken\":\"");
         (await RefreshRowsAsync(mfaUser.Id, liveOnly: false)).Should().Be(0);
     }
@@ -561,9 +616,18 @@ public class BlockUserTests
         // Warm this instance's cached epoch, the way an earlier request would have.
         (await WhoAmIAsync(session.Token)).StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // The token's iat is the same whole second as the block's epoch stamp, which the epoch check
-        // alone serves. The block itself has to refuse it.
         await BlockedAsync(user);
+
+        // The epoch the block stamped is put back to before the token's iat, which is what a token
+        // minted between the stamp and the commit would face. Only the block itself refuses it now.
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var write = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            write.Patch<User>(user.Id).Set(u => u.TokensValidFrom, (DateTime?)DateTime.UtcNow.AddMinutes(-5));
+            await write.SaveChangesAsync(Ct);
+            scope.ServiceProvider.GetRequiredService<ISessionEpochService>().Invalidate(user.Id);
+        }
+
         (await WhoAmIAsync(session.Token)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         await Task.Delay(TimeSpan.FromMilliseconds(1100), Ct);
@@ -571,6 +635,68 @@ public class BlockUserTests
 
         (await WhoAmIAsync(session.Token)).StatusCode.Should().Be(
             HttpStatusCode.Unauthorized, "a token from before the block does not come back with the account");
+    }
+
+    [Fact]
+    public async Task Unblock_drops_the_cached_blocked_epoch()
+    {
+        var user = await SeedUserAsync();
+        var old = await LoginAsync(user);
+
+        await BlockedAsync(user);
+        (await WhoAmIAsync(old.Token)).StatusCode.Should().Be(HttpStatusCode.Unauthorized, "this caches the blocked epoch");
+
+        await UnblockAsync(user);
+        await Task.Delay(TimeSpan.FromMilliseconds(1100), Ct);
+        var fresh = await LoginAsync(user);
+
+        (await WhoAmIAsync(fresh.Token)).StatusCode.Should().Be(
+            HttpStatusCode.OK, "the cached far-future epoch did not survive the unblock");
+    }
+
+    [Fact]
+    public async Task Refresh_row_stored_during_the_block_does_not_work_after_unblock()
+    {
+        var user = await SeedUserAsync();
+        await BlockedAsync(user);
+
+        // A sign-in that committed after the block's revoke query leaves a row like this.
+        var raw = Convert.ToBase64String(Guid.NewGuid().ToByteArray());
+        await StoreRefreshAsync(user.Id, raw);
+
+        (await UnblockAsync(user)).Should().Be(HttpStatusCode.OK);
+        (await RefreshRowsAsync(user.Id, liveOnly: true)).Should().Be(0);
+        (await RefreshAsync(raw)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task A_repeated_block_revokes_again_without_a_second_audit()
+    {
+        var user = await SeedUserAsync();
+        await BlockedAsync(user);
+        await StoreRefreshAsync(user.Id, Convert.ToBase64String(Guid.NewGuid().ToByteArray()));
+
+        await BlockedAsync(user);
+
+        (await RefreshRowsAsync(user.Id, liveOnly: true)).Should().Be(0);
+        (await AuditAsync("auth.account.blocked", user.Id)).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Concurrent_blocks_and_unblocks_audit_once()
+    {
+        var user = await SeedUserAsync();
+        var admin = await SuperAdminAsync();
+
+        var blocks = await Task.WhenAll(Enumerable.Range(0, 4)
+            .Select(_ => admin.Client.PostAsync($"/api/users/{user.Id}/block", null, Ct)));
+        blocks.Should().OnlyContain(r => r.StatusCode == HttpStatusCode.OK);
+        (await AuditAsync("auth.account.blocked", user.Id)).Should().ContainSingle();
+
+        var unblocks = await Task.WhenAll(Enumerable.Range(0, 4)
+            .Select(_ => admin.Client.PostAsync($"/api/users/{user.Id}/unblock", null, Ct)));
+        unblocks.Should().OnlyContain(r => r.StatusCode == HttpStatusCode.OK);
+        (await AuditAsync("auth.account.unblocked", user.Id)).Should().ContainSingle();
     }
 
     [Fact]
