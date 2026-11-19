@@ -100,7 +100,7 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAu
         foreach (var type in key.ContentTypes ?? [])
             claims.Add(new Claim(ContentTypeClaim, type));
 
-        _ = TouchLastUsedAsync(store, key.Id, key.LastUsedAt, DeviceContext.From(Context).IpAddress); // best-effort, non-blocking
+        _ = TouchLastUsedAsync(store, key.Id, key.LastUsedAt, Context.Connection.RemoteIpAddress?.ToString()); // best-effort, non-blocking
 
         var identity = new ClaimsIdentity(claims, SchemeName, "Username", ClaimTypes.Role);
         var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName);
@@ -225,7 +225,11 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAu
             // concurrent revoke (Revoked=true) written between our load and save — silently
             // un-revoking the key. A field patch never touches Revoked, so revocation stays durable.
             s.Patch<ApiKey>(keyId).Set(x => x.LastUsedAt, DateTime.UtcNow);
-            s.Patch<ApiKey>(keyId).Set(x => x.LastUsedIp, ip);
+            if (ip is not null)
+            {
+                s.Patch<ApiKey>(keyId).Set(x => x.LastUsedIp, ip);
+            }
+
             await s.SaveChangesAsync();
         }
         catch { /* last-used is best-effort; never fail a request over it */ }
