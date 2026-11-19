@@ -1,5 +1,6 @@
 using barakoCMS.Features.ApiKeys;
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -16,17 +17,18 @@ internal sealed class Request
 
 /// <summary>What a dry run answers. A real delete answers 204 with no body.</summary>
 /// <param name="DryRun">Always true.</param>
-/// <param name="ApiKeysAffected">How many live keys of the caller's tenant name the type.</param>
-/// <param name="ApiKeyWarnings">Those keys, or empty when the caller may not read API keys.</param>
+/// <param name="ApiKeysAffected">How many live keys name the type, across every tenant of the account.</param>
+/// <param name="ApiKeyWarnings">The keys of the caller's tenant that name it, or empty when the caller may not read API keys.</param>
 internal sealed record Response(bool DryRun, int ApiKeysAffected, List<ApiKeyWarning> ApiKeyWarnings)
     : barakoCMS.Core.Validation.IDryRunResponse;
 
 /// <summary>DELETE /api/accounts/{slug}/content-types/{name}: remove an account-owned type.</summary>
 /// <remarks>
 /// With <c>?dryRun=true</c> it runs the same checks and deletes nothing, answering 200 with how many
-/// live API keys (not revoked, not expired) of the caller's tenant only name the type. The keys
-/// themselves (id, name, prefix, types) are listed only for a caller who may read API keys, since
-/// the delete is gated on ManageTenants and key names are key data. Without it the answer is 204.
+/// live API keys (not revoked, not expired) name the type in any tenant of the account, since the
+/// delete removes the type for all of them. The keys themselves (id, name, prefix, types) are
+/// listed only for the caller's tenant and only for a caller who may read API keys, since the delete
+/// is gated on ManageTenants and key names are key data. Without it the answer is 204.
 /// Refused while an entry of the type exists in any tenant of the account, counted on a session
 /// opened for each tenant so it holds under <c>Tenancy:DatabaseEnforcement</c>, since the entries
 /// would be left with no type to validate them. A tenant that cannot be read fails the request
@@ -65,9 +67,10 @@ internal sealed class Endpoint(
 
         if (req.DryRun)
         {
-            var affected = await ApiKeyContentTypeImpact.KeysNamingAsync(session, tenant.Slug, [name], ct);
+            var slugs = tenantIds.Select(TenantScopes.SlugFor).ToList();
+            var impact = await ApiKeyContentTypeImpact.ImpactAsync(session, slugs, tenant.Slug, [name], ct);
             var mayRead = await CapabilityGateProcessor.HoldsAsync(HttpContext, ListApiKeysEndpoint.Gate, ct);
-            await Send.OkAsync(new Response(true, affected.Count, mayRead ? affected : []), ct);
+            await Send.OkAsync(new Response(true, impact.Count, mayRead ? impact.Keys : []), ct);
             return;
         }
 
