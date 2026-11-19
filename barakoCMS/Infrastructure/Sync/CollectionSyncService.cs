@@ -170,6 +170,14 @@ internal sealed class CollectionSyncService(
             budget -= await SweepTenantAsync(slug, nowUtc, budget, ct, lease.IsHeldAsync);
         }
 
+        // SweepTenantAsync stops a tenant early when the lock is gone but only reports a count, so
+        // ask once more: a sweep that lost its lock partway did not cover every sync.
+        if (!await lease.IsHeldAsync(ct))
+        {
+            logger.LogWarning("The collection sync sweep lost its advisory lock before it finished");
+            return false;
+        }
+
         return true;
     }
 
