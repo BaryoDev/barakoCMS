@@ -18,6 +18,8 @@ public sealed class ImportModule : IBarakoModule
 
     public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
 
+    public int HttpContractVersion => 1;
+
     public string? Category => ModuleCategory.Content;
 
     public string? Description => "Bulk-create content from xlsx or CSV";
