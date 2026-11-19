@@ -387,6 +387,35 @@ public class ReconcileTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public async Task A_named_amount_field_its_owner_can_hide_is_a_400_and_the_body_names_it()
+    {
+        var type = NewType();
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = type,
+                Fields =
+                [
+                    new FieldDefinition { Name = "Amount", DisplayName = "Amount", Type = "decimal" },
+                    new FieldDefinition { Name = "Tip", DisplayName = "Tip", Type = "decimal", ShownWhenListedIn = "tipVisibility" },
+                ],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var client = await _callers.SuperAdminAsync(null);
+
+        var response = await client.GetAsync(Url(type) + "&amountFields=Amount,Tip", Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(Ct)).Should().Contain("Tip");
+    }
+
+    [Fact]
     public async Task More_than_eight_amount_fields_is_a_400_and_eight_is_accepted()
     {
         var client = await _callers.SuperAdminAsync(null);

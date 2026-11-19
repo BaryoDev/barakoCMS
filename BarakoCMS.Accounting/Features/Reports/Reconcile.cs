@@ -1,3 +1,4 @@
+using barakoCMS.Core.Validation;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
@@ -80,7 +81,7 @@ public class ReconcileEndpoint(IQuerySession session, IPermissionResolver permis
                 amountFields = declared.Names;
             }
         }
-        if (ValidationFailures.Count == 0 && await NotPublicAsync(req.ContentType, amountFields, ct) is { } field)
+        if (ValidationFailures.Count == 0 && await NotPublicAsync(req.ContentType, amountFields, named, ct) is { } field)
             AddError($"'{field}' is not a public field of '{req.ContentType}', so it cannot be reconciled.");
         if (ValidationFailures.Count > 0)
         {
@@ -127,12 +128,14 @@ public class ReconcileEndpoint(IQuerySession session, IPermissionResolver permis
         return (declared.Distinct(StringComparer.Ordinal).ToList(), null);
     }
 
-    private async Task<string?> NotPublicAsync(string contentType, List<string> amountFields, CancellationToken ct)
+    private async Task<string?> NotPublicAsync(string contentType, List<string> amountFields, bool named, CancellationToken ct)
     {
         var definition = await AccountContentTypes.ResolveAsync(session, contentType, ct);
-        return definition?.Fields.FirstOrDefault(f => f.Sensitivity != SensitivityLevel.Public
-            && (string.Equals(f.Name, "Number", StringComparison.OrdinalIgnoreCase)
-                || amountFields.Contains(f.Name, StringComparer.OrdinalIgnoreCase)))?.Name;
+        return definition?.Fields.FirstOrDefault(f =>
+            (f.Sensitivity != SensitivityLevel.Public
+                && (string.Equals(f.Name, "Number", StringComparison.OrdinalIgnoreCase)
+                    || amountFields.Contains(f.Name, StringComparer.OrdinalIgnoreCase)))
+            || (named && PublicFields.IsOwnerHidden(f) && amountFields.Contains(f.Name, StringComparer.OrdinalIgnoreCase)))?.Name;
     }
 
     private async Task<ReconcileResponse> ReconcileAsync(Request req, User user, List<string> amountFields, CancellationToken ct)
