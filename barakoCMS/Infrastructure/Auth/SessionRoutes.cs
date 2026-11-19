@@ -47,8 +47,9 @@ internal static class SessionRoutes
     }
 
     /// <summary>
-    /// Ends one live session of the user and audits it. False when the user has no such live
-    /// session, so a caller cannot tell another person's session from one that does not exist.
+    /// Ends one live session of the user and audits it in the same save. False when the user has no
+    /// such live session or another call ended it first, so a caller cannot tell another person's
+    /// session from one that does not exist, and only the call that ended it audits it.
     /// </summary>
     public static async Task<bool> EndAsync(
         IDocumentSession session, IMemoryCache? cache, string tenantSlug, Guid? actorId, string? actorName,
@@ -60,17 +61,21 @@ internal static class SessionRoutes
             return false;
         }
 
-        await SessionRevocation.EndAsync(session, cache, userId, sessionId, ct);
-        await Audit(session, tenantSlug, actorId, actorName, userId, sessionId, ct);
-        return true;
+        return await SessionRevocation.EndAsync(
+            session, cache, userId, sessionId, ct, s => Audit(s, tenantSlug, actorId, actorName, userId, sessionId, ct));
     }
 
-    /// <summary>Ends every live session of the user except <paramref name="keep"/>, and returns how many.</summary>
+    /// <summary>
+    /// Ends every live session of the user except <paramref name="keep"/>, and returns how many. Also
+    /// revokes the user's unrevoked rows that have no session id, since a refresh of one starts a
+    /// session of its own.
+    /// </summary>
     public static async Task<int> EndAllAsync(
         IDocumentSession session, IMemoryCache? cache, string tenantSlug, Guid? actorId, string? actorName,
         Guid userId, Guid? keep, CancellationToken ct)
     {
         var ended = 0;
+        var unmarkedDone = false;
         while (true)
         {
             var live = Live(session, userId);
@@ -85,27 +90,58 @@ internal static class SessionRoutes
                 .ToListAsync(ct);
             if (ids.Count == 0)
             {
-                return ended;
+                break;
             }
 
             foreach (var id in ids.Distinct())
             {
-                await SessionRevocation.EndAsync(session, cache, userId, id, ct);
-                await Audit(session, tenantSlug, actorId, actorName, userId, id, ct);
-                ended++;
+                var withUnmarked = !unmarkedDone;
+                var revoked = await SessionRevocation.EndAsync(session, cache, userId, id, ct, async s =>
+                {
+                    await Audit(s, tenantSlug, actorId, actorName, userId, id, ct);
+                    if (withUnmarked)
+                    {
+                        await RevokeUnmarkedAsync(s, userId, ct);
+                    }
+                });
+                if (revoked)
+                {
+                    ended++;
+                    unmarkedDone = true;
+                }
             }
+        }
+
+        if (!unmarkedDone)
+        {
+            await RevokeUnmarkedAsync(session, userId, ct);
+            await session.SaveChangesAsync(ct);
+        }
+
+        return ended;
+    }
+
+    private static async Task RevokeUnmarkedAsync(IDocumentSession session, Guid userId, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var rows = await session.Query<RefreshToken>()
+            .Where(t => t.UserId == userId && !t.IsRevoked && t.SessionId == null)
+            .ToListAsync(ct);
+        foreach (var row in rows)
+        {
+            row.IsRevoked = true;
+            row.RevokedReason = SessionRevocation.Reason;
+            row.RevokedAt = now;
+            session.Store(row);
         }
     }
 
-    private static async Task Audit(
+    private static Task Audit(
         IDocumentSession session, string tenantSlug, Guid? actorId, string? actorName,
-        Guid userId, Guid sessionId, CancellationToken ct)
-    {
-        await AuditLog.RecordAsync(session, tenantSlug, RevokedAction, actorId, actorName,
+        Guid userId, Guid sessionId, CancellationToken ct) =>
+        AuditLog.RecordAsync(session, tenantSlug, RevokedAction, actorId, actorName,
             targetType: "User", targetId: userId.ToString(),
             metadata: new Dictionary<string, object> { ["sessionId"] = sessionId.ToString() }, ct: ct);
-        await session.SaveChangesAsync(ct);
-    }
 
     /// <summary>The session the request came from, read from its <c>sid</c> claim.</summary>
     public static Guid? CurrentOf(System.Security.Claims.ClaimsPrincipal user) =>
