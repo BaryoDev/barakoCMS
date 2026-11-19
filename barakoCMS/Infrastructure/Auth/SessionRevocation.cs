@@ -59,8 +59,15 @@ internal static class SessionRevocation
     /// between the read and the write, since the successor is then the row to revoke, and when another
     /// end of the same session inserts the key first, which counts as already ended.
     /// </summary>
-    public static async Task EndAsync(
-        IDocumentSession session, IMemoryCache? cache, Guid userId, Guid sessionId, CancellationToken ct)
+    /// <param name="alongside">
+    /// Stores more documents (an audit entry) in the same save. It runs on every attempt that has a
+    /// live row to revoke, because a retry ejects what an earlier attempt stored, and not at all
+    /// when there is none.
+    /// </param>
+    /// <returns>True when this call revoked a live row, false when the session was already ended.</returns>
+    public static async Task<bool> EndAsync(
+        IDocumentSession session, IMemoryCache? cache, Guid userId, Guid sessionId, CancellationToken ct,
+        Func<IDocumentSession, Task>? alongside = null)
     {
         var key = $"{KeyPrefix}{sessionId}";
         for (var attempt = 1; ; attempt++)
@@ -87,6 +94,11 @@ internal static class SessionRevocation
             if (revoke.ExpiresAt < expiry) revoke.ExpiresAt = expiry;
             session.Store(revoke);
 
+            if (alongside is not null && rows.Count > 0)
+            {
+                await alongside(session);
+            }
+
             try
             {
                 await session.SaveChangesAsync(ct);
@@ -103,7 +115,7 @@ internal static class SessionRevocation
             var ttl = revoke.ExpiresAt - DateTime.UtcNow;
             if (cache is not null && ttl > TimeSpan.Zero)
                 cache.Set($"revoked:{key}", true, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl, Size = 1 });
-            return;
+            return rows.Count > 0;
         }
     }
 }
