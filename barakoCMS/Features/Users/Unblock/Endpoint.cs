@@ -42,7 +42,8 @@ internal class Endpoint(
         var user = await session.LoadAsync<User>(req.UserId, ct);
         if (user is null)
         {
-            await Send.NotFoundAsync(ct);
+            AddError(BlockGuard.UnknownUserMessage);
+            await Send.ErrorsAsync(404, ct);
             return;
         }
 

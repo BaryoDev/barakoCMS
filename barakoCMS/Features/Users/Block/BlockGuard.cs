@@ -7,6 +7,12 @@ namespace barakoCMS.Features.Users.Block;
 internal static class BlockGuard
 {
     /// <summary>
+    /// Sent with the 404 for an unknown account, so a console can tell it from a server that has no
+    /// block route, which answers 404 with no body.
+    /// </summary>
+    internal const string UnknownUserMessage = "No account has that id.";
+
+    /// <summary>
     /// The caller's id, with no refusal, when they may act: a SuperAdmin holding the role globally,
     /// acting on someone else. Otherwise the refusal to send.
     /// </summary>

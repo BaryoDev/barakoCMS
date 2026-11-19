@@ -775,8 +775,14 @@ public class BlockUserTests
         (await admin.Client.PostAsync($"/api/users/{otherAdmin.Id}/block", null, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await StoredAsync(otherAdmin.Id)).BlockedAt.Should().BeNull();
 
-        // Not a user that does not exist.
-        (await admin.Client.PostAsync($"/api/users/{Guid.NewGuid()}/block", null, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        // Not a user that does not exist. The 404 names it, so a console can tell it from a server
+        // with no block route, which answers 404 with no body.
+        foreach (var action in new[] { "block", "unblock" })
+        {
+            var missing = await admin.Client.PostAsync($"/api/users/{Guid.NewGuid()}/{action}", null, Ct);
+            missing.StatusCode.Should().Be(HttpStatusCode.NotFound);
+            (await missing.Content.ReadAsStringAsync(Ct)).Should().Contain("No account has that id.");
+        }
 
         // And a SuperAdmin can.
         (await admin.Client.PostAsync($"/api/users/{target.Id}/block", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);

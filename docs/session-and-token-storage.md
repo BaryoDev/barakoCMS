@@ -139,7 +139,7 @@ the same three fields on every row of that user, used rows included.
 
 `POST /api/users/{userId}/block` and `/unblock` are for a global SuperAdmin. They refuse your own
 account (400) and any user holding the SuperAdmin role, in their global roles or in a membership
-(403). A user who does not exist is a 404. A block is global: it is separate from `LockoutUntil`, which
+(403). A user who does not exist is a 404 whose error reads "No account has that id.", so a console can tell it from a server with no block route, which answers 404 with no body. A block is global: it is separate from `LockoutUntil`, which
 the failed-login counter sets and a password reset clears. Both are audited, as `auth.account.blocked`
 and `auth.account.unblocked`. Repeating either changes nothing and is not audited twice.
 
