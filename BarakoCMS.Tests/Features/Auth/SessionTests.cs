@@ -454,8 +454,13 @@ public class SessionTests
             await session.SaveChangesAsync(Ct);
         }
 
+        // The token check runs on the HTTP request, before the hub is reached, so an ended session
+        // is turned away with a 401 and the connection closes. A hub error is not what it gets.
         var act = () => connection.InvokeAsync("Subscribe", "probe.tickets");
-        await act.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>().WithMessage("*revoked*");
+        var refused = (await act.Should().ThrowAsync<Exception>()).Which;
+        var unauthorized = refused is HttpRequestException { StatusCode: HttpStatusCode.Unauthorized };
+        var closed = connection.State == HubConnectionState.Disconnected;
+        (unauthorized || closed).Should().BeTrue($"the ended session is refused, but got {refused.GetType().Name}: {refused.Message}");
     }
 
     [Fact]
@@ -491,9 +496,9 @@ public class SessionTests
 
         // The refresh stands at its save, with the row already read. The end commits and revokes that
         // row meanwhile, so the refresh's save is stale and loses every time.
-        var gate = new WriteBarrierLogger(2, "refreshtoken");
-        var host = _fixture.WithWebHostBuilder(b =>
-            b.ConfigureServices(s => s.ConfigureMarten(o => o.Logger(gate))));
+        var gate = new WriteBarrierListener<RefreshToken>(2);
+        await using var host = _fixture.WithWebHostBuilder(b =>
+            b.ConfigureServices(s => s.ConfigureMarten(o => o.Listeners.Add(gate))));
         var client = host.CreateClient();
         client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, NextIp());
         client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", ChromeOnMac);
@@ -529,9 +534,9 @@ public class SessionTests
     public async Task Ending_one_session_twice_at_once_ends_it_once()
     {
         var sessionId = Guid.NewGuid();
-        var barrier = new WriteBarrierLogger(2, "revokedtoken");
-        var host = _fixture.WithWebHostBuilder(b =>
-            b.ConfigureServices(s => s.ConfigureMarten(o => o.Logger(barrier))));
+        var barrier = new WriteBarrierListener<RevokedToken>(2);
+        await using var host = _fixture.WithWebHostBuilder(b =>
+            b.ConfigureServices(s => s.ConfigureMarten(o => o.Listeners.Add(barrier))));
 
         // Both read before either writes, so both insert the same key and one gets the unique violation.
         var ends = Enumerable.Range(0, 2).Select(_ => Task.Run(async () =>
