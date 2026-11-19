@@ -339,6 +339,31 @@ public class ConfigSectionsTests
     }
 
     [Fact]
+    public async Task A_document_whose_inbound_is_written_with_another_casing_and_carries_a_secret_is_refused()
+    {
+        var tenant = await _callers.TenantAsync();
+        var slug = TestNames.Compact("leak-");
+        var client = await _callers.SuperAdminAsync(tenant);
+
+        var (response, body) = await ApplyAsync(client, new
+        {
+            version = 1,
+            connectors = new Dictionary<string, object>
+            {
+                [slug] = new Dictionary<string, object>
+                {
+                    ["name"] = "Leak", ["baseUrl"] = "https://leak.example.com", ["auth"] = "None",
+                    ["Inbound"] = new Dictionary<string, string> { ["scheme"] = "Hmac", ["Secret"] = "plain-value" },
+                },
+            },
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body.ToString());
+        body.ToString().Should().Contain("never carries a secret's value");
+        (await _callers.InTenantAsync(tenant, s => s.Query<Connector>().AnyAsync(c => c.Slug == slug, Ct))).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task A_document_listing_InboundSecret_with_no_inbound_section_is_refused_and_leaves_no_orphan_secret()
     {
         var (tenant, slug, client) = await InboundConnectorAsync();

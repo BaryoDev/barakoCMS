@@ -201,8 +201,8 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
 
         if (InboundCarriesSecret(document))
         {
-            errors.Add($"'{slug}': inbound never carries a secret. A configuration document names the secrets the "
-                       + $"connector holds and never carries a value; set it with PUT /api/connectors/{slug}.");
+            errors.Add($"'{slug}': inbound never carries a secret's value. A configuration document names the secrets "
+                       + $"the connector holds; set it with PUT /api/connectors/{slug}.");
             return null;
         }
 
@@ -242,9 +242,9 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
 
     private static bool InboundCarriesSecret(JsonElement document) =>
         document.ValueKind == JsonValueKind.Object
-        && document.TryGetProperty("inbound", out var inbound)
-        && inbound.ValueKind == JsonValueKind.Object
-        && inbound.EnumerateObject().Any(p => string.Equals(p.Name, "secret", StringComparison.OrdinalIgnoreCase));
+        && document.EnumerateObject()
+            .Where(p => string.Equals(p.Name, "inbound", StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == JsonValueKind.Object)
+            .Any(p => p.Value.EnumerateObject().Any(q => string.Equals(q.Name, "secret", StringComparison.OrdinalIgnoreCase)));
 
     private static bool SecretsAreNames(JsonElement document) =>
         document.ValueKind != JsonValueKind.Object
