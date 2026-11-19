@@ -19,6 +19,8 @@ public sealed class FeatureFlagsModule : IBarakoModule
 
     public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
 
+    public int HttpContractVersion => 1;
+
     public string? Category => ModuleCategory.Platform;
 
     public string? Description => "Feature flags targeted by tenant, user or percentage";
