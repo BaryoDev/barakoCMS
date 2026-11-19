@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Reflection;
+using System.Reflection.Emit;
 using barakoCMS.Infrastructure.Migrations;
 using FluentAssertions;
 using Marten;
@@ -83,6 +85,63 @@ public class MigrationHostTests
             .Should().BeTrue("db-apply creates the schema");
         ledger.Count.Should().BeGreaterThanOrEqualTo(7);
         ledger.Should().OnlyContain(row => row.StartsWith("core/") && row.EndsWith(" baselined"));
+    }
+
+    /// <summary>
+    /// JasperFx opens every dll next to the host and asks it whether it carries its extension
+    /// attribute. A dll whose assembly attribute comes from an assembly that is not in the folder
+    /// makes that question throw FileNotFoundException, on every OS. The host names the problem and
+    /// exits 1 instead of crashing with a stack trace.
+    /// </summary>
+    [Fact]
+    public async Task db_apply_from_a_folder_with_a_stray_assembly_exits_1_and_names_the_problem()
+    {
+        await using var database = await MigrationScratchDatabase.CreateAsync(_factory, started: false);
+        var source = CoreHostAssemblyPath();
+        var folder = Path.Combine(Path.GetTempPath(), "barako-stray-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            CopyDirectory(Path.GetDirectoryName(source)!, folder);
+            WriteStrayAssembly(Path.Combine(folder, "Stray.Assembly.dll"));
+
+            var apply = await RunHostAsync(
+                Path.Combine(folder, Path.GetFileName(source)), database.ConnectionString, "db-apply");
+
+            apply.ExitCode.Should().Be(1, $"output:\n{Truncate(apply.Output)}");
+            apply.Output.Should().Contain("JasperFx could not read an assembly in");
+            apply.Output.Should().Contain("Missing.Marker", "the message names the file that is not there");
+            apply.Output.Should().Contain("Run the command from a publish output");
+            apply.Output.Should().NotContain("   at JasperFx", "the scan failure is reported, not dumped");
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    // Stray.Assembly.dll carries an assembly attribute whose type lives in Missing.Marker, which is
+    // built here and never written to disk.
+    private static void WriteStrayAssembly(string path)
+    {
+        var marker = new PersistedAssemblyBuilder(new AssemblyName("Missing.Marker"), typeof(object).Assembly);
+        var type = marker.DefineDynamicModule("Missing.Marker")
+            .DefineType("MarkerAttribute", TypeAttributes.Public | TypeAttributes.Class, typeof(Attribute));
+        var constructor = type.DefineDefaultConstructor(MethodAttributes.Public);
+        type.CreateType();
+
+        var stray = new PersistedAssemblyBuilder(new AssemblyName("Stray.Assembly"), typeof(object).Assembly);
+        stray.DefineDynamicModule("Stray.Assembly");
+        stray.SetCustomAttribute(new CustomAttributeBuilder(constructor, []));
+        stray.Save(path);
+    }
+
+    private static void CopyDirectory(string from, string to)
+    {
+        Directory.CreateDirectory(to);
+        foreach (var directory in Directory.EnumerateDirectories(from, "*", SearchOption.AllDirectories))
+            Directory.CreateDirectory(Path.Combine(to, Path.GetRelativePath(from, directory)));
+        foreach (var file in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
+            File.Copy(file, Path.Combine(to, Path.GetRelativePath(from, file)));
     }
 
     /// <summary>

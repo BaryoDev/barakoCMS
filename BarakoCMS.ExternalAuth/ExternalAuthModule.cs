@@ -33,6 +33,8 @@ public sealed class ExternalAuthModule : IBarakoModule
 
     public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
 
+    public int HttpContractVersion => 1;
+
     public string? Category => ModuleCategory.Access;
 
     public string? Description => "Social sign-in through OAuth";

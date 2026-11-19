@@ -40,7 +40,7 @@ public static class BarakoCommandExtensions
                     host.Services.GetRequiredService<IDocumentStore>());
             }
 
-            return await JasperFx.CommandLineHostingExtensions.RunJasperFxCommands(host, args);
+            return await RunJasperFxAsync(host, args);
         }
 
         var store = host.Services.GetRequiredService<IDocumentStore>();
@@ -164,4 +164,43 @@ public static class BarakoCommandExtensions
             $"barakoCMS {typeof(MigrationLedger).Assembly.GetName().Version}",
             store.Options.DatabaseSchemaName,
             configuration);
+
+    /// <summary>
+    /// JasperFx opens every dll next to the host to look for its extension attribute. A dll the
+    /// host's deps.json does not list, such as the xunit assemblies in a test output, can name an
+    /// assembly that is not there, and reading its attributes throws out of the scan. JasperFx has
+    /// no option to skip the scan (CommandFactory.RegisterCommandsFromExtensionAssemblies, called
+    /// from ApplyFactoryDefaults), so that one failure is reported here. Any other exception passes.
+    /// </summary>
+    private static async Task<int> RunJasperFxAsync(IHost host, string[] args)
+    {
+        try
+        {
+            return await JasperFx.CommandLineHostingExtensions.RunJasperFxCommands(host, args);
+        }
+        catch (Exception ex) when (IsExtensionScanFailure(ex))
+        {
+            var missing = ex switch
+            {
+                FileNotFoundException file => file.FileName,
+                FileLoadException file => file.FileName,
+                BadImageFormatException image => image.FileName,
+                _ => null,
+            };
+            var reason = $"JasperFx could not read an assembly in {AppContext.BaseDirectory} while looking for " +
+                         $"command extensions: {missing ?? ex.Message}";
+            const string advice =
+                "The folder holds an assembly the host's deps.json does not list. Run the command from a publish output.";
+            Console.Error.WriteLine(reason);
+            Console.Error.WriteLine(advice);
+            // The console lines above skip the file and remote sinks, so log it too. The exception goes
+            // in by type only: its stack trace is the dump this handler exists to replace.
+            Log.Fatal("{Reason} {Advice} ({ExceptionType})", reason, advice, ex.GetType().Name);
+            return 1;
+        }
+    }
+
+    private static bool IsExtensionScanFailure(Exception ex) =>
+        ex is FileNotFoundException or FileLoadException or BadImageFormatException
+        && ex.StackTrace?.Contains("RegisterCommandsFromExtensionAssemblies", StringComparison.Ordinal) == true;
 }
