@@ -53,7 +53,7 @@ public class SessionRoutesTests
         return client;
     }
 
-    private async Task<(Guid Id, string Username)> SeedUserAsync()
+    private async Task<(Guid Id, string Username)> SeedUserAsync(List<Guid>? roleIds = null)
     {
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -65,7 +65,7 @@ public class SessionRoutesTests
             Username = username,
             Email = $"{username}@example.com",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(Password),
-            RoleIds = [Guid.Parse("00000000-0000-0000-0000-000000000001")],
+            RoleIds = roleIds ?? [],
         });
         await session.SaveChangesAsync(Ct);
         return (id, username);
@@ -73,9 +73,9 @@ public class SessionRoutesTests
 
     private sealed record Signed(Guid UserId, string Username, string Token, string Sid);
 
-    private async Task<Signed> NewUserSignedInAsync(string userAgent = ChromeOnMac, string? ip = null)
+    private async Task<Signed> NewUserSignedInAsync(string userAgent = ChromeOnMac, string? ip = null, List<Guid>? roleIds = null)
     {
-        var (id, username) = await SeedUserAsync();
+        var (id, username) = await SeedUserAsync(roleIds);
         var token = await LoginAsync(username, userAgent, ip);
         return new Signed(id, username, token, Sid(token));
     }
@@ -108,7 +108,7 @@ public class SessionRoutesTests
 
     private async Task<string> SuperAdminTokenAsync() => await _fixture.StoredUserTokenAsync("SuperAdmin");
 
-    private async Task StoreRowAsync(Guid userId, Guid? sessionId, DateTime expiresAt, bool revoked)
+    private async Task<string> StoreRowAsync(Guid userId, Guid? sessionId, DateTime expiresAt, bool revoked)
     {
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -119,6 +119,30 @@ public class SessionRoutesTests
         row.IsRevoked = revoked;
         session.Store(row);
         await session.SaveChangesAsync(Ct);
+        return raw;
+    }
+
+    private async Task<HttpResponseMessage> RefreshAsync(string refresh) =>
+        await Client().PostAsJsonAsync("/api/auth/refresh", new { refreshToken = refresh }, Ct);
+
+    /// <summary>A user who holds manage_users through a custom role, so the capability gate lets them in.</summary>
+    private async Task<Signed> ManageUsersCallerAsync()
+    {
+        var roleId = Guid.NewGuid();
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new Role
+            {
+                Id = roleId,
+                Name = $"users-{roleId:N}",
+                Permissions = new(),
+                SystemCapabilities = [SystemCapabilities.ManageUsers],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        return await NewUserSignedInAsync(roleIds: [roleId]);
     }
 
     private async Task<List<AuditEvent>> AuditAsync(Guid targetUserId)
@@ -146,7 +170,7 @@ public class SessionRoutesTests
 
         var items = Items(page);
         items.Should().HaveCount(2);
-        Ids(page).Should().Equal(secondSid, first.Sid, "the session seen last comes first");
+        Ids(page).Should().Equal(new[] { secondSid, first.Sid }, "the session seen last comes first");
         items.Where(i => i.GetProperty("current").GetBoolean()).Should().ContainSingle()
             .Which.GetProperty("id").GetString().Should().Be(first.Sid);
 
@@ -177,7 +201,7 @@ public class SessionRoutesTests
 
         var ids = Ids(await ListAsync(live.Token));
 
-        ids.Should().Equal(live.Sid, "only the live, unexpired row that has a session id is listed");
+        ids.Should().Equal(new[] { live.Sid }, "only the live, unexpired row that has a session id is listed");
     }
 
     [Fact]
@@ -247,6 +271,7 @@ public class SessionRoutesTests
         var target = await NewUserSignedInAsync();
         var caller = await NewUserSignedInAsync();
         var admin = await _fixture.StoredUserTokenAsync("Admin");
+        var usersManager = await ManageUsersCallerAsync();
         var superAdmin = await SuperAdminTokenAsync();
 
         var paths = new (HttpMethod Method, string Path)[]
@@ -260,7 +285,7 @@ public class SessionRoutesTests
         {
             (await Client().SendAsync(new HttpRequestMessage(method, path), Ct))
                 .StatusCode.Should().Be(HttpStatusCode.Unauthorized, $"{method} {path} without a token");
-            foreach (var token in new[] { caller.Token, admin })
+            foreach (var token in new[] { caller.Token, admin, usersManager.Token })
             {
                 var request = new HttpRequestMessage(method, path);
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -269,6 +294,8 @@ public class SessionRoutesTests
         }
 
         (await Client(bearer: target.Token).GetAsync("/api/me", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Client(bearer: usersManager.Token).GetAsync("/api/users", Ct)).StatusCode.Should().Be(HttpStatusCode.OK,
+            "the caller does pass the capability gate, so the 403s above come from the global SuperAdmin check");
         Ids(await ListAsync(superAdmin, $"/api/users/{target.UserId}/sessions")).Should().Equal(target.Sid);
         (await Client(bearer: superAdmin).GetAsync($"/api/users/{Guid.NewGuid()}/sessions", Ct))
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -314,5 +341,70 @@ public class SessionRoutesTests
         events.Where(e => e.Metadata!["sessionId"].ToString() != user.Sid).Should().OnlyContain(e => e.ActorUserId == adminId);
         events.Should().OnlyContain(e => e.TargetType == "User" && e.IpAddress == null);
         JsonSerializer.Serialize(events.Select(e => e.Metadata)).Should().NotContain("Chrome").And.NotContain("2001:db8");
+    }
+
+    [Fact]
+    public async Task Ending_an_already_ended_session_answers_404()
+    {
+        var user = await NewUserSignedInAsync();
+        var other = Sid(await LoginAsync(user.Username, FirefoxOnLinux));
+
+        (await Delete(user.Token, $"/api/me/sessions/{other}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await Delete(user.Token, $"/api/me/sessions/{other}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        (await AuditAsync(user.UserId)).Should().ContainSingle("only the call that ended it audits it");
+    }
+
+    [Fact]
+    public async Task Revoke_others_from_a_token_with_no_session_ends_every_session()
+    {
+        var user = await NewUserSignedInAsync();
+        var other = await LoginAsync(user.Username, FirefoxOnLinux);
+        var noSid = _fixture.CreateToken(["User"], user.UserId.ToString());
+
+        (await Client(bearer: noSid).PostAsync("/api/me/sessions/revoke-others", null, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await Client(bearer: user.Token).GetAsync("/api/me", Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await Client(bearer: other).GetAsync("/api/me", Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task End_all_also_revokes_rows_that_have_no_session_id()
+    {
+        var viaAdmin = await NewUserSignedInAsync();
+        var adminRaw = await StoreRowAsync(viaAdmin.UserId, null, DateTime.UtcNow.AddDays(1), revoked: false);
+        var viaOthers = await NewUserSignedInAsync();
+        var othersRaw = await StoreRowAsync(viaOthers.UserId, null, DateTime.UtcNow.AddDays(1), revoked: false);
+
+        (await Delete(await SuperAdminTokenAsync(), $"/api/users/{viaAdmin.UserId}/sessions")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await Client(bearer: viaOthers.Token).PostAsync("/api/me/sessions/revoke-others", null, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await RefreshAsync(adminRaw)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await RefreshAsync(othersRaw)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task End_all_with_only_rows_that_have_no_session_id_revokes_them()
+    {
+        var id = (await SeedUserAsync()).Id;
+        var raw = await StoreRowAsync(id, null, DateTime.UtcNow.AddDays(1), revoked: false);
+
+        (await Delete(await SuperAdminTokenAsync(), $"/api/users/{id}/sessions")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await RefreshAsync(raw)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Ending_the_current_session_clears_the_refresh_cookie()
+    {
+        var user = await NewUserSignedInAsync();
+
+        var response = await Delete(user.Token, $"/api/me/sessions/{user.Sid}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        response.Headers.TryGetValues("Set-Cookie", out var cookies).Should().BeTrue();
+        cookies!.Should().Contain(c => c.Contains("expires=", StringComparison.OrdinalIgnoreCase));
     }
 }

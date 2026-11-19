@@ -143,7 +143,11 @@ for the session whose token made the request, and is always false on the admin l
 `page` and `pageSize` and never return more than 100 items.
 
 Ending the session the request came from signs the caller out: the answer is still 204 and the next
-request is a 401. The routes share the `logout` rate limit, 30 a minute per address.
+request is a 401, and the refresh cookie is cleared as logout does. The end routes share the `logout`
+rate limit, 30 a minute per address. The two list routes use the global limiter.
+
+Ending all sessions, from either route, also revokes the user's refresh tokens that carry no session
+id, since a refresh of one would start a new session.
 
 The admin routes are for a global SuperAdmin only, a role in the user's own `RoleIds` and not one
 held through a tenant membership. A session spans tenants, so the list shows addresses from every
