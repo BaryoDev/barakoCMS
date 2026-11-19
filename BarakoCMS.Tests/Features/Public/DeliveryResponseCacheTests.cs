@@ -392,6 +392,48 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public async Task A_publish_clears_the_cached_response_within_one_second()
+    {
+        var host = Cached();
+        var tenant = await TenantAsync();
+        var type = $"rsp{Guid.NewGuid():n}"[..12];
+        var old = $"OLD{Guid.NewGuid():N}";
+        var fresh = $"NEW{Guid.NewGuid():N}";
+        await DefineAsync(host, tenant, type);
+        var id = await EntryAsync(host, tenant, type, "timed", old);
+        using var client = In(host, tenant);
+        var single = $"/api/public/{type}/timed";
+        var list = $"/api/public/{type}";
+
+        foreach (var url in new[] { single, list })
+        {
+            (await BodyAsync(client, url)).Should().Contain(old);
+            host.Logger.Commands.Clear();
+            await BodyAsync(client, url);
+            Reads(host, type).Should().Be(0, $"the control: the repeat of {url} is a cache hit");
+        }
+
+        await EntryAsync(host, tenant, type, "timed", fresh, ContentStatus.Published, id: id);
+        var published = System.Diagnostics.Stopwatch.StartNew();
+
+        foreach (var url in new[] { single, list })
+        {
+            var stale = true;
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (stale && DateTime.UtcNow < deadline)
+            {
+                stale = !(await BodyAsync(client, url)).Contains(fresh);
+                if (stale)
+                    await Task.Delay(50, Ct);
+            }
+
+            stale.Should().BeFalse($"{url} must show the new value, and the poll stops at 5 seconds");
+            published.Elapsed.Should().BeLessThanOrEqualTo(TimeSpan.FromSeconds(1),
+                $"a publish clears the cached {url} within one second");
+        }
+    }
+
+    [Fact]
     public async Task A_publish_in_one_tenant_leaves_another_tenants_cache_alone()
     {
         var host = Cached();
