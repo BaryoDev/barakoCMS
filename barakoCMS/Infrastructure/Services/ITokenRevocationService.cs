@@ -1,3 +1,5 @@
+using barakoCMS.Infrastructure.Auth;
+
 namespace barakoCMS.Infrastructure.Services;
 
 /// <summary>
@@ -25,6 +27,15 @@ public interface ITokenRevocationService
     /// <returns>True if the token is revoked, false otherwise</returns>
     Task<bool> IsTokenRevokedAsync(string jti, CancellationToken ct = default);
     
+    /// <summary>
+    /// Checks a token by its <c>jti</c> and by its session: revoked when a revoke row matches the
+    /// jti or <c>sid:&lt;sessionId&gt;</c>. The default asks twice for an implementation that has
+    /// not overridden it; <see cref="TokenRevocationService"/> asks once.
+    /// </summary>
+    async Task<bool> IsTokenRevokedAsync(string jti, string? sessionId, CancellationToken ct = default) =>
+        await IsTokenRevokedAsync(jti, ct)
+        || (!string.IsNullOrEmpty(sessionId) && await IsTokenRevokedAsync($"{SessionRevocation.KeyPrefix}{sessionId}", ct));
+
     /// <summary>
     /// Revokes all tokens for a specific user.
     /// Useful for password changes or admin actions.

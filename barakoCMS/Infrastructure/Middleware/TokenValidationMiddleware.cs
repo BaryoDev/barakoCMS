@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using System.IdentityModel.Tokens.Jwt;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Infrastructure.Logging;
@@ -23,7 +24,8 @@ public class TokenValidationMiddleware(RequestDelegate next, ILogger<TokenValida
             if (jtiClaim != null)
             {
                 var jti = jtiClaim.Value;
-                var isRevoked = await revocationService.IsTokenRevokedAsync(jti, context.RequestAborted);
+                var isRevoked = await revocationService.IsTokenRevokedAsync(
+                    jti, context.User.FindFirst(SessionRevocation.ClaimType)?.Value, context.RequestAborted);
 
                 if (isRevoked)
                 {

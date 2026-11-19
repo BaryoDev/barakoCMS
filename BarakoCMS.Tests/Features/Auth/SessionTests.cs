@@ -157,35 +157,14 @@ public class SessionTests
     }
 
     /// <summary>
-    /// What ending a session writes: the revoke key and the revoked refresh row. Written here so the
-    /// file builds before the change, and kept to the contract in the issue.
+    /// Ends the session the way the service does: the revoke key and the revoked refresh row.
     /// </summary>
     private async Task EndSessionAsync(Guid userId, string sessionId)
     {
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        session.Store(new RevokedToken
-        {
-            Id = Guid.NewGuid(),
-            TokenJti = $"sid:{sessionId}",
-            UserId = userId,
-            RevokedAt = DateTime.UtcNow,
-            ExpiresAt = DateTime.UtcNow.AddDays(1),
-            Reason = "session_revoked",
-        });
-        await session.SaveChangesAsync(Ct);
-
-        var rows = await RowsAsync(userId);
-        foreach (var row in rows.Where(r => r.SessionId == sessionId && !r.IsRevoked))
-        {
-            session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            var stored = await session.LoadAsync<RefreshToken>(row.Id, Ct);
-            stored!.IsRevoked = true;
-            stored.RevokedReason = "session_revoked";
-            stored.RevokedAt = DateTime.UtcNow;
-            session.Store(stored);
-            await session.SaveChangesAsync(Ct);
-        }
+        await barakoCMS.Infrastructure.Auth.SessionRevocation.EndAsync(
+            session, null, userId, Guid.Parse(sessionId), Ct);
     }
 
     private async Task<(Seeded User, string Secret)> EnrolledUserAsync()
