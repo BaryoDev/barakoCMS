@@ -1,4 +1,5 @@
 using Marten;
+using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Models;
 
 namespace barakoCMS.Infrastructure.Auth;
@@ -16,6 +17,12 @@ public static class AccountBlock
     public const string LoginAuditReason = "account_blocked";
 
     public static bool Is(User? user) => user?.BlockedAt is not null;
+
+    /// <summary>Stages the audit row for a sign-in refused because the account is blocked. The caller saves.</summary>
+    public static Task RecordRefusedLoginAsync(
+        IDocumentSession session, string tenantSlug, User user, string? ipAddress, CancellationToken ct) =>
+        AuditLog.RecordAsync(session, tenantSlug, LoginAuditAction, user.Id, user.Username,
+            metadata: new() { ["reason"] = LoginAuditReason }, ipAddress: ipAddress, ct: ct);
 
     /// <summary>
     /// Reads the stored row, not the object a caller holds, because that object may have been loaded

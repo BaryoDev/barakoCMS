@@ -16,16 +16,32 @@ internal static class BlockGuard
     {
         Guid.TryParse(caller.FindFirst("UserId")?.Value, out var actorId);
         if (!await PlatformRoles.IsSuperAdminAsync(session, caller, ct))
+        {
             return (actorId, 403, superAdminOnlyMessage);
+        }
 
         return actorId == targetId ? (actorId, 400, selfMessage) : (actorId, 0, null);
+    }
+
+    /// <summary>
+    /// Serialises block and unblock calls for one user for the rest of the transaction. Whoever takes
+    /// the lock second reads the state the first left, so only the call that changed
+    /// <c>BlockedAt</c> audits and revokes.
+    /// </summary>
+    public static async Task LockAsync(IDocumentSession session, Guid userId, CancellationToken ct)
+    {
+        await session.BeginTransactionAsync(ct);
+        await session.QueryAsync<int>(
+            "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct, $"barakocms:account-block:{userId}");
     }
 
     /// <summary>The SuperAdmin role in the user's global roles or in any active membership.</summary>
     public static async Task<bool> HoldsSuperAdminAsync(IQuerySession session, User user, CancellationToken ct)
     {
         if (user.RoleIds.Contains(SystemRoles.SuperAdminRoleId))
+        {
             return true;
+        }
 
         var granted = await session.Query<Membership>()
             .Where(m => m.UserId == user.Id && m.Status == MembershipStatus.Active)

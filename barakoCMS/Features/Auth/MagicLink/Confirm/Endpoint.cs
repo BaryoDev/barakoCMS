@@ -53,12 +53,11 @@ internal class Endpoint(
         session.Update(link);
 
         var user = await session.Query<User>()
-            .Where(u => u.NormalizedEmail == link.Email && u.BlockedAt == null)
+            .Where(u => u.NormalizedEmail == link.Email)
             .FirstOrDefaultAsync(ct);
-        if (user is null)
+        if (user is null || AccountBlock.Is(user))
         {
-            await TrySaveAsync(ct);
-            ThrowError(Refused);
+            await RefuseUnknownOrBlockedAsync(user, ct);
             return;
         }
 
@@ -72,6 +71,19 @@ internal class Endpoint(
         }
 
         await IssueAsync(user, ct);
+    }
+
+    /// <summary>The same answer for an unknown address and a blocked one. A blocked one is audited.</summary>
+    private async Task RefuseUnknownOrBlockedAsync(User? user, CancellationToken ct)
+    {
+        if (user is not null)
+        {
+            await AccountBlock.RecordRefusedLoginAsync(
+                session, tenant.Slug, user, barakoCMS.Infrastructure.DeviceContext.From(HttpContext).IpAddress, ct);
+        }
+
+        await TrySaveAsync(ct);
+        ThrowError(Refused);
     }
 
     private async Task<MagicLinkToken?> FindUsableAsync(string? raw, CancellationToken ct)

@@ -17,8 +17,7 @@ namespace barakoCMS.Features.Users.Unblock;
 [barakoCMS.Infrastructure.Filters.NoIdempotentReplay]
 internal class Endpoint(
     IDocumentSession session,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
-    IConfiguration configuration) : Endpoint<Request>
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request>
 {
     internal const string SuperAdminOnlyMessage = "Only a platform administrator (SuperAdmin) can unblock an account.";
     internal const string SelfMessage = "You cannot change the block on your own account.";
@@ -39,6 +38,7 @@ internal class Endpoint(
             return;
         }
 
+        await BlockGuard.LockAsync(session, req.UserId, ct);
         var user = await session.LoadAsync<User>(req.UserId, ct);
         if (user is null)
         {
@@ -48,13 +48,14 @@ internal class Endpoint(
 
         if (user.BlockedAt is not null)
         {
+            // Any refresh row alive now was minted during the block, so it does not outlive it.
+            await RevokeRefreshTokens.ForUserAsync(session, user.Id, "Account unblocked", ct, Resolve<ISessionEpochService>());
             session.Patch<User>(user.Id).Set(u => u.BlockedAt, (DateTime?)null);
             session.Patch<User>(user.Id).Set(u => u.BlockedBy, (Guid?)null);
             session.Patch<User>(user.Id).Set(u => u.TokensValidFrom, (DateTime?)AccountBlock.NextWholeSecond(DateTime.UtcNow));
             await AuditLog.RecordAsync(session, tenant.Slug, AccountBlock.UnblockedAuditAction, actorId,
                 User.FindFirst("Username")?.Value, targetType: "User", targetId: user.Id.ToString(), ct: ct);
             await session.SaveChangesAsync(ct);
-            Resolve<ISessionEpochService>().Invalidate(user.Id);
         }
 
         await Send.OkAsync(ct);

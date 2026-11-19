@@ -131,6 +131,7 @@ public static class SocialSignIn
         var user = link is null ? null : await session.LoadAsync<User>(link.UserId, ct);
         if (barakoCMS.Infrastructure.Auth.AccountBlock.Is(user))
         {
+            await RecordBlockedAsync(session, club, user!, http, ct);
             return (Tokens.Denied(), false);
         }
 
@@ -139,7 +140,7 @@ public static class SocialSignIn
 
         if (user is null)
         {
-            var match = await MatchByEmailAsync(session, identity, key, provider, signUp, ct);
+            var match = await MatchByEmailAsync(session, http, identity, key, provider, club, signUp, ct);
             if (match.User is null)
             {
                 return (Tokens.Denied(), match.EmailNotVerified);
@@ -156,12 +157,21 @@ public static class SocialSignIn
             session, config, deviceGate, tokenIssuer, mfa, http, user, club, created ? signUp : null, ct, profile, beforeFinalCommit, mapped, provider), false);
     }
 
+    private static async Task RecordBlockedAsync(
+        IDocumentSession session, string club, User user, HttpContext http, CancellationToken ct)
+    {
+        await barakoCMS.Infrastructure.Auth.AccountBlock.RecordRefusedLoginAsync(
+            session, club, user, barakoCMS.Infrastructure.DeviceContext.From(http).IpAddress, ct);
+        await session.SaveChangesAsync(ct);
+    }
+
     /// <summary>
     /// Links an unknown identity by its verified address, to the local user holding it or to a new
     /// one. A null user is a refusal. A blocked account is refused before any link is stored.
     /// </summary>
     private static async Task<(User? User, bool Created, bool EmailNotVerified)> MatchByEmailAsync(
-        IDocumentSession session, OidcIdentity identity, string key, string provider, SignUpDecision signUp, CancellationToken ct)
+        IDocumentSession session, HttpContext http, OidcIdentity identity, string key, string provider, string club,
+        SignUpDecision signUp, CancellationToken ct)
     {
         var email = identity.Email;
         if (email is null || !identity.EmailVerified)
@@ -172,6 +182,7 @@ public static class SocialSignIn
         var user = await session.Query<User>().FirstOrDefaultAsync(u => u.NormalizedEmail == email, ct);
         if (barakoCMS.Infrastructure.Auth.AccountBlock.Is(user))
         {
+            await RecordBlockedAsync(session, club, user!, http, ct);
             return (null, false, false);
         }
 
