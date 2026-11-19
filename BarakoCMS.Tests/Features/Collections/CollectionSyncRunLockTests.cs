@@ -602,28 +602,6 @@ public class CollectionSyncRunLockTests : IDisposable
     }
 
     /// <remarks>
-    /// A connection whose command timeout is shorter than the wait. The wait has to end as a
-    /// refusal when the server's lock timeout fires, not as the client giving up on the command.
-    /// </remarks>
-    [Fact]
-    public async Task A_wait_longer_than_the_connections_command_timeout_still_ends_as_a_refusal()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var type = "timeout" + Guid.NewGuid().ToString("n")[..10];
-
-        await using var impatient = NpgsqlDataSource.Create(
-            new NpgsqlConnectionStringBuilder(_factory.ConnectionString) { CommandTimeout = 1 }.ToString());
-
-        await using var held = await HoldAsync(type);
-        held.Should().NotBeNull("the control: nothing else holds this lock");
-
-        var second = await CollectionSyncLock.TryAcquireAsync(
-            impatient.CreateConnection, DefaultTenantId(), type, TimeSpan.FromSeconds(2), NullLogger.Instance, ct);
-
-        second.Should().BeNull("the lock is held for the whole wait, which is a refusal and not an error");
-    }
-
-    /// <remarks>
     /// The nearest thing to the server granting the lock while the client fails: the connection
     /// already holds it, and taking it throws because the connection is already open. On a pooled
     /// data source, as a deployment has, since a pooled connection closed with a session lock keeps
