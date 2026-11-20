@@ -42,10 +42,6 @@ public sealed class ContentLifecycleContext : IContentHookContext
 
     private IContentReader? _reader;
 
-    // What this hook stored in this write, so a load after a store answers from here: the store only
-    // stages the document, and the database has not seen it yet.
-    private readonly Dictionary<(Type Type, Guid Id), object> _stored = new();
-
     async Task IContentHookContext.LockAsync(string key, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
@@ -65,22 +61,35 @@ public sealed class ContentLifecycleContext : IContentHookContext
 
     async Task<T?> IContentHookContext.LoadAsync<T>(Guid id, CancellationToken cancellationToken) where T : class
     {
-        if (_stored.TryGetValue((typeof(T), id), out var staged))
-        {
-            return (T)staged;
-        }
+        RefuseCoreType(typeof(T));
 
 #pragma warning disable CS0618
-        return await Session.LoadAsync<T>(id, cancellationToken);
+        var session = Session;
 #pragma warning restore CS0618
+
+        // A document stored earlier in this unit of work is only staged, and the database has not seen
+        // it. The session knows what is staged, so every context on it, whichever entry's hooks it
+        // serves, answers the same. Once a save or an eject clears the staging the row is read.
+        var idProperty = IdProperty(typeof(T));
+        if (idProperty is not null)
+        {
+            var staged = session.PendingChanges.AllChangedFor<T>()
+                .LastOrDefault(d => (Guid)idProperty.GetValue(d)! == id);
+            if (staged is not null)
+            {
+                return staged;
+            }
+        }
+
+        return await session.LoadAsync<T>(id, cancellationToken);
     }
 
     void IContentHookContext.Store<T>(T document) where T : class
     {
         ArgumentNullException.ThrowIfNull(document);
+        RefuseCoreType(typeof(T));
 
-        var idProperty = typeof(T).GetProperty("Id");
-        if (idProperty is null || idProperty.PropertyType != typeof(Guid) || !idProperty.CanRead)
+        if (IdProperty(typeof(T)) is null)
         {
             throw new ArgumentException($"{typeof(T).Name} needs a readable Guid Id property.", nameof(document));
         }
@@ -88,10 +97,26 @@ public sealed class ContentLifecycleContext : IContentHookContext
 #pragma warning disable CS0618
         Session.Store(document);
 #pragma warning restore CS0618
-
-        // Marten gives an empty Guid id a new value when it stores, so the id is read afterwards.
-        _stored[(typeof(T), (Guid)idProperty.GetValue(document)!)] = document;
     }
+
+    private static System.Reflection.PropertyInfo? IdProperty(Type type)
+    {
+        var property = type.GetProperty("Id");
+        return property is { CanRead: true } && property.PropertyType == typeof(Guid) ? property : null;
+    }
+
+    // The core's own documents (roles, users, content types) are not a hook's to read or write through
+    // this: the context is for the hook's own documents, not a general store.
+    private static void RefuseCoreType(Type type)
+    {
+        if (type.Assembly.GetName().Name is "barakoCMS" or "BarakoCMS.Abstractions")
+        {
+            throw new InvalidOperationException(
+                $"{type.Name} is a core document, so a hook cannot load or store it through its context. "
+                + "Use a document type the module declares.");
+        }
+    }
+
     /// <summary>
     /// The lifecycle transition this write is, with its name and the states it moves between; null
     /// for a plain save. A hook picks its checks from the real move instead of a client-sent field.

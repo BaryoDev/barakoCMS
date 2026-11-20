@@ -267,6 +267,10 @@ internal sealed class CollectionSyncRunner(
 
             if (changed && await RefusalAsync(sync.ContentType, id, merged, existing.Data, ct) is { } refusal)
             {
+                // Every accepted row is saved before the next is read, so nothing earlier is pending.
+                // What is pending is what this row's hooks staged, and the next row's save would
+                // otherwise commit it.
+                session.EjectAllPendingChanges();
                 skipped++;
                 firstSkip ??= refusal;
                 continue;

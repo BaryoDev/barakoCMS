@@ -10,7 +10,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <!-- The Marten-typed members are obsolete (#948), so using one here fails the build. -->
+    <!-- The Marten-typed members are obsolete, so using one here fails the build. -->
     <WarningsAsErrors>$(WarningsAsErrors);CS0618</WarningsAsErrors>
   </PropertyGroup>
 

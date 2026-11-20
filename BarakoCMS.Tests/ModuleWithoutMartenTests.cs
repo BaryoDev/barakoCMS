@@ -86,7 +86,7 @@ public class ModuleWithoutMartenTests
         using var check = _factory.Services.CreateScope();
         var query = check.ServiceProvider.GetRequiredService<IQuerySession>();
         (await query.Query<ContentTypeDefinition>().Where(d => d.Name == type).ToListAsync(Ct)).Should().HaveCount(1);
-        (await query.LoadAsync<Role>(roleId, Ct))!.Name.Should().Be(roleName);
+        (await query.LoadAsync<ProbeDocument>(roleId, Ct))!.Name.Should().Be(roleName);
     }
 
     [Fact]
@@ -276,13 +276,19 @@ public class ModuleWithoutMartenTests
         new ContentLifecycleRunner([hook], session)
             .RunBeforeSaveAsync(type, null, new Dictionary<string, object>(), null, Guid.NewGuid(), Ct);
 
-    private static async Task WaitForAdvisoryWaiterAsync(IDocumentStore store)
+    private static async Task WaitForAdvisoryWaiterAsync(IDocumentStore store, string tenant, string key)
     {
+        // Matched on this test's own lock key, so another class waiting on some other advisory lock
+        // in the same database does not end the wait. An advisory bigint key is split over classid
+        // (high half) and objid (low half) in pg_locks.
+        var lockKey = $"barakocms:hook-lock:{tenant.Length}:{tenant}:{key}";
         await using var watcher = store.LightweightSession();
         for (var attempt = 0; attempt < 200; attempt++)
         {
             var waiting = await watcher.QueryAsync<int>(
-                "select count(*)::int from pg_locks where locktype = 'advisory' and not granted", Ct);
+                "select count(*)::int from pg_locks where locktype = 'advisory' and not granted "
+                + "and ((classid::bigint << 32) | objid::bigint) = hashtextextended(?, 0)",
+                Ct, lockKey);
             if (waiting.Single() > 0)
             {
                 return;
@@ -291,7 +297,7 @@ public class ModuleWithoutMartenTests
             await Task.Delay(50, Ct);
         }
 
-        throw new TimeoutException("No session ever waited on an advisory lock.");
+        throw new TimeoutException("No session ever waited on this test's advisory lock.");
     }
 
     [Fact]
@@ -306,7 +312,7 @@ public class ModuleWithoutMartenTests
 
         (await RunHookAsync(hook, type, first)).Should().BeEmpty();
         var waiting = RunHookAsync(hook, type, second);
-        await WaitForAdvisoryWaiterAsync(store);
+        await WaitForAdvisoryWaiterAsync(store, second.TenantId, key);
 
         waiting.IsCompleted.Should().BeFalse("the first hook has returned but its write has not committed");
 
@@ -349,7 +355,7 @@ public class ModuleWithoutMartenTests
 
         using var check = _factory.Services.CreateScope();
         var query = check.ServiceProvider.GetRequiredService<IQuerySession>();
-        (await query.LoadAsync<Role>(roleId, Ct))!.Name.Should().Be("stored-by-hook");
+        (await query.LoadAsync<ProbeDocument>(roleId, Ct))!.Name.Should().Be("stored-by-hook");
     }
 
     [Fact]
@@ -372,7 +378,7 @@ public class ModuleWithoutMartenTests
 
         using var check = _factory.Services.CreateScope();
         var query = check.ServiceProvider.GetRequiredService<IQuerySession>();
-        (await query.LoadAsync<Role>(roleId, Ct)).Should().BeNull("the hook's store shares the failed save's transaction");
+        (await query.LoadAsync<ProbeDocument>(roleId, Ct)).Should().BeNull("the hook's store shares the failed save's transaction");
         (await query.LoadAsync<Content>(taken.Id, Ct)).Should().NotBeNull("the control: the entry that was already there");
     }
 
@@ -391,7 +397,7 @@ public class ModuleWithoutMartenTests
         var store = _factory.Services.GetRequiredService<IDocumentStore>();
         await using (var arrange = store.LightweightSession())
         {
-            arrange.Store(new Role { Id = committedId, Name = "committed" });
+            arrange.Store(new ProbeDocument { Id = committedId, Name = "committed" });
             await arrange.SaveChangesAsync(Ct);
         }
 
@@ -409,6 +415,76 @@ public class ModuleWithoutMartenTests
         var missing = new NoMartenDocumentHook(type, Guid.NewGuid(), store: false);
         await RunHookAsync(missing, type, session);
         missing.Loaded.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Two_contexts_on_one_session_share_what_the_first_stored()
+    {
+        var type = NewName("probe-counter");
+        var counterId = Guid.NewGuid();
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using var session = store.LightweightSession();
+        var hook = new NoMartenCounterHook(type, counterId);
+
+        // Two entries of one push: each runs its hooks in its own context before anything is saved.
+        await RunHookAsync(hook, type, session);
+        await RunHookAsync(hook, type, session);
+        await session.SaveChangesAsync(Ct);
+
+        using var check = _factory.Services.CreateScope();
+        var query = check.ServiceProvider.GetRequiredService<IQuerySession>();
+        (await query.LoadAsync<ProbeDocument>(counterId, Ct))!.Count.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task A_load_after_a_save_reads_the_committed_row_not_the_old_staged_one()
+    {
+        var type = NewName("probe-counter");
+        var counterId = Guid.NewGuid();
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using var session = store.LightweightSession();
+        var hook = new NoMartenCounterHook(type, counterId);
+
+        await RunHookAsync(hook, type, session);
+        await session.SaveChangesAsync(Ct);
+
+        await using (var other = store.LightweightSession())
+        {
+            other.Store(new ProbeDocument { Id = counterId, Name = "counter", Count = 10 });
+            await other.SaveChangesAsync(Ct);
+        }
+
+        await RunHookAsync(hook, type, session);
+        await session.SaveChangesAsync(Ct);
+
+        using var check = _factory.Services.CreateScope();
+        var query = check.ServiceProvider.GetRequiredService<IQuerySession>();
+        (await query.LoadAsync<ProbeDocument>(counterId, Ct))!.Count.Should().Be(11);
+    }
+
+    [Fact]
+    public async Task A_core_document_cannot_be_stored_or_loaded_through_the_context()
+    {
+        var type = NewName("probe-core");
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using var session = store.LightweightSession();
+
+        var load = () => RunHookAsync(new NoMartenCoreDocumentHook(type), type, session);
+        (await load.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("Role");
+
+        var context = new ContentLifecycleContext
+        {
+            ContentType = type,
+            Data = new Dictionary<string, object>(),
+#pragma warning disable CS0618
+            Session = session,
+#pragma warning restore CS0618
+            UserId = Guid.NewGuid(),
+        };
+        var roleId = Guid.NewGuid();
+        var storeRole = () => ((IContentHookContext)context).Store(new Role { Id = roleId, Name = "core" });
+        storeRole.Should().Throw<InvalidOperationException>().Which.Message.Should().Contain("Role");
+        session.PendingChanges.AllChangedFor<Role>().Where(r => r.Id == roleId).Should().BeEmpty();
     }
 
     private sealed class ForeignSeedContext : IModuleSeedContext

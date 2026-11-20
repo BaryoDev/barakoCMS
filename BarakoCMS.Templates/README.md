@@ -45,6 +45,9 @@ Options:
 | `--Author` | `Module authors` | `<Authors>` in the shared props |
 | `--License` | `MIT` | `<PackageLicenseExpression>` in the shared props |
 
+The note content type is seeded on the default tenant only, like every module seed, so a tenant
+that is not the default has no definition of it until one is added there.
+
 The tests need Docker. [MODULES.md](https://github.com/BaryoDev/barakoCMS/blob/master/MODULES.md)
 is the module contract and has the publishing conventions.
 

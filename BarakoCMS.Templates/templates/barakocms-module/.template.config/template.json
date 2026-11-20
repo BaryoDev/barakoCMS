@@ -35,6 +35,13 @@
       "replaces": "modulename",
       "description": "The short name in lower case, for the route and the capability name."
     },
+    "NoteTypeId": {
+      "type": "generated",
+      "generator": "guid",
+      "parameters": { "defaultFormat": "d" },
+      "replaces": "6f0b7a52-3c1d-4e8a-9b24-5d7e1a0c8f33",
+      "description": "The id of the note content type, new for each generated module so two modules in one host never share one."
+    },
     "BarakoCMSVersion": {
       "type": "parameter",
       "datatype": "string",

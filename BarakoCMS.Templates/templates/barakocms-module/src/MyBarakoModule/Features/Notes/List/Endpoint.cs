@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 
 namespace MyBarakoModule.Features.Notes.List;
 
-/// <summary>GET /api/modulename/notes: the tenant's notes, one page at a time.</summary>
+/// <summary>GET /api/modulename/notes: the tenant's notes, newest first, one page at a time.</summary>
 internal sealed class Endpoint : Endpoint<Request, Response>
 {
     private readonly IContentReader _reader;
@@ -31,7 +31,16 @@ internal sealed class Endpoint : Endpoint<Request, Response>
         // The reader works over the session opened for the request's tenant, so it cannot see
         // another tenant's notes and nothing here has to filter by tenant.
         var total = await _reader.CountAsync(ModuleNameContentTypes.Note, ct);
-        var notes = await _reader.ListAsync(ModuleNameContentTypes.Note, req.Skip, req.Take, ct);
+
+        // The reader lists oldest first, so the newest page is read from the far end and turned round.
+        var remaining = Math.Max(0, total - req.Skip);
+        var take = Math.Min(req.Take, remaining);
+        List<barakoCMS.Models.Content> notes = [];
+        if (take > 0)
+        {
+            notes = (await _reader.ListAsync(ModuleNameContentTypes.Note, remaining - take, take, ct))
+                .OrderByDescending(n => n.CreatedAt).ToList();
+        }
 
         await Send.OkAsync(new Response(
             _options.Value.Greeting,

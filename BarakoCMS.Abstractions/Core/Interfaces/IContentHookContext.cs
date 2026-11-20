@@ -39,7 +39,8 @@ public interface IContentHookContext
     /// The lock is a Postgres advisory lock scoped to the transaction, taken after the write's
     /// transaction has been opened. It is released when the write commits or rolls back, never
     /// earlier: returning from the hook does not release it. Another write that asks for the same
-    /// key in the same tenant waits until then and reads what this one committed. It is exclusive,
+    /// key in the same tenant waits until then, and sees what this one committed through <see cref="LoadAsync{T}"/> and
+    /// <see cref="Reader"/>, not through the existing data, which was loaded before the hooks ran. It is exclusive,
     /// and a wait has no timeout beyond the caller's cancellation token.
     /// </para>
     /// <para>
@@ -60,7 +61,8 @@ public interface IContentHookContext
     /// <remarks>
     /// For the hook's own writes: a document read here and changed is stored back with
     /// <see cref="Store{T}"/>, in the same transaction as the content write. It is not a general
-    /// document store for a module's other code.
+    /// document store for a module's other code, so a core document type (a role, a user, a content
+    /// type definition) throws <see cref="InvalidOperationException"/>.
     /// </remarks>
     Task<T?> LoadAsync<T>(Guid id, CancellationToken cancellationToken) where T : class =>
         throw new NotSupportedException("This context does not load documents.");

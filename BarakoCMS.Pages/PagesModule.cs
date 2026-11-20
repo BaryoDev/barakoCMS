@@ -64,6 +64,6 @@ public sealed class PagesModule : IBarakoModule
               + "Removal planned for barakoCMS 6.0.0.")]
     public Task SeedAsync(Marten.IDocumentSession session, IServiceProvider services, CancellationToken ct)
     {
-return SeedAsync(ModuleSeedContexts.Over(session, services), ct);
+        return SeedAsync(ModuleSeedContexts.Over(session, services), ct);
     }
 }

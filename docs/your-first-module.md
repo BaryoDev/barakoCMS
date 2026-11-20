@@ -240,7 +240,8 @@ write as well as check, all inside the transaction the content write runs in:
 
 - `context.LockAsync(key, ct)` takes an exclusive lock on `key` for the tenant of the write. It is
   held until the write commits or rolls back, not until the hook returns, so a second write that
-  asks for the same key waits and then reads what the first one committed. The same key in two
+  asks for the same key waits. It then sees what the first one committed through `LoadAsync` and
+  `Reader`, not through `Existing`, which is loaded before the hooks run. The same key in two
   tenants is two locks. The key is yours to name; start it with your module's name so it cannot
   meet another module's key, and take locks in one order so two writes cannot wait on each other.
 - `context.Store(document)` stores a document with a `Guid` `Id` in the same unit of work as the
@@ -250,7 +251,9 @@ write as well as check, all inside the transaction the content write runs in:
   committed one. Use it to read a row, change it and store it back under the lock.
 
 These are for the hook's own writes, for example allocating a number so a rejected entry never
-uses one. They are not a document store for the rest of the module. A hook that keeps its state as
+uses one. They are not a document store for the rest of the module, and a core document type (a role, a user,
+a content type definition) is refused with an `InvalidOperationException`, so use a document type
+your module declares. A hook that keeps its state as
 ordinary content entries needs none of them: write the entry through the content endpoints and read
 it with `context.Reader`.
 
