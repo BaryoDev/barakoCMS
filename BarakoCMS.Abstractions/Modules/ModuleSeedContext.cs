@@ -8,14 +8,18 @@ namespace barakoCMS.Modules;
 /// <summary>The host's <see cref="IModuleSeedContext"/>, over the module's own session.</summary>
 internal sealed class ModuleSeedContext : IModuleSeedContext
 {
-    internal ModuleSeedContext(IDocumentSession session, IServiceProvider services)
+    internal ModuleSeedContext(IDocumentSession session, IServiceProvider services, string? module = null)
     {
+        Module = module;
         Session = session;
         Services = services;
         Reader = new SessionContentReader(session);
     }
 
     internal IDocumentSession Session { get; }
+
+    /// <summary>The module this context was made for. Null for a context a module made itself, which records nothing.</summary>
+    internal string? Module { get; }
 
     public IServiceProvider Services { get; }
 
@@ -29,13 +33,43 @@ internal sealed class ModuleSeedContext : IModuleSeedContext
 
         var existing = await Session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(t => t.Name == definition.Name, cancellationToken);
-        if (existing is not null)
+        if (existing is null)
         {
-            return false;
+            Session.Store(definition);
         }
 
-        Session.Store(definition);
-        return true;
+        await RecordSeededLifecycleAsync(definition, cancellationToken);
+        return existing is null;
+    }
+
+    /// <summary>
+    /// Keeps what the module seeded for the type's lifecycle, on every run and for a type that
+    /// already existed, so a lifecycle edit can keep the module's states and transitions. Writing
+    /// the same record again stores nothing.
+    /// </summary>
+    private async Task RecordSeededLifecycleAsync(ContentTypeDefinition definition, CancellationToken ct)
+    {
+        if (Module is null || definition.Lifecycle is not { } lifecycle)
+        {
+            return;
+        }
+
+        var record = new ModuleSeededType
+        {
+            Id = ModuleSeededType.KeyOf(definition.Name),
+            TypeName = definition.Name,
+            Module = Module,
+            States = (lifecycle.States ?? []).ToList(),
+            InitialState = lifecycle.InitialState,
+            Transitions = (lifecycle.Transitions ?? [])
+                .Select(t => new SeededTransition { Name = t.Name, From = t.From, To = t.To })
+                .ToList(),
+        };
+        var stored = await Session.LoadAsync<ModuleSeededType>(record.Id, ct);
+        if (stored is null || !stored.Same(record))
+        {
+            Session.Store(record);
+        }
     }
 
     public async Task<bool> EnsureRoleAsync(Guid id, string name, string description, CancellationToken cancellationToken)

@@ -757,6 +757,7 @@ public static class ServiceCollectionExtensions
 
         MapPendingBuilds(options);
         MapOnDemandDocuments(options);
+        options.Schema.For<barakoCMS.Modules.ModuleSeededType>().MultiTenanted().DocumentAlias("module_seeded_types");
         // Global: a webhook carries no tenant, and the receiver has to find a replay before it
         // knows whose data the event touches.
         options.Schema.For<InboundWebhookEvent>()
@@ -1631,6 +1632,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleWorkflowRunScanner>();
         services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleScheduleScanner>();
         services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleTemplateLinkScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleModuleScanner>();
         services.AddScoped<barakoCMS.Infrastructure.Services.LifecycleEditChecks>();
         services.AddScoped<barakoCMS.Features.ContentType.Blueprints.BlueprintCatalog>();
         services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();
@@ -2473,7 +2475,7 @@ public static class ServiceCollectionExtensions
 
             try
             {
-                await module.SeedAsync(new ModuleSeedContext(session, scope.ServiceProvider), ct);
+                await module.SeedAsync(new ModuleSeedContext(session, scope.ServiceProvider, module.Name), ct);
                 var granted = 0;
                 if (module.ContentPermissions is { } contentPermissions)
                 {
