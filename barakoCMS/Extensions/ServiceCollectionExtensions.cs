@@ -777,6 +777,7 @@ public static class ServiceCollectionExtensions
 
         MapPendingBuilds(options);
         MapOnDemandDocuments(options);
+        options.Schema.For<barakoCMS.Modules.ModuleSeededType>().MultiTenanted().DocumentAlias("module_seeded_types");
         // Global: a webhook carries no tenant, and the receiver has to find a replay before it
         // knows whose data the event touches.
         options.Schema.For<InboundWebhookEvent>()
@@ -951,17 +952,28 @@ public static class ServiceCollectionExtensions
             .Index(x => x.CreatedAt);
     }
 
+    private static void MapTenantSettingsDocuments(StoreOptions options)
+    {
+        // One row per tenant, found by an id derived from the slug (like the per-tenant mail row), so
+        // the resolver can read any tenant outside a request.
+        options.Schema.For<TenantSettings>()
+            .SingleTenanted()
+            .DocumentAlias("tenant_settings");
+
+        // One row per tenant for CDN purge, found by an id derived from the slug. A new table;
+        // migrations/5.9.0/561-cdn-purge-settings.sql adds it to an existing database.
+        options.Schema.For<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeSettings>()
+            .SingleTenanted()
+            .DocumentAlias("cdn_purge_settings");
+    }
+
     private static void MapGlobalDocuments(StoreOptions options)
     {
         options.Schema.For<EmailSettings>()
             .SingleTenanted() // one mail provider for the deployment, not one per tenant
             .DocumentAlias("email_settings");
 
-        // One row per tenant, found by an id derived from the slug (like the per-tenant mail row), so
-        // the resolver can read any tenant outside a request.
-        options.Schema.For<TenantSettings>()
-            .SingleTenanted()
-            .DocumentAlias("tenant_settings");
+        MapTenantSettingsDocuments(options);
 
         // Stored in one table for the deployment, with the owning tenant kept as data. A name is
         // unique within a tenant, and among platform roles: NULLS NOT DISTINCT makes the platform
@@ -1435,6 +1447,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Security.ISecretProtector, barakoCMS.Infrastructure.Security.SecretProtector>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ITenantSettings, barakoCMS.Infrastructure.Services.TenantSettingsResolver>();
+        services.TryAddScoped<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeResolver>();
     }
 
     private static void AddConnectorServices(IServiceCollection services)
@@ -1641,6 +1654,19 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IContentBatchRunner, ContentBatchRunner>();
         services.AddScoped<barakoCMS.Core.Interfaces.IRuleEngine, barakoCMS.Infrastructure.Rules.RuleEngine>();
         services.AddScoped<IContentTypeValidatorService, ContentTypeValidatorService>();
+        // One scanner per kind of thing a lifecycle edit can break. The route and its dry run run them all.
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleEntryScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.LifecycleWorkflows>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleRoleScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleRuleScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleUniquenessScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleWorkflowTriggerScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleWorkflowActionScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleWorkflowRunScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleScheduleScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleTemplateLinkScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleModuleScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.LifecycleEditChecks>();
         services.AddScoped<barakoCMS.Features.ContentType.Blueprints.BlueprintCatalog>();
         services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();
         services.AddSingleton<IMetricsService, MetricsService>();
@@ -2482,7 +2508,7 @@ public static class ServiceCollectionExtensions
 
             try
             {
-                await module.SeedAsync(new ModuleSeedContext(session, scope.ServiceProvider), ct);
+                await module.SeedAsync(new ModuleSeedContext(session, scope.ServiceProvider, module.Name), ct);
                 var granted = 0;
                 if (module.ContentPermissions is { } contentPermissions)
                 {

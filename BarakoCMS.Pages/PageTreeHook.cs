@@ -1,8 +1,6 @@
-#pragma warning disable CS0618 // reads the pages settings and content type definition through the session and hands it to ParentReferenceHook
 using barakoCMS.Core.Hooks;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;
-using Marten;
 using Microsoft.Extensions.Options;
 
 namespace BarakoCMS.Pages;
@@ -49,16 +47,20 @@ public sealed class PageTreeHook : IContentLifecycleHook
     /// </summary>
     public string ContentType => IContentLifecycleHook.AnyType;
 
-    public async Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct)
+    /// <summary>The same check as <see cref="BeforeSaveAsync"/>, for a caller holding the host's own context.</summary>
+    public Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct) =>
+        BeforeSaveAsync(context, ct);
+
+    public async Task<IReadOnlyList<string>> BeforeSaveAsync(IContentHookContext context, CancellationToken ct)
     {
-        var options = await PagesSettings.ResolveAsync(context.Session, _deployment, ct);
+        var options = await PagesSettings.ResolveAsync(context, _deployment, ct);
         if (!string.Equals(context.ContentType, options.ContentType, StringComparison.OrdinalIgnoreCase))
         {
             return [];
         }
 
         var errors = new List<string>();
-        var definition = await PublishedPages.DefinitionAsync(context.Session, options.ContentType, ct);
+        var definition = await context.Reader.GetContentTypeAsync(options.ContentType, ct);
 
         if (PageData.Guid(context.Data, options.ParentField) is null)
         {
@@ -83,25 +85,13 @@ public sealed class PageTreeHook : IContentLifecycleHook
             return errors;
         }
 
-        var walked = context.EntryId is null
-            ? new ContentLifecycleContext
-            {
-                ContentType = context.ContentType,
-                Data = context.Data,
-                Existing = context.Existing,
-                EntryId = Guid.NewGuid(),
-                Session = context.Session,
-                UserId = context.UserId,
-            }
-            : context;
-
         var chain = new ParentReferenceHook(options.ContentType, options.ParentField, options.MaxDepth);
-        errors.AddRange(await chain.OnBeforeSaveAsync(walked, ct));
+        errors.AddRange(await chain.CheckAsync(context, context.EntryId ?? Guid.NewGuid(), ct));
         return errors;
     }
 
     private static string? ReservedRootSlug(
-        ContentLifecycleContext context, PagesOptions options, ContentTypeDefinition? definition)
+        IContentHookContext context, PagesOptions options, ContentTypeDefinition? definition)
     {
         if (options.ReservedSlugs.Count == 0
             || AuthoringSlugField(definition) is not { } slugField

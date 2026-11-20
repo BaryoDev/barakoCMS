@@ -166,6 +166,77 @@ public class RollbackGatesTests
     }
 
     /// <summary>
+    /// A rollback restores data and nothing else: the entry keeps the lifecycle state it is in, so
+    /// it cannot be put into a state the type no longer declares.
+    /// </summary>
+    /// <remarks>
+    /// The restore appends a ContentUpdated event, and applying one writes Data, UpdatedAt,
+    /// LastModifiedBy and SearchText. The state only moves on ContentTransitioned.
+    /// </remarks>
+    [Fact]
+    public async Task A_rollback_keeps_the_lifecycle_state_even_when_the_type_no_longer_declares_it()
+    {
+        var client = await AdminAsync();
+        var approver = await AdminAsync();
+        var type = $"rbstate_{Guid.NewGuid():n}"[..16];
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            s.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = type, DisplayName = type,
+                Fields = [new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" }],
+                Lifecycle = new LifecycleDefinition
+                {
+                    States = ["Draft", "Submitted"],
+                    InitialState = "Draft",
+                    Transitions = [new StateTransition { Name = "Submit", From = "Draft", To = "Submitted" }],
+                },
+            });
+            await s.SaveChangesAsync();
+        }
+
+        var created = await client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = type,
+            data = new Dictionary<string, object> { ["Title"] = "first" },
+        });
+        created.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", created.StatusCode, await created.Content.ReadAsStringAsync());
+        using var doc = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var id = doc.RootElement.GetProperty("id").GetGuid();
+
+        var updated = await client.PutAsJsonAsync($"/api/contents/{id}", new
+        {
+            data = new Dictionary<string, object> { ["Title"] = "second" },
+        });
+        updated.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", updated.StatusCode, await updated.Content.ReadAsStringAsync());
+
+        var versionId = await FirstVersionIdAsync(client, id);
+
+        var moved = await approver.PutAsJsonAsync($"/api/contents/{id}/status", new { id, transition = "Submit" });
+        moved.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", moved.StatusCode, await moved.Content.ReadAsStringAsync());
+
+        // The type is edited so that it no longer declares the state the entry is in.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var s = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var def = await s.Query<ContentTypeDefinition>().FirstAsync(d => d.Name == type);
+            def.Lifecycle = new LifecycleDefinition { States = ["Draft"], InitialState = "Draft", Transitions = [] };
+            s.Store(def);
+            await s.SaveChangesAsync();
+        }
+
+        var rollback = await client.PostAsync($"/api/contents/{id}/rollback/{versionId}", null);
+
+        rollback.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", rollback.StatusCode, await rollback.Content.ReadAsStringAsync());
+        using var scope2 = _factory.Services.CreateScope();
+        var content = await scope2.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<Content>(id);
+        content!.Data["Title"].ToString().Should().Be("first", "the rollback took effect");
+        content.LifecycleState.Should().Be("Submitted", "a rollback never restores or changes the state");
+    }
+
+    /// <summary>
     /// The fourth gate: a rollback needs the update permission on the content type, not just a role
     /// name on the route.
     /// </summary>

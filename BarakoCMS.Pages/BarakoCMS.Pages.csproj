@@ -5,8 +5,13 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.Pages</PackageId>
-    <Version>4.5.3</Version>
+    <Version>4.6.0</Version>
     <Description>Page tree for barakoCMS: refuses a parent cycle, a page too deep or a reserved root slug on a configured content type, per tenant, and serves the nested navigation, path resolution with breadcrumbs, and an authenticated tree with drafts for the console.</Description>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- The Marten-typed members are obsolete, so using one here fails the build. -->
+    <WarningsAsErrors>$(WarningsAsErrors);CS0618</WarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>

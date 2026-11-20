@@ -849,7 +849,7 @@ dotnet test
 ```
 
 `-n Acme.Notes` gives a module named `Notes` in the `Acme.Notes` package: an `IBarakoModule` that
-declares `ContractVersion`, binds its options from `Modules:Notes`, registers one document type and
+declares `ContractVersion`, binds its options from `Modules:Notes`, seeds one content type and
 grants its capability to Admin at seed; one endpoint, `GET /api/notes/notes`, gated on that
 capability, paged and tenant scoped; a README in the structure below; an icon placeholder; a
 `Directory.Build.props` carrying the packaging metadata and the `barakocms-module` tag; and a test

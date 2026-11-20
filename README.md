@@ -417,6 +417,8 @@ field is the title, and where a type's entries live on the site),
 [token fields](docs/token-fields.md) (a random value the server generates and no caller can write),
 [uniqueness rules](docs/uniqueness-rules.md) (values only one entry may hold at a time, such as one
 open time entry per teacher),
+[editing a lifecycle](docs/approval-by-configuration.md#editing-a-lifecycle-after-the-type-exists)
+(`PUT /api/content-types/{name}/lifecycle`, refused while an entry, a role, a rule, a workflow, a schedule or a module seed stands in the way),
 [scheduling](docs/scheduling.md) (publish, unpublish and sensitivity at a set time),
 [deploying on a managed platform](docs/deploy-on-a-managed-platform.md) (App Service, Fargate,
 Cloud Run), [approval by configuration](docs/approval-by-configuration.md) (an invoice through Submit and

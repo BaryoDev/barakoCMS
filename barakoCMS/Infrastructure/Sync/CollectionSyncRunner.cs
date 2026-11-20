@@ -267,6 +267,7 @@ internal sealed class CollectionSyncRunner(
 
             if (changed && await RefusalAsync(sync.ContentType, id, merged, existing.Data, ct) is { } refusal)
             {
+                session.EjectAllPendingChanges(); // drop what this row's hooks staged, or the next save commits it
                 skipped++;
                 firstSkip ??= refusal;
                 continue;
