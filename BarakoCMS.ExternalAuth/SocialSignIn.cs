@@ -300,7 +300,7 @@ public static class SocialSignIn
             FacebookDeletionFlow.StageKeepOnSignIn(session, user.Id);
             beforeFinalCommit?.Invoke(session);
             await session.SaveChangesAsync(ct); // persist the user/profile created above
-            var challenge = await MfaChallengeAsync(session, config, user, tenantSlug, mapped, SignInMethodFor(provider), ct);
+            var challenge = await MfaChallengeAsync(session, mfa, user, tenantSlug, mapped, SignInMethodFor(provider), ct);
             return Tokens.MfaRequired(challenge);
         }
 
@@ -354,18 +354,17 @@ public static class SocialSignIn
     /// minus any a claim may not grant, for core's verify step to grant once the factor passes.
     /// </summary>
     private static async Task<string> MfaChallengeAsync(
-        IDocumentSession session, IConfiguration config, User user, string tenantSlug, MappedRoles? mapped,
-        string method, CancellationToken ct)
+        IDocumentSession session, barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa, User user, string tenantSlug,
+        MappedRoles? mapped, string method, CancellationToken ct)
     {
-        barakoCMS.Infrastructure.Auth.Mfa.PendingExternalGrant? grant = null;
+        List<Guid>? roles = null;
         if (mapped is not null && tenantSlug != Tenant.DefaultSlug)
         {
             var refused = await barakoCMS.Infrastructure.Auth.ExternalRoleGrant.RefusedAsync(session, tenantSlug, mapped.RoleIds, ct);
-            var roles = mapped.RoleIds.Except(refused).ToList();
-            grant = roles.Count == 0 ? null : new(tenantSlug, mapped.Provider, roles);
+            roles = mapped.RoleIds.Except(refused).ToList();
         }
 
-        return barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(config, user.Id, grant, method).Token;
+        return mfa.CreateChallengeToken(user.Id, method, tenantSlug, mapped?.Provider, roles);
     }
 
     /// <summary>
