@@ -41,6 +41,57 @@ public sealed class ContentLifecycleContext : IContentHookContext
 #pragma warning restore CS0618
 
     private IContentReader? _reader;
+
+    // What this hook stored in this write, so a load after a store answers from here: the store only
+    // stages the document, and the database has not seen it yet.
+    private readonly Dictionary<(Type Type, Guid Id), object> _stored = new();
+
+    async Task IContentHookContext.LockAsync(string key, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+
+#pragma warning disable CS0618
+        var session = Session;
+#pragma warning restore CS0618
+
+        // The transaction is the one SaveChangesAsync commits, so the lock lives exactly as long as
+        // the write. The tenant is length-prefixed so no tenant and key pair can spell another's.
+        await session.BeginTransactionAsync(cancellationToken);
+        var tenant = session.TenantId;
+        var lockKey = $"barakocms:hook-lock:{tenant.Length}:{tenant}:{key}";
+        await session.QueryAsync<int>(
+            "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", cancellationToken, lockKey);
+    }
+
+    async Task<T?> IContentHookContext.LoadAsync<T>(Guid id, CancellationToken cancellationToken) where T : class
+    {
+        if (_stored.TryGetValue((typeof(T), id), out var staged))
+        {
+            return (T)staged;
+        }
+
+#pragma warning disable CS0618
+        return await Session.LoadAsync<T>(id, cancellationToken);
+#pragma warning restore CS0618
+    }
+
+    void IContentHookContext.Store<T>(T document) where T : class
+    {
+        ArgumentNullException.ThrowIfNull(document);
+
+        var idProperty = typeof(T).GetProperty("Id");
+        if (idProperty is null || idProperty.PropertyType != typeof(Guid) || !idProperty.CanRead)
+        {
+            throw new ArgumentException($"{typeof(T).Name} needs a readable Guid Id property.", nameof(document));
+        }
+
+#pragma warning disable CS0618
+        Session.Store(document);
+#pragma warning restore CS0618
+
+        // Marten gives an empty Guid id a new value when it stores, so the id is read afterwards.
+        _stored[(typeof(T), (Guid)idProperty.GetValue(document)!)] = document;
+    }
     /// <summary>
     /// The lifecycle transition this write is, with its name and the states it moves between; null
     /// for a plain save. A hook picks its checks from the real move instead of a client-sent field.
