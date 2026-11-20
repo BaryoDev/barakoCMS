@@ -34,6 +34,8 @@ public class PublishActionTests
 {
     private const string Secret = "whsec_publish_test_4d1b";
 
+    private static int _siteIp;
+
     private readonly IntegrationTestFixture _fixture;
 
     public PublishActionTests(IntegrationTestFixture fixture) => _fixture = fixture;
@@ -643,6 +645,10 @@ public class PublishActionTests
         var api = _fixture.CreateClient();
         api.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", secret);
         api.DefaultRequestHeaders.Add("X-Tenant", tenant);
+        // Without its own client IP every request to the shared host counts against one global
+        // bucket of 100 a minute. Once other classes fill it, the write-back waits in the limiter's
+        // queue for the next window, past the sender's 10 s timeout, and the message stays Pending.
+        api.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"2001:db8:1367:{Interlocked.Increment(ref _siteIp):x}::1");
         return new WriteBackSite(tenant, type, api, keyId);
     }
 
