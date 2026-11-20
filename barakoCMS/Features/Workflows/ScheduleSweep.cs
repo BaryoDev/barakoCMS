@@ -28,7 +28,7 @@ namespace barakoCMS.Features.Workflows;
 /// </para>
 /// <para>
 /// <c>InState</c> is matched in the query, ignoring case, with an entry that has no stored state
-/// read as being in the type's initial state, as every other state match reads it.
+/// read as being in the type's initial state, as the transition gate and uniqueness checks read it.
 /// </para>
 /// </remarks>
 internal static class ScheduleSweep

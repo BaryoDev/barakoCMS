@@ -302,8 +302,7 @@ internal static class TemplateExpression
                 : Problem(match.Groups[1].Value, onTransition);
             if (problem is null) continue;
 
-            var shown = match.Value.Length <= 80 ? match.Value : match.Value[..80] + "...";
-            yield return $"'{shown}' {problem}, so it is sent as written.";
+            yield return $"'{Shorten(match.Value)}' {problem}, so it is sent as written.";
         }
 
         foreach (var piece in Pieces(template))
@@ -494,15 +493,19 @@ internal static class TemplateExpression
 
             var kind = link.Groups["name"].Value;
             var name = link.Groups["argument"].Value;
-            if (!seen.Add(kind + " " + name)
+            if (LinkArgumentProblem(kind, name) is not null
+                || !seen.Add(kind + " " + name)
                 || lifecycle?.Transitions.Any(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)) == true)
             {
                 continue;
             }
 
-            yield return $"'{kind} \"{name}\"' names a transition that '{contentType}' does not declare, so the link does not work.";
+            var shown = Shorten($"{kind} \"{name}\"");
+            yield return $"'{shown}' names a transition that '{contentType}' does not declare, so the link does not work.";
         }
     }
+
+    private static string Shorten(string quoted) => quoted.Length <= 80 ? quoted : quoted[..80] + "...";
 
     private static string? Problem(string body, bool onTransition)
     {

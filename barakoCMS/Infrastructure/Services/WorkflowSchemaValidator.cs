@@ -645,15 +645,17 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
                 {
                     foreach (var message in TemplateExpression.UndeclaredTransitionLinks(text, lifecycle, type))
                     {
-                        if (result.Warnings.Count >= MaxPlaceholderWarnings) return;
-                        result.Warnings.Add(new ValidationError { Field = field, Message = $"In the template's {source}: {message}" });
+                        if (!TryAddWarning(result, field, $"In the template's {source}: {message}")) return;
                     }
                 }
             }
         }
     }
 
-    /// <summary>Warns about a <c>links.transition</c> or <c>links.action</c> in an action's own parameters that names a transition a content type does not declare.</summary>
+    /// <summary>
+    /// Warns about a <c>links.transition</c> or <c>links.action</c> in an action's own parameters, its
+    /// compensation or a Conditional's branches that names a transition a content type does not declare.
+    /// </summary>
     private async Task AddInlineLinkWarningsAsync(WorkflowDefinition workflow, WorkflowValidationResult result, CancellationToken ct)
     {
         if (workflow.Actions is null) return;
@@ -661,27 +663,80 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
         var lifecycles = await LifecyclesOfAsync(workflow, ct);
         for (var i = 0; i < workflow.Actions.Count; i++)
         {
-            var action = workflow.Actions[i];
-            if (action?.Parameters is null) continue;
+            if (!AddInlineLinkWarnings(workflow.Actions[i], $"actions[{i}]", lifecycles, result, 0, _pluginRegistry)) return;
+        }
+    }
 
-            foreach (var (name, text) in action.Parameters)
+    /// <returns>False once the warnings are at their cap and the notice is added.</returns>
+    private static bool AddInlineLinkWarnings(
+        WorkflowAction action, string field, List<(string Type, LifecycleDefinition? Lifecycle)> lifecycles,
+        WorkflowValidationResult result, int depth, IWorkflowPluginRegistry registry)
+    {
+        if (action?.Parameters is null) return true;
+
+        foreach (var (name, text) in action.Parameters)
+        {
+            if (WebhookSigning.IsSensitiveParameterName(name)) continue;
+
+            if (ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name, registry))
             {
-                if (WebhookSigning.IsSensitiveParameterName(name)
-                    || ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name, _pluginRegistry))
+                if (depth >= MaxWarningDepth || name.Equals("Condition", StringComparison.OrdinalIgnoreCase)) continue;
+
+                var children = ChildActions(text);
+                for (var c = 0; c < children.Count; c++)
                 {
-                    continue;
+                    if (!AddInlineLinkWarnings(children[c], $"{field}.parameters.{name}[{c}]", lifecycles, result, depth + 1, registry)) return false;
                 }
 
-                foreach (var (type, lifecycle) in lifecycles)
-                {
-                    foreach (var message in TemplateExpression.UndeclaredTransitionLinks(text, lifecycle, type))
-                    {
-                        if (result.Warnings.Count >= MaxPlaceholderWarnings) return;
-                        result.Warnings.Add(new ValidationError { Field = $"actions[{i}].parameters.{name}", Message = message });
-                    }
-                }
+                continue;
+            }
+
+            if (!AddLinkWarnings(text, $"{field}.parameters.{name}", lifecycles, result)) return false;
+        }
+
+        foreach (var (name, text) in action.Compensate?.Parameters ?? [])
+        {
+            if (!WebhookSigning.IsSensitiveParameterName(name)
+                && !AddLinkWarnings(text, $"{field}.compensate.parameters.{name}", lifecycles, result))
+            {
+                return false;
             }
         }
+
+        return true;
+    }
+
+    private static bool AddLinkWarnings(
+        string? text, string field, List<(string Type, LifecycleDefinition? Lifecycle)> lifecycles, WorkflowValidationResult result)
+    {
+        foreach (var (type, lifecycle) in lifecycles)
+        {
+            foreach (var message in TemplateExpression.UndeclaredTransitionLinks(text, lifecycle, type))
+            {
+                if (!TryAddWarning(result, field, message)) return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <returns>False when the warnings are at their cap: the notice is added once and nothing more is.</returns>
+    private static bool TryAddWarning(WorkflowValidationResult result, string field, string message)
+    {
+        if (result.Warnings.Count > MaxPlaceholderWarnings) return false;
+
+        if (result.Warnings.Count == MaxPlaceholderWarnings)
+        {
+            result.Warnings.Add(new ValidationError
+            {
+                Field = "actions",
+                Message = $"More than {MaxPlaceholderWarnings} placeholder warnings. Only the first {MaxPlaceholderWarnings} are listed"
+            });
+            return false;
+        }
+
+        result.Warnings.Add(new ValidationError { Field = field, Message = message });
+        return true;
     }
 
     /// <summary>The lifecycle of each content type the workflow names that exists. A missing type is refused elsewhere.</summary>

@@ -174,6 +174,30 @@ public class ScheduledTriggerTests
     }
 
     [Fact]
+    public async Task Matches_an_entry_with_no_stored_state_when_InState_is_the_initial_state_in_a_different_case()
+    {
+        var (type, workflow) = await TypeAndWorkflowAsync(offset: "-24h", inState: "DRAFT");
+        await StoreLifecycleAsync(type, initial: "Draft");
+        var neverMoved = await StoreEntryAsync(type, Text(Now.AddHours(20)), state: null);
+
+        (await SweepAsync(Now)).Should().Be(1);
+
+        (await RunsAsync(workflow)).Should().ContainSingle().Which.ContentId.Should().Be(neverMoved);
+    }
+
+    [Fact]
+    public async Task A_type_with_no_lifecycle_matches_only_entries_that_store_the_state()
+    {
+        var (type, workflow) = await TypeAndWorkflowAsync(offset: "-24h", inState: "Approved");
+        await StoreEntryAsync(type, Text(Now.AddHours(20)), state: null);
+        var approved = await StoreEntryAsync(type, Text(Now.AddHours(20)), state: "approved");
+
+        (await SweepAsync(Now)).Should().Be(1);
+
+        (await RunsAsync(workflow)).Should().ContainSingle().Which.ContentId.Should().Be(approved);
+    }
+
+    [Fact]
     public async Task Does_not_match_a_null_state_entry_when_InState_is_not_the_initial_state()
     {
         var (type, workflow) = await TypeAndWorkflowAsync(offset: "-24h", inState: "Approved");
