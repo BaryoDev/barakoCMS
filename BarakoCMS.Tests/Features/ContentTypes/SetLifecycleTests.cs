@@ -195,7 +195,9 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
 
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", factory.CreateToken(roles: ["SuperAdmin", "Admin"], userId: user.Id.ToString()));
+            "Bearer", factory.CreateToken(
+                roles: ["SuperAdmin", "Admin"], userId: user.Id.ToString(),
+                additionalClaims: new Dictionary<string, string> { ["Username"] = user.Username }));
         return (client, user);
     }
 
@@ -562,31 +564,62 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
     {
         var admin = await AdminAsync();
         var type = await TypeAsync(Small());
+
+        // Already running when the edit arrives: the gate refuses it before the endpoint runs.
+        var first = await StoreRunningChangeAsync(type);
+        var gated = await PutAsync(admin, type, Claim());
+        gated.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await gated.Content.ReadAsStringAsync(Ct)).Should().Contain("field change running");
+        await CompleteChangeAsync(first);
+
+        // Starting while the edit waits for the lock: the gate has passed, so the endpoint's own check refuses it.
+        Task<HttpResponseMessage> raced;
+        Guid second;
+        using (await HoldExclusiveAsync(type))
+        {
+            raced = Task.Run(() => PutAsync(admin, type, Claim()), Ct);
+            await WaitForQueuedAsync(type);
+            raced.IsCompleted.Should().BeFalse("the edit is queued behind the lock");
+            second = await StoreRunningChangeAsync(type);
+        }
+
+        var refused = await raced.WaitAsync(Limit, Ct);
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("field change running");
+        (await StoredAsync(type)).Lifecycle!.States.Should().Equal("Draft", "Submitted");
+
+        await CompleteChangeAsync(second);
+        (await PutAsync(admin, type, Claim())).StatusCode.Should().Be(HttpStatusCode.OK, "the positive control");
+    }
+
+    private async Task<Guid> StoreRunningChangeAsync(string type)
+    {
         var change = new FieldChange
         {
             Id = Guid.NewGuid(), ContentType = type, Field = "Reason", Kind = FieldChangeKind.Rename, NewName = "Cause",
             State = FieldChangeState.Running, Total = 1, StartedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
         };
-        await using (var session = Store.LightweightSession())
-        {
-            session.Store(change);
-            await session.SaveChangesAsync(Ct);
-        }
+        await using var session = Store.LightweightSession();
+        session.Store(change);
+        await session.SaveChangesAsync(Ct);
+        return change.Id;
+    }
 
-        var refused = await PutAsync(admin, type, Claim());
+    private async Task CompleteChangeAsync(Guid id)
+    {
+        await using var session = Store.LightweightSession();
+        var change = (await session.LoadAsync<FieldChange>(id, Ct))!;
+        change.State = FieldChangeState.Completed;
+        session.Store(change);
+        await session.SaveChangesAsync(Ct);
+    }
 
-        refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("field change running");
-        (await StoredAsync(type)).Lifecycle!.States.Should().Equal("Draft", "Submitted");
-
-        await using (var session = Store.LightweightSession())
-        {
-            change.State = FieldChangeState.Completed;
-            session.Store(change);
-            await session.SaveChangesAsync(Ct);
-        }
-
-        (await PutAsync(admin, type, Claim())).StatusCode.Should().Be(HttpStatusCode.OK, "the positive control");
+    /// <summary>Holds the exclusive lock, as a change to the type does, until disposed.</summary>
+    private async Task<IDisposable> HoldExclusiveAsync(string type)
+    {
+        var scope = factory.Services.CreateScope();
+        await FieldChanges.LockTypeAsync(scope.ServiceProvider.GetRequiredService<IDocumentSession>(), type, Ct);
+        return scope;
     }
 
     // ---- concurrency and dry run -------------------------------------------------------------
@@ -644,7 +677,7 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict, await response.Content.ReadAsStringAsync(Ct));
         (await response.Content.ReadAsStringAsync(Ct)).Should().Contain("changed while this ran");
-        (await StoredAsync(type)).Lifecycle!.States.Should().Equal("Draft", "Escalated", "the edit that won the race is what stays");
+        (await StoredAsync(type)).Lifecycle!.States.Should().Equal(new[] { "Draft", "Escalated" }, "the edit that won the race is what stays");
         (await AuditAsync(type)).Should().BeEmpty("nothing was written by the refused edit");
     }
 
@@ -873,7 +906,9 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
         before.StatusCode.Should().Be(HttpStatusCode.OK);
         var beforeText = await before.Content.ReadAsStringAsync(Ct);
 
-        (await PutAsync(admin, type, Claim())).StatusCode.Should().Be(HttpStatusCode.OK);
+        var grown = Small();
+        grown.States.Add("Approved");
+        (await PutAsync(admin, type, grown)).StatusCode.Should().Be(HttpStatusCode.OK);
 
         var after = await anonymous.GetAsync($"/api/public/{type}", Ct);
         (await after.Content.ReadAsStringAsync(Ct)).Should().Be(beforeText, "delivery serves the publication status, not the lifecycle state");
