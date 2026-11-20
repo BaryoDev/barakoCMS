@@ -28,7 +28,11 @@ internal sealed class CdnPurgeResolver(
 
     public static bool IsValidTargetId(string? value) => value is not null && TargetIdPattern.IsMatch(value);
 
-    public async Task<ICdnPurger?> ForTenantAsync(string slug, CancellationToken ct)
+    public async Task<ICdnPurger?> ForTenantAsync(string slug, CancellationToken ct) =>
+        (await ResolveAsync(slug, ct))?.Purger;
+
+    /// <summary>The client and the target it was built for, so a caller can name the host it sent to.</summary>
+    internal async Task<(CdnPurgeTarget Target, ICdnPurger Purger)?> ResolveAsync(string slug, CancellationToken ct)
     {
         var target = await TargetForAsync(slug, ct);
         if (target is null)
@@ -37,9 +41,10 @@ internal sealed class CdnPurgeResolver(
         }
 
         var http = httpClientFactory.CreateClient(HttpClientNames.ExternalApi);
-        return string.Equals(target.Provider, CdnPurgeProvider.Cloudflare, StringComparison.OrdinalIgnoreCase)
+        ICdnPurger purger = string.Equals(target.Provider, CdnPurgeProvider.Cloudflare, StringComparison.OrdinalIgnoreCase)
             ? new CloudflarePurger(http, target, loggerFactory.CreateLogger<CloudflarePurger>())
             : new FastlyPurger(http, target, loggerFactory.CreateLogger<FastlyPurger>());
+        return (target, purger);
     }
 
     internal async Task<CdnPurgeTarget?> TargetForAsync(string slug, CancellationToken ct)
