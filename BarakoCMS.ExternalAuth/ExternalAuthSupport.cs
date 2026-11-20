@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using Marten;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BarakoCMS.ExternalAuth;
 
@@ -20,10 +21,8 @@ public static class ExternalAuthSupport
     /// exploitable, but that control belongs to Google and GitHub rather than to us.
     /// </remarks>
     /// <exception cref="InvalidOperationException">Nothing configured a base URL and the host is not constrained.</exception>
-    public static string BaseUrl(IConfiguration config, HttpContext ctx) =>
-        barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrl(config, ctx.Request)
-        ?? throw new barakoCMS.Infrastructure.Security.BaseUrlNotConfiguredException(
-            barakoCMS.Infrastructure.Security.CanonicalHost.BaseUrlKey);
+    public static string BaseUrl(HttpContext ctx) =>
+        ctx.RequestServices.GetRequiredService<barakoCMS.Infrastructure.Security.IPublicBaseUrl>().BaseUrl(ctx.Request);
 
     /// <summary>
     /// A fresh OAuth <c>state</c>: 32 bytes from <see cref="RandomNumberGenerator"/>, base64url without
@@ -63,7 +62,7 @@ public static class ExternalAuthSupport
         HttpContext http, IConfiguration config, IQuerySession session, string? code, string? state,
         string cookiePrefix, string provider, CancellationToken ct)
     {
-        var baseUrl = BaseUrl(config, http);
+        var baseUrl = BaseUrl(http);
         var club = http.Request.Cookies[$"{cookiePrefix}_club"] ?? "";
         if (!await ExternalProviders.AllowedAsync(session, club, provider, ct)) return null;
         var cookieState = http.Request.Cookies[$"{cookiePrefix}_state"];

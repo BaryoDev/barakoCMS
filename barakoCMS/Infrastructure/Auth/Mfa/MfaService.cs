@@ -15,6 +15,19 @@ public sealed class MfaService(
     // Allow one step either side (~±30s) for clock drift between the server and the authenticator.
     private static readonly VerificationWindow Window = new(previous: 1, future: 1);
 
+    public string CreateChallengeToken(
+        Guid userId,
+        string? firstFactor,
+        string? grantTenantSlug = null,
+        string? grantSource = null,
+        IReadOnlyList<Guid>? grantRoleIds = null)
+    {
+        var grant = grantTenantSlug is not null && grantRoleIds is { Count: > 0 }
+            ? new PendingExternalGrant(grantTenantSlug, grantSource ?? string.Empty, grantRoleIds)
+            : null;
+        return MfaChallengeToken.Create(config, userId, grant, firstFactor).Token;
+    }
+
     public async Task<bool> IsEnabledAsync(Guid userId, CancellationToken ct)
     {
         var mfa = await session.LoadAsync<MfaSecret>(userId, ct);

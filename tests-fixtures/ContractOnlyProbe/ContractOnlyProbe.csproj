@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A module built on the contract package alone: no reference to barakoCMS. BarakoCMS.Tests
+       references it to prove such a module is discovered and its endpoint is mapped. Not packed,
+       and named outside BarakoCMS.* so the module version check does not treat it as a package. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>ContractOnlyProbe</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\BarakoCMS.Abstractions\BarakoCMS.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="barakoCMS.Modules.BarakoModuleAssembly" />
+  </ItemGroup>
+
+</Project>

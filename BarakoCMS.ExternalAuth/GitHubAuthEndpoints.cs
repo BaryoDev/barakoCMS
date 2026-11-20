@@ -15,8 +15,8 @@ internal static class Gh
     public const string Emails = "https://api.github.com/user/emails";
     public const string Scope = "read:user user:email";
 
-    public static string CallbackUrl(IConfiguration c, HttpContext ctx) =>
-        ExternalAuthSupport.BaseUrl(c, ctx) + "/api/auth/github/callback";
+    public static string CallbackUrl(HttpContext ctx) =>
+        ExternalAuthSupport.BaseUrl(ctx) + "/api/auth/github/callback";
 }
 
 /// <summary>GET /api/auth/github/start?club={handle}</summary>
@@ -36,7 +36,7 @@ public class GitHubStartEndpoint(IConfiguration config, IQuerySession session) :
         if (begun is null) { await Send.NotFoundAsync(ct); return; }
         var state = begun.Value.State;
 
-        var redirect = Gh.CallbackUrl(config, HttpContext);
+        var redirect = Gh.CallbackUrl(HttpContext);
         var url =
             $"{Gh.Authorize}?client_id={config["GitHub:ClientId"]}" +
             $"&redirect_uri={Uri.EscapeDataString(redirect)}" +
@@ -92,7 +92,7 @@ public class GitHubCallbackEndpoint(
                     ["client_id"] = config["GitHub:ClientId"] ?? "",
                     ["client_secret"] = config["GitHub:ClientSecret"] ?? "",
                     ["code"] = code,
-                    ["redirect_uri"] = Gh.CallbackUrl(config, HttpContext),
+                    ["redirect_uri"] = Gh.CallbackUrl(HttpContext),
                 }),
             };
             tokenReq.Headers.Accept.Add(new("application/json"));
