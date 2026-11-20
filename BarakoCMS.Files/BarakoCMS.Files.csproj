@@ -35,4 +35,8 @@
     <EmbeddedResource Include="..\migrations\4.2.0\stored-files-parent-index.sql" LogicalName="barako-migrations/4.2.0/stored-files-parent-index.sql" />
     <EmbeddedResource Include="..\migrations\5.0.0\files-storage-settings.sql" LogicalName="barako-migrations/5.0.0/files-storage-settings.sql" />
   </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="barakoCMS.Modules.BarakoModuleAssembly" />
+  </ItemGroup>
 </Project>

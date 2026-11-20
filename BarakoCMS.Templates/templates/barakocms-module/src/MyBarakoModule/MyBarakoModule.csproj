@@ -15,4 +15,9 @@
     <PackageReference Include="BarakoCMS" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Marks this assembly as a module assembly, so the host scans it for modules. -->
+    <AssemblyAttribute Include="barakoCMS.Modules.BarakoModuleAssembly" />
+  </ItemGroup>
+
 </Project>
