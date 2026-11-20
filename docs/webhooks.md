@@ -164,6 +164,25 @@ The signature is HMAC-SHA256, keyed with the secret, over the string `"<timestam
 refuse a captured delivery replayed later. The body holds `tenant`, so the signature covers it and
 a body edited to name another tenant does not verify.
 
+## Writing back with the message id
+
+A message from a `Publish` step is sent with the same headers, and its message id (the `messageId` in
+the body) goes out as both `X-Barako-Delivery` and `Idempotency-Key`. The id is the same on every
+retry of that message. A receiver that writes back to the barakoCMS API (`POST /api/contents`, for
+one) should send the id it was given as the `Idempotency-Key` of that write, with the same API key
+each time. A repeat delivery then gets the first write's response back, with `Idempotent-Replayed:
+true`, and no second entry is made. That replay happens on a write route that replays. A route
+marked `NoIdempotentReplay` (API keys, sessions and sign-in, for example) answers a repeat with
+`409` "already processed" instead. The repeat must also be the same request: the same key with a
+different body is a `422`, so do not put a timestamp or a random value in the write. See
+`docs/idempotency.md` for what a key does and how long it lasts.
+
+Two deliveries of one message can reach the receiver at once. The write that arrives while the first
+is still running is answered `409`; retry it, and it gets the stored response once the first has
+finished.
+
+A receiver that writes back without the key makes one entry for every delivery it sees.
+
 ## Verifying a delivery
 
 Read the raw body before parsing it. A body re-serialised by your framework is a different string

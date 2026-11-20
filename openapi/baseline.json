@@ -7830,6 +7830,65 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesSettingsTenantCdnPurgeTenantCdnPurgeResponse": {
+        "additionalProperties": false,
+        "description": "The caller's own tenant's CDN purge settings. There is no field that could hold the token.",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "targetId": {
+            "type": "string"
+          },
+          "tenant": {
+            "type": "string"
+          },
+          "tokenSet": {
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "updatedBy": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSettingsTenantCdnPurgeUpdateTenantCdnPurgeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "description": "Null leaves it alone.",
+            "nullable": true,
+            "type": "boolean"
+          },
+          "provider": {
+            "description": "Null leaves it alone; empty clears it to none.",
+            "nullable": true,
+            "type": "string"
+          },
+          "targetId": {
+            "description": "The zone id or service id. Null leaves it alone; empty clears it.",
+            "nullable": true,
+            "type": "string"
+          },
+          "token": {
+            "description": "Write only. Null leaves the stored token alone; empty clears it.",
+            "maxLength": 2048,
+            "minLength": 0,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesSettingsTenantEmailTenantEmailSettingsResponse": {
         "additionalProperties": false,
         "description": "The caller's own tenant's mail override. There is no field that could hold the API key.",
@@ -26000,6 +26059,83 @@
         "summary": "Takes effect on the station's next request: the key is checked against the store every time.",
         "tags": [
           "Stations"
+        ]
+      }
+    },
+    "/api/tenant-settings/cdn-purge": {
+      "get": {
+        "operationId": "barakoCMSFeaturesSettingsTenantCdnPurgeGetTenantCdnPurgeEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsTenantCdnPurgeTenantCdnPurgeResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "tags": [
+          "Settings"
+        ]
+      },
+      "put": {
+        "operationId": "barakoCMSFeaturesSettingsTenantCdnPurgeUpdateTenantCdnPurgeEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsTenantCdnPurgeUpdateTenantCdnPurgeRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "UpdateTenantCdnPurgeRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsTenantCdnPurgeTenantCdnPurgeResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "tags": [
+          "Settings"
         ]
       }
     },
