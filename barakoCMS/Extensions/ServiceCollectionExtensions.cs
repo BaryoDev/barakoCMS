@@ -1620,6 +1620,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IContentBatchRunner, ContentBatchRunner>();
         services.AddScoped<barakoCMS.Core.Interfaces.IRuleEngine, barakoCMS.Infrastructure.Rules.RuleEngine>();
         services.AddScoped<IContentTypeValidatorService, ContentTypeValidatorService>();
+        // One scanner per kind of thing a lifecycle edit can break. The route and its dry run run them all.
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleEntryScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.LifecycleEditChecks>();
         services.AddScoped<barakoCMS.Features.ContentType.Blueprints.BlueprintCatalog>();
         services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();
         services.AddSingleton<IMetricsService, MetricsService>();

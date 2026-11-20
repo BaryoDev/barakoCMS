@@ -330,10 +330,12 @@ public static class ContentTypeUpsert
 
     /// <summary>The rules that depend on how many entries the stored type holds.</summary>
     /// <remarks>
-    /// No endpoint changes a stored type's lifecycle: permissions and workflows key on its transition
-    /// names, and entries sit in its states. A definition may leave it out, which keeps it, or carry
-    /// the same one. It may add one only to a type with no entries. And a required field with no
-    /// default declares an invariant every entry already stored breaks, the add field rule.
+    /// A stored type's lifecycle changes with <c>PUT /api/content-types/{name}/lifecycle</c>, which
+    /// counts the entries in each state it removes and lists what names a transition it changes:
+    /// permissions and workflows key on transition names, and entries sit in states. A definition
+    /// may leave the lifecycle out, which keeps it, or carry the same one, compared in order. It may
+    /// add one only to a type with no entries. And a required field with no default declares an
+    /// invariant every entry already stored breaks, the add field rule.
     /// </remarks>
     private static IEnumerable<string> EntryRules(
         ContentTypeDefinition type, ContentTypeDefinition stored, int entries, Wording wording)
@@ -344,7 +346,7 @@ public static class ContentTypeUpsert
         {
             if (stored.Lifecycle is not null)
             {
-                yield return $"{wording.Possessive} lifecycle differs from the stored one, and {writer} does not change a stored lifecycle.";
+                yield return $"{wording.Possessive} lifecycle differs from the stored one, and {writer} does not change a stored lifecycle; use PUT /api/content-types/{stored.Name}/lifecycle.";
             }
             else if (entries > 0)
             {
