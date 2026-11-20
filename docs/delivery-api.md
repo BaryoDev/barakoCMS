@@ -776,8 +776,8 @@ To tag every entry in a list, raise the bounds:
 | `Delivery:CacheTags:MaxTags`         | 32      | 1 to 1000      | tags kept per response |
 | `Delivery:CacheTags:MaxHeaderLength` | 1024    | 1024 to 16384  | bytes per tag header |
 
-A page of 100 entries needs about 5000 bytes, since an entry tag is 44 bytes plus the tenant
-slug. Both are read once at start and need a restart to change. A value outside the allowed
+A page of 100 entries needs about 5000 bytes, since an entry tag is `t:<tenant>:entry:<36 character id>`
+plus a space: about 46 bytes plus the tenant slug, per entry, per header. Both are read once at start and need a restart to change. A value outside the allowed
 range is clamped and the log says so at start (a warning naming the key); a value that is not a
 number is ignored. The ceiling is the smallest limit the two CDNs accept for one header:
 Cloudflare `Cache-Tag` and Fastly `Surrogate-Key` both refuse a header over 16 KB
@@ -788,9 +788,17 @@ Two costs of a raised bound:
 - `Surrogate-Key` and `Cache-Tag` carry the same value, so the response headers grow by twice the
   length you allow.
 - A tag header larger than the proxy in front of the API accepts breaks the response at the proxy,
-  with a 502 from nginx. The default `proxy_buffer_size` is 4k or 8k. Raise it to hold both tag
-  headers and the rest of the response headers, for example `proxy_buffer_size 32k;` for a
-  16384 byte `MaxHeaderLength`.
+  with a 502 from nginx. The default `proxy_buffer_size` is 4k or 8k. It needs at least twice
+  `MaxHeaderLength` plus about 2k, for the two tag headers and the other response headers. nginx
+  refuses `proxy_buffer_size` raised alone, because the default `proxy_busy_buffers_size` then
+  exceeds what `proxy_buffers` allows (it must be less than the size of all `proxy_buffers` minus
+  one buffer), so the three go together. For a 16384 byte `MaxHeaderLength`:
+
+  ```
+  proxy_buffer_size 64k;
+  proxy_buffers 8 16k;
+  proxy_busy_buffers_size 64k;
+  ```
 
 The sitemap is the exception, because a tenant can have more types than the bound holds. Purge
 `t:<tenant>:sitemap` on every publish; its type tags are best effort and fall off past about thirty

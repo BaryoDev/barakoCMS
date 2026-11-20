@@ -119,6 +119,16 @@ public class DeliveryCacheTagBoundsTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public void A_value_too_big_for_an_int_is_clamped_to_the_ceiling_not_read_as_not_a_number()
+    {
+        var bounds = DeliveryTagBounds.Read(Config((DeliveryTagBounds.MaxTagsKey, "99999999999")), out var warnings);
+
+        bounds.MaxTags.Should().Be(DeliveryTagBounds.CeilingTags);
+        warnings.Should().ContainSingle().Which.Should().Contain("Delivery:CacheTags:MaxTags").And.Contain("99999999999").And.Contain("1000")
+            .And.NotContain("not a whole number");
+    }
+
+    [Fact]
     public void A_value_that_is_not_a_number_takes_the_default_and_the_warning_names_the_key()
     {
         var bounds = DeliveryTagBounds.Read(Config((DeliveryTagBounds.MaxTagsKey, "lots")), out var warnings);
@@ -197,6 +207,8 @@ public class DeliveryCacheTagBoundsTests(IntegrationTestFixture fixture)
 
         var response = await client.GetAsync(Url(type), Ct);
 
+        raised.Services.GetServices<IHostedService>().Should().ContainSingle(s => s is DeliveryTagBoundsCheck,
+            "the startup warning is registered");
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
         var tags = Tags(response);
         tags.Should().Contain(ids.Select(id => $"t:{tenant}:entry:{id}"));

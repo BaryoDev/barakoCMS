@@ -53,15 +53,15 @@ public sealed record DeliveryTagBounds(int MaxTags, int MaxHeaderLength)
         if (string.IsNullOrWhiteSpace(raw))
             return fallback;
 
-        if (!int.TryParse(raw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var value))
+        if (!long.TryParse(raw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
         {
             notes.Add($"{key} is '{raw}', which is not a whole number, so the default {fallback} is used.");
             return fallback;
         }
 
-        var used = Math.Clamp(value, floor, ceiling);
-        if (used != value)
-            notes.Add($"{key} is {value}, outside {floor} to {ceiling}, so {used} is used.");
+        var used = (int)Math.Clamp(parsed, floor, ceiling);
+        if (used != parsed)
+            notes.Add($"{key} is {parsed}, outside {floor} to {ceiling}, so {used} is used.");
         return used;
     }
 }

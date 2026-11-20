@@ -199,7 +199,9 @@ whose tags all start with the tenant, so a CDN that purges by tag can drop exact
 appears in. Most CDNs strip both tag headers before the browser. By default the tag headers stay
 under 1024 bytes each, inside a default nginx `proxy_buffer_size`. If you raise
 `Delivery:CacheTags:MaxHeaderLength`, both headers grow to that size, so raise `proxy_buffer_size`
-to match (for example `proxy_buffer_size 32k;` for 16384 bytes) or nginx answers 502. See "Cache classes, validators and tags" in
+to at least twice that plus about 2k, together with `proxy_buffers` and `proxy_busy_buffers_size` (for
+16384 bytes: `proxy_buffer_size 64k; proxy_buffers 8 16k; proxy_busy_buffers_size 64k;`), or nginx
+answers 502. nginx refuses a larger `proxy_buffer_size` on its own. See "Tags" in `docs/delivery-api.md`. See "Cache classes, validators and tags" in
 `docs/delivery-api.md`.
 
 This section is about that cacheable majority. `GET /api/public/events`, the change stream, is not
