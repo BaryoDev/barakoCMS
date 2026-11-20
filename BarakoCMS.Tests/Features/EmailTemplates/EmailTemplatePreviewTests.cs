@@ -88,7 +88,7 @@ public class EmailTemplatePreviewTests
 
     /// <summary>A fresh entry type with a Sensitive field, one entry of it, and a template.</summary>
     private async Task<(string Type, Content Entry, Content Template)> ArrangeAsync(
-        string subject, string body, ContentStatus status = ContentStatus.Draft)
+        string subject, string body, ContentStatus status = ContentStatus.Draft, LifecycleDefinition? lifecycle = null)
     {
         var type = $"pv{Guid.NewGuid():N}"[..14];
         var entry = new Content
@@ -112,6 +112,7 @@ public class EmailTemplatePreviewTests
                 new FieldDefinition { Name = "Name", Type = "string" },
                 new FieldDefinition { Name = "Secret", Type = "string", Sensitivity = SensitivityLevel.Sensitive },
             ],
+            Lifecycle = lifecycle,
         });
         session.Store(entry);
         session.Store(template);
@@ -208,6 +209,58 @@ public class EmailTemplatePreviewTests
         named.IsValid.Should().BeTrue(string.Join("; ", named.Errors.Select(e => e.Message)));
         named.Warnings.Should().ContainSingle().Which.Should().Be(
             new Warning("actions[0].parameters.Template", $"In the template's Body: {expected[0]}"));
+    }
+
+    private static LifecycleDefinition ApprovalLifecycle() => new()
+    {
+        States = ["Draft", "Approved"],
+        InitialState = "Draft",
+        Transitions = [new StateTransition { Name = "Approve", From = "Draft", To = "Approved" }],
+    };
+
+    private const string TransitionLinks =
+        "Go {{links.transition \"Approve\"}} or {{links.action \"approve\"}} or {{links.transition \"Aprove\"}} or {{links.action \"Missing\"}}";
+
+    [Fact]
+    public async Task Warns_when_a_transition_link_names_an_undeclared_transition()
+    {
+        var (type, entry, template) = await ArrangeAsync("s", TransitionLinks, ContentStatus.Published, ApprovalLifecycle());
+
+        var preview = await ReadAsync(await PreviewAsync(await SuperAdminAsync(), template.Id.ToString(), entry.Id));
+
+        var warnings = preview.Warnings.Where(w => w.Field == "Body").Select(w => w.Message).ToList();
+        warnings.Should().HaveCount(2);
+        warnings.Should().ContainSingle(m => m.Contains("links.transition \"Aprove\"") && m.Contains($"'{type}' does not declare"));
+        warnings.Should().ContainSingle(m => m.Contains("links.action \"Missing\""));
+        preview.Subject.Should().Be("s");
+    }
+
+    [Fact]
+    public async Task Warns_without_refusing_when_a_template_link_names_an_undeclared_transition()
+    {
+        var (type, _, template) = await ArrangeAsync("s", TransitionLinks, ContentStatus.Published, ApprovalLifecycle());
+
+        var named = await ValidateAsync(await SuperAdminAsync(), type, new() { ["To"] = "a@example.com", ["Template"] = template.Id.ToString() });
+
+        named.IsValid.Should().BeTrue(string.Join("; ", named.Errors.Select(e => e.Message)));
+        named.Warnings.Should().HaveCount(2);
+        named.Warnings.Should().OnlyContain(w => w.Field == "actions[0].parameters.Template" && w.Message.StartsWith("In the template's Body: "));
+        named.Warnings.Should().ContainSingle(w => w.Message.Contains("links.transition \"Aprove\"") && w.Message.Contains($"'{type}' does not declare"));
+        named.Warnings.Should().ContainSingle(w => w.Message.Contains("links.action \"Missing\""));
+    }
+
+    [Fact]
+    public async Task Warns_without_refusing_when_an_inline_body_links_an_undeclared_transition()
+    {
+        var (type, _, _) = await ArrangeAsync("s", "b", ContentStatus.Published, ApprovalLifecycle());
+
+        var inline = await ValidateAsync(await SuperAdminAsync(), type, new() { ["To"] = "a@example.com", ["Subject"] = "s", ["Body"] = TransitionLinks });
+
+        inline.IsValid.Should().BeTrue(string.Join("; ", inline.Errors.Select(e => e.Message)));
+        inline.Warnings.Should().HaveCount(2);
+        inline.Warnings.Should().OnlyContain(w => w.Field == "actions[0].parameters.Body");
+        inline.Warnings.Should().ContainSingle(w => w.Message.Contains("links.transition \"Aprove\"") && w.Message.Contains($"'{type}' does not declare"));
+        inline.Warnings.Should().ContainSingle(w => w.Message.Contains("links.action \"Missing\""));
     }
 
     /// <summary>

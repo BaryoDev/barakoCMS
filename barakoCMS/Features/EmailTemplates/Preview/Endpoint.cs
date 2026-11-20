@@ -70,7 +70,7 @@ internal sealed class Endpoint(
             return;
         }
 
-        var (entryShown, withheld, _) = await AsShownAsync(entry, ct);
+        var (entryShown, withheld, entryHidden) = await AsShownAsync(entry, ct);
 
         // The layout is content too: its header and footer are shown only as the caller reads them.
         var (rendered, problem) = await EmailTemplateRenderer.RenderAsync(session, templateShown, ct,
@@ -98,6 +98,15 @@ internal sealed class Endpoint(
             .Take(WorkflowSchemaValidator.MaxPlaceholderWarnings)
             .Select(w => new PreviewWarning(w.Field, w.Message))
             .ToList();
+
+        if (!entryHidden)
+        {
+            var lifecycle = (await session.Query<ContentTypeDefinition>().FirstNamedAsync(entry.ContentType, ct))?.Lifecycle;
+            warnings.AddRange(rendered.Sources
+                .SelectMany(source => TemplateExpression.UndeclaredTransitionLinks(source.Text, lifecycle, entry.ContentType)
+                    .Select(message => new PreviewWarning(source.Field, message)))
+                .Take(WorkflowSchemaValidator.MaxPlaceholderWarnings));
+        }
 
         if (withheld > 0)
         {

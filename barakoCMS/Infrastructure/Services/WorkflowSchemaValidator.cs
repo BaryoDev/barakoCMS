@@ -484,6 +484,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     {
         var result = Validate(workflow, ct);
         await AddTemplateWarningsAsync(workflow, result, ct);
+        await AddInlineLinkWarningsAsync(workflow, result, ct);
         await AddPublishErrorsAsync(workflow, result, ct);
 
         var events = WorkflowTriggers.Events(workflow);
@@ -596,6 +597,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
 
         var onTransition = WorkflowTriggers.Events(workflow).Any(WorkflowEvents.IsTransition);
         var read = new Dictionary<string, (RenderedTemplate? Rendered, string? Error)>(StringComparer.OrdinalIgnoreCase);
+        var lifecycles = await LifecyclesOfAsync(workflow, ct);
 
         for (var i = 0; i < workflow.Actions.Count; i++)
         {
@@ -636,7 +638,63 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
                 if (result.Warnings.Count >= MaxPlaceholderWarnings) return;
                 result.Warnings.Add(new ValidationError { Field = field, Message = $"In the template's {source}: {message}" });
             }
+
+            foreach (var (source, text) in found.Rendered.Sources)
+            {
+                foreach (var (type, lifecycle) in lifecycles)
+                {
+                    foreach (var message in TemplateExpression.UndeclaredTransitionLinks(text, lifecycle, type))
+                    {
+                        if (result.Warnings.Count >= MaxPlaceholderWarnings) return;
+                        result.Warnings.Add(new ValidationError { Field = field, Message = $"In the template's {source}: {message}" });
+                    }
+                }
+            }
         }
+    }
+
+    /// <summary>Warns about a <c>links.transition</c> or <c>links.action</c> in an action's own parameters that names a transition a content type does not declare.</summary>
+    private async Task AddInlineLinkWarningsAsync(WorkflowDefinition workflow, WorkflowValidationResult result, CancellationToken ct)
+    {
+        if (workflow.Actions is null) return;
+
+        var lifecycles = await LifecyclesOfAsync(workflow, ct);
+        for (var i = 0; i < workflow.Actions.Count; i++)
+        {
+            var action = workflow.Actions[i];
+            if (action?.Parameters is null) continue;
+
+            foreach (var (name, text) in action.Parameters)
+            {
+                if (WebhookSigning.IsSensitiveParameterName(name)
+                    || ActionParameters.IsResolvedByTheAction(action.Type ?? string.Empty, name, _pluginRegistry))
+                {
+                    continue;
+                }
+
+                foreach (var (type, lifecycle) in lifecycles)
+                {
+                    foreach (var message in TemplateExpression.UndeclaredTransitionLinks(text, lifecycle, type))
+                    {
+                        if (result.Warnings.Count >= MaxPlaceholderWarnings) return;
+                        result.Warnings.Add(new ValidationError { Field = $"actions[{i}].parameters.{name}", Message = message });
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>The lifecycle of each content type the workflow names that exists. A missing type is refused elsewhere.</summary>
+    private async Task<List<(string Type, LifecycleDefinition? Lifecycle)>> LifecyclesOfAsync(WorkflowDefinition workflow, CancellationToken ct)
+    {
+        var lifecycles = new List<(string, LifecycleDefinition?)>();
+        foreach (var type in WorkflowTriggers.ContentTypes(workflow))
+        {
+            if (await _session.Query<ContentTypeDefinition>().FirstNamedAsync(type, ct) is { } definition)
+                lifecycles.Add((type, definition.Lifecycle));
+        }
+
+        return lifecycles;
     }
 
     /// <summary>

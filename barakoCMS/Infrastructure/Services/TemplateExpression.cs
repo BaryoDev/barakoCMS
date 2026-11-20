@@ -476,6 +476,34 @@ internal static class TemplateExpression
         return null;
     }
 
+    /// <summary>
+    /// The warnings for each <c>links.transition</c> and <c>links.action</c> in a template that names
+    /// a transition <paramref name="lifecycle"/> does not declare, such as a misspelt name or one an
+    /// edit removed. An action link renders empty, and a transition link leads the console to a move
+    /// it cannot make. A type with no lifecycle declares none.
+    /// </summary>
+    public static IEnumerable<string> UndeclaredTransitionLinks(string? template, LifecycleDefinition? lifecycle, string contentType)
+    {
+        if (string.IsNullOrEmpty(template)) yield break;
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match match in Token.Matches(template))
+        {
+            var link = Link.Match(match.Groups[1].Value);
+            if (!link.Success || link.Groups["name"].Value == "links.site") continue;
+
+            var kind = link.Groups["name"].Value;
+            var name = link.Groups["argument"].Value;
+            if (!seen.Add(kind + " " + name)
+                || lifecycle?.Transitions.Any(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)) == true)
+            {
+                continue;
+            }
+
+            yield return $"'{kind} \"{name}\"' names a transition that '{contentType}' does not declare, so the link does not work.";
+        }
+    }
+
     private static string? Problem(string body, bool onTransition)
     {
         if (Parse(body) is not { } hole) return "is not a placeholder";
