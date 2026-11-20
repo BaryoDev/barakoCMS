@@ -4432,6 +4432,12 @@
           "updatedAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "version": {
+            "description": "The stored version of this type, which PUT /api/content-types/{name}/lifecycle takes back\nas If-Match (quoted, as ETag). Null for an account-owned type, which that route does not edit.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
           }
         },
         "type": "object"
@@ -4820,6 +4826,151 @@
             ]
           },
           "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeSetLifecycleRefusal": {
+        "additionalProperties": false,
+        "description": "The 409 body of a refused edit.",
+        "properties": {
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSInfrastructureServicesLifecycleBlocker"
+            },
+            "type": "array"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLifecycleRefusalError"
+            },
+            "type": "array"
+          },
+          "status": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSInfrastructureServicesLifecycleBlocker"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeSetLifecycleRefusalError": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeSetLifecycleRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "dryRun": {
+            "description": "Run every check the real edit runs and answer 200 with what would block it, storing nothing.",
+            "type": "boolean"
+          },
+          "lifecycle": {
+            "description": "The lifecycle the type declares from now on: its states, its initial state and its\ntransitions, each with the fields it requires or takes. It replaces the stored one whole.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsLifecycleDefinition"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeSetLifecycleResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "blockers": {
+            "description": "Everything that would refuse the edit, every kind in one list. Empty on a stored edit. A dry\nrun lists every blocker, not the first.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSInfrastructureServicesLifecycleBlocker"
+            },
+            "type": "array"
+          },
+          "canApply": {
+            "description": "For a dry run, whether the real edit would be accepted. True otherwise.",
+            "type": "boolean"
+          },
+          "changed": {
+            "description": "False when the proposed lifecycle is the one already stored: nothing was written.",
+            "type": "boolean"
+          },
+          "dryRun": {
+            "description": "True when this answers a dry run: nothing was stored.",
+            "type": "boolean"
+          },
+          "lifecycle": {
+            "description": "The lifecycle the type declares now. For a dry run, the one it would declare if\nCanApply is true.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsLifecycleDefinition"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "description": "The type's version after this call, the same value as the ETag header. Send it as\nIf-Match on the next edit.",
+            "format": "guid",
+            "type": "string"
+          },
+          "warnings": {
+            "description": "What the edit leaves dangling without refusing it, such as a template link.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSInfrastructureServicesLifecycleBlocker"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeSetLifecycleStaleRefusal": {
+        "additionalProperties": false,
+        "description": "The 412 body of a save that started from a version that is no longer current.",
+        "properties": {
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLifecycleRefusalError"
+            },
+            "type": "array"
+          },
+          "lifecycle": {
+            "description": "The lifecycle stored now, or null when the type has none.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsLifecycleDefinition"
+              }
+            ]
+          },
+          "status": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "description": "The version stored now, also sent as the ETag header.",
+            "format": "guid",
             "type": "string"
           }
         },
@@ -11003,6 +11154,42 @@
           "replicas": {
             "format": "int32",
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSInfrastructureServicesLifecycleBlocker": {
+        "additionalProperties": false,
+        "description": "One thing the edit would break, or for a warning, leave dangling.",
+        "properties": {
+          "count": {
+            "description": "How many, where it has a count: entries, runs. Null otherwise.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
+          "kind": {
+            "description": "One of LifecycleBlockerKind.",
+            "type": "string"
+          },
+          "message": {
+            "description": "A sentence for a person.",
+            "type": "string"
+          },
+          "name": {
+            "description": "What blocks: a role, a workflow, a rule. Null for entries.",
+            "nullable": true,
+            "type": "string"
+          },
+          "state": {
+            "description": "The state it is about, or null when it is about a transition.",
+            "nullable": true,
+            "type": "string"
+          },
+          "transition": {
+            "description": "The transition it is about, or null when it is about a state.",
+            "nullable": true,
+            "type": "string"
           }
         },
         "type": "object"
@@ -19481,6 +19668,79 @@
           }
         ],
         "summary": "PUT /api/content-types/{name}/icon, which sets or clears the icon a type is drawn with.",
+        "tags": [
+          "ContentType"
+        ]
+      }
+    },
+    "/api/content-types/{name}/lifecycle": {
+      "put": {
+        "description": "Its own endpoint because content types have no general update, and a config apply or a bundle\nimport refuses a changed lifecycle. No entry is read into memory or rewritten, so every reader\nfollows the new lifecycle at once, and an edit that would leave something pointing at a state or\na transition that is gone is refused instead: 409, with every blocker listed, each with its kind,\nthe state or transition it is about, what blocks it and a count where it has one. There is no\nforce and no mapping of entries to another state. Move the entries with a transition\nfirst.\n            \nThe type's lock is taken exclusive before anything is read. A move in flight holds it shared, so\nthe edit waits for it and a move that starts after it sees the new lifecycle, and two edits\ncannot interleave. The counts are a reading taken before the save, so the type is read again\nafter them and the edit is refused if its lifecycle is no longer the one counted against. A dry\nrun runs the same checks and answers 200 with the blockers, stored nothing.\n            \nA save sends the version it started from as If-Match, the way an entry update does: the\ntype's stored document version as a quoted ETag, 428 when it is missing, 400 when it is not a\nversion, 412 when it is stale. The version is read under the lock, so two edits that started\nfrom the same version cannot both be saved. A dry run needs none, and when it sends one it is\nchecked the same way.",
+        "operationId": "barakoCMSFeaturesContentTypeSetLifecycleEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLifecycleRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLifecycleResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLifecycleRefusal"
+                }
+              }
+            },
+            "description": ""
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLifecycleStaleRefusal"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/content-types/{name}/lifecycle, which replaces the states, the initial state and the\ntransitions of a type that already exists.",
         "tags": [
           "ContentType"
         ]
