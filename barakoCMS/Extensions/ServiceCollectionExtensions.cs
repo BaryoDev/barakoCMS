@@ -173,10 +173,7 @@ public static class ServiceCollectionExtensions
         if (moduleBuilder.Discover)
             moduleBuilder.DiscoverFrom();
 
-        foreach (var skipped in moduleBuilder.Skipped)
-            WarnUnloadable(skipped.Assembly, skipped.Missing);
-
-        WarnUnmarked(moduleBuilder.Unmarked);
+        WarnAboutLibraries(moduleBuilder);
 
         var seen = moduleBuilder.Modules;
         var enabledNames = ModuleEnablement.ReadEnabled(configuration);
@@ -281,6 +278,15 @@ public static class ServiceCollectionExtensions
 
         WarnUnloadable(assembly, missing);
         return false;
+    }
+
+    /// <summary>The libraries discovery could not load, then the unmarked contract-only ones.</summary>
+    private static void WarnAboutLibraries(BarakoModuleBuilder moduleBuilder)
+    {
+        foreach (var skipped in moduleBuilder.Skipped)
+            WarnUnloadable(skipped.Assembly, skipped.Missing);
+
+        WarnUnmarked(moduleBuilder.Unmarked);
     }
 
     /// <summary>
