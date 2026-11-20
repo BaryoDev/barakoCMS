@@ -26,10 +26,14 @@ internal static class LifecycleReferences
     }
 
     /// <summary>The stored transition the edit removes or changes under this name, or null.</summary>
-    public static StateTransition? Changes(LifecycleChange change, string? name) =>
+    /// <param name="change">The edit.</param>
+    /// <param name="name">The transition a reference names.</param>
+    /// <param name="exact">True where the reader compares the spelling, so a case-only rename changes it too.</param>
+    public static StateTransition? Changes(LifecycleChange change, string? name, bool exact = false) =>
         string.IsNullOrWhiteSpace(name)
             ? null
-            : change.ChangedTransitions.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+            : (exact ? change.ChangedTransitionsBySpelling : change.ChangedTransitions)
+                .FirstOrDefault(t => string.Equals(t.Name, name, exact ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase));
 
     /// <summary>A comma list split into its trimmed, non-empty parts.</summary>
     public static IEnumerable<string> Listed(string? list) =>

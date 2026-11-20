@@ -128,6 +128,21 @@ public class SetLifecycleFloorTests(IntegrationTestFixture factory)
     }
 
     [Fact]
+    public async Task Edit_refuses_renaming_a_seeded_transition_only_in_case_and_names_the_module()
+    {
+        var type = NewName();
+        using var host = await HostWithAsync(type);
+        var admin = await AdminOnAsync(host);
+        var edited = Seeded();
+        edited.Transitions[1].Name = "FiniSh";
+
+        var refused = await ModuleBlockersAsync(await PutAsync(admin, type, edited), HttpStatusCode.Conflict);
+
+        refused.Should().ContainSingle().Which.GetProperty("name").GetString().Should().Be("FloorTest");
+        (await StoredLifecycleAsync(type)).Transitions.Select(t => t.Name).Should().Contain("Finish");
+    }
+
+    [Fact]
     public async Task Edit_refuses_changing_the_from_or_to_of_a_seeded_transition()
     {
         var type = NewName();

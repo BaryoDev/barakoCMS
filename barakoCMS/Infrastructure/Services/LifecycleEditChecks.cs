@@ -89,11 +89,21 @@ internal sealed class LifecycleChange(ContentTypeDefinition type, LifecycleDefin
     /// <summary>
     /// The stored transitions the proposed lifecycle removes, or keeps under the name with another
     /// from or to. A role permission, a trigger and an action link name the transition and mean its
-    /// moves, so either change leaves them pointing at something else.
+    /// moves, so either change leaves them pointing at something else. Names compare without case,
+    /// as the transition route does.
     /// </summary>
-    public IReadOnlyList<StateTransition> ChangedTransitions =>
+    public IReadOnlyList<StateTransition> ChangedTransitions => ChangedBy(StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// <see cref="ChangedTransitions"/> where the name compares by spelling too, so a transition
+    /// renamed only in case is one of them. For a reader that matches the name exactly: a workflow
+    /// trigger and a module's record.
+    /// </summary>
+    public IReadOnlyList<StateTransition> ChangedTransitionsBySpelling => ChangedBy(StringComparison.Ordinal);
+
+    private List<StateTransition> ChangedBy(StringComparison name) =>
         (From?.Transitions ?? []).Where(old => !To.Transitions.Any(kept =>
-            string.Equals(kept.Name, old.Name, StringComparison.OrdinalIgnoreCase)
+            string.Equals(kept.Name, old.Name, name)
             && string.Equals(kept.From, old.From, StringComparison.OrdinalIgnoreCase)
             && string.Equals(kept.To, old.To, StringComparison.OrdinalIgnoreCase))).ToList();
 }

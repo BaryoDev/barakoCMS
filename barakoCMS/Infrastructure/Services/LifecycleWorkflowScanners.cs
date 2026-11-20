@@ -13,9 +13,9 @@ internal sealed class LifecycleWorkflowTriggerScanner(LifecycleWorkflows workflo
         var blockers = new List<LifecycleBlocker>();
         foreach (var workflow in (await workflows.AllAsync(session, ct)).OrderBy(w => w.Name, StringComparer.Ordinal))
         {
-            foreach (var name in LifecycleReferences.TriggeredBy(workflow, change.Type).Distinct(StringComparer.OrdinalIgnoreCase))
+            foreach (var name in LifecycleReferences.TriggeredBy(workflow, change.Type).Distinct(StringComparer.Ordinal))
             {
-                if (LifecycleReferences.Changes(change, name) is { } changed)
+                if (LifecycleReferences.Changes(change, name, exact: true) is { } changed)
                 {
                     blockers.Add(new LifecycleBlocker(
                         LifecycleBlockerKind.WorkflowTrigger, null, changed.Name, workflow.Name, null,
@@ -56,7 +56,7 @@ internal sealed class LifecycleWorkflowActionScanner(LifecycleWorkflows workflow
     }
 }
 
-/// <summary>Finds runs still waiting or running that carry a transition the edit removes or changes.</summary>
+/// <summary>Finds runs still waiting or running, or still undoing, that carry a transition the edit removes or changes.</summary>
 internal sealed class LifecycleWorkflowRunScanner : ILifecycleScanner
 {
     public async Task<LifecycleScan> ScanAsync(IQuerySession session, LifecycleChange change, CancellationToken ct)
@@ -67,7 +67,8 @@ internal sealed class LifecycleWorkflowRunScanner : ILifecycleScanner
         }
 
         var open = await session.Query<WorkflowRun>()
-            .Where(r => r.Status == RunStatus.Pending || r.Status == RunStatus.Running)
+            .Where(r => r.Status == RunStatus.Pending || r.Status == RunStatus.Running
+                || r.Compensation == RunCompensation.Compensating)
             .ToListAsync(ct);
         var blockers = new List<LifecycleBlocker>();
         foreach (var group in open.Where(r => ContentTypeName.Same(r.ContentType, change.Type.Name))
@@ -102,6 +103,15 @@ internal sealed class LifecycleWorkflowRunScanner : ILifecycleScanner
                 yield return named;
             }
         }
+
+        foreach (var attempt in run.Actions.Where(a => a.Compensation?.Status is CompensationStatus.Pending or CompensationStatus.Running
+                     && string.Equals(a.Compensate?.Type, "Transition", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (attempt.Compensate!.Parameters.GetValueOrDefault("Transition")?.Trim() is { Length: > 0 } undone)
+            {
+                yield return undone;
+            }
+        }
     }
 }
 
@@ -112,7 +122,7 @@ internal sealed class LifecycleScheduleScanner(LifecycleWorkflows workflows) : I
     {
         var blockers = (await workflows.AllAsync(session, ct))
             .Where(w => w.DateSchedule is { } s && ContentTypeName.Same(s.ContentType, change.Type.Name)
-                && LifecycleReferences.Strands(change, s.InState))
+                && LifecycleReferences.Strands(change, s.InState, exact: true))
             .OrderBy(w => w.Name, StringComparer.Ordinal)
             .Select(w => new LifecycleBlocker(
                 LifecycleBlockerKind.Schedule, w.DateSchedule!.InState, null, w.Name, null,

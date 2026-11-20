@@ -932,6 +932,27 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
     }
 
     [Fact]
+    public async Task Edit_refuses_renaming_a_transition_only_in_case_when_a_workflow_is_triggered_by_it()
+    {
+        var type = await TypeAsync(Claim());
+        var workflow = new WorkflowDefinition
+        {
+            Id = Guid.NewGuid(), Name = NewName("wf"), TriggerContentType = type, TriggerEvent = "transition:Approve", Enabled = true,
+        };
+        await StoreAsync(workflow);
+        var edited = Claim();
+        edited.Transitions[1].Name = "ApproVe";
+
+        var dry = await BodyAsync(await PutAsync(await AdminAsync(), type, edited, dryRun: true));
+        var refused = await PutAsync(await AdminAsync(), type, edited);
+
+        dry.GetProperty("blockers").EnumerateArray().Where(b => Str(b, "kind") == "workflowTrigger").Should()
+            .ContainSingle().Which.GetProperty("name").GetString().Should().Be(workflow.Name);
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await StoredAsync(type)).Lifecycle!.Transitions.Select(t => t.Name).Should().Contain("Approve");
+    }
+
+    [Fact]
     public async Task Edit_refuses_removing_a_transition_a_workflow_action_makes_even_nested_or_undoing()
     {
         var type = await TypeAsync(Claim());
@@ -993,6 +1014,36 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
         found.Should().ContainSingle();
         CountOf(found[0]).Should().Be(2);
         Str(found[0], "name").Should().Be(workflow);
+    }
+
+    [Fact]
+    public async Task Edit_refuses_removing_a_transition_a_run_is_still_undoing()
+    {
+        var type = await TypeAsync(Claim());
+        var workflow = NewName("wf");
+        WorkflowRun Run(RunStatus status, RunCompensation undoing, CompensationStatus step) => new()
+        {
+            Id = Guid.NewGuid(), WorkflowName = workflow, ContentType = type, TriggerEvent = "Created", Status = status,
+            Compensation = undoing,
+            Actions =
+            [
+                new WorkflowActionAttempt
+                {
+                    ActionType = "Log", Status = AttemptStatus.Succeeded,
+                    Compensate = new WorkflowCompensation { Type = "Transition", Parameters = new() { ["ContentType"] = type, ["Transition"] = "Approve" } },
+                    Compensation = new CompensationState { Status = step },
+                },
+            ],
+        };
+        await StoreAsync(
+            Run(RunStatus.Failed, RunCompensation.Compensating, CompensationStatus.Pending),
+            Run(RunStatus.Failed, RunCompensation.Compensated, CompensationStatus.Succeeded));
+
+        var (_, found) = await DryRunWithoutApprovedAsync(type, "workflowRun");
+
+        found.Should().ContainSingle();
+        CountOf(found[0]).Should().Be(1, "only the run still undoing counts");
+        Str(found[0], "transition").Should().Be("Approve");
     }
 
     [Fact]
@@ -1073,6 +1124,28 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
 
         found.Should().ContainSingle().Which.GetProperty("name").GetString().Should().Be(swept.Name);
         Str(found[0], "state").Should().Be("Approved");
+    }
+
+    [Fact]
+    public async Task Edit_refuses_renaming_a_state_only_in_case_when_a_schedule_sweeps_it()
+    {
+        var type = await TypeAsync(Claim());
+        var swept = new WorkflowDefinition
+        {
+            Id = Guid.NewGuid(), Name = NewName("wf"), TriggerContentType = type, TriggerEvent = "Schedule", Enabled = true,
+            DateSchedule = new ScheduleTrigger { ContentType = type, DateField = "Due", InState = "Approved" },
+        };
+        await StoreAsync(swept);
+        var edited = Claim();
+        edited.States[2] = "ApprovEd";
+        edited.Transitions[1].To = "ApprovEd";
+
+        var dry = await BodyAsync(await PutAsync(await AdminAsync(), type, edited, dryRun: true));
+        var refused = await PutAsync(await AdminAsync(), type, edited);
+
+        dry.GetProperty("blockers").EnumerateArray().Where(b => Str(b, "kind") == "schedule").Should()
+            .ContainSingle().Which.GetProperty("name").GetString().Should().Be(swept.Name);
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     [Fact]
@@ -1183,6 +1256,9 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
     [InlineData("""{"lifecycle":{"states":["Draft"],"initialState":"Draft","transitions":null}}""")]
     [InlineData("""{"lifecycle":{"states":["Draft"],"initialState":"Draft","transitions":[null]}}""")]
     [InlineData("""{"lifecycle":{"states":[null],"initialState":"Draft","transitions":[]}}""")]
+    [InlineData("""{"lifecycle":{"states":["Draft","Review"],"initialState":"Draft","transitions":[{"name":null,"from":"Draft","to":"Review"}]}}""")]
+    [InlineData("""{"lifecycle":{"states":["Draft","Review"],"initialState":"Draft","transitions":[{"name":"Submit","from":null,"to":"Review"}]}}""")]
+    [InlineData("""{"lifecycle":{"states":["Draft","Review"],"initialState":"Draft","transitions":[{"name":"Submit","from":"Draft","to":null}]}}""")]
     public async Task Edit_with_a_null_list_or_null_item_is_400_not_500(string body)
     {
         var admin = await AdminAsync();

@@ -498,22 +498,26 @@ What is refused, with 409, while anything stands in the way:
 - **A new initial state.** Changing it is refused while the type has any entry, event sourced or
   not, because an entry with no stored state reads as the initial state.
 - **A transition that is removed or changed.** A transition counts as changed when its name, its
-  from or its to differs, ignoring case. It is refused while a role grants it on this type
-  (`role`), a workflow is triggered by it (`workflowTrigger`), a workflow has a Transition action
-  that makes it, nested or compensating ones included (`workflowAction`), a rule runs on it
-  (`rule`), or a workflow run that is pending or running carries it (`workflowRun`, with the
-  number of runs in `count`).
+  from or its to differs, ignoring case, except that a workflow trigger and a module's seeded
+  transitions match the name by spelling, so renaming `Approve` to `ApproVe` counts for those. It
+  is refused while a role grants it on this type (`role`), a workflow is triggered by it
+  (`workflowTrigger`), a workflow has a Transition action that makes it, nested or compensating
+  ones included (`workflowAction`), a rule runs on it (`rule`), or a workflow run carries it
+  (`workflowRun`, with the number of runs in `count`): one that is pending or running, or one
+  whose rollback is still pending a compensation that makes it.
 - **A state that is removed or renamed.** Also refused while a rule on this type or another one
   names it, in `inState` or in the `state` list of a condition on this type (`rule`), while a
   uniqueness rule applies in it (`uniqueness`), or while a date schedule sweeps it (`schedule`).
+  A schedule matches the state by spelling, so a case-only rename of a state it names is refused.
 - **What a module seeded.** A module that seeds a type with a lifecycle keeps it. Each time the
   seed runs, core records the module name and the states, transitions (name, from, to) and initial
-  state the module passed, per tenant and type. While that module is registered in the host, an
+  state the module passed. The record is kept on the default tenant, where module seeding runs. While that module is registered in the host, an
   edit is refused (`module`, with the module in `name`) if it removes or renames a seeded state,
   removes or renames a seeded transition or changes its from or to, or changes the initial state
   while it is still the seeded one. Adding states and transitions is allowed, and something the
   tenant already removed does not block. A record for a module that is no longer registered gives
-  no floor.
+  no floor. A module that overrides only the obsolete session-based `SeedAsync` records nothing and
+  gets no floor: it needs the `IModuleSeedContext` overload and `EnsureContentTypeAsync`.
 - **A warning, not a refusal.** An email template of a workflow on this type that links to a
   removed or changed transition with `links.transition` or `links.action` is listed under
   `warnings` with the kind `templateLink`. The edit still applies and the link is left out of the

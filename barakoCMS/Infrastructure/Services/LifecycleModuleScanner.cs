@@ -8,7 +8,8 @@ namespace barakoCMS.Infrastructure.Services;
 /// its initial state. Adding states and transitions stays allowed.
 /// </summary>
 /// <remarks>
-/// The floor is the record the seed context wrote for this tenant and type, and it applies only
+/// The floor is the record the seed context wrote for this type, on the default tenant where
+/// module seeding runs, and it applies only
 /// while that module is still registered in the host. Something the tenant already lacks is not
 /// held against the edit.
 /// </remarks>
@@ -38,7 +39,7 @@ internal sealed class LifecycleModuleScanner(IEnumerable<IBarakoModule> modules)
 
         foreach (var seededTransition in seeded.Transitions)
         {
-            if (LifecycleReferences.Changes(change, seededTransition.Name) is { } changed)
+            if (LifecycleReferences.Changes(change, seededTransition.Name, exact: true) is { } changed)
             {
                 blockers.Add(new LifecycleBlocker(
                     LifecycleBlockerKind.Module, null, changed.Name, seeded.Module, null,
