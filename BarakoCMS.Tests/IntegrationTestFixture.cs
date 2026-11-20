@@ -355,9 +355,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 // minute for ninety minutes, running whichever sync a test had just configured at a
                 // moment the test did not choose.
                 { "CollectionSyncs:Enabled", "false" },
-                // The outbox sender polls once an hour here. PublishActionTests drives delivery
-                // itself, and a host sweeping every five seconds would reach the message first,
-                // refuse the test's plain-http listener and leave nothing due for the test to send.
+                // The hosted outbox sender is removed below, so this is a second line of defence for
+                // a test that builds a sender from the host's configuration. PublishActionTests
+                // drives delivery itself.
                 { barakoCMS.Features.Workflows.Outbox.OutboxSender.PollSecondsKey, "3600" },
                 // The job queue, tuned for a test run: a retry waits nothing, so a job that fails
                 // five times dead-letters in seconds. The backoff arithmetic itself is
@@ -497,6 +497,23 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             }
 
             services.Remove(logRedaction);
+
+            // The outbox sender, for the same reason as the runner below: every derived host shares
+            // this database, and a host starting sweeps every tenant at once. That sweep leases a
+            // message a test just queued, or sends it through the host's own guarded transport, which
+            // refuses the test's loopback listener, so the test's own delivery finds nothing due
+            // (#1389). The tests that cover delivery build an OutboxSender and call DeliverDueAsync
+            // themselves, and none waits on a background send.
+            var outboxSender = services.SingleOrDefault(d =>
+                d.ImplementationType == typeof(barakoCMS.Features.Workflows.Outbox.OutboxSender));
+            if (outboxSender is null)
+            {
+                throw new InvalidOperationException(
+                    "OutboxSender is no longer registered the way this fixture expects, so a host's "
+                  + "sweep may still reach messages tests queue. See #1389.");
+            }
+
+            services.Remove(outboxSender);
 
             // Only this fixture's own host runs the workflow runner. Every host a test derives with
             // WithWebHostBuilder shares this database and lives until another class derives a host, and each
