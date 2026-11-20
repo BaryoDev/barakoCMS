@@ -86,7 +86,7 @@ public class ModuleWithoutMartenTests
         using var check = _factory.Services.CreateScope();
         var query = check.ServiceProvider.GetRequiredService<IQuerySession>();
         (await query.Query<ContentTypeDefinition>().Where(d => d.Name == type).ToListAsync(Ct)).Should().HaveCount(1);
-        (await query.LoadAsync<ProbeDocument>(roleId, Ct))!.Name.Should().Be(roleName);
+        (await query.LoadAsync<Role>(roleId, Ct))!.Name.Should().Be(roleName);
     }
 
     [Fact]
