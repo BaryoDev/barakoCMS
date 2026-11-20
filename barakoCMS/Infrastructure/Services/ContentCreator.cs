@@ -157,6 +157,7 @@ public sealed class ContentCreator(
     public async Task<IReadOnlyList<string>> CheckAsync(
         ContentCreateRequest request, Guid userId, HttpContext httpContext, ContentCreateBatch? batch, CancellationToken ct)
     {
+        await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeSharedAsync(session, request.ContentType, ct); // before any hook runs
         var schema = await AccountContentTypes.FindDefinitionAsync(session, request.ContentType, ct)
             ?? batch?.SchemaFor(request.ContentType);
 

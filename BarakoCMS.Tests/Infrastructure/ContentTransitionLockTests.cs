@@ -9,7 +9,6 @@ using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
-using Npgsql;
 using Xunit;
 
 namespace BarakoCMS.Tests.Infrastructure;
@@ -408,11 +407,216 @@ public class ContentTransitionLockTests(IntegrationTestFixture factory)
 
         var answers = await Task.WhenAll(opposite, inOrder).WaitAsync(Limit, Ct);
 
-        answers.Should().OnlyContain(a => a.StatusCode == HttpStatusCode.OK);
+        answers.Should().NotBeEmpty().And.OnlyContain(a => a.StatusCode == HttpStatusCode.OK);
         foreach (var id in new[] { lowA, lowB, highA, highB })
         {
             (await LoadAsync(id)).LifecycleState.Should().Be("Submitted");
         }
+    }
+
+    /// <summary>How many advisory locks are held by the session that is queued for the type's lock.</summary>
+    private async Task<long> AdvisoryLocksHeldByWaiterAsync(string type)
+    {
+        await using var connection = Store.Storage.Database.CreateConnection();
+        await connection.OpenAsync(Ct);
+        await using var count = connection.CreateCommand();
+        count.CommandText = """
+            select count(*) from pg_locks
+            where locktype = 'advisory' and granted
+              and pid in (
+                select pid from pg_locks
+                where locktype = 'advisory' and objsubid = 1 and not granted
+                  and classid = ((hashtextextended(@name, 0) >> 32) & 4294967295)::oid
+                  and objid = (hashtextextended(@name, 0) & 4294967295)::oid)
+            """;
+        count.Parameters.AddWithValue("name", KeyFor(type));
+        return (long)(await count.ExecuteScalarAsync(Ct))!;
+    }
+
+    [Fact]
+    public async Task Create_takes_the_type_lock_before_a_hook_takes_an_advisory_lock_of_its_own()
+    {
+        var pages = new BarakoCMS.Tests.PagesModuleTests(factory);
+        await pages.DeclareTypeAsync();
+        var type = BarakoCMS.Tests.PagesModuleTests.TypeName;
+        var client = await AdminAsync();
+
+        var parent = await client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = type,
+            data = new Dictionary<string, object> { ["Title"] = "root", ["Slug"] = "r-" + Guid.NewGuid().ToString("n")[..8] },
+        }, Ct);
+        parent.IsSuccessStatusCode.Should().BeTrue(await parent.Content.ReadAsStringAsync(Ct));
+        using var parentBody = JsonDocument.Parse(await parent.Content.ReadAsStringAsync(Ct));
+        var parentId = parentBody.RootElement.GetProperty("id").GetGuid();
+
+        Task<HttpResponseMessage> child;
+        long heldWhileQueued;
+        using (await HoldExclusiveAsync(type))
+        {
+            // The page tree hook walks the parent chain under an advisory lock of its own. Queued on
+            // the type's lock, the create has to be holding none yet, or a move that holds the type
+            // and then runs the same hook could wait on it while the create waits on the type.
+            child = client.PostAsJsonAsync("/api/contents", new
+            {
+                contentType = type,
+                data = new Dictionary<string, object>
+                {
+                    ["Title"] = "child", ["Slug"] = "c-" + Guid.NewGuid().ToString("n")[..8], ["ParentPage"] = parentId.ToString(),
+                },
+            }, Ct);
+            await WaitForQueuedAsync(type);
+            heldWhileQueued = await AdvisoryLocksHeldByWaiterAsync(type);
+        }
+
+        heldWhileQueued.Should().Be(0, "the create asks for the type before any hook runs");
+        var response = await child.WaitAsync(Limit, Ct);
+        response.IsSuccessStatusCode.Should().BeTrue(await response.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task Staging_a_create_directly_waits_for_the_type_lock()
+    {
+        var type = await TypeAsync(Review());
+
+        Task<Guid> stage;
+        using (await HoldExclusiveAsync(type))
+        {
+            // No CheckAsync first, as a caller that stages on its own does it.
+            stage = Task.Run(() => EntryAsync(type), Ct);
+            await WaitForQueuedAsync(type);
+            stage.IsCompleted.Should().BeFalse("the stage is queued behind the exclusive lock");
+        }
+
+        (await stage.WaitAsync(Limit, Ct)).Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_plain_request_session_holds_the_shared_type_lock_until_it_is_disposed()
+    {
+        var type = await TypeAsync(Review());
+
+        var scope = factory.Services.CreateScope();
+        try
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            await FieldChanges.LockTypeSharedAsync(session, type, Ct);
+
+            (await CanTakeExclusiveAsync(type)).Should().BeFalse("the session holds the lock after the call returns");
+            (await LocksAsync(type, granted: true, "ShareLock")).Should().Be(1);
+        }
+        finally
+        {
+            scope.Dispose();
+        }
+
+        (await CanTakeExclusiveAsync(type)).Should().BeTrue("ending the session released it");
+    }
+
+    [Fact]
+    public async Task Batches_of_create_steps_over_two_types_in_opposite_orders_lock_them_in_name_order()
+    {
+        var low = await TypeAsync(Review(), prefix: "crtaa");
+        var high = await TypeAsync(Review(), prefix: "crtzz");
+        var client = await AdminAsync();
+
+        object Create(string type) => new
+        {
+            op = "create", contentType = type, id = Guid.NewGuid(),
+            data = new Dictionary<string, object> { ["Title"] = "a claim" },
+        };
+
+        Task<HttpResponseMessage> batch;
+        long highHeldWhileQueued;
+        using (await HoldExclusiveAsync(low))
+        {
+            batch = client.PostAsJsonAsync("/api/contents/batch", new { steps = new[] { Create(high), Create(low) } }, Ct);
+            await WaitForQueuedAsync(low);
+            highHeldWhileQueued = await LocksAsync(high, granted: true);
+        }
+
+        highHeldWhileQueued.Should().Be(0, "the batch holds no later type while it waits for the earlier one");
+        var response = await batch.WaitAsync(Limit, Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_header_with_lines_locks_its_types_in_name_order_whatever_order_it_writes_them()
+    {
+        // The header is written first, so the later-named type is the header's.
+        var line = "lwaa" + Guid.NewGuid().ToString("n")[..10];
+        var header = "lwzz" + Guid.NewGuid().ToString("n")[..10];
+        using (var scope = factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = header, DisplayName = header,
+                Fields = [new FieldDefinition { Name = "Title", Type = "string" }],
+                Lines = new LinesDefinition { ContentType = line, ParentField = "Order" },
+            });
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = line, DisplayName = line,
+                Fields =
+                [
+                    new FieldDefinition { Name = "Title", Type = "string" },
+                    new FieldDefinition { Name = "Order", Type = "reference", ReferenceType = header },
+                ],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var client = await AdminAsync();
+        Task<HttpResponseMessage> create;
+        long headerHeldWhileQueued;
+        using (await HoldExclusiveAsync(line))
+        {
+            create = client.PostAsJsonAsync("/api/contents", new
+            {
+                contentType = header,
+                data = new Dictionary<string, object> { ["Title"] = "an order" },
+                lines = new object[] { new Dictionary<string, object> { ["Title"] = "a line" } },
+            }, Ct);
+            await WaitForQueuedAsync(line);
+            headerHeldWhileQueued = await LocksAsync(header, granted: true);
+        }
+
+        headerHeldWhileQueued.Should().Be(0, "the write holds no later type while it waits for the earlier one");
+        var response = await create.WaitAsync(Limit, Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task An_import_over_two_types_locks_them_in_name_order_whatever_order_it_writes_them()
+    {
+        var low = await TypeAsync(Review(), prefix: "impaa");
+        var high = await TypeAsync(Review(), prefix: "impzz");
+        var client = await AdminAsync();
+
+        object Record(string type) => new
+        {
+            contentType = type, status = "Published",
+            data = new Dictionary<string, object> { ["Title"] = "a claim" },
+        };
+
+        Task<HttpResponseMessage> import;
+        long highHeldWhileQueued;
+        using (await HoldExclusiveAsync(low))
+        {
+            import = client.PostAsJsonAsync("/api/portability/import", new
+            {
+                dryRun = false,
+                contentTypes = Array.Empty<object>(),
+                contents = new[] { Record(high), Record(low) },
+            }, Ct);
+            await WaitForQueuedAsync(low);
+            highHeldWhileQueued = await LocksAsync(high, granted: true);
+        }
+
+        highHeldWhileQueued.Should().Be(0, "the import holds no later type while it waits for the earlier one");
+        var response = await import.WaitAsync(Limit, Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
     }
 
     private async Task RunBatchAsync(Func<IServiceProvider, CancellationToken, Task> work)

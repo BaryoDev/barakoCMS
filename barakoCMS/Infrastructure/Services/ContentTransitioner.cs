@@ -104,10 +104,7 @@ internal sealed class ContentTransitioner(
             return ContentTransitionResult.Forbidden(denial);
         }
 
-        // The lifecycle is read after the lock, so an edit that committed before it is seen and one
-        // that comes later waits for this move to commit.
         await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeSharedAsync(session, content.ContentType, ct);
-
         var definition = await session.Query<ContentTypeDefinition>()
             .FirstNamedAsync(content.ContentType, ct);
 

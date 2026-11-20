@@ -137,7 +137,9 @@ internal static class FieldChanges
     /// the lock, so they do not wait on each other, and a change to the type or its lifecycle takes
     /// the exclusive one and waits for every writer in flight. Read the type after taking it, so a
     /// write never lands in a state a committed change removed. It joins the transaction the session
-    /// already has, and opens one only when there is none.
+    /// already has, and opens one only when there is none. Call it before any hook runs: a hook may
+    /// take an advisory lock of its own, and a move takes this lock first and then runs the same
+    /// hooks, so every writer asks in that order.
     /// </remarks>
     public static async Task LockTypeSharedAsync(IDocumentSession session, string contentType, CancellationToken ct)
     {
@@ -145,6 +147,18 @@ internal static class FieldChanges
         await session.QueryAsync<int>(
             "select 1 from pg_advisory_xact_lock_shared(hashtextextended(?, 0))", ct,
             $"barakocms:field-change:{session.TenantId}:{contentType.ToLower()}");
+    }
+
+    /// <summary>
+    /// Takes <see cref="LockTypeSharedAsync"/> on each type, lowest lowered name first, the order
+    /// ContentTypeConfigProvider takes its exclusive locks in. A write over several types asks for
+    /// them here before it stages anything, so it cannot wait on a type while holding another that
+    /// a change to the types is waiting for.
+    /// </summary>
+    public static async Task LockTypesSharedAsync(IDocumentSession session, IEnumerable<string> contentTypes, CancellationToken ct)
+    {
+        foreach (var type in contentTypes.Select(t => t.ToLower()).Distinct().Order(StringComparer.Ordinal))
+            await LockTypeSharedAsync(session, type, ct);
     }
 
     /// <summary>Whether a change is small enough for the request that asked for it to run.</summary>

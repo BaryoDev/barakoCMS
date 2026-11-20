@@ -59,8 +59,7 @@ internal sealed class BatchSteps(IServiceProvider scope, User user, HttpContext 
                 types.Add(stored.ContentType);
         }
 
-        foreach (var type in types.Select(t => t.ToLower()).Distinct().Order(StringComparer.Ordinal))
-            await Infrastructure.Jobs.FieldChanges.LockTypeSharedAsync(run._session, type, ct);
+        await Infrastructure.Jobs.FieldChanges.LockTypesSharedAsync(run._session, types, ct);
 
         var results = new List<BatchStepResult>();
 

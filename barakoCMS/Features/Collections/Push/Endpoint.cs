@@ -77,10 +77,7 @@ internal sealed class Endpoint(
             return;
         }
 
-        // The lifecycle's initial state is read after the lock, so an edit that committed before it
-        // is seen and one that comes later waits for this push to commit.
         await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeSharedAsync(session, req.Type, ct);
-
         var definition = await session.Query<ContentTypeDefinition>()
             .FirstNamedAsync(req.Type, ct);
         if (definition is null)
