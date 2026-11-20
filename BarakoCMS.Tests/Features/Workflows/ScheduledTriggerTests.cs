@@ -149,6 +149,44 @@ public class ScheduledTriggerTests
     }
 
     [Fact]
+    public async Task Matches_InState_ignoring_case()
+    {
+        var (type, workflow) = await TypeAndWorkflowAsync(offset: "-24h", inState: "approved");
+        var approved = await StoreEntryAsync(type, Text(Now.AddHours(20)), state: "Approved");
+        await StoreEntryAsync(type, Text(Now.AddHours(20)), state: "Rejected");
+
+        (await SweepAsync(Now)).Should().Be(1);
+
+        (await RunsAsync(workflow)).Should().ContainSingle().Which.ContentId.Should().Be(approved);
+    }
+
+    [Fact]
+    public async Task Matches_an_entry_with_no_stored_state_when_InState_is_the_initial_state()
+    {
+        var (type, workflow) = await TypeAndWorkflowAsync(offset: "-24h", inState: "draft");
+        await StoreLifecycleAsync(type, initial: "Draft");
+        var neverMoved = await StoreEntryAsync(type, Text(Now.AddHours(20)), state: null);
+        await StoreEntryAsync(type, Text(Now.AddHours(20)), state: "Approved");
+
+        (await SweepAsync(Now)).Should().Be(1);
+
+        (await RunsAsync(workflow)).Should().ContainSingle().Which.ContentId.Should().Be(neverMoved);
+    }
+
+    [Fact]
+    public async Task Does_not_match_a_null_state_entry_when_InState_is_not_the_initial_state()
+    {
+        var (type, workflow) = await TypeAndWorkflowAsync(offset: "-24h", inState: "Approved");
+        await StoreLifecycleAsync(type, initial: "Draft");
+        await StoreEntryAsync(type, Text(Now.AddHours(20)), state: null);
+        var approved = await StoreEntryAsync(type, Text(Now.AddHours(20)), state: "Approved");
+
+        (await SweepAsync(Now)).Should().Be(1);
+
+        (await RunsAsync(workflow)).Should().ContainSingle().Which.ContentId.Should().Be(approved);
+    }
+
+    [Fact]
     public async Task An_entry_that_does_not_match_where_queues_nothing()
     {
         var (type, workflow) = await TypeAndWorkflowAsync(offset: "-24h", where: new() { ["Type"] = "Walk-in" });
@@ -225,6 +263,17 @@ public class ScheduledTriggerTests
             };
         });
         return (type, workflow);
+    }
+
+    private async Task StoreLifecycleAsync(string type, string initial)
+    {
+        await using var session = _harness.Store.LightweightSession();
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(), Name = type, DisplayName = type,
+            Lifecycle = new LifecycleDefinition { States = [initial, "Approved"], InitialState = initial },
+        });
+        await session.SaveChangesAsync(Ct);
     }
 
     private async Task<Guid> StoreEntryAsync(string type, string? startsAt, string? state = null, (string, string)? extra = null)
