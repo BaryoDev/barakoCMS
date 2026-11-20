@@ -69,6 +69,17 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     protected override Microsoft.Extensions.Hosting.IHost CreateHost(Microsoft.Extensions.Hosting.IHostBuilder builder) =>
         StartAgainstOwnDatabase(() => base.CreateHost(builder));
 
+    /// <summary>
+    /// A client with its own limiter bucket unless the test sends its own address (#1392). Without
+    /// one, every client of this host shares the "unknown" bucket, so a class waits on the traffic
+    /// of the classes before it.
+    /// </summary>
+    protected override void ConfigureClient(HttpClient client)
+    {
+        base.ConfigureClient(client);
+        TestClientIp.Give(client);
+    }
+
     /// <summary>The API key this host is configured with, standing in for a deployment's own.</summary>
     public const string ConfiguredEmailKey = "key_from_the_deployment_not_the_admin";
 
@@ -136,6 +147,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         {
             ThrowIfReleased();
             base.ConfigureClient(client);
+            TestClientIp.Give(client);
         }
 
         private void ThrowIfReleased()

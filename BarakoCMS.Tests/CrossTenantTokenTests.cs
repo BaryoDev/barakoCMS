@@ -26,12 +26,18 @@ internal sealed class TestRemoteIpFilter : IStartupFilter
 {
     public const string Header = "X-Test-Remote-Ip";
 
+    /// <summary>The address the fixture gives a client that sent no <see cref="Header"/> (#1392).</summary>
+    public const string DefaultHeader = "X-Test-Default-Remote-Ip";
+
     public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
     {
         app.Use(async (ctx, nxt) =>
         {
-            if (ctx.Request.Headers.TryGetValue(Header, out var raw)
-                && IPAddress.TryParse(raw.ToString(), out var ip))
+            // The test's own header wins, set on the request or as a default. A value that does not
+            // parse leaves the request without an address, so a test can opt out of the default.
+            var named = ctx.Request.Headers.TryGetValue(Header, out var raw)
+                || ctx.Request.Headers.TryGetValue(DefaultHeader, out raw);
+            if (named && IPAddress.TryParse(raw.ToString(), out var ip))
             {
                 ctx.Connection.RemoteIpAddress = ip;
             }
