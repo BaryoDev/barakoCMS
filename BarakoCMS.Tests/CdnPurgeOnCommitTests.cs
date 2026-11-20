@@ -707,6 +707,7 @@ public class CdnPurgeOnCommitTests(IntegrationTestFixture fixture)
         var noSettings = await ArrangeAsync();
         var off = await ArrangeEnabledAsync();
         var on = await ArrangeEnabledAsync();
+        var idle = await ArrangeEnabledAsync();
         await Host.EntryAsync(on.Tenant, on.Type);
         await Host.EntryAsync(off.Tenant, off.Type);
         await Host.EnableAsync(off.Tenant, off.Zone, enabled: false);
@@ -716,6 +717,9 @@ public class CdnPurgeOnCommitTests(IntegrationTestFixture fixture)
 
         visited.Should().Contain(TenantScopes.TenantIdFor(on.Tenant));
         visited.Should().Contain(TenantScopes.TenantIdFor(off.Tenant), "its leftover rows still drain");
+        visited.Should().Contain(
+            TenantScopes.TenantIdFor(idle.Tenant),
+            "under enforcement the sweep cannot see rows there, so it visits every tenant with settings, even one with no row");
         visited.Should().NotContain(TenantScopes.TenantIdFor(noSettings.Tenant), "no settings document, so it cannot have written a row");
         (await Host.SweepAsync(on.Tenant)).Should().BeGreaterThan(0);
     }
