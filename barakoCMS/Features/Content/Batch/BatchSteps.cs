@@ -46,6 +46,22 @@ internal sealed class BatchSteps(IServiceProvider scope, User user, HttpContext 
             : null;
 
         var run = new BatchSteps(scope, user, http, request.DryRun);
+        // Every type the batch writes is locked up front, lowest lowered name first, so two batches
+        // over the same types ask for them in one order whatever order their steps name them. A step
+        // takes its type's lock again when it runs, which this session already holds. An entry the
+        // batch creates is of its create step's type, so only a move is read for its type.
+        var types = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var step in request.Steps)
+        {
+            if (BatchValidator.IsOp(step.Op, BatchOps.Create))
+                types.Add(step.ContentType);
+            else if (await run._session.LoadAsync<ContentEntry>(step.Id, ct) is { } stored)
+                types.Add(stored.ContentType);
+        }
+
+        foreach (var type in types.Select(t => t.ToLower()).Distinct().Order(StringComparer.Ordinal))
+            await Infrastructure.Jobs.FieldChanges.LockTypeSharedAsync(run._session, type, ct);
+
         var results = new List<BatchStepResult>();
 
         for (var index = 0; index < request.Steps.Count; index++)

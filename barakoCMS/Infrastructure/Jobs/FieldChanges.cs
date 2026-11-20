@@ -129,6 +129,24 @@ internal static class FieldChanges
             $"barakocms:field-change:{session.TenantId}:{contentType.ToLower()}");
     }
 
+    /// <summary>
+    /// Takes the same lock as <see cref="LockTypeAsync"/> shared, held until the session's transaction ends.
+    /// </summary>
+    /// <remarks>
+    /// For a write that reads the type's lifecycle and then puts an entry in a state. Writers share
+    /// the lock, so they do not wait on each other, and a change to the type or its lifecycle takes
+    /// the exclusive one and waits for every writer in flight. Read the type after taking it, so a
+    /// write never lands in a state a committed change removed. It joins the transaction the session
+    /// already has, and opens one only when there is none.
+    /// </remarks>
+    public static async Task LockTypeSharedAsync(IDocumentSession session, string contentType, CancellationToken ct)
+    {
+        await session.BeginTransactionAsync(ct);
+        await session.QueryAsync<int>(
+            "select 1 from pg_advisory_xact_lock_shared(hashtextextended(?, 0))", ct,
+            $"barakocms:field-change:{session.TenantId}:{contentType.ToLower()}");
+    }
+
     /// <summary>Whether a change is small enough for the request that asked for it to run.</summary>
     public static bool RunsInline(FieldChange change) => change.Total <= BatchSize;
 
