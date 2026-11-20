@@ -21,7 +21,7 @@
 79 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddJwtAndApiKeyAuth
 132 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddMartenStore
 80 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddModules
-139 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapGlobalDocuments
+135 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapGlobalDocuments
 133 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapTenantScopedDocuments
 86 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.ResolveConnectionString
 181 barakoCMS/Features/Auth/Login/Endpoint.cs::Endpoint.HandleAsync
