@@ -14,7 +14,6 @@ using FluentAssertions;
 using Marten;
 using Marten.Services;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Configuration;
 using Xunit;
 
@@ -632,15 +631,21 @@ public class CdnPurgeOnCommitTests(IntegrationTestFixture fixture)
         rows[0].ClaimedAt.Should().BeNull("a stop lets go of the claim, so the next start does not wait five minutes");
     }
 
-    // The request is gone after its commit; the row is still written.
+    // The request is gone after its commit; the row is still written. The listener is called from inside the
+    // commit, where the change set is live, with a token that is already cancelled, next to the host's own
+    // listener. The host writes one row with its real token, so the second row is the one this proves.
     [Fact]
     public async Task A_cancelled_request_token_after_the_commit_still_writes_the_row()
     {
-        var a = await ArrangeAsync();
-        var capture = new CaptureCommit();
+        var a = await ArrangeEnabledAsync();
+        var services = Host.Factory.Services;
+        var logs = new ErrorRecorder();
+        var listener = new CdnPurgeListener(
+            new CdnPurgeGate(services.GetRequiredService<IConfiguration>(), services.GetRequiredService<ISecretProtector>()),
+            new CdnPurgeSignal(), services.GetRequiredService<IConfiguration>(), logs);
         await using (var session = Host.Store.LightweightSession(TenantScopes.TenantIdFor(a.Tenant)))
         {
-            session.Listeners.Add(capture);
+            session.Listeners.Add(new CallAfterCommit(listener, new CancellationToken(canceled: true)));
             session.Store(new Content
             {
                 Id = Guid.NewGuid(), ContentType = a.Type, Status = ContentStatus.Published,
@@ -649,27 +654,32 @@ public class CdnPurgeOnCommitTests(IntegrationTestFixture fixture)
             await session.SaveChangesAsync(Ct);
         }
 
-        await Host.EnableAsync(a.Tenant, a.Zone);
-        (await Host.PendingAsync(a.Tenant)).Should().BeEmpty();
-        var services = Host.Factory.Services;
-        var listener = new CdnPurgeListener(
-            new CdnPurgeGate(services.GetRequiredService<IConfiguration>(), services.GetRequiredService<ISecretProtector>()),
-            new CdnPurgeSignal(), services.GetRequiredService<IConfiguration>(), NullLogger<CdnPurgeListener>.Instance);
-        await using var after = Host.Store.LightweightSession(TenantScopes.TenantIdFor(a.Tenant));
-
-        await listener.AfterCommitAsync(after, capture.Commit!, new CancellationToken(canceled: true));
-
-        (await Host.PendingAsync(a.Tenant)).Should().HaveCount(1);
+        logs.Errors.Should().BeEmpty("a failure here names its exception");
+        (await Host.PendingAsync(a.Tenant)).Should().HaveCount(2, "the host's row and the one written under a cancelled token");
     }
 
-    private sealed class CaptureCommit : DocumentSessionListenerBase
+    private sealed class CallAfterCommit(CdnPurgeListener listener, CancellationToken token) : DocumentSessionListenerBase
     {
-        public IChangeSet? Commit { get; private set; }
+        public override Task AfterCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken _) =>
+            listener.AfterCommitAsync(session, commit, token);
+    }
 
-        public override Task AfterCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken token)
+    private sealed class ErrorRecorder : Microsoft.Extensions.Logging.ILogger<CdnPurgeListener>
+    {
+        public List<string> Errors { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter)
         {
-            Commit = commit;
-            return Task.CompletedTask;
+            if (logLevel >= Microsoft.Extensions.Logging.LogLevel.Error)
+            {
+                Errors.Add($"{formatter(state, exception)} {exception}");
+            }
         }
     }
 
