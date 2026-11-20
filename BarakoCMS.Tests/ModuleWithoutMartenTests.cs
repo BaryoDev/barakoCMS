@@ -47,7 +47,11 @@ public class ModuleWithoutMartenTests
 
         source.Should().NotMatchRegex(@"\bMarten\b");
 
-        foreach (var type in new[] { typeof(NoMartenProbeModule), typeof(NoMartenProbeHook) })
+        foreach (var type in new[]
+                 {
+                     typeof(NoMartenProbeModule), typeof(NoMartenProbeHook),
+                     typeof(NoMartenLockHook), typeof(NoMartenDocumentHook),
+                 })
         {
             var signatures = type.GetMembers(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance
                     | System.Reflection.BindingFlags.DeclaredOnly)
@@ -266,6 +270,145 @@ public class ModuleWithoutMartenTests
         var act = () => legacy.BeforeSaveAsync(new ForeignHookContext(), Ct);
 
         await act.Should().ThrowAsync<NotSupportedException>();
+    }
+
+    private static Task<IReadOnlyList<string>> RunHookAsync(IContentLifecycleHook hook, string type, IDocumentSession session) =>
+        new ContentLifecycleRunner([hook], session)
+            .RunBeforeSaveAsync(type, null, new Dictionary<string, object>(), null, Guid.NewGuid(), Ct);
+
+    private static async Task WaitForAdvisoryWaiterAsync(IDocumentStore store)
+    {
+        await using var watcher = store.LightweightSession();
+        for (var attempt = 0; attempt < 200; attempt++)
+        {
+            var waiting = await watcher.QueryAsync<int>(
+                "select count(*)::int from pg_locks where locktype = 'advisory' and not granted", Ct);
+            if (waiting.Single() > 0)
+            {
+                return;
+            }
+
+            await Task.Delay(50, Ct);
+        }
+
+        throw new TimeoutException("No session ever waited on an advisory lock.");
+    }
+
+    [Fact]
+    public async Task A_hook_lock_is_held_until_the_write_commits_and_a_second_write_waits_for_it()
+    {
+        var type = NewName("probe-lock");
+        var key = NewName("probe-key");
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using var first = store.LightweightSession();
+        await using var second = store.LightweightSession();
+        var hook = new NoMartenLockHook(type, key);
+
+        (await RunHookAsync(hook, type, first)).Should().BeEmpty();
+        var waiting = RunHookAsync(hook, type, second);
+        await WaitForAdvisoryWaiterAsync(store);
+
+        waiting.IsCompleted.Should().BeFalse("the first hook has returned but its write has not committed");
+
+        // The write commits something, as a real content save does, and the commit releases the lock.
+        first.Store(new Role { Id = Guid.NewGuid(), Name = NewName("probe-role") });
+        await first.SaveChangesAsync(Ct);
+
+        (await waiting.WaitAsync(TimeSpan.FromSeconds(15), Ct)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task The_same_hook_lock_key_in_two_tenants_does_not_block()
+    {
+        var type = NewName("probe-lock");
+        var key = NewName("probe-key");
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using var inOne = store.LightweightSession(NewName("tenant-a"));
+        await using var inTwo = store.LightweightSession(NewName("tenant-b"));
+        var hook = new NoMartenLockHook(type, key);
+
+        (await RunHookAsync(hook, type, inOne)).Should().BeEmpty();
+
+        var other = RunHookAsync(hook, type, inTwo);
+        (await other.WaitAsync(TimeSpan.FromSeconds(15), Ct)).Should().BeEmpty(
+            "the lock key includes the tenant, so the other tenant's write does not wait");
+    }
+
+    [Fact]
+    public async Task A_document_a_hook_stores_commits_with_the_content_save()
+    {
+        var type = NewName("probe-store");
+        var roleId = Guid.NewGuid();
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession())
+        {
+            await RunHookAsync(new NoMartenDocumentHook(type, roleId, store: true), type, session);
+            session.Store(new Role { Id = Guid.NewGuid(), Name = NewName("probe-role") });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        using var check = _factory.Services.CreateScope();
+        var query = check.ServiceProvider.GetRequiredService<IQuerySession>();
+        (await query.LoadAsync<Role>(roleId, Ct))!.Name.Should().Be("stored-by-hook");
+    }
+
+    [Fact]
+    public async Task A_document_a_hook_stores_is_gone_when_the_content_save_fails()
+    {
+        var type = NewName("probe-store");
+        var roleId = Guid.NewGuid();
+        var taken = await StoreTakenEntryAsync(type);
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+
+        await using (var session = store.LightweightSession())
+        {
+            await RunHookAsync(new NoMartenDocumentHook(type, roleId, store: true), type, session);
+
+            // The content write fails after the hook ran: an insert under an id that exists.
+            session.Insert(new Content { Id = taken.Id, ContentType = type, Data = new Dictionary<string, object>() });
+            var save = () => session.SaveChangesAsync(Ct);
+            await save.Should().ThrowAsync<Exception>();
+        }
+
+        using var check = _factory.Services.CreateScope();
+        var query = check.ServiceProvider.GetRequiredService<IQuerySession>();
+        (await query.LoadAsync<Role>(roleId, Ct)).Should().BeNull("the hook's store shares the failed save's transaction");
+        (await query.LoadAsync<Content>(taken.Id, Ct)).Should().NotBeNull("the control: the entry that was already there");
+    }
+
+    private async Task<Content> StoreTakenEntryAsync(string type)
+    {
+        using var scope = _factory.Services.CreateScope();
+        return await StoreEntryAsync(scope.ServiceProvider.GetRequiredService<IDocumentSession>(), type, "TAKEN");
+    }
+
+    [Fact]
+    public async Task Load_in_the_same_write_returns_what_store_wrote_and_otherwise_reads_the_committed_row()
+    {
+        var type = NewName("probe-store");
+        var storedId = Guid.NewGuid();
+        var committedId = Guid.NewGuid();
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using (var arrange = store.LightweightSession())
+        {
+            arrange.Store(new Role { Id = committedId, Name = "committed" });
+            await arrange.SaveChangesAsync(Ct);
+        }
+
+        await using var session = store.LightweightSession();
+
+        var writes = new NoMartenDocumentHook(type, storedId, store: true);
+        await RunHookAsync(writes, type, session);
+        writes.Loaded.Should().NotBeNull("the database has not seen the document yet, so the context answers");
+        writes.Loaded!.Name.Should().Be("stored-by-hook");
+
+        var reads = new NoMartenDocumentHook(type, committedId, store: false);
+        await RunHookAsync(reads, type, session);
+        reads.Loaded!.Name.Should().Be("committed");
+
+        var missing = new NoMartenDocumentHook(type, Guid.NewGuid(), store: false);
+        await RunHookAsync(missing, type, session);
+        missing.Loaded.Should().BeNull();
     }
 
     private sealed class ForeignSeedContext : IModuleSeedContext

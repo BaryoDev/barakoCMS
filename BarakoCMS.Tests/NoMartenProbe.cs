@@ -49,3 +49,32 @@ internal sealed class NoMartenProbeHook(string typeName) : IContentLifecycleHook
         return errors;
     }
 }
+
+internal sealed class NoMartenLockHook(string typeName, string key) : IContentLifecycleHook
+{
+    public string ContentType => typeName;
+
+    public async Task<IReadOnlyList<string>> BeforeSaveAsync(IContentHookContext context, CancellationToken ct)
+    {
+        await context.LockAsync(key, ct);
+        return [];
+    }
+}
+
+internal sealed class NoMartenDocumentHook(string typeName, Guid roleId, bool store) : IContentLifecycleHook
+{
+    public string ContentType => typeName;
+
+    public Role? Loaded { get; private set; }
+
+    public async Task<IReadOnlyList<string>> BeforeSaveAsync(IContentHookContext context, CancellationToken ct)
+    {
+        if (store)
+        {
+            context.Store(new Role { Id = roleId, Name = "stored-by-hook" });
+        }
+
+        Loaded = await context.LoadAsync<Role>(roleId, ct);
+        return [];
+    }
+}

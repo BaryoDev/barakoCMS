@@ -235,12 +235,30 @@ public sealed class GlossaryTermHook : IContentLifecycleHook
 ```
 
 `context.Reader` reads other entries, so a hook can check a write against content that already
-exists without naming a Marten type. A hook that needs the write session itself (locks, number
-allocation) still overrides the older `OnBeforeSaveAsync(ContentLifecycleContext, ...)`, which is
-obsolete and removed in 6.0.0, and uses `context.Session` to store something atomically with the entry. The real example of that is
-[`BarakoCMS.Accounting/JournalEntryHook.cs`](../BarakoCMS.Accounting/JournalEntryHook.cs): it checks
-every referenced account exists and allocates the next entry number inside the write transaction,
-so a rejected entry never uses a number.
+exists without naming a Marten type. Three more calls on the context cover a hook that has to
+write as well as check, all inside the transaction the content write runs in:
+
+- `context.LockAsync(key, ct)` takes an exclusive lock on `key` for the tenant of the write. It is
+  held until the write commits or rolls back, not until the hook returns, so a second write that
+  asks for the same key waits and then reads what the first one committed. The same key in two
+  tenants is two locks. The key is yours to name; start it with your module's name so it cannot
+  meet another module's key, and take locks in one order so two writes cannot wait on each other.
+- `context.Store(document)` stores a document with a `Guid` `Id` in the same unit of work as the
+  content write, in the tenant of the write. It commits with the write and is gone if the write
+  fails.
+- `context.LoadAsync<T>(id, ct)` returns a document stored earlier in the same write, or else the
+  committed one. Use it to read a row, change it and store it back under the lock.
+
+These are for the hook's own writes, for example allocating a number so a rejected entry never
+uses one. They are not a document store for the rest of the module. A hook that keeps its state as
+ordinary content entries needs none of them: write the entry through the content endpoints and read
+it with `context.Reader`.
+
+The older `OnBeforeSaveAsync(ContentLifecycleContext, ...)` and its `context.Session` are obsolete
+and removed in 6.0.0. `BarakoCMS.Pages` has moved off them: its `PageTreeHook` reads its settings
+with `LoadAsync` and the page type's definition with `context.Reader.GetContentTypeAsync`.
+[`BarakoCMS.Accounting/JournalEntryHook.cs`](../BarakoCMS.Accounting/JournalEntryHook.cs) still uses
+`context.Session` until that module leaves this repository.
 
 One rule ships ready made. A reference to the entry's own type is not a parent just because it
 points at its own type (a related post pointing back is fine), so core cannot refuse loops for every
