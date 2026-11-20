@@ -262,6 +262,19 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
             yield return $"Field '{field.Name}' is Members and cannot carry visibleToRoles or a mask: every verified viewer reads it.";
     }
 
+    /// <summary>A body can send null for the lists or for an item in them, and the checks below read all of them.</summary>
+    private static List<string> NullMembers(LifecycleDefinition lifecycle)
+    {
+        var errors = new List<string>();
+        if (lifecycle.States is null || lifecycle.States.Any(s => s is null))
+            errors.Add("states must be a list of state names, with none of them null.");
+
+        if (lifecycle.Transitions is null || lifecycle.Transitions.Any(t => t is null))
+            errors.Add("transitions must be a list of transitions, with none of them null. Send an empty list for none.");
+
+        return errors;
+    }
+
     /// <inheritdoc />
     public (bool IsValid, List<string> Errors) ValidateLifecycle(LifecycleDefinition? lifecycle)
     {
@@ -271,6 +284,9 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
         // lifecycle has to keep behaving exactly as it did before lifecycles existed.
         if (lifecycle is null)
             return (true, errors);
+
+        if (NullMembers(lifecycle) is { Count: > 0 } missing)
+            return (false, missing);
 
         if (lifecycle.States.Count == 0)
             errors.Add("A lifecycle must declare at least one state.");

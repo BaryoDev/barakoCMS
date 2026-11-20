@@ -933,6 +933,60 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
             .Should().BeTrue("the edit dropped the cached document, so it was built again");
     }
 
+    [Theory]
+    [InlineData("""{"lifecycle":{"states":null,"initialState":"Draft","transitions":[]}}""")]
+    [InlineData("""{"lifecycle":{"states":["Draft"],"initialState":"Draft","transitions":null}}""")]
+    [InlineData("""{"lifecycle":{"states":["Draft"],"initialState":"Draft","transitions":[null]}}""")]
+    [InlineData("""{"lifecycle":{"states":[null],"initialState":"Draft","transitions":[]}}""")]
+    public async Task Edit_with_a_null_list_or_null_item_is_400_not_500(string body)
+    {
+        var admin = await AdminAsync();
+        var type = await TypeAsync(Small());
+
+        var response = await RawPutAsync(admin, type, body, await VersionOfAsync(type));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync(Ct));
+        (await StoredAsync(type)).Lifecycle!.States.Should().Equal("Draft", "Submitted");
+        (await AuditAsync(type)).Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("""{"lifecycle":null}""", false, true)]
+    [InlineData("""{"lifecycle":null}""", false, false)]
+    [InlineData("""{"lifecycle":null,"dryRun":true}""", true, true)]
+    [InlineData("""{"lifecycle":null,"dryRun":true}""", true, false)]
+    [InlineData("""{}""", false, true)]
+    [InlineData("""{}""", false, false)]
+    [InlineData("""{"dryRun":true}""", true, true)]
+    [InlineData("""{"dryRun":true}""", true, false)]
+    public async Task Edit_without_a_lifecycle_is_400_before_the_version_is_looked_at(string body, bool dryRun, bool sendVersion)
+    {
+        _ = dryRun;
+        var admin = await AdminAsync();
+        var type = await TypeAsync(Small());
+
+        var response = await RawPutAsync(admin, type, body, sendVersion ? await VersionOfAsync(type) : null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync(Ct));
+        (await response.Content.ReadAsStringAsync(Ct)).Should().Contain("lifecycle is required");
+        (await StoredAsync(type)).Lifecycle!.States.Should().Equal("Draft", "Submitted");
+        (await AuditAsync(type)).Should().BeEmpty();
+    }
+
+    private async Task<HttpResponseMessage> RawPutAsync(HttpClient client, string type, string json, Guid? version)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Put, $"/api/content-types/{type}/lifecycle")
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+        };
+        if (version is { } v)
+        {
+            request.Headers.TryAddWithoutValidation("If-Match", $"\"{v:D}\"");
+        }
+
+        return await client.SendAsync(request, Ct);
+    }
+
     [Fact]
     public async Task Edit_then_config_export_then_apply_is_a_no_op()
     {
@@ -950,8 +1004,15 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
 
         var planned = await plan.Content.ReadAsStringAsync(Ct);
         plan.StatusCode.Should().Be(HttpStatusCode.OK, planned);
-        JsonDocument.Parse(planned).RootElement.GetProperty("sections").EnumerateArray()
-            .SelectMany(s => s.GetProperty("changes").EnumerateArray()).Should().BeEmpty();
+        var sections = JsonDocument.Parse(planned).RootElement.GetProperty("sections").EnumerateArray().ToList();
+        sections.Should().NotBeEmpty("an empty plan would pass the check below for the wrong reason");
+        sections.SelectMany(s => s.GetProperty("changes").EnumerateArray()).Should().BeEmpty();
+        var exported = document["contentTypes"]!.AsObject();
+        exported.Select(p => p.Key).Should().Contain(type, "the export has to carry the edited type");
+        var lifecycle = exported[type]!.AsObject()
+            .First(p => p.Key.Equals("lifecycle", StringComparison.OrdinalIgnoreCase)).Value!.AsObject();
+        lifecycle.First(p => p.Key.Equals("states", StringComparison.OrdinalIgnoreCase)).Value!.AsArray()
+            .Select(s => s!.GetValue<string>()).Should().Equal("Draft", "Review", "Approved");
         applied.StatusCode.Should().Be(HttpStatusCode.OK, await applied.Content.ReadAsStringAsync(Ct));
         (await StoredAsync(type, slug)).Lifecycle!.States.Should().Equal("Draft", "Review", "Approved");
     }
