@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using barakoCMS.Infrastructure.Caching.Purge;
+using barakoCMS.Infrastructure.Http;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Xunit;
@@ -228,6 +229,66 @@ public class CdnPurgeClientTests
         cf.Succeeded.Should().BeTrue();
         fastly.Succeeded.Should().BeTrue();
         handler.Calls.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("cloudflare")]
+    [InlineData("fastly")]
+    public async Task A_timeout_is_retryable_and_does_not_throw(string provider)
+    {
+        var handler = new StubHandler(_ => throw new TimeoutException("The attempt timed out."));
+
+        var result = provider == "cloudflare"
+            ? await Cloudflare(handler).PurgeTagsAsync(["t:acme:entry:1"], TestContext.Current.CancellationToken)
+            : await Fastly(handler).PurgeTagsAsync(["t:acme:entry:1"], TestContext.Current.CancellationToken);
+
+        result.Succeeded.Should().BeFalse();
+        result.Retryable.Should().BeTrue();
+        result.Status.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_blocked_address_is_not_retryable(bool wrapped)
+    {
+        var handler = new StubHandler(_ => throw (wrapped
+            ? new HttpRequestException("send failed", new BlockedAddressException("blocked"))
+            : new BlockedAddressException("blocked")));
+
+        var cf = await Cloudflare(handler).PurgeTagsAsync(["t:acme:entry:1"], TestContext.Current.CancellationToken);
+        var fastly = await Fastly(handler).PurgeTagsAsync(["t:acme:entry:1"], TestContext.Current.CancellationToken);
+
+        cf.Succeeded.Should().BeFalse();
+        cf.Retryable.Should().BeFalse();
+        fastly.Succeeded.Should().BeFalse();
+        fastly.Retryable.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_provider_error_with_a_line_break_is_logged_on_one_line()
+    {
+        var handler = new StubHandler(_ => Json(HttpStatusCode.BadRequest, """{"errors":[{"message":"a\nb\r\nc"}]}"""));
+        var log = new CapturingLogger<CloudflarePurger>();
+
+        var result = await Cloudflare(handler, log).PurgeTagsAsync(["t:acme:entry:1"], TestContext.Current.CancellationToken);
+
+        result.Error.Should().Contain("a b").And.NotContainAny("\r", "\n");
+        log.Lines.Should().NotBeEmpty();
+        log.Lines.Should().OnlyContain(line => !line.Contains('\r') && !line.Contains('\n'));
+    }
+
+    [Fact]
+    public async Task A_long_error_body_is_cut()
+    {
+        var huge = new string('x', 100_000);
+        var handler = new StubHandler(_ => Json(HttpStatusCode.BadRequest, $$"""{"errors":[{"message":"{{huge}}"}]}"""));
+
+        var result = await Cloudflare(handler).PurgeTagsAsync(["t:acme:entry:1"], TestContext.Current.CancellationToken);
+
+        result.Succeeded.Should().BeFalse();
+        result.Error.Should().NotBeNull();
+        result.Error!.Length.Should().BeLessThanOrEqualTo(500);
     }
 
     [Fact]

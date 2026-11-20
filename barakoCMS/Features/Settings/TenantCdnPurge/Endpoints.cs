@@ -91,8 +91,8 @@ internal sealed class UpdateTenantCdnPurgeValidator : Validator<UpdateTenantCdnP
             .WithMessage("TargetId must be 1 to 64 letters and digits.");
         RuleFor(x => x.Token)
             .MaximumLength(2048)
-            .Must(t => t is null || !t.Any(char.IsControl))
-            .WithMessage("Token must not contain line breaks or control characters.");
+            .Must(t => t is null || t.All(c => c >= 0x21 && c <= 0x7E))
+            .WithMessage("Token must be visible ASCII characters only, with no spaces or line breaks.");
     }
 }
 

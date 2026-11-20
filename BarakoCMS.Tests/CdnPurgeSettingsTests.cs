@@ -256,9 +256,157 @@ public class CdnPurgeSettingsTests
         target.Should().NotBeNull();
         target!.BaseUrl.Should().Be(CloudflarePurger.DefaultBaseUrl);
 
+        var reached = new List<Uri>();
+        var sent = await new CloudflarePurger(
+                new HttpClient(new RecordingHandler(reached)), target, new LoggerFactory().CreateLogger<CloudflarePurger>())
+            .PurgeTagsAsync(["t:acme:entry:1"], Ct);
+        sent.Succeeded.Should().BeTrue();
+        reached.Should().ContainSingle().Which.Host.Should().Be("api.cloudflare.com");
+
         var hostOverride = new Dictionary<string, string?> { ["Delivery:CdnPurge:BaseUrl:Cloudflare"] = "http://127.0.0.1:9/stand-in" };
         (await ResolverIn(scope, hostOverride).TargetForAsync(tenant, Ct))!.BaseUrl
             .Should().Be("http://127.0.0.1:9/stand-in", "only host configuration moves the host");
+    }
+
+    [Fact]
+    public async Task Enabling_without_a_target_is_a_400()
+    {
+        var tenant = await TenantAsync();
+        var admin = await MemberClientAsync(tenant, SystemRoles.AdminRoleId, "Admin");
+
+        var res = await admin.PutAsJsonAsync(Route, new { provider = "fastly", token = Token, enabled = true }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Enabling_without_a_provider_is_a_400()
+    {
+        var tenant = await TenantAsync();
+        var admin = await MemberClientAsync(tenant, SystemRoles.AdminRoleId, "Admin");
+
+        var res = await admin.PutAsJsonAsync(Route, new { targetId = "svc123", token = Token, enabled = true }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task An_empty_target_id_clears_it()
+    {
+        var tenant = await TenantAsync();
+        var admin = await MemberClientAsync(tenant, SystemRoles.AdminRoleId, "Admin");
+        (await admin.PutAsJsonAsync(Route, new { provider = "fastly", targetId = "svc123", token = Token }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var res = await admin.PutAsJsonAsync(Route, new { targetId = "" }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var read = JsonDocument.Parse(await (await admin.GetAsync(Route, Ct)).Content.ReadAsStringAsync(Ct));
+        read.RootElement.GetProperty("targetId").GetString().Should().BeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task An_empty_token_clears_it()
+    {
+        var tenant = await TenantAsync();
+        var admin = await MemberClientAsync(tenant, SystemRoles.AdminRoleId, "Admin");
+        (await admin.PutAsJsonAsync(Route, new { provider = "fastly", targetId = "svc123", token = Token }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var res = await admin.PutAsJsonAsync(Route, new { token = "" }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var read = JsonDocument.Parse(await (await admin.GetAsync(Route, Ct)).Content.ReadAsStringAsync(Ct));
+        read.RootElement.GetProperty("tokenSet").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_put_with_only_enabled_leaves_provider_target_and_token_unchanged()
+    {
+        var tenant = await TenantAsync();
+        var admin = await MemberClientAsync(tenant, SystemRoles.AdminRoleId, "Admin");
+        (await admin.PutAsJsonAsync(Route, new { provider = "fastly", targetId = "svc123", token = Token }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var res = await admin.PutAsJsonAsync(Route, new { enabled = true }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
+        using var read = JsonDocument.Parse(await (await admin.GetAsync(Route, Ct)).Content.ReadAsStringAsync(Ct));
+        read.RootElement.GetProperty("provider").GetString().Should().Be("fastly");
+        read.RootElement.GetProperty("targetId").GetString().Should().Be("svc123");
+        read.RootElement.GetProperty("tokenSet").GetBoolean().Should().BeTrue();
+        read.RootElement.GetProperty("enabled").GetBoolean().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_target_id_with_a_trailing_line_feed_is_a_400()
+    {
+        var tenant = await TenantAsync();
+        var admin = await MemberClientAsync(tenant, SystemRoles.AdminRoleId, "Admin");
+
+        var res = await admin.PutAsJsonAsync(Route, new { provider = "cloudflare", targetId = "zone123\n" }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task A_token_with_a_non_ascii_character_is_a_400()
+    {
+        var tenant = await TenantAsync();
+        var admin = await MemberClientAsync(tenant, SystemRoles.AdminRoleId, "Admin");
+
+        var res = await admin.PutAsJsonAsync(Route, new { provider = "cloudflare", token = "tok\u00e9n" }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync(Ct)).Should().NotContain("tok\u00e9n", "the message names the field, not the value");
+    }
+
+    [Fact]
+    public async Task The_resolver_from_the_host_builds_the_purger_for_the_tenant_provider()
+    {
+        var cloudflare = await TenantAsync();
+        var fastly = await TenantAsync();
+        var off = await TenantAsync();
+        foreach (var (tenant, body) in new (string, object)[]
+        {
+            (cloudflare, new { provider = "cloudflare", targetId = "zone123", token = Token, enabled = true }),
+            (fastly, new { provider = "fastly", targetId = "svc123", token = Token, enabled = true }),
+            (off, new { provider = "fastly", targetId = "svc123", token = Token, enabled = false }),
+        })
+        {
+            var admin = await MemberClientAsync(tenant, SystemRoles.AdminRoleId, "Admin");
+            (await admin.PutAsJsonAsync(Route, body, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        using var scope = _factory.Services.CreateScope();
+        var resolver = scope.ServiceProvider.GetRequiredService<CdnPurgeResolver>();
+
+        (await resolver.ForTenantAsync(cloudflare, Ct)).Should().BeOfType<CloudflarePurger>();
+        (await resolver.ForTenantAsync(fastly, Ct)).Should().BeOfType<FastlyPurger>();
+        (await resolver.ForTenantAsync(off, Ct)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task The_store_keeps_the_purge_settings_in_a_single_tenanted_table_under_its_alias()
+    {
+        using var scope = _factory.Services.CreateScope();
+        await using var session = scope.ServiceProvider.GetRequiredService<IDocumentStore>().LightweightSession();
+        session.Store(new CdnPurgeSettings { Id = CdnPurgeSettings.IdForTenant(TestNames.Slug("map")), TenantSlug = "map" });
+        await session.SaveChangesAsync(Ct);
+
+        var columns = new List<string>();
+        await using var command = session.Connection!.CreateCommand();
+        command.CommandText = "select column_name from information_schema.columns where table_name = 'mt_doc_cdn_purge_settings'";
+        await using (var reader = await command.ExecuteReaderAsync(Ct))
+        {
+            while (await reader.ReadAsync(Ct))
+            {
+                columns.Add(reader.GetString(0));
+            }
+        }
+
+        columns.Should().Contain("data", "the alias cdn_purge_settings names the table");
+        columns.Should().NotContain("tenant_id", "the row is single tenanted, found by an id derived from the slug");
     }
 
     [Fact]
@@ -304,6 +452,15 @@ public class CdnPurgeSettingsTests
             using var read = JsonDocument.Parse(await (await one.GetAsync(Route, Ct)).Content.ReadAsStringAsync(Ct));
             read.RootElement.GetProperty("provider").GetString().Should().Be("fastly");
             read.RootElement.GetProperty("targetId").GetString().Should().Be("svc999");
+        }
+    }
+
+    private sealed class RecordingHandler(List<Uri> reached) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            reached.Add(request.RequestUri!);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
         }
     }
 

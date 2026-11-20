@@ -22,11 +22,15 @@ internal sealed class ModuleCatalogue
     public IReadOnlyList<ModuleCatalogueEntry> Entries { get; }
 
     /// <summary>
-    /// The settings section names the host serves itself at <c>/api/tenant-settings/email</c> and
-    /// <c>/api/tenant-settings/cdn-purge</c>. A module section with one of these names would never be
-    /// reached, because the fixed route wins.
+    /// The settings section name the host serves itself at <c>/api/tenant-settings/email</c>. A module
+    /// section with this name would never be reached, because the fixed route wins.
     /// </summary>
-    internal static readonly IReadOnlyList<string> ReservedSectionNames = ["email", "cdn-purge"];
+    internal const string ReservedSectionName = "email";
+
+    /// <summary>
+    /// Every settings section name the host serves itself, including <c>/api/tenant-settings/cdn-purge</c>.
+    /// </summary>
+    internal static readonly IReadOnlyList<string> ReservedSectionNames = [ReservedSectionName, "cdn-purge"];
 
     public static ModuleCatalogue Of(IEnumerable<IBarakoModule> seen, IEnumerable<IBarakoModule> enabled)
     {

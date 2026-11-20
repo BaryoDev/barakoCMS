@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
+using barakoCMS.Infrastructure.Http;
 
 namespace barakoCMS.Infrastructure.Caching.Purge;
 
@@ -14,6 +15,7 @@ namespace barakoCMS.Infrastructure.Caching.Purge;
 internal abstract class CdnPurgerBase(HttpClient http, CdnPurgeTarget target, ILogger logger) : ICdnPurger
 {
     private const int MaxErrorLength = 500;
+    private const int MaxErrorBodyBytes = 8 * 1024;
 
     protected abstract string ProviderName { get; }
 
@@ -28,11 +30,6 @@ internal abstract class CdnPurgerBase(HttpClient http, CdnPurgeTarget target, IL
     public async Task<CdnPurgeResult> PurgeTagsAsync(IReadOnlyList<string> tags, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(tags);
-        if (tags.Count == 0)
-        {
-            return CdnPurgeResult.Ok(null);
-        }
-
         int? last = null;
         foreach (var batch in tags.Chunk(MaxPerCall))
         {
@@ -43,11 +40,11 @@ internal abstract class CdnPurgerBase(HttpClient http, CdnPurgeTarget target, IL
             {
                 response = await http.SendAsync(request, ct);
             }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException && !ct.IsCancellationRequested)
             {
                 var reason = Scrub($"The {ProviderName} purge request failed: {ex.Message}");
                 logger.LogWarning("CDN purge to {Provider} failed before an answer: {Reason}", ProviderName, reason);
-                return new CdnPurgeResult(false, null, reason, Retryable: true);
+                return new CdnPurgeResult(false, null, reason, Retryable: !IsBlockedAddress(ex));
             }
 
             using (response)
@@ -58,7 +55,7 @@ internal abstract class CdnPurgerBase(HttpClient http, CdnPurgeTarget target, IL
                     continue;
                 }
 
-                var body = await response.Content.ReadAsStringAsync(ct);
+                var body = await ReadCappedAsync(response.Content, ct);
                 var detail = DescribeBody(body);
                 var error = Scrub($"{ProviderName} answered {last} to the purge. {detail}".TrimEnd());
                 logger.LogWarning("CDN purge to {Provider} rejected with {Status}: {Error}", ProviderName, last, error);
@@ -70,6 +67,35 @@ internal abstract class CdnPurgerBase(HttpClient http, CdnPurgeTarget target, IL
         }
 
         return CdnPurgeResult.Ok(last);
+    }
+
+    private static bool IsBlockedAddress(Exception? ex)
+    {
+        for (; ex is not null; ex = ex.InnerException)
+        {
+            if (ex is BlockedAddressException)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static async Task<string> ReadCappedAsync(HttpContent content, CancellationToken ct)
+    {
+        await using var stream = await content.ReadAsStreamAsync(ct);
+        var buffer = new byte[MaxErrorBodyBytes];
+        var read = 0;
+        while (read < buffer.Length)
+        {
+            var n = await stream.ReadAsync(buffer.AsMemory(read), ct);
+            if (n == 0)
+            {
+                break;
+            }
+            read += n;
+        }
+        return System.Text.Encoding.UTF8.GetString(buffer, 0, read);
     }
 
     private string DescribeBody(string body)
@@ -108,6 +134,13 @@ internal abstract class CdnPurgerBase(HttpClient http, CdnPurgeTarget target, IL
         var clean = target.Token.Length == 0
             ? text
             : text.Replace(target.Token, "[token]", StringComparison.Ordinal);
+        clean = string.Create(clean.Length, clean, static (span, src) =>
+        {
+            for (var i = 0; i < span.Length; i++)
+            {
+                span[i] = char.IsControl(src[i]) ? ' ' : src[i];
+            }
+        });
         return clean.Length <= MaxErrorLength ? clean : clean[..MaxErrorLength];
     }
 

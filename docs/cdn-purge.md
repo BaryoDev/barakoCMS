@@ -24,7 +24,8 @@ A tenant that is off, has no provider, or has no token gets no purger.
 The token is write only. It is encrypted with `ISecretProtector` before it is stored, and no
 response has a field that could hold it. Reads say `tokenSet`. A tenant cannot set the provider's
 host. The audit entry `settings.cdn-purge.tenant.changed` lists the field names that changed and
-never a value.
+never a value. The token is visible ASCII only (no spaces, line breaks or other characters), up to
+2048 long.
 
 The default tenant has no row and gets a 400 on these routes. It reads host configuration:
 
@@ -36,7 +37,8 @@ Delivery:CdnPurge:ApiToken     the provider token
 ```
 
 `Delivery:CdnPurge:BaseUrl:Cloudflare` and `:Fastly` override the provider's API root. They are host
-configuration only, so a test can point the client at a stand-in.
+configuration only, so a test can point the client at a stand-in. The stand-in host must also be in
+`Webhooks:AllowedHosts`, because the guarded client blocks loopback and private addresses otherwise.
 
 ## The two providers
 
@@ -48,13 +50,15 @@ configuration only, so a test can point the client at a stand-in.
 The limits are the ones in the vendors' documentation: the
 [Cloudflare purge by tag page](https://developers.cloudflare.com/cache/how-to/purge-cache/purge-by-tags/)
 and the [Fastly purging reference](https://www.fastly.com/documentation/reference/api/purging/).
-A longer list goes out in several calls. The first call that fails stops the rest. The calls go
-through the guarded `ExternalApi` HTTP client.
+A longer list goes out in several calls. The first call that fails stops the rest, and the calls before it were already sent. Purges are
+idempotent, so the caller retries the whole list. The calls go through the guarded `ExternalApi`
+HTTP client.
 
 ## Result
 
 `PurgeTagsAsync` returns `Succeeded`, `Status`, `Error`, `Retryable` and `RetryAfter`. `Retryable` is
-true for a network failure, 429 and 5xx, and false for 400, 401, 403 and 404. A 429 carries the
+true for a network failure or timeout, 429 and 5xx, and false for 400, 401, 403, 404 and a blocked
+address. A 429 carries the
 provider's `Retry-After` when it sent one. The error text never contains the token, even when the
 provider echoes it back. An empty tag list sends nothing and succeeds.
 

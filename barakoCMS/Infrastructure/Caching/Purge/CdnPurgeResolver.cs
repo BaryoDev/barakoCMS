@@ -24,7 +24,7 @@ internal sealed class CdnPurgeResolver(
     public const string ConfigSection = "Delivery:CdnPurge";
 
     private static readonly System.Text.RegularExpressions.Regex TargetIdPattern =
-        new("^[A-Za-z0-9]{1,64}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        new(@"\A[A-Za-z0-9]{1,64}\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     public static bool IsValidTargetId(string? value) => value is not null && TargetIdPattern.IsMatch(value);
 
