@@ -31,6 +31,9 @@ internal sealed class CdnPurgeListener(
                 gate.Forget(settings.TenantSlug);
             }
 
+            // The request token is not used past the commit: a client that disconnects now must not drop the purge.
+            using var own = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            token = own.Token;
             var tenantId = session.TenantId;
             var tenant = TenantScopes.SlugFor(tenantId);
             var store = session.DocumentStore;

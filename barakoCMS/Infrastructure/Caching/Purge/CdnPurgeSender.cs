@@ -43,7 +43,7 @@ internal sealed class CdnPurgeSender(
 
     public async Task<CdnPurgeSweep> SweepAllTenantsAsync(DateTimeOffset now, CancellationToken ct)
     {
-        var tenants = await TenantPartitions.ListAsync(store, configuration, PartitionsWithPendingPurgesSql, ct);
+        var tenants = await TenantsWithRowsAsync(ct);
         var settled = 0;
         foreach (var tenantId in tenants)
         {
@@ -60,43 +60,35 @@ internal sealed class CdnPurgeSender(
         return new CdnPurgeSweep(settled, tenants.Count > 0);
     }
 
+    /// <summary>
+    /// The tenants that hold pending rows. Where the list comes from the registry, a listed tenant may hold
+    /// nothing, so one query on the table narrows it before any tenant is visited. A host where no tenant
+    /// turned purging on then costs one query a pass, not one per tenant.
+    /// </summary>
+    internal async Task<IReadOnlyList<string>> TenantsWithRowsAsync(CancellationToken ct)
+    {
+        var tenants = await TenantPartitions.ListAsync(store, configuration, PartitionsWithPendingPurgesSql, ct);
+        if (tenants.Count == 0 || !TenantPartitions.ListsFromRegistry(configuration))
+        {
+            return tenants;
+        }
+
+        var withRows = (await TenantPartitions.FromRowsAsync(store, PartitionsWithPendingPurgesSql, ct)).ToHashSet(StringComparer.Ordinal);
+        return tenants.Where(withRows.Contains).ToList();
+    }
+
     /// <summary>Sends one tenant's due rows as one flush. A test drives it without the timer.</summary>
     public async Task<int> SweepTenantAsync(string tenantId, DateTimeOffset now, CancellationToken ct)
     {
         var options = CdnPurgeOptions.From(configuration);
-        var tenant = TenantScopes.SlugFor(tenantId);
-        var dueBefore = now - options.Debounce;
-        var reclaimBefore = now - ClaimTimeout;
-
         await using var session = store.LightweightSession(tenantId);
-        var due = await session.Query<PendingCdnPurge>()
-            .Where(p => p.WrittenAt <= dueBefore
-                && (p.RetryAt == null || p.RetryAt <= now)
-                && (p.ClaimedAt == null || p.ClaimedAt < reclaimBefore))
-            .OrderBy(p => p.WrittenAt)
-            .Take(RowsPerFlush)
-            .ToListAsync(ct);
+        var due = await ClaimDueAsync(session, now, options, ct);
         if (due.Count == 0)
         {
             return 0;
         }
 
-        foreach (var row in due)
-        {
-            row.ClaimedAt = now;
-            session.Store(row);
-        }
-
-        try
-        {
-            await session.SaveChangesAsync(ct);
-        }
-        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
-        {
-            // Another node took them first.
-            return 0;
-        }
-
+        var tenant = TenantScopes.SlugFor(tenantId);
         var tags = CdnPurgeBounds.Collapse(due.SelectMany(r => r.Tags), tenant, options.MaxTagsPerFlush, out var level);
         _logger.LogInformation(
             "CDN purge flush for tenant {Tenant}: {Rows} pending row(s), {Tags} tag(s), collapse {Level}",
@@ -106,29 +98,93 @@ internal sealed class CdnPurgeSender(
         var resolver = new CdnPurgeResolver(query, protector, configuration, httpClientFactory, loggerFactory);
         if (await resolver.ResolveAsync(tenant, ct) is not var (target, purger))
         {
-            _logger.LogInformation("Tenant {Tenant} turned CDN purging off; {Rows} pending row(s) dropped", tenant, due.Count);
+            _logger.LogInformation("Tenant {Tenant} has no usable CDN purge setup (off, or not valid); {Rows} pending row(s) dropped", tenant, due.Count);
             await DropAsync(session, due, ct);
             return due.Count;
         }
 
         var attempt = due.Max(r => r.Attempts) + 1;
-        var (result, elapsed) = await CallAsync(purger, tags, options, ct);
+        (CdnPurgeResult result, TimeSpan elapsed) call;
+        try
+        {
+            call = await CallAsync(purger, tags, options, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The host is stopping mid call. The claim is let go so the next start sends these rows,
+            // not five minutes later.
+            await ReleaseAsync(tenantId, due);
+            throw;
+        }
 
-        session.Store(NewDeliveryRow(target, result, tags.Count, attempt, elapsed, now));
-        if (result.Succeeded || !result.Retryable || attempt >= options.MaxAttempts)
+        session.Store(NewDeliveryRow(target, call.result, tags.Count, attempt, call.elapsed, now));
+        return await SettleAsync(session, due, call.result, attempt, (tenant, options, now), ct);
+    }
+
+    /// <summary>
+    /// Takes the tenant's due rows with a versioned write, or none when another node got them first
+    /// or the tenant waits out a backoff. While any row waits for its retry time, newer rows wait with it,
+    /// so a provider that just answered 429 or 5xx is not called again for each commit.
+    /// </summary>
+    private static async Task<IReadOnlyList<PendingCdnPurge>> ClaimDueAsync(
+        IDocumentSession session, DateTimeOffset now, CdnPurgeOptions options, CancellationToken ct)
+    {
+        if (await session.Query<PendingCdnPurge>().AnyAsync(p => p.RetryAt != null && p.RetryAt > now, ct))
+        {
+            return [];
+        }
+
+        var dueBefore = now - options.Debounce;
+        var reclaimBefore = now - ClaimTimeout;
+        var due = await session.Query<PendingCdnPurge>()
+            .Where(p => p.WrittenAt <= dueBefore
+                && (p.RetryAt == null || p.RetryAt <= now)
+                && (p.ClaimedAt == null || p.ClaimedAt < reclaimBefore))
+            .OrderBy(p => p.WrittenAt)
+            .Take(RowsPerFlush)
+            .ToListAsync(ct);
+        foreach (var row in due)
+        {
+            row.ClaimedAt = now;
+            session.Store(row);
+        }
+
+        if (due.Count == 0)
+        {
+            return due;
+        }
+
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
+        {
+            // Another node took them first.
+            return [];
+        }
+
+        return due;
+    }
+
+    private async Task<int> SettleAsync(
+        IDocumentSession session, IReadOnlyList<PendingCdnPurge> due, CdnPurgeResult result, int attempt,
+        (string Tenant, CdnPurgeOptions Options, DateTimeOffset Now) at, CancellationToken ct)
+    {
+        if (result.Succeeded || !result.Retryable || attempt >= at.Options.MaxAttempts)
         {
             if (!result.Succeeded)
             {
                 _logger.LogWarning(
                     "CDN purge for tenant {Tenant} gave up after {Attempts} attempt(s), status {Status}; {Rows} pending row(s) dropped",
-                    tenant, attempt, result.Status, due.Count);
+                    at.Tenant, attempt, result.Status, due.Count);
             }
 
             await DropAsync(session, due, ct);
             return due.Count;
         }
 
-        var wait = options.BackoffFor(attempt);
+        var wait = at.Options.BackoffFor(attempt);
         if (result.RetryAfter is { } asked && asked > wait)
         {
             wait = asked < CdnPurgeOptions.MaxBackoff ? asked : CdnPurgeOptions.MaxBackoff;
@@ -137,7 +193,7 @@ internal sealed class CdnPurgeSender(
         foreach (var row in due)
         {
             row.Attempts = attempt;
-            row.RetryAt = now + wait;
+            row.RetryAt = at.Now + wait;
             row.ClaimedAt = null;
             session.Store(row);
         }
@@ -168,6 +224,28 @@ internal sealed class CdnPurgeSender(
         }
 
         return (result, clock.Elapsed);
+    }
+
+    private async Task ReleaseAsync(string tenantId, IReadOnlyList<PendingCdnPurge> rows)
+    {
+        try
+        {
+            using var brief = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await using var session = store.LightweightSession(tenantId);
+            var ids = rows.Select(r => r.Id).ToArray();
+            var held = await session.Query<PendingCdnPurge>().Where(p => ids.Contains(p.Id)).ToListAsync(brief.Token);
+            foreach (var row in held)
+            {
+                row.ClaimedAt = null;
+                session.Store(row);
+            }
+
+            await SaveQuietlyAsync(session, brief.Token);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Letting go of the CDN purge claim on shutdown failed; the rows are taken again after the claim timeout");
+        }
     }
 
     private async Task DropAsync(IDocumentSession session, IReadOnlyList<PendingCdnPurge> rows, CancellationToken ct)

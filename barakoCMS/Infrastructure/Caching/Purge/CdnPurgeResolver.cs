@@ -55,13 +55,12 @@ internal sealed class CdnPurgeResolver(
         }
 
         var row = await session.LoadAsync<CdnPurgeSettings>(CdnPurgeSettings.IdForTenant(slug), ct);
-        if (row is null || !row.Enabled || !IsPurgeable(row.Provider) || !IsValidTargetId(row.TargetId)
-            || string.IsNullOrEmpty(row.ProtectedToken))
+        if (!RowIsComplete(row))
         {
             return null;
         }
 
-        var token = protector.Unprotect(row.ProtectedToken);
+        var token = protector.Unprotect(row!.ProtectedToken);
         if (string.IsNullOrWhiteSpace(token))
         {
             loggerFactory.CreateLogger<CdnPurgeResolver>().LogError(
@@ -70,8 +69,23 @@ internal sealed class CdnPurgeResolver(
             return null;
         }
 
-        return Build(row.Provider, row.TargetId, token.Trim());
+        return Build(row!.Provider, row.TargetId, token.Trim());
     }
+
+    /// <summary>
+    /// What a tenant's settings row needs before a purge can be built from it, apart from a token that
+    /// decrypts. The commit gate asks the same question, so a setup the sender cannot use writes no rows.
+    /// </summary>
+    internal static bool RowIsComplete(CdnPurgeSettings? row) =>
+        row is { Enabled: true } && IsPurgeable(row.Provider) && IsValidTargetId(row.TargetId)
+        && !string.IsNullOrEmpty(row.ProtectedToken);
+
+    /// <summary>The same check for the default tenant, whose settings come from host configuration.</summary>
+    internal static bool HostIsComplete(IConfiguration configuration) =>
+        configuration.GetValue($"{ConfigSection}:Enabled", false)
+        && IsPurgeable(configuration[$"{ConfigSection}:Provider"]?.Trim())
+        && IsValidTargetId(configuration[$"{ConfigSection}:TargetId"]?.Trim())
+        && !string.IsNullOrEmpty(configuration[$"{ConfigSection}:ApiToken"]?.Trim());
 
     private CdnPurgeTarget? FromHost()
     {

@@ -80,7 +80,6 @@ public static class ServiceCollectionExtensions
         AddOtpAndEmailVerification(services, configuration);
 
         AddSecretProtection(services);
-        barakoCMS.Infrastructure.Caching.Purge.CdnPurgeRegistration.AddCdnPurgeOnCommit(services);
         AddConnectorServices(services);
 
         AddWorkflowRunner(services);
@@ -1438,6 +1437,7 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ITenantSettings, barakoCMS.Infrastructure.Services.TenantSettingsResolver>();
         services.TryAddScoped<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeResolver>();
+        barakoCMS.Infrastructure.Caching.Purge.CdnPurgeRegistration.AddCdnPurgeOnCommit(services);
     }
 
     private static void AddConnectorServices(IServiceCollection services)

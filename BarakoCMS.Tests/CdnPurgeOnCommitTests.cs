@@ -7,10 +7,14 @@ using barakoCMS.Events;
 using barakoCMS.Infrastructure.Caching;
 using barakoCMS.Infrastructure.Caching.Purge;
 using barakoCMS.Infrastructure.Multitenancy;
+using barakoCMS.Infrastructure.Security;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
+using Marten.Services;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Configuration;
 using Xunit;
 
@@ -585,6 +589,129 @@ public class CdnPurgeOnCommitTests(IntegrationTestFixture fixture)
 
         var thrown = await second_claim.Should().ThrowAsync<Exception>();
         ConcurrencyConflict.Is(thrown.Which).Should().BeTrue("the stale claim is the one the version refuses");
+    }
+
+    // While one row waits out a backoff, newer rows wait with it and go out together at the retry time.
+    [Fact]
+    public async Task A_tenant_in_backoff_is_not_called_again_for_a_newer_row()
+    {
+        var a = await ArrangeEnabledAsync();
+        Host.StandIn.AnswerWith(a.Zone, 500);
+        await Host.EntryAsync(a.Tenant, a.Type);
+        await Host.SweepAsync(a.Tenant);
+        Host.StandIn.CallsFor(a.Zone).Should().HaveCount(1);
+
+        var later = await Host.EntryAsync(a.Tenant, a.Type);
+        await Host.SweepAsync(a.Tenant);
+        Host.StandIn.CallsFor(a.Zone).Should().HaveCount(1, "the provider just failed, so the newer row waits for the retry time");
+
+        Host.StandIn.AnswerWith(a.Zone, 200);
+        await Host.SweepAsync(a.Tenant, ahead: TimeSpan.FromHours(3));
+
+        var calls = Host.StandIn.CallsFor(a.Zone);
+        calls.Should().HaveCount(2);
+        calls[1].Tags.Should().Contain(CdnPurgeTestHost.EntryTag(a.Tenant, later), "the held row goes out with the retry");
+        (await Host.PendingAsync(a.Tenant)).Should().BeEmpty();
+    }
+
+    // The host stops mid call: the claim is let go, so the rows are due again at once.
+    [Fact]
+    public async Task A_stop_in_the_middle_of_a_provider_call_lets_go_of_the_claim()
+    {
+        var a = await ArrangeEnabledAsync();
+        Host.StandIn.Hang(a.Zone);
+        await Host.EntryAsync(a.Tenant, a.Type);
+        using var stopping = new CancellationTokenSource(TimeSpan.FromMilliseconds(700));
+
+        var sweep = async () => await Host.NewSender().SweepTenantAsync(
+            TenantScopes.TenantIdFor(a.Tenant), DateTimeOffset.UtcNow + TimeSpan.FromHours(1), stopping.Token);
+
+        await sweep.Should().ThrowAsync<OperationCanceledException>();
+        var rows = await Host.PendingAsync(a.Tenant);
+        rows.Should().HaveCount(1);
+        rows[0].ClaimedAt.Should().BeNull("a stop lets go of the claim, so the next start does not wait five minutes");
+    }
+
+    // The request is gone after its commit; the row is still written.
+    [Fact]
+    public async Task A_cancelled_request_token_after_the_commit_still_writes_the_row()
+    {
+        var a = await ArrangeAsync();
+        var capture = new CaptureCommit();
+        await using (var session = Host.Store.LightweightSession(TenantScopes.TenantIdFor(a.Tenant)))
+        {
+            session.Listeners.Add(capture);
+            session.Store(new Content
+            {
+                Id = Guid.NewGuid(), ContentType = a.Type, Status = ContentStatus.Published,
+                Data = new Dictionary<string, object> { ["Title"] = "gone client" },
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        await Host.EnableAsync(a.Tenant, a.Zone);
+        (await Host.PendingAsync(a.Tenant)).Should().BeEmpty();
+        var services = Host.Factory.Services;
+        var listener = new CdnPurgeListener(
+            new CdnPurgeGate(services.GetRequiredService<IConfiguration>(), services.GetRequiredService<ISecretProtector>()),
+            new CdnPurgeSignal(), services.GetRequiredService<IConfiguration>(), NullLogger<CdnPurgeListener>.Instance);
+        await using var after = Host.Store.LightweightSession(TenantScopes.TenantIdFor(a.Tenant));
+
+        await listener.AfterCommitAsync(after, capture.Commit!, new CancellationToken(canceled: true));
+
+        (await Host.PendingAsync(a.Tenant)).Should().HaveCount(1);
+    }
+
+    private sealed class CaptureCommit : DocumentSessionListenerBase
+    {
+        public IChangeSet? Commit { get; private set; }
+
+        public override Task AfterCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken token)
+        {
+            Commit = commit;
+            return Task.CompletedTask;
+        }
+    }
+
+    // Under enforced tenancy the tenant list is the registry, so a tenant with nothing pending is not visited.
+    [Fact]
+    public async Task A_sweep_visits_only_the_tenants_that_hold_rows_when_the_list_is_the_registry()
+    {
+        var quiet = await ArrangeAsync();
+        var busy = await ArrangeEnabledAsync();
+        await Host.EntryAsync(busy.Tenant, busy.Type);
+
+        IReadOnlyList<string> visited = [];
+        await WithOptionAsync(DatabaseTenancy.EnabledKey, "true", async () => visited = await Host.NewSender().TenantsWithRowsAsync(Ct));
+
+        visited.Should().Contain(busy.Tenant);
+        visited.Should().NotContain(quiet.Tenant, "no row, so no query for it");
+    }
+
+    // The gate and the resolver agree: a setup the sender cannot use writes no row to be dropped later.
+    [Fact]
+    public async Task A_setup_that_cannot_be_used_writes_no_row()
+    {
+        var badId = await ArrangeAsync();
+        var noToken = await ArrangeAsync();
+        var protector = Host.Factory.Services.GetRequiredService<ISecretProtector>();
+        await Host.StoreAsync(
+            new CdnPurgeSettings
+            {
+                Id = CdnPurgeSettings.IdForTenant(badId.Tenant), TenantSlug = badId.Tenant, Provider = CdnPurgeProvider.Cloudflare,
+                Enabled = true, TargetId = "not a zone id!", ProtectedToken = protector.Protect(CdnPurgeTestHost.Token),
+            },
+            new CdnPurgeSettings
+            {
+                Id = CdnPurgeSettings.IdForTenant(noToken.Tenant), TenantSlug = noToken.Tenant, Provider = CdnPurgeProvider.Cloudflare,
+                Enabled = true, TargetId = noToken.Zone,
+            });
+
+        await Host.EntryAsync(badId.Tenant, badId.Type);
+        await Host.EntryAsync(noToken.Tenant, noToken.Type);
+
+        (await Host.PendingAsync(badId.Tenant)).Should().BeEmpty("the target id is not valid");
+        (await Host.PendingAsync(noToken.Tenant)).Should().BeEmpty("there is no token");
     }
 
     [Fact]

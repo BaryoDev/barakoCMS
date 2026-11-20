@@ -62,7 +62,7 @@ address. A 429 carries the
 provider's `Retry-After` when it sent one. The error text never contains the token, even when the
 provider echoes it back. An empty tag list sends nothing and succeeds.
 
-Tags are the ones `DeliveryCache.PurgeTags` returns. They are sent unchanged, so `:` and `%` in a
+Tags come from `DeliveryTagSet.ForCommitAsync`, the function the response cache eviction uses too. It can fall back to the bare tenant tag, which purges the whole tenant, when it cannot tell what a commit touched. They are sent unchanged, so `:` and `%` in a
 tag reach the provider as written.
 
 ## What triggers a purge
@@ -93,13 +93,18 @@ The purge never runs inside the commit and a failed purge never fails the write.
    cap the rows are dropped. A failure that cannot be retried (400, 401, 403, a blocked address)
    drops them at once.
 
-The row is durable, so a node that stops after the commit does not lose the purge. A purge that is
-dropped is not lost forever: the cached page expires at its `max-age`. Do not set the CDN TTL or
+Once the row is written it is durable, and a node that stops after that does not lose the purge. The tags
+exist only in memory until the row is saved, so a stop between the content commit and the row write
+loses that one purge, and the page then expires at its `max-age`. The same goes for a purge that is
+dropped: the cached page expires at its `max-age`. Do not set the CDN TTL or
 `max-age` longer than you can tolerate a stale page.
 
 Two nodes do not send the same rows. A node claims rows with a versioned write, as build hooks do,
 and a node that loses the write leaves the rows to the winner. A claim older than five minutes is
-treated as abandoned.
+treated as abandoned. A stop in the middle of a provider call lets the claim go, so the rows go out on
+the next start. While any of a tenant's rows waits out a retry time, its newer rows wait too and go out
+with them, so a provider that answered 429 or 5xx is not called again for every commit. A tenant whose
+settings are on but not usable (an invalid target id, or a token that cannot be decrypted) writes no rows.
 
 ## Settings
 

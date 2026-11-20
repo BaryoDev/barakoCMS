@@ -65,7 +65,7 @@ internal static class TenantPartitions
             .ToList();
     }
 
-    private static async Task<IReadOnlyList<string>> FromRowsAsync(
+    internal static async Task<IReadOnlyList<string>> FromRowsAsync(
         IDocumentStore store, string distinctTenantIdsSql, CancellationToken ct)
     {
         var partitions = new List<string>();

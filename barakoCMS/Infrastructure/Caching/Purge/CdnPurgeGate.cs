@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using barakoCMS.Infrastructure.Security;
 using barakoCMS.Models;
 using Marten;
 
@@ -12,9 +13,10 @@ namespace barakoCMS.Infrastructure.Caching.Purge;
 /// The default tenant reads host configuration, which costs no round trip. Any other tenant's answer
 /// is one read of its settings row, kept for <see cref="Ttl"/>. A settings write on this node forgets
 /// the answer at once, and another node picks the change up when its answer expires, so no restart is
-/// needed. A failed read answers off and is not kept.
+/// needed. A failed read answers off and is not kept. "On" means the sender could build a purge from the setup: the
+/// same completeness the resolver applies, and a token that decrypts. An invalid setup writes no rows.
 /// </remarks>
-internal sealed class CdnPurgeGate(IConfiguration configuration)
+internal sealed class CdnPurgeGate(IConfiguration configuration, ISecretProtector protector)
 {
     public static readonly TimeSpan Ttl = TimeSpan.FromSeconds(30);
 
@@ -24,7 +26,7 @@ internal sealed class CdnPurgeGate(IConfiguration configuration)
     {
         if (string.Equals(slug, Tenant.DefaultSlug, StringComparison.OrdinalIgnoreCase))
         {
-            return configuration.GetValue($"{CdnPurgeResolver.ConfigSection}:Enabled", false);
+            return CdnPurgeResolver.HostIsComplete(configuration);
         }
 
         if (_answers.TryGetValue(slug, out var known) && known.Expires > DateTime.UtcNow)
@@ -34,8 +36,7 @@ internal sealed class CdnPurgeGate(IConfiguration configuration)
 
         await using var query = store.QuerySession();
         var row = await query.LoadAsync<CdnPurgeSettings>(CdnPurgeSettings.IdForTenant(slug), ct);
-        var on = row is { Enabled: true } && CdnPurgeProvider.IsKnown(row.Provider)
-            && !string.Equals(row.Provider.Trim(), CdnPurgeProvider.None, StringComparison.OrdinalIgnoreCase);
+        var on = CdnPurgeResolver.RowIsComplete(row) && !string.IsNullOrWhiteSpace(protector.Unprotect(row!.ProtectedToken));
         _answers[slug] = (on, DateTime.UtcNow + Ttl);
         return on;
     }
