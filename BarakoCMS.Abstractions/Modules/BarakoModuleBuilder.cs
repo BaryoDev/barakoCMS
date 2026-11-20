@@ -167,10 +167,11 @@ public sealed class BarakoModuleBuilder
 
                 if (kind == ModuleReach.ContractOnly
                     && !assembly.IsDefined(typeof(BarakoModuleAssemblyAttribute), inherit: false)
-                    && !_unmarked.Contains(assembly)
-                    && LoadableTypes(assembly).Any(t => IsDiscoverable(t) && !IsRegistered(t)))
+                    && !_unmarked.Contains(assembly))
                 {
-                    _unmarked.Add(assembly);
+                    // A library with no module in it has nothing to mark, so it is not listed.
+                    if (LoadableTypes(assembly).Any(t => IsDiscoverable(t) && !IsRegistered(t)))
+                        _unmarked.Add(assembly);
                 }
 
                 assemblies.Add(assembly);
