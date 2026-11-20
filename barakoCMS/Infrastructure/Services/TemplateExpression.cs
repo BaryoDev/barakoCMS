@@ -265,6 +265,31 @@ internal static class TemplateExpression
         return followed.Items;
     }
 
+    /// <summary>The transition names a template links to, through <c>links.transition</c> and <c>links.action</c>.</summary>
+    public static IEnumerable<string> LinkedTransitions(string? template)
+    {
+        if (string.IsNullOrEmpty(template)) yield break;
+
+        MatchCollection holes;
+        try
+        {
+            holes = Token.Matches(template);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            yield break;
+        }
+
+        foreach (Match hole in holes)
+        {
+            var link = Link.Match(hole.Groups[1].Value);
+            if (link.Success && link.Groups["name"].Value != "links.site")
+            {
+                yield return link.Groups["argument"].Value;
+            }
+        }
+    }
+
     /// <summary>The reference fields a set of templates follows or loops over, by name.</summary>
     /// <remarks>By pattern, like <see cref="Needs"/>, so a Conditional's children are counted too.</remarks>
     public static HashSet<string> FollowedFields(IEnumerable<string?> templates)

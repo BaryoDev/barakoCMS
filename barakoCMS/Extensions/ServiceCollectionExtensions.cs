@@ -1622,6 +1622,15 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IContentTypeValidatorService, ContentTypeValidatorService>();
         // One scanner per kind of thing a lifecycle edit can break. The route and its dry run run them all.
         services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleEntryScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.LifecycleWorkflows>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleRoleScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleRuleScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleUniquenessScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleWorkflowTriggerScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleWorkflowActionScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleWorkflowRunScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleScheduleScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleTemplateLinkScanner>();
         services.AddScoped<barakoCMS.Infrastructure.Services.LifecycleEditChecks>();
         services.AddScoped<barakoCMS.Features.ContentType.Blueprints.BlueprintCatalog>();
         services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();

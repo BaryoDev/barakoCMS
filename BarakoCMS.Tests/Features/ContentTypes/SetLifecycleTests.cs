@@ -857,6 +857,251 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
         });
     }
 
+    // ---- what else names the state or transition an edit takes away ---------------------------
+
+    /// <summary>Dry-runs the claim lifecycle without Approved and Approve, and returns what it found of one kind.</summary>
+    private async Task<(JsonElement Body, List<JsonElement> Found)> DryRunWithoutApprovedAsync(string type, string kind)
+    {
+        var response = await PutAsync(await AdminAsync(), type, WithoutApproved(), dryRun: true);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        var body = await BodyAsync(response);
+        var found = body.GetProperty("blockers").EnumerateArray().Concat(body.GetProperty("warnings").EnumerateArray())
+            .Where(b => Str(b, "kind") == kind).ToList();
+        return (body, found);
+    }
+
+    private async Task StoreAsync(params object[] documents)
+    {
+        await using var session = SessionIn(null);
+        foreach (var document in documents)
+        {
+            session.Store(document);
+        }
+
+        await session.SaveChangesAsync(Ct);
+    }
+
+    [Fact]
+    public async Task Edit_refuses_removing_a_transition_a_role_grants()
+    {
+        var type = await TypeAsync(Claim());
+        var role = new Role { Id = Guid.NewGuid(), Name = NewName("role"), Permissions = [new ContentTypePermission
+        {
+            ContentTypeSlug = type,
+            Transitions = new() { ["approve"] = new PermissionRule { Enabled = true } },
+        }] };
+        await StoreAsync(role);
+
+        var (body, found) = await DryRunWithoutApprovedAsync(type, "role");
+
+        found.Should().ContainSingle().Which.GetProperty("name").GetString().Should().Be(role.Name);
+        Str(found[0], "transition").Should().Be("Approve");
+        body.GetProperty("canApply").GetBoolean().Should().BeFalse();
+        var refused = await PutAsync(await AdminAsync(), type, WithoutApproved());
+        (await RefusedWithAsync(refused)).Should().Contain(b => b.Kind == "role");
+    }
+
+    [Fact]
+    public async Task Edit_ignores_a_role_that_grants_a_transition_the_edit_keeps_or_on_another_type()
+    {
+        var type = await TypeAsync(Claim());
+        await StoreAsync(new Role { Id = Guid.NewGuid(), Name = NewName("role"), Permissions =
+        [
+            new ContentTypePermission { ContentTypeSlug = type, Transitions = new() { ["Submit"] = new PermissionRule { Enabled = true } } },
+            new ContentTypePermission { ContentTypeSlug = "other-" + type, Transitions = new() { ["Approve"] = new PermissionRule { Enabled = true } } },
+        ] });
+
+        (await DryRunWithoutApprovedAsync(type, "role")).Found.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Edit_refuses_removing_a_transition_a_workflow_is_triggered_by()
+    {
+        var type = await TypeAsync(Claim());
+        var workflow = new WorkflowDefinition
+        {
+            Id = Guid.NewGuid(), Name = NewName("wf"), TriggerContentType = type, TriggerEvent = "transition:Approve", Enabled = true,
+        };
+        await StoreAsync(workflow);
+
+        var (_, found) = await DryRunWithoutApprovedAsync(type, "workflowTrigger");
+
+        found.Should().ContainSingle().Which.GetProperty("name").GetString().Should().Be(workflow.Name);
+        var refused = await PutAsync(await AdminAsync(), type, WithoutApproved());
+        (await RefusedWithAsync(refused)).Should().Contain(b => b.Kind == "workflowTrigger");
+    }
+
+    [Fact]
+    public async Task Edit_refuses_removing_a_transition_a_workflow_action_makes_even_nested_or_undoing()
+    {
+        var type = await TypeAsync(Claim());
+        var nested = new WorkflowAction { Type = "Transition", Parameters = new() { ["ContentType"] = type, ["Transition"] = "approve" } };
+        var holder = new WorkflowDefinition
+        {
+            Id = Guid.NewGuid(), Name = NewName("wf"), TriggerContentType = "unrelated", TriggerEvent = "Created", Enabled = true,
+            Actions =
+            [
+                new WorkflowAction
+                {
+                    Type = "Conditional",
+                    Parameters = new() { ["ThenActions"] = System.Text.Json.JsonSerializer.Serialize(new[] { nested }) },
+                },
+            ],
+        };
+        var undoing = new WorkflowDefinition
+        {
+            Id = Guid.NewGuid(), Name = NewName("wf"), TriggerContentType = "unrelated", TriggerEvent = "Created", Enabled = true,
+            Actions =
+            [
+                new WorkflowAction
+                {
+                    Type = "Log",
+                    Compensate = new WorkflowCompensation { Type = "Transition", Parameters = new() { ["ContentType"] = type, ["Transition"] = "Approve" } },
+                },
+            ],
+        };
+        var elsewhere = new WorkflowDefinition
+        {
+            Id = Guid.NewGuid(), Name = NewName("wf"), TriggerContentType = "unrelated", TriggerEvent = "Created", Enabled = true,
+            Actions = [new WorkflowAction { Type = "Transition", Parameters = new() { ["ContentType"] = "other-" + type, ["Transition"] = "Approve" } }],
+        };
+        await StoreAsync(holder, undoing, elsewhere);
+
+        var (_, found) = await DryRunWithoutApprovedAsync(type, "workflowAction");
+
+        found.Select(b => Str(b, "name")).Should().BeEquivalentTo(holder.Name, undoing.Name);
+    }
+
+    [Fact]
+    public async Task Edit_refuses_removing_a_transition_an_unfinished_run_carries_and_counts_runs()
+    {
+        var type = await TypeAsync(Claim());
+        var workflow = NewName("wf");
+        WorkflowRun Run(RunStatus status, string trigger, string content) => new()
+        {
+            Id = Guid.NewGuid(), WorkflowName = workflow, ContentType = content, TriggerEvent = trigger, Status = status,
+        };
+        await StoreAsync(
+            Run(RunStatus.Pending, "transition:Approve", type),
+            Run(RunStatus.Running, "transition:approve", type),
+            Run(RunStatus.Succeeded, "transition:Approve", type),
+            Run(RunStatus.Pending, "transition:Approve", "other-" + type),
+            Run(RunStatus.Pending, "transition:Submit", type));
+
+        var (_, found) = await DryRunWithoutApprovedAsync(type, "workflowRun");
+
+        found.Should().ContainSingle();
+        CountOf(found[0]).Should().Be(2);
+        Str(found[0], "name").Should().Be(workflow);
+    }
+
+    [Fact]
+    public async Task Edit_refuses_removing_a_state_a_rule_names_on_the_type_or_from_another_type()
+    {
+        var type = await TypeAsync(Claim());
+        var reader = new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(), Name = NewName("reader"), DisplayName = "Reader",
+            Rules =
+            [
+                new RuleDefinition
+                {
+                    Name = "reads-the-other-type",
+                    If = [new RuleCondition { Kind = "exists", ContentType = type, State = "Review,Approved" }],
+                },
+                new RuleDefinition
+                {
+                    Name = "reads-an-unrelated-type",
+                    If = [new RuleCondition { Kind = "exists", ContentType = "unrelated", State = "Approved" }],
+                },
+            ],
+        };
+        await StoreAsync(reader);
+        await using (var session = SessionIn(null))
+        {
+            var stored = await session.Query<ContentTypeDefinition>().SingleAsync(d => d.Name == type, Ct);
+            stored.Rules = [new RuleDefinition { Name = "own-rule", InState = "Approved" }, new RuleDefinition { Name = "own-move", When = RuleWhen.Transition, Transition = "Approve" }];
+            session.Store(stored);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var (_, found) = await DryRunWithoutApprovedAsync(type, "rule");
+
+        found.Select(b => Str(b, "name")).Should().BeEquivalentTo("own-rule", "own-move", "reads-the-other-type");
+    }
+
+    [Fact]
+    public async Task Edit_refuses_removing_a_state_a_uniqueness_rule_applies_in()
+    {
+        var type = await TypeAsync(Claim());
+        await using (var session = SessionIn(null))
+        {
+            var stored = await session.Query<ContentTypeDefinition>().SingleAsync(d => d.Name == type, Ct);
+            stored.Uniqueness =
+            [
+                new UniquenessRule { Name = "one-approved", Fields = ["Title"], WhenState = "approved" },
+                new UniquenessRule { Name = "one-draft", Fields = ["Title"], WhenState = "Draft" },
+            ];
+            session.Store(stored);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var (_, found) = await DryRunWithoutApprovedAsync(type, "uniqueness");
+
+        found.Should().ContainSingle().Which.GetProperty("name").GetString().Should().Be("one-approved");
+        var refused = await PutAsync(await AdminAsync(), type, WithoutApproved());
+        (await RefusedWithAsync(refused)).Should().Contain(b => b.Kind == "uniqueness");
+    }
+
+    [Fact]
+    public async Task Edit_refuses_removing_a_state_a_date_schedule_sweeps()
+    {
+        var type = await TypeAsync(Claim());
+        var swept = new WorkflowDefinition
+        {
+            Id = Guid.NewGuid(), Name = NewName("wf"), TriggerContentType = type, TriggerEvent = "Schedule", Enabled = true,
+            DateSchedule = new ScheduleTrigger { ContentType = type, DateField = "Due", InState = "Approved" },
+        };
+        var kept = new WorkflowDefinition
+        {
+            Id = Guid.NewGuid(), Name = NewName("wf"), TriggerContentType = type, TriggerEvent = "Schedule", Enabled = true,
+            DateSchedule = new ScheduleTrigger { ContentType = type, DateField = "Due", InState = "Draft" },
+        };
+        await StoreAsync(swept, kept);
+
+        var (_, found) = await DryRunWithoutApprovedAsync(type, "schedule");
+
+        found.Should().ContainSingle().Which.GetProperty("name").GetString().Should().Be(swept.Name);
+        Str(found[0], "state").Should().Be("Approved");
+    }
+
+    [Fact]
+    public async Task Edit_warns_about_an_email_link_to_a_removed_transition_and_still_applies()
+    {
+        var type = await TypeAsync(Claim());
+        var workflow = new WorkflowDefinition
+        {
+            Id = Guid.NewGuid(), Name = NewName("wf"), TriggerContentType = type, TriggerEvent = "Updated", Enabled = true,
+            Actions =
+            [
+                new WorkflowAction
+                {
+                    Type = "Email",
+                    Parameters = new() { ["Body"] = "Please {{links.transition \"approve\"}} or {{links.transition \"Submit\"}}" },
+                },
+            ],
+        };
+        await StoreAsync(workflow);
+
+        var response = await PutAsync(await AdminAsync(), type, WithoutApproved(), dryRun: true);
+        var body = await BodyAsync(response);
+
+        body.GetProperty("canApply").GetBoolean().Should().BeTrue("a link in a template only warns");
+        var warnings = body.GetProperty("warnings").EnumerateArray().Where(b => Str(b, "kind") == "templateLink").ToList();
+        warnings.Should().ContainSingle().Which.GetProperty("transition").GetString().Should().Be("Approve");
+        (await PutAsync(await AdminAsync(), type, WithoutApproved())).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
     // ---- gate, audit, contract ---------------------------------------------------------------
 
     [Fact]

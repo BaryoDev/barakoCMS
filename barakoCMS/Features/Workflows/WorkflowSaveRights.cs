@@ -129,7 +129,8 @@ internal static class WorkflowSaveRights
             : $"You cannot update '{named}' entries, so you cannot save a workflow that does.");
     }
 
-    private static IEnumerable<WorkflowAction> Flatten(WorkflowDefinition workflow)
+    /// <summary>Every action a workflow runs: those nested in a Conditional, and each compensation, included.</summary>
+    internal static IEnumerable<WorkflowAction> Flatten(WorkflowDefinition workflow)
     {
         foreach (var action in workflow.Actions)
         {
@@ -139,7 +140,7 @@ internal static class WorkflowSaveRights
         }
     }
 
-    private static IEnumerable<WorkflowAction> Expand(WorkflowAction action)
+    internal static IEnumerable<WorkflowAction> Expand(WorkflowAction action)
     {
         yield return action;
         if (!string.Equals(action.Type, "Conditional", StringComparison.OrdinalIgnoreCase)) yield break;
