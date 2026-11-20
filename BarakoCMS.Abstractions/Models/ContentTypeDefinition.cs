@@ -315,8 +315,11 @@ public class UniquenessRule
 /// entries. An edit that removes or changes a transition a role grants, a workflow is triggered by
 /// or makes, or a rule runs on is refused, and so is one that removes or renames a state a rule, a
 /// uniqueness rule or a date schedule names, or a transition an unfinished workflow run carries.
-/// An email template that links to such a transition only warns. A config apply and a bundle
-/// import still refuse a changed lifecycle.
+/// An email template that links to such a transition only warns. A type a module seeded keeps what
+/// the module seeded: removing or renaming a seeded state, removing or changing a seeded transition,
+/// or changing the seeded initial state is refused with the kind <c>module</c> while that module is
+/// registered, and additions stay allowed. A config apply and a bundle import still refuse a
+/// changed lifecycle.
 /// </remarks>
 public class LifecycleDefinition
 {

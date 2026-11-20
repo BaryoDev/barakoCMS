@@ -37,7 +37,7 @@ followed by a refused write. What each dry-run write leaves out:
   A label change has no such check, as the real call has none.
 - **Lifecycle edit.** Runs the real edit's checks and counts, and answers 200 with the `blockers`
   the real edit would refuse with, one for each entry state, initial state, role, workflow trigger,
-  workflow action, workflow run, rule, uniqueness rule and schedule that stands in the way, and a
+  workflow action, workflow run, rule, uniqueness rule, schedule and seeded module item that stands in the way, and a
   `templateLink` warning for each email link to a transition the edit takes away. The check that the type did not change between the counts and
   the save runs only when the edit is stored.
 

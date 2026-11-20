@@ -506,6 +506,14 @@ What is refused, with 409, while anything stands in the way:
 - **A state that is removed or renamed.** Also refused while a rule on this type or another one
   names it, in `inState` or in the `state` list of a condition on this type (`rule`), while a
   uniqueness rule applies in it (`uniqueness`), or while a date schedule sweeps it (`schedule`).
+- **What a module seeded.** A module that seeds a type with a lifecycle keeps it. Each time the
+  seed runs, core records the module name and the states, transitions (name, from, to) and initial
+  state the module passed, per tenant and type. While that module is registered in the host, an
+  edit is refused (`module`, with the module in `name`) if it removes or renames a seeded state,
+  removes or renames a seeded transition or changes its from or to, or changes the initial state
+  while it is still the seeded one. Adding states and transitions is allowed, and something the
+  tenant already removed does not block. A record for a module that is no longer registered gives
+  no floor.
 - **A warning, not a refusal.** An email template of a workflow on this type that links to a
   removed or changed transition with `links.transition` or `links.action` is listed under
   `warnings` with the kind `templateLink`. The edit still applies and the link is left out of the
@@ -529,7 +537,7 @@ The body of a refusal has the `status`, `title` and `errors` every 409 has, and 
 ```
 
 `kind` is one of `entryState`, `initialState`, `role`, `workflowTrigger`, `workflowAction`,
-`workflowRun`, `rule`, `uniqueness` or `schedule`, and a warning has the kind `templateLink`.
+`workflowRun`, `rule`, `uniqueness`, `schedule` or `module`, and a warning has the kind `templateLink`.
 These are all the kinds the route emits.
 `state` or `transition` says what the finding is about, `name` says what blocks (a role or a
 workflow, null for entries) and `count` is set where there is a count.
