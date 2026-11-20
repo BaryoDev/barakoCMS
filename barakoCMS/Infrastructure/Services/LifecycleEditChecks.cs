@@ -41,6 +41,9 @@ internal static class LifecycleBlockerKind
 
     /// <summary>A warning, never a blocker: a template link names a transition the edit removes.</summary>
     public const string TemplateLink = "templateLink";
+
+    /// <summary>The edit takes away something the module that seeded the type put there.</summary>
+    public const string Module = "module";
 }
 
 /// <summary>One thing the edit would break, or for a warning, leave dangling.</summary>
