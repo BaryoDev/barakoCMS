@@ -569,8 +569,9 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
             await session.SaveChangesAsync(Ct);
         }
 
-        var refused = await PutAsync(admin, name, Claim());
-        var unknown = await PutAsync(admin, NewName("none"), Claim());
+        // Neither type has a stored definition to read a version from, so any version is sent.
+        var refused = await PutAsync(admin, name, Claim(), version: Guid.NewGuid());
+        var unknown = await PutAsync(admin, NewName("none"), Claim(), version: Guid.NewGuid());
 
         refused.StatusCode.Should().Be(HttpStatusCode.Forbidden, await refused.Content.ReadAsStringAsync(Ct));
         unknown.StatusCode.Should().Be(HttpStatusCode.NotFound, "the control: a name that is nobody's is a 404, not a 403");
