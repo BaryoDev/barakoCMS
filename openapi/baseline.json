@@ -1280,6 +1280,10 @@
             "nullable": true,
             "type": "string"
           },
+          "lastUsedIp": {
+            "nullable": true,
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },
@@ -7494,6 +7498,40 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesSessionsEndAllForUserRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSessionsEndForUserRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSessionsEndMineRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSessionsListForUserRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSFeaturesSessionsListMineRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
       "BarakoCMSFeaturesSettingsEmailEmailSettingsResponse": {
         "additionalProperties": false,
         "description": "What is configured, and where each value came from. Never the key itself.",
@@ -7636,6 +7674,65 @@
             "type": "string"
           },
           "value": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSettingsTenantCdnPurgeTenantCdnPurgeResponse": {
+        "additionalProperties": false,
+        "description": "The caller's own tenant's CDN purge settings. There is no field that could hold the token.",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "targetId": {
+            "type": "string"
+          },
+          "tenant": {
+            "type": "string"
+          },
+          "tokenSet": {
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "updatedBy": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSettingsTenantCdnPurgeUpdateTenantCdnPurgeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "description": "Null leaves it alone.",
+            "nullable": true,
+            "type": "boolean"
+          },
+          "provider": {
+            "description": "Null leaves it alone; empty clears it to none.",
+            "nullable": true,
+            "type": "string"
+          },
+          "targetId": {
+            "description": "The zone id or service id. Null leaves it alone; empty clears it.",
+            "nullable": true,
+            "type": "string"
+          },
+          "token": {
+            "description": "Write only. Null leaves the stored token alone; empty clears it.",
+            "maxLength": 2048,
+            "minLength": 0,
+            "nullable": true,
             "type": "string"
           }
         },
@@ -8863,6 +8960,10 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesUsersBlockRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
       "BarakoCMSFeaturesUsersListRequest": {
         "allOf": [
           {
@@ -8877,6 +8978,11 @@
       "BarakoCMSFeaturesUsersListUserResponse": {
         "additionalProperties": false,
         "properties": {
+          "blocked": {
+            "description": "True when a SuperAdmin has blocked the account. Absent when it is not blocked.",
+            "nullable": true,
+            "type": "boolean"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -8965,6 +9071,10 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesUsersUnblockRequest": {
+        "additionalProperties": false,
         "type": "object"
       },
       "BarakoCMSFeaturesViewersCreateCreateViewerTokenRequest": {
@@ -10792,6 +10902,44 @@
           },
           "source": {
             "description": "core for a name core declares, otherwise the registered module's Name.\nA module whose endpoints are served but which was never registered as an IBarakoModule\nis named by its assembly instead, so the entry still says where the name came from.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSInfrastructureAuthSessionItem": {
+        "additionalProperties": false,
+        "description": "One live session as the routes show it. Ids and addresses of the person's own devices only.",
+        "properties": {
+          "current": {
+            "type": "boolean"
+          },
+          "device": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "lastSeenAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "lastSeenIp": {
+            "nullable": true,
+            "type": "string"
+          },
+          "signInIp": {
+            "nullable": true,
+            "type": "string"
+          },
+          "signInMethod": {
+            "nullable": true,
+            "type": "string"
+          },
+          "startedAt": {
+            "format": "date-time",
             "type": "string"
           }
         },
@@ -12886,6 +13034,48 @@
             "description": "Items for the current page",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFeaturesServicePrincipalsServicePrincipalResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsPaginatedResponseOfSessionItem": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSInfrastructureAuthSessionItem"
             },
             "type": "array"
           },
@@ -21892,6 +22082,119 @@
         ]
       }
     },
+    "/api/me/sessions": {
+      "get": {
+        "operationId": "barakoCMSFeaturesSessionsListMineEndpoint",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfSessionItem"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/me/sessions: the caller's live sessions, newest activity first, the current one marked.",
+        "tags": [
+          "Sessions"
+        ]
+      }
+    },
+    "/api/me/sessions/revoke-others": {
+      "post": {
+        "operationId": "barakoCMSFeaturesSessionsRevokeOthersEndpoint",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/me/sessions/revoke-others: ends every session of the caller except the one the request\ncame from. A token with no session (one from before sessions) keeps nothing, since there is no\ncurrent session to name.",
+        "tags": [
+          "Sessions"
+        ]
+      }
+    },
+    "/api/me/sessions/{id}": {
+      "delete": {
+        "operationId": "barakoCMSFeaturesSessionsEndMineEndpoint",
+        "parameters": [
+          {
+            "description": "Bound from the {id} route segment.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/me/sessions/{id}: ends one of the caller's own sessions. Ending the current one signs\nthe caller out: this answers 204 and the next request answers 401.",
+        "tags": [
+          "Sessions"
+        ]
+      }
+    },
     "/api/me/switch": {
       "post": {
         "description": "It exchanges, it does not renew. The new token expires when the presented one would have, and the\npresented one is revoked, so a chain of switches cannot keep a bearer alive past its original\nexpiry. It returns no refresh token: the one the caller already holds is not tied to a tenant, since\na refresh mints for the X-Tenant it is sent and re-checks membership.",
@@ -25499,6 +25802,83 @@
         ]
       }
     },
+    "/api/tenant-settings/cdn-purge": {
+      "get": {
+        "operationId": "barakoCMSFeaturesSettingsTenantCdnPurgeGetTenantCdnPurgeEndpoint",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsTenantCdnPurgeTenantCdnPurgeResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "tags": [
+          "Settings"
+        ]
+      },
+      "put": {
+        "operationId": "barakoCMSFeaturesSettingsTenantCdnPurgeUpdateTenantCdnPurgeEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsTenantCdnPurgeUpdateTenantCdnPurgeRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "UpdateTenantCdnPurgeRequest",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesSettingsTenantCdnPurgeTenantCdnPurgeResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FastEndpointsProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "tags": [
+          "Settings"
+        ]
+      }
+    },
     "/api/tenant-settings/email": {
       "get": {
         "operationId": "barakoCMSFeaturesSettingsTenantEmailGetTenantEmailSettingsEndpoint",
@@ -27136,6 +27516,183 @@
         ]
       }
     },
+    "/api/users/{id}/sessions": {
+      "delete": {
+        "operationId": "barakoCMSFeaturesSessionsEndAllForUserEndpoint",
+        "parameters": [
+          {
+            "description": "Bound from the {id} route segment.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/users/{id}/sessions: ends every session of a user, for a global SuperAdmin.",
+        "tags": [
+          "Sessions"
+        ]
+      },
+      "get": {
+        "operationId": "barakoCMSFeaturesSessionsListForUserEndpoint",
+        "parameters": [
+          {
+            "description": "Bound from the {id} route segment.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfSessionItem"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/users/{id}/sessions: a user's live sessions, for a global SuperAdmin. The addresses come\nfrom every tenant the user signs in to, which is why a tenant administrator cannot read them.",
+        "tags": [
+          "Sessions"
+        ]
+      }
+    },
+    "/api/users/{id}/sessions/{sessionId}": {
+      "delete": {
+        "operationId": "barakoCMSFeaturesSessionsEndForUserEndpoint",
+        "parameters": [
+          {
+            "description": "Bound from the {id} route segment.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Bound from the {sessionId} route segment.",
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/users/{id}/sessions/{sessionId}: ends one session of a user, for a global SuperAdmin.",
+        "tags": [
+          "Sessions"
+        ]
+      }
+    },
+    "/api/users/{userId}/block": {
+      "post": {
+        "operationId": "barakoCMSFeaturesUsersBlockEndpoint",
+        "parameters": [
+          {
+            "description": "Bound from the {userId} route segment.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/users/{userId}/block: a global SuperAdmin blocks an account. The user cannot sign in\nby any path, their sessions and access tokens end, and their API keys stop working until\n/unblock. Not for yourself or another SuperAdmin. Blocking a blocked user changes nothing.",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
     "/api/users/{userId}/external-identities": {
       "get": {
         "operationId": "BarakoCMSExternalAuthListExternalIdentitiesEndpoint",
@@ -27569,6 +28126,40 @@
             "JWTBearerAuth": []
           }
         ],
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/users/{userId}/unblock": {
+      "post": {
+        "operationId": "barakoCMSFeaturesUsersUnblockEndpoint",
+        "parameters": [
+          {
+            "description": "Bound from the {userId} route segment.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/users/{userId}/unblock: a global SuperAdmin lifts a block. Sessions and tokens the\nblock ended stay ended, and the lockout fields are not touched. A user who is not blocked is\nleft as is.",
         "tags": [
           "Users"
         ]

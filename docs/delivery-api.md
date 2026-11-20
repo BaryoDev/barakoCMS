@@ -780,6 +780,9 @@ CDN's purge API with `t:<tenant>:entry:<id>`, `t:<tenant>:type:<type>` and `t:<t
 same tags the headers carry. Do not purge the bare `t:<tenant>` tag: it is on every read and would
 empty the tenant's cache. A Cloudflare purge module that did this was removed in 5.5.0.
 
+Core now has a purge client and per-tenant settings for it, with nothing calling it yet. See
+[CDN purge client](cdn-purge.md).
+
 ### Response cache
 
 Off by default. Set `Delivery:ResponseCache:Enabled` to `true` and the `short` class reads (the list,
