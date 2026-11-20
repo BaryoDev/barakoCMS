@@ -30,6 +30,12 @@ internal static class LineWriter
             var session = scope.GetRequiredService<IDocumentSession>();
             var creator = scope.GetRequiredService<IContentCreator>();
             var batch = new ContentCreateBatch();
+
+            // Header and line types are locked together in name order, before the header is checked,
+            // so a change to the types cannot catch this write holding one while it waits for another.
+            await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypesSharedAsync(
+                session, lines.Select(l => l.ContentType).Append(header.ContentType), token);
+
             var errors = new List<string>();
             var lineIds = new List<Guid>();
 
