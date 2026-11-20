@@ -1,5 +1,6 @@
 using System.Text.Json;
 using barakoCMS.Core.Validation;
+using barakoCMS.Features.Content;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Jobs;
@@ -29,6 +30,12 @@ namespace barakoCMS.Features.ContentType.SetLifecycle;
 /// cannot interleave. The counts are a reading taken before the save, so the type is read again
 /// after them and the edit is refused if its lifecycle is no longer the one counted against. A dry
 /// run runs the same checks and answers 200 with the blockers, stored nothing.
+///
+/// A save sends the version it started from as <c>If-Match</c>, the way an entry update does: the
+/// type's stored document version as a quoted ETag, 428 when it is missing, 400 when it is not a
+/// version, 412 when it is stale. The version is read under the lock, so two edits that started
+/// from the same version cannot both be saved. A dry run needs none, and when it sends one it is
+/// checked the same way.
 /// </remarks>
 internal class Endpoint(
     IDocumentSession session,
@@ -43,7 +50,7 @@ internal class Endpoint(
         // What states an entry may be in is modelling, the same gate as creating the type.
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
         Definition.RefusesWhileFieldChangeRuns();
-        Description(b => b.Produces<Refusal>(409));
+        Description(b => b.Produces<Refusal>(409).Produces<StaleRefusal>(412));
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -57,6 +64,12 @@ internal class Endpoint(
             return;
         }
 
+        var (answered, claimed) = await ReadIfMatchAsync(req, ct);
+        if (answered)
+        {
+            return;
+        }
+
         // Before the type is read, so a move that committed in between is counted and one in flight is waited for.
         await FieldChanges.LockTypeAsync(session, name, ct);
 
@@ -67,22 +80,9 @@ internal class Endpoint(
             return;
         }
 
-        if (await FieldChanges.RunningAsync(session, def.Name, ct) is { } running)
+        if (await GateAsync(def, claimed, ct) is not { } version
+            || !await ValidAsync(req.Lifecycle, def, ct))
         {
-            AddError(FieldChanges.Busy(running));
-            await Send.ErrorsAsync(409, ct);
-            return;
-        }
-
-        var (valid, errors) = validator.ValidateLifecycle(req.Lifecycle, def.Fields);
-        if (!valid)
-        {
-            foreach (var error in errors)
-            {
-                AddError(error);
-            }
-
-            await Send.ErrorsAsync(400, ct);
             return;
         }
 
@@ -93,7 +93,7 @@ internal class Endpoint(
 
         if (req.DryRun)
         {
-            await Send.OkAsync(Answer(def, req.Lifecycle, check, changed, dryRun: true), ct);
+            await Send.OkAsync(Answer(def, req.Lifecycle, check, changed, dryRun: true, version), ct);
             return;
         }
 
@@ -105,7 +105,7 @@ internal class Endpoint(
 
         if (!changed)
         {
-            await Send.OkAsync(Answer(def, req.Lifecycle, check, changed: false, dryRun: false), ct);
+            await Send.OkAsync(Answer(def, req.Lifecycle, check, changed: false, dryRun: false, version), ct);
             return;
         }
 
@@ -114,7 +114,8 @@ internal class Endpoint(
             return;
         }
 
-        await Send.OkAsync(Answer(stored, req.Lifecycle, check, changed: true, dryRun: false), ct);
+        var saved = await VersionOfAsync(stored, ct);
+        await Send.OkAsync(Answer(stored, req.Lifecycle, check, changed: true, dryRun: false, saved), ct);
     }
 
     /// <summary>
@@ -170,10 +171,96 @@ internal class Endpoint(
         return def;
     }
 
+    /// <summary>
+    /// Reads <c>If-Match</c>. Says whether it answered (400 or 428) and the version the caller claims, which
+    /// is null only for a dry run that sent none.
+    /// </summary>
+    private async Task<(bool Answered, Guid? Claimed)> ReadIfMatchAsync(Request req, CancellationToken ct)
+    {
+        var header = HttpContext.Request.Headers.IfMatch.ToString();
+        if (string.IsNullOrEmpty(header))
+        {
+            if (!req.DryRun)
+            {
+                AddError("If-Match is required to edit a lifecycle. GET the content type and send its version back as If-Match.");
+                await Send.ErrorsAsync(428, ct);
+                return (true, null);
+            }
+
+            return (false, null);
+        }
+
+        if (!ContentETag.TryParse(header, out var parsed))
+        {
+            AddError("If-Match is not a valid ETag.");
+            await Send.ErrorsAsync(400, ct);
+            return (true, null);
+        }
+
+        return (false, parsed);
+    }
+
+    /// <summary>
+    /// Answers 409 while a field change runs and 412 when the claimed version is stale, and returns
+    /// null then. Otherwise returns the version read under the lock.
+    /// </summary>
+    private async Task<Guid?> GateAsync(ContentTypeDefinition def, Guid? claimed, CancellationToken ct)
+    {
+        if (await FieldChanges.RunningAsync(session, def.Name, ct) is { } running)
+        {
+            AddError(FieldChanges.Busy(running));
+            await Send.ErrorsAsync(409, ct);
+            return null;
+        }
+
+        var version = await VersionOfAsync(def, ct);
+        if (claimed is { } sent && sent != version)
+        {
+            await SendStaleAsync(def, version, ct);
+            return null;
+        }
+
+        return version;
+    }
+
+    private async Task<bool> ValidAsync(LifecycleDefinition lifecycle, ContentTypeDefinition def, CancellationToken ct)
+    {
+        var (valid, errors) = validator.ValidateLifecycle(lifecycle, def.Fields);
+        if (valid)
+        {
+            return true;
+        }
+
+        foreach (var error in errors)
+        {
+            AddError(error);
+        }
+
+        await Send.ErrorsAsync(400, ct);
+        return false;
+    }
+
+    /// <summary>The type's stored document version, which is what a client reads before it edits.</summary>
+    private async Task<Guid> VersionOfAsync(ContentTypeDefinition def, CancellationToken ct)
+    {
+        var version = (await session.MetadataForAsync(def, ct)).CurrentVersion;
+        HttpContext.Response.Headers.ETag = ContentETag.Format(version);
+        return version;
+    }
+
+    private async Task SendStaleAsync(ContentTypeDefinition def, Guid version, CancellationToken ct)
+    {
+        const string reason = "The lifecycle changed since it was loaded. Nothing was written. Reload it and send the edit again.";
+        await Send.ResultAsync(TypedResults.Json(
+            new StaleRefusal { Errors = [new RefusalError("ifMatch", reason)], Lifecycle = def.Lifecycle, Version = version },
+            statusCode: 412));
+    }
+
     private static Response Answer(
-        ContentTypeDefinition def, LifecycleDefinition lifecycle, LifecycleCheck check, bool changed, bool dryRun) =>
+        ContentTypeDefinition def, LifecycleDefinition lifecycle, LifecycleCheck check, bool changed, bool dryRun, Guid version) =>
         new()
         {
+            Version = version,
             Name = def.Name,
             Lifecycle = lifecycle,
             DryRun = dryRun,

@@ -59,11 +59,18 @@ internal class Endpoint(
         // them here stores nothing.
         await barakoCMS.Core.RoleReferences.ToNamesAsync(session, page.Items.SelectMany(d => d.Fields ?? []), ct);
 
+        var versions = new Dictionary<Guid, Guid>();
+        foreach (var d in page.Items.Where(d => !ownedByAccount.Contains(d.Id)))
+        {
+            versions[d.Id] = (await session.MetadataForAsync(d, ct)).CurrentVersion;
+        }
+
         await Send.OkAsync(new PaginatedResponse<barakoCMS.Features.ContentType.ContentTypeResponse>
         {
             Items = page.Items
                 .Select(d => barakoCMS.Features.ContentType.ContentTypeResponse.From(
-                    d, eventSourced.Contains(d.Name), ownedByAccount.Contains(d.Id) ? accountId : null))
+                    d, eventSourced.Contains(d.Name), ownedByAccount.Contains(d.Id) ? accountId : null,
+                    versions.TryGetValue(d.Id, out var version) ? version : null))
                 .ToList(),
             Page = page.Page,
             PageSize = page.PageSize,

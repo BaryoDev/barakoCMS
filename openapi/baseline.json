@@ -4432,6 +4432,12 @@
           "updatedAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "version": {
+            "description": "The stored version of this type, which PUT /api/content-types/{name}/lifecycle takes back\nas If-Match (quoted, as ETag). Null for an account-owned type, which that route does not edit.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
           }
         },
         "type": "object"
@@ -4921,12 +4927,51 @@
           "name": {
             "type": "string"
           },
+          "version": {
+            "description": "The type's version after this call, the same value as the ETag header. Send it as\nIf-Match on the next edit.",
+            "format": "guid",
+            "type": "string"
+          },
           "warnings": {
             "description": "What the edit leaves dangling without refusing it, such as a template link.",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSInfrastructureServicesLifecycleBlocker"
             },
             "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeSetLifecycleStaleRefusal": {
+        "additionalProperties": false,
+        "description": "The 412 body of a save that started from a version that is no longer current.",
+        "properties": {
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLifecycleRefusalError"
+            },
+            "type": "array"
+          },
+          "lifecycle": {
+            "description": "The lifecycle stored now, or null when the type has none.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsLifecycleDefinition"
+              }
+            ]
+          },
+          "status": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "description": "The version stored now, also sent as the ETag header.",
+            "format": "guid",
+            "type": "string"
           }
         },
         "type": "object"
@@ -19571,7 +19616,7 @@
     },
     "/api/content-types/{name}/lifecycle": {
       "put": {
-        "description": "Its own endpoint because content types have no general update, and a config apply or a bundle\nimport refuses a changed lifecycle. No entry is read into memory or rewritten, so every reader\nfollows the new lifecycle at once, and an edit that would leave something pointing at a state or\na transition that is gone is refused instead: 409, with every blocker listed, each with its kind,\nthe state or transition it is about, what blocks it and a count where it has one. There is no\nforce and no mapping of entries to another state. Move the entries with a transition\nfirst.\n            \nThe type's lock is taken exclusive before anything is read. A move in flight holds it shared, so\nthe edit waits for it and a move that starts after it sees the new lifecycle, and two edits\ncannot interleave. The counts are a reading taken before the save, so the type is read again\nafter them and the edit is refused if its lifecycle is no longer the one counted against. A dry\nrun runs the same checks and answers 200 with the blockers, stored nothing.",
+        "description": "Its own endpoint because content types have no general update, and a config apply or a bundle\nimport refuses a changed lifecycle. No entry is read into memory or rewritten, so every reader\nfollows the new lifecycle at once, and an edit that would leave something pointing at a state or\na transition that is gone is refused instead: 409, with every blocker listed, each with its kind,\nthe state or transition it is about, what blocks it and a count where it has one. There is no\nforce and no mapping of entries to another state. Move the entries with a transition\nfirst.\n            \nThe type's lock is taken exclusive before anything is read. A move in flight holds it shared, so\nthe edit waits for it and a move that starts after it sees the new lifecycle, and two edits\ncannot interleave. The counts are a reading taken before the save, so the type is read again\nafter them and the edit is refused if its lifecycle is no longer the one counted against. A dry\nrun runs the same checks and answers 200 with the blockers, stored nothing.\n            \nA save sends the version it started from as If-Match, the way an entry update does: the\ntype's stored document version as a quoted ETag, 428 when it is missing, 400 when it is not a\nversion, 412 when it is stale. The version is read under the lock, so two edits that started\nfrom the same version cannot both be saved. A dry run needs none, and when it sends one it is\nchecked the same way.",
         "operationId": "barakoCMSFeaturesContentTypeSetLifecycleEndpoint",
         "parameters": [
           {
@@ -19615,6 +19660,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLifecycleRefusal"
+                }
+              }
+            },
+            "description": ""
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLifecycleStaleRefusal"
                 }
               }
             },

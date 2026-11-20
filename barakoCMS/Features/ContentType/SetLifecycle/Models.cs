@@ -22,6 +22,12 @@ internal sealed class Response : barakoCMS.Core.Validation.IDryRunResponse
     public string Name { get; init; } = string.Empty;
 
     /// <summary>
+    /// The type's version after this call, the same value as the <c>ETag</c> header. Send it as
+    /// <c>If-Match</c> on the next edit.
+    /// </summary>
+    public Guid Version { get; init; }
+
+    /// <summary>
     /// The lifecycle the type declares now. For a dry run, the one it would declare if
     /// <see cref="CanApply"/> is true.
     /// </summary>
@@ -63,6 +69,23 @@ internal sealed class Refusal
     public IReadOnlyList<LifecycleBlocker> Blockers { get; init; } = [];
 
     public IReadOnlyList<LifecycleBlocker> Warnings { get; init; } = [];
+}
+
+/// <summary>The 412 body of a save that started from a version that is no longer current.</summary>
+/// <remarks>Carries what the caller needs to reload: the current lifecycle and the current version.</remarks>
+internal sealed class StaleRefusal
+{
+    public int Status { get; init; } = 412;
+
+    public string Title { get; init; } = "Precondition Failed";
+
+    public List<RefusalError> Errors { get; init; } = [];
+
+    /// <summary>The lifecycle stored now, or null when the type has none.</summary>
+    public LifecycleDefinition? Lifecycle { get; init; }
+
+    /// <summary>The version stored now, also sent as the <c>ETag</c> header.</summary>
+    public Guid Version { get; init; }
 }
 
 internal sealed record RefusalError(string Name, string Reason);

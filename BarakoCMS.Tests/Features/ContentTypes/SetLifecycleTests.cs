@@ -156,6 +156,13 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
         return await session.Query<ContentTypeDefinition>().SingleAsync(d => d.Name == type, Ct);
     }
 
+    private async Task<Guid> VersionOfAsync(string type, string? tenant = null)
+    {
+        await using var session = tenant is null ? Store.QuerySession() : Store.QuerySession(tenant);
+        var stored = await session.Query<ContentTypeDefinition>().SingleAsync(d => d.Name == type, Ct);
+        return (await session.MetadataForAsync(stored, Ct)).CurrentVersion;
+    }
+
     private async Task<List<AuditEvent>> AuditAsync(string type)
     {
         var id = (await StoredAsync(type)).Id.ToString();
@@ -205,13 +212,23 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
 
     // ---- requests and reading answers --------------------------------------------------------
 
-    private static async Task<HttpResponseMessage> PutAsync(
-        HttpClient client, string type, LifecycleDefinition? lifecycle, bool dryRun = false, string? key = null)
+    /// <summary>
+    /// Sends the edit with the type's current version as If-Match, as a client that just loaded it
+    /// would. <paramref name="version"/> sends another, and <paramref name="noVersion"/> sends none.
+    /// </summary>
+    private async Task<HttpResponseMessage> PutAsync(
+        HttpClient client, string type, LifecycleDefinition? lifecycle, bool dryRun = false, string? key = null,
+        Guid? version = null, bool noVersion = false, string? tenant = null)
     {
         var request = new HttpRequestMessage(HttpMethod.Put, $"/api/content-types/{type}/lifecycle")
         {
             Content = JsonContent.Create(new { lifecycle, dryRun }),
         };
+        if (!noVersion)
+        {
+            request.Headers.TryAddWithoutValidation("If-Match", $"\"{version ?? await VersionOfAsync(type, tenant):D}\"");
+        }
+
         if (key is not null)
         {
             request.Headers.Add("Idempotency-Key", key);
@@ -682,24 +699,98 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
     }
 
     [Fact]
-    public async Task TwoEditsAtOnce_SecondIsRefused()
+    public async Task Two_edits_from_the_same_version_save_the_first_and_refuse_the_second()
     {
         var admin = await AdminAsync();
         var type = await TypeAsync(Small());
+        var version = await VersionOfAsync(type);
         var first = Small();
         first.States.Add("Approved");
         var second = Small();
         second.States.Add("Rejected");
 
-        var responses = await Task.WhenAll(PutAsync(admin, type, first), PutAsync(admin, type, second));
+        var responses = await Task.WhenAll(
+            PutAsync(admin, type, first, version: version), PutAsync(admin, type, second, version: version));
 
-        // Both start from the stored lifecycle and replace it whole, so what the lock guarantees is
-        // that one ran after the other: the stored lifecycle is exactly one of them, never a blend,
-        // and each wrote its own audit row.
-        responses.Select(r => r.StatusCode).Should().AllBeEquivalentTo(HttpStatusCode.OK);
-        var stored = (await StoredAsync(type)).Lifecycle!.States;
-        (stored.SequenceEqual(first.States) || stored.SequenceEqual(second.States)).Should().BeTrue(string.Join(",", stored));
-        (await AuditAsync(type)).Should().HaveCount(2);
+        // The lock makes one run after the other, and the second one's version is then stale.
+        responses.Select(r => r.StatusCode).Should().BeEquivalentTo(new[] { HttpStatusCode.OK, HttpStatusCode.PreconditionFailed });
+        var winner = responses[0].StatusCode == HttpStatusCode.OK ? first : second;
+        (await StoredAsync(type)).Lifecycle!.States.Should().Equal(winner.States, "the refused edit stored nothing");
+        (await AuditAsync(type)).Should().HaveCount(1);
+        var stale = responses.Single(r => r.StatusCode == HttpStatusCode.PreconditionFailed);
+        var body = await BodyAsync(stale);
+        body.GetProperty("status").GetInt32().Should().Be(412);
+        body.GetProperty("lifecycle").GetProperty("states").EnumerateArray().Select(s => s.GetString())
+            .Should().Equal(winner.States);
+        body.GetProperty("version").GetGuid().Should().Be(await VersionOfAsync(type));
+        (await StoredAsync(type)).Lifecycle!.States.Should().Equal(winner.States);
+    }
+
+    [Fact]
+    public async Task Edit_without_a_version_is_refused_with_428_and_a_dry_run_needs_none()
+    {
+        var admin = await AdminAsync();
+        var type = await TypeAsync(Small());
+
+        var missing = await PutAsync(admin, type, Claim(), noVersion: true);
+        var dry = await PutAsync(admin, type, Claim(), dryRun: true, noVersion: true);
+        var garbled = new HttpRequestMessage(HttpMethod.Put, $"/api/content-types/{type}/lifecycle")
+        {
+            Content = JsonContent.Create(new { lifecycle = Claim() }),
+        };
+        garbled.Headers.TryAddWithoutValidation("If-Match", "not-a-version");
+        var invalid = await admin.SendAsync(garbled, Ct);
+
+        missing.StatusCode.Should().Be((HttpStatusCode)428, await missing.Content.ReadAsStringAsync(Ct));
+        (await missing.Content.ReadAsStringAsync(Ct)).Should().Contain("If-Match is required");
+        dry.StatusCode.Should().Be(HttpStatusCode.OK, await dry.Content.ReadAsStringAsync(Ct));
+        invalid.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await StoredAsync(type)).Lifecycle!.States.Should().Equal("Draft", "Submitted");
+        (await AuditAsync(type)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_stale_dry_run_is_refused_like_a_stale_save()
+    {
+        var admin = await AdminAsync();
+        var type = await TypeAsync(Small());
+        var loaded = await VersionOfAsync(type);
+        (await PutAsync(admin, type, Claim())).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var dry = await PutAsync(admin, type, DraftOnly(), dryRun: true, version: loaded);
+        var save = await PutAsync(admin, type, DraftOnly(), version: loaded);
+
+        dry.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
+        save.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
+        (await BodyAsync(dry)).GetProperty("version").GetGuid().Should().Be(await VersionOfAsync(type));
+        (await StoredAsync(type)).Lifecycle!.States.Should().Equal("Draft", "Review", "Approved");
+        (await AuditAsync(type)).Should().HaveCount(1, "only the edit that was accepted");
+    }
+
+    [Fact]
+    public async Task Edit_returns_the_new_version_in_the_etag_and_the_body_and_the_list_shows_it()
+    {
+        var slug = await TenantProfileSeed.TenantAsync(factory, Ct);
+        var admin = await TenantProfileSeed.AdminInAsync(factory, slug, Ct);
+        var type = await TypeAsync(Small(), slug);
+        var before = await VersionOfAsync(type, slug);
+
+        var first = await PutAsync(admin, type, Claim(), tenant: slug);
+
+        first.StatusCode.Should().Be(HttpStatusCode.OK, await first.Content.ReadAsStringAsync(Ct));
+        var after = await VersionOfAsync(type, slug);
+        after.Should().NotBe(before);
+        first.Headers.ETag!.Tag.Should().Be($"\"{after:D}\"");
+        (await BodyAsync(first)).GetProperty("version").GetGuid().Should().Be(after);
+
+        var list = await BodyAsync(await admin.GetAsync("/api/content-types?pageSize=100", Ct));
+        list.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("name").GetString() == type)
+            .GetProperty("version").GetGuid().Should().Be(after);
+
+        // The version the answer carried is the one the next edit starts from.
+        var next = Claim();
+        next.States.Add("Closed");
+        (await PutAsync(admin, type, next, version: after, tenant: slug)).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -847,7 +938,7 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
         var slug = await TenantProfileSeed.TenantAsync(factory, Ct);
         var admin = await TenantProfileSeed.AdminInAsync(factory, slug, Ct);
         var type = await TypeAsync(Small(), slug);
-        (await PutAsync(admin, type, Claim())).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await PutAsync(admin, type, Claim(), tenant: slug)).StatusCode.Should().Be(HttpStatusCode.OK);
 
         var export = await admin.GetAsync("/api/config/export?sections=contentTypes", Ct);
         export.StatusCode.Should().Be(HttpStatusCode.OK);

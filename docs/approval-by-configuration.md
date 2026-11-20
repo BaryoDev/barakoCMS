@@ -475,6 +475,16 @@ transitions, with the fields each transition requires or takes. It needs `manage
 `{ "lifecycle": { "states": [...], "initialState": "...", "transitions": [...] }, "dryRun": false }`.
 The edit rewrites no entry, so get, list and the change feed follow the new lifecycle at once.
 
+A save sends the version it started from as `If-Match`, the way `PUT /api/contents/{id}` does. The
+version is the type's stored document version, sent as a quoted ETag. Read it from the `version`
+field of the type in `GET /api/content-types`, or from the `ETag` header and `version` field of
+the last edit's 200. A save with no `If-Match` is `428`, one that is not a version is `400`, and a
+stale one is `412`: the type changed since it was loaded, nothing is stored and no audit row is
+written. The 412 body has `status`, `title`, `errors`, and the current `lifecycle` and `version`
+so a client can reload. The version is read under the type lock, so of two edits that started from
+the same version the second is refused. Any change to the type moves its version, not only a
+lifecycle edit. A dry run needs no `If-Match`, and one that sends a stale version gets the same 412.
+
 A type with no lifecycle gets one only while it has no entries. The lifecycle is checked the way
 create checks it, and a transition naming a field the type does not declare is a 400.
 

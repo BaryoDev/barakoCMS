@@ -9,7 +9,7 @@ Seven writes take `"dryRun": true` in their body:
 | `POST /api/content-types` | `dryRun: true` and `changes`: each field the type would have, `to` its type |
 | `POST /api/content-types/{name}/fields` | `dryRun: true`, `fields` as the type would list them, and the one field in `changes` |
 | `POST /api/content-types/{name}/fields/{field}/change` | `dryRun: true`, the `classification`, and `changes`: the field's name, type or label before and after. A convert or remove also has `valuesLost`. No job is started |
-| `PUT /api/content-types/{name}/lifecycle` | `dryRun: true`, `canApply`, the proposed `lifecycle`, and every `blockers` and `warnings` entry the real edit would answer 409 with. A dry run that is blocked still answers 200 |
+| `PUT /api/content-types/{name}/lifecycle` | `dryRun: true`, `canApply`, the proposed `lifecycle`, and every `blockers` and `warnings` entry the real edit would answer 409 with. A dry run that is blocked still answers 200. It needs no `If-Match`, and a stale one it sends is a 412 |
 | `POST /api/contents/batch` | `dryRun: true` and each step as it would run; a create step carries `changes`. The batch runs in its transaction and is rolled back |
 
 A dry run runs, in the same order as the real write: authorization, field permissions and

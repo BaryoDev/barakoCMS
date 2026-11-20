@@ -91,11 +91,18 @@ internal sealed class ContentTypeResponse
     /// <summary>The account that owns this type and shares it with its tenants, or null for a type the tenant owns.</summary>
     public Guid? OwnerAccountId { get; init; }
 
+    /// <summary>
+    /// The stored version of this type, which <c>PUT /api/content-types/{name}/lifecycle</c> takes back
+    /// as <c>If-Match</c> (quoted, as <c>ETag</c>). Null for an account-owned type, which that route does not edit.
+    /// </summary>
+    public Guid? Version { get; init; }
+
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
 
-    public static ContentTypeResponse From(ContentTypeDefinition d, bool eventSourced = false, Guid? ownerAccountId = null) => new()
+    public static ContentTypeResponse From(ContentTypeDefinition d, bool eventSourced = false, Guid? ownerAccountId = null, Guid? version = null) => new()
     {
+        Version = version,
         OwnerAccountId = ownerAccountId,
         Id = d.Id,
         Name = d.Name,
