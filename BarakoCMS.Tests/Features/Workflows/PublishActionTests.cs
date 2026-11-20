@@ -412,7 +412,7 @@ public class PublishActionTests
         receiver.Writes.Should().HaveCount(2);
         receiver.Writes.Select(w => w.Key).Should().OnlyContain(k => k == id.ToString(), "the key is the message id the runner produced");
         receiver.Writes[1].Replayed.Should().BeTrue();
-        (await EntriesAsync(site.Tenant, site.Type)).Should().Be(1);
+        (await EntriesAsync(site.Tenant, site.Type)).Should().Be(2, "the run's own entry is of the same type, plus one write-back");
     }
 
     /// <summary>The key the API stores for this tenant, API key and raw Idempotency-Key.</summary>
