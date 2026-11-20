@@ -103,7 +103,9 @@ Two nodes do not send the same rows. A node claims rows with a versioned write, 
 and a node that loses the write leaves the rows to the winner. A claim older than five minutes is
 treated as abandoned. A stop in the middle of a provider call lets the claim go, so the rows go out on
 the next start. While any of a tenant's rows waits out a retry time, its newer rows wait too and go out
-with them, so a provider that answered 429 or 5xx is not called again for every commit. A tenant whose
+with them, so a provider that answered 429 or 5xx is not called again for every commit. Where tenants come from the registry, the sender visits only those that can hold rows: under enforced
+tenancy the ones with a purge settings document (off included, so leftover rows drain), otherwise the ones
+the pending table lists. If that narrowing query fails, every listed tenant is visited that pass. A tenant whose
 settings are on but not usable (an invalid target id, or a token that cannot be decrypted) writes no rows.
 
 ## Settings

@@ -673,7 +673,8 @@ public class CdnPurgeOnCommitTests(IntegrationTestFixture fixture)
         }
     }
 
-    // Under enforced tenancy the tenant list is the registry, so a tenant with nothing pending is not visited.
+    // Where the tenant list is the registry, a tenant with nothing pending is not visited.
+    // Multi without enforcement asks the table.
     [Fact]
     public async Task A_sweep_visits_only_the_tenants_that_hold_rows_when_the_list_is_the_registry()
     {
@@ -682,10 +683,31 @@ public class CdnPurgeOnCommitTests(IntegrationTestFixture fixture)
         await Host.EntryAsync(busy.Tenant, busy.Type);
 
         IReadOnlyList<string> visited = [];
+        await WithOptionAsync(TenancyOptions.ModeKey, "Multi", async () => visited = await Host.NewSender().TenantsWithRowsAsync(Ct));
+
+        visited.Should().Contain(TenantScopes.TenantIdFor(busy.Tenant));
+        visited.Should().NotContain(TenantScopes.TenantIdFor(quiet.Tenant), "no row, so no query for it");
+    }
+
+    // Enforced tenancy cannot ask the tenanted table, so the settings, which are single tenanted, narrow the list.
+    // The fixture does not set the Postgres policy: the key only picks the branch.
+    [Fact]
+    public async Task Under_enforcement_the_sweep_visits_tenants_with_settings_and_finds_their_rows()
+    {
+        var noSettings = await ArrangeAsync();
+        var off = await ArrangeEnabledAsync();
+        var on = await ArrangeEnabledAsync();
+        await Host.EntryAsync(on.Tenant, on.Type);
+        await Host.EntryAsync(off.Tenant, off.Type);
+        await Host.EnableAsync(off.Tenant, off.Zone, enabled: false);
+
+        IReadOnlyList<string> visited = [];
         await WithOptionAsync(DatabaseTenancy.EnabledKey, "true", async () => visited = await Host.NewSender().TenantsWithRowsAsync(Ct));
 
-        visited.Should().Contain(busy.Tenant);
-        visited.Should().NotContain(quiet.Tenant, "no row, so no query for it");
+        visited.Should().Contain(TenantScopes.TenantIdFor(on.Tenant));
+        visited.Should().Contain(TenantScopes.TenantIdFor(off.Tenant), "its leftover rows still drain");
+        visited.Should().NotContain(TenantScopes.TenantIdFor(noSettings.Tenant), "no settings document, so it cannot have written a row");
+        (await Host.SweepAsync(on.Tenant)).Should().BeGreaterThan(0);
     }
 
     // The gate and the resolver agree: a setup the sender cannot use writes no row to be dropped later.

@@ -61,9 +61,10 @@ internal sealed class CdnPurgeSender(
     }
 
     /// <summary>
-    /// The tenants that hold pending rows. Where the list comes from the registry, a listed tenant may hold
-    /// nothing, so one query on the table narrows it before any tenant is visited. A host where no tenant
-    /// turned purging on then costs one query a pass, not one per tenant.
+    /// The tenants that may hold pending rows. Where the list comes from the registry, a listed tenant may
+    /// hold nothing, so it is narrowed before any tenant is visited. A host where no tenant turned purging
+    /// on then costs one query a pass, not one per tenant. A failed narrowing logs and keeps the full list,
+    /// so one bad query cannot stop every purge.
     /// </summary>
     internal async Task<IReadOnlyList<string>> TenantsWithRowsAsync(CancellationToken ct)
     {
@@ -73,8 +74,38 @@ internal sealed class CdnPurgeSender(
             return tenants;
         }
 
+        try
+        {
+            return TenantPartitions.Enforced(configuration)
+                ? await NarrowToSettingsAsync(tenants, ct)
+                : await NarrowToRowsAsync(tenants, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Narrowing the tenants with pending CDN purges failed; every listed tenant is visited this pass");
+            return tenants;
+        }
+    }
+
+    /// <summary>Without enforcement the table can be asked directly which tenants hold rows.</summary>
+    private async Task<IReadOnlyList<string>> NarrowToRowsAsync(IReadOnlyList<string> tenants, CancellationToken ct)
+    {
         var withRows = (await TenantPartitions.FromRowsAsync(store, PartitionsWithPendingPurgesSql, ct)).ToHashSet(StringComparer.Ordinal);
         return tenants.Where(withRows.Contains).ToList();
+    }
+
+    /// <summary>
+    /// Under enforcement a bare query on the tenanted table cannot see other tenants. The settings are
+    /// single tenanted, so one query lists who has a document. A tenant whose settings are off stays, because
+    /// its leftover rows still drain. A tenant with no settings document cannot have written a row, because
+    /// the gate refuses without one. The default partition stays: it follows the host configuration.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> NarrowToSettingsAsync(IReadOnlyList<string> tenants, CancellationToken ct)
+    {
+        await using var query = store.QuerySession();
+        var slugs = (await query.Query<CdnPurgeSettings>().Select(x => x.TenantSlug).ToListAsync(ct))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return tenants.Where(t => t == StorageConstants.DefaultTenantId || slugs.Contains(TenantScopes.SlugFor(t))).ToList();
     }
 
     /// <summary>Sends one tenant's due rows as one flush. A test drives it without the timer.</summary>
