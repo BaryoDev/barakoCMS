@@ -9,7 +9,8 @@ using Marten;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
+using Serilog.Core;
+using Serilog.Events;
 using Microsoft.AspNetCore.Hosting;
 
 namespace BarakoCMS.Tests;
@@ -45,7 +46,9 @@ internal sealed class CdnPurgeTestHost
         Factory = fixture.WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(settings));
-            builder.ConfigureLogging(logging => logging.AddProvider(new CapturingProvider(Logs)));
+            // Serilog owns logging in the host and reads sinks from the container, so a plain
+            // ILoggerProvider never sees a line.
+            builder.ConfigureServices(services => services.AddSingleton<ILogEventSink>(new CapturingSink(Logs)));
         });
     }
 
@@ -149,18 +152,28 @@ internal sealed class CdnPurgeTestHost
     {
         var userId = Guid.NewGuid();
         var username = TestNames.Slug("u");
+        // The seeded Admin role holds no content permissions, so the caller is a SuperAdmin of the tenant.
+        await using (var roles = Store.LightweightSession())
+        {
+            if (await roles.LoadAsync<Role>(SystemRoles.SuperAdminRoleId, Ct) is null)
+            {
+                roles.Store(new Role { Id = SystemRoles.SuperAdminRoleId, Name = "SuperAdmin" });
+                await roles.SaveChangesAsync(Ct);
+            }
+        }
+
         await StoreAsync(
             new User { Id = userId, Username = username, Email = $"{TestNames.Slug("m")}@example.com" },
             new Membership
             {
                 Id = Guid.NewGuid(), UserId = userId, TenantSlug = tenant,
-                Status = MembershipStatus.Active, RoleIds = [SystemRoles.AdminRoleId],
+                Status = MembershipStatus.Active, RoleIds = [SystemRoles.SuperAdminRoleId],
             });
 
         var client = Factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
             _fixture.CreateToken(
-                roles: ["Admin"],
+                roles: ["SuperAdmin", "Admin"],
                 userId: userId.ToString(),
                 additionalClaims: new Dictionary<string, string> { ["tenant"] = tenant, ["Username"] = username }));
         client.DefaultRequestHeaders.Add("X-Tenant", tenant);
@@ -174,23 +187,8 @@ internal sealed class CdnPurgeTestHost
 
     public static string SitemapTag(string tenant) => DeliveryCache.Tag(tenant, CacheScope.Named("sitemap"));
 
-    private sealed class CapturingProvider(ConcurrentQueue<string> lines) : ILoggerProvider
+    private sealed class CapturingSink(ConcurrentQueue<string> lines) : ILogEventSink
     {
-        public ILogger CreateLogger(string categoryName) => new Capture(lines, categoryName);
-
-        public void Dispose()
-        {
-        }
-
-        private sealed class Capture(ConcurrentQueue<string> lines, string category) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-            public bool IsEnabled(LogLevel logLevel) => true;
-
-            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
-                Func<TState, Exception?, string> formatter) =>
-                lines.Enqueue($"{category}: {formatter(state, exception)} {exception}");
-        }
+        public void Emit(LogEvent logEvent) => lines.Enqueue($"{logEvent.RenderMessage()} {logEvent.Exception}");
     }
 }

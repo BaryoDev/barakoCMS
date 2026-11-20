@@ -249,10 +249,9 @@ public class CdnPurgeOnCommitTests(IntegrationTestFixture fixture)
 
         await using (var session = Host.Store.LightweightSession(TenantScopes.TenantIdFor(a.Tenant)))
         {
-            session.Store(new ContentTypeDefinition
-            {
-                Id = Guid.NewGuid(), Name = a.Type, DisplayName = "changed", IsPubliclyDeliverable = true,
-            });
+            var definition = await session.Query<ContentTypeDefinition>().SingleAsync(d => d.Name == a.Type, Ct);
+            definition.DisplayName = "changed";
+            session.Store(definition);
             session.Store(new Content
             {
                 Id = id, ContentType = a.Type, Status = ContentStatus.Published,
@@ -274,7 +273,8 @@ public class CdnPurgeOnCommitTests(IntegrationTestFixture fixture)
 
         await using (var session = Host.Store.LightweightSession(TenantScopes.TenantIdFor(a.Tenant)))
         {
-            session.Delete<Content>(id);
+            // The loaded document, as the eraser deletes it, so the commit knows the type.
+            session.Delete((await session.LoadAsync<Content>(id, Ct))!);
             await session.SaveChangesAsync(Ct);
         }
 
