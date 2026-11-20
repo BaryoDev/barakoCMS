@@ -352,8 +352,8 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
         IReadOnlyCollection<FieldDefinition> fields)
     {
         var (_, errors) = ValidateLifecycle(lifecycle);
-        if (lifecycle is null)
-            return (true, errors);
+        if (lifecycle is null || NullMembers(lifecycle).Count > 0)
+            return (errors.Count == 0, errors);
 
         var declared = fields ?? [];
         foreach (var transition in lifecycle.Transitions)
