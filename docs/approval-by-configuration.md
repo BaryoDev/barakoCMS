@@ -497,6 +497,19 @@ What is refused, with 409, while anything stands in the way:
   states or transitions, and changing the spelling of a state no entry is in, are allowed.
 - **A new initial state.** Changing it is refused while the type has any entry, event sourced or
   not, because an entry with no stored state reads as the initial state.
+- **A transition that is removed or changed.** A transition counts as changed when its name, its
+  from or its to differs, ignoring case. It is refused while a role grants it on this type
+  (`role`), a workflow is triggered by it (`workflowTrigger`), a workflow has a Transition action
+  that makes it, nested or compensating ones included (`workflowAction`), a rule runs on it
+  (`rule`), or a workflow run that is pending or running carries it (`workflowRun`, with the
+  number of runs in `count`).
+- **A state that is removed or renamed.** Also refused while a rule on this type or another one
+  names it, in `inState` or in the `state` list of a condition on this type (`rule`), while a
+  uniqueness rule applies in it (`uniqueness`), or while a date schedule sweeps it (`schedule`).
+- **A warning, not a refusal.** An email template of a workflow on this type that links to a
+  removed or changed transition with `links.transition` or `links.action` is listed under
+  `warnings` with the kind `templateLink`. The edit still applies and the link is left out of the
+  email.
 
 There is no `force` and no mapping of entries to another state. To rename a state that entries
 hold, add the new state, move the entries through a transition into it, then remove the old state
@@ -517,6 +530,7 @@ The body of a refusal has the `status`, `title` and `errors` every 409 has, and 
 
 `kind` is one of `entryState`, `initialState`, `role`, `workflowTrigger`, `workflowAction`,
 `workflowRun`, `rule`, `uniqueness` or `schedule`, and a warning has the kind `templateLink`.
+These are all the kinds the route emits.
 `state` or `transition` says what the finding is about, `name` says what blocks (a role or a
 workflow, null for entries) and `count` is set where there is a count.
 

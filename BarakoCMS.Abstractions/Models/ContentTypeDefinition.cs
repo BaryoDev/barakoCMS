@@ -311,8 +311,12 @@ public class UniquenessRule
 ///
 /// A stored lifecycle is edited with <c>PUT /api/content-types/{name}/lifecycle</c>, which rewrites
 /// no entry. An entry holds the name of its state and nothing else, so an edit that removes or
-/// renames a state an entry holds is refused, and so is one that changes a transition a role, a
-/// workflow or a rule names. A config apply and a bundle import still refuse a changed lifecycle.
+/// renames a state an entry holds is refused, and so is a new initial state while the type has
+/// entries. An edit that removes or changes a transition a role grants, a workflow is triggered by
+/// or makes, or a rule runs on is refused, and so is one that removes or renames a state a rule, a
+/// uniqueness rule or a date schedule names, or a transition an unfinished workflow run carries.
+/// An email template that links to such a transition only warns. A config apply and a bundle
+/// import still refuse a changed lifecycle.
 /// </remarks>
 public class LifecycleDefinition
 {

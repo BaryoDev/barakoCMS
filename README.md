@@ -418,7 +418,7 @@ field is the title, and where a type's entries live on the site),
 [uniqueness rules](docs/uniqueness-rules.md) (values only one entry may hold at a time, such as one
 open time entry per teacher),
 [editing a lifecycle](docs/approval-by-configuration.md#editing-a-lifecycle-after-the-type-exists)
-(`PUT /api/content-types/{name}/lifecycle`, refused while an entry or a reference stands in the way),
+(`PUT /api/content-types/{name}/lifecycle`, refused while an entry, a role, a rule, a workflow or a schedule stands in the way),
 [scheduling](docs/scheduling.md) (publish, unpublish and sensitivity at a set time),
 [deploying on a managed platform](docs/deploy-on-a-managed-platform.md) (App Service, Fargate,
 Cloud Run), [approval by configuration](docs/approval-by-configuration.md) (an invoice through Submit and
