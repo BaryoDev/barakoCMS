@@ -28,7 +28,7 @@ public class ModuleCatalogueTests
 
         var start = () => ModuleCatalogue.Of(modules, modules);
 
-        start.Should().Throw<InvalidOperationException>().WithMessage("*reserved*");
+        start.Should().Throw<InvalidOperationException>().WithMessage($"*'{section}' is reserved*");
     }
 
     [Fact]
