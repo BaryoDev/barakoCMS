@@ -5,7 +5,7 @@
   "identity": "BarakoCMS.Templates.Module",
   "name": "barakoCMS module",
   "shortName": "barakocms-module",
-  "description": "A barakoCMS module with one capability-gated endpoint, one document type, configuration read from its own section, and a test project on BarakoCMS.Testing.",
+  "description": "A barakoCMS module with one capability-gated endpoint, one content type, configuration read from its own section, and a test project on BarakoCMS.Testing.",
   "tags": {
     "language": "C#",
     "type": "solution"

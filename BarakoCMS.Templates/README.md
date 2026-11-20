@@ -25,10 +25,10 @@ Acme.Notes/
   Directory.Build.props          shared packaging metadata: the barakocms-module tag, icon, README
   Directory.Packages.props       package versions, in one place
   src/Acme.Notes/
-    NotesModule.cs               IBarakoModule: contract version, scoped configuration, schema, seeder
+    NotesModule.cs               IBarakoModule: contract version, scoped configuration, seeder
     NotesCapabilities.cs         what the endpoint asks for, granted to Admin by the seeder
     NotesOptions.cs              bound from Modules:Notes
-    Note.cs                      the document type the module owns
+    NotesContentTypes.cs         the note content type the seeder adds, read through IContentReader
     Features/Notes/List/         GET /api/notes/notes, gated on the capability, bounded, tenant scoped
     README.md                    the package page
     assets/icon.png              a placeholder to replace

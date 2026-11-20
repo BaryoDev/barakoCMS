@@ -1,3 +1,4 @@
+using barakoCMS.Models;
 using barakoCMS.Modules;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +21,14 @@ public sealed class ModuleNameModule : IBarakoModule
     public int ContractVersion => ModuleContract.Version;
 
     /// <summary>
+    /// Who may create and read notes from the first start. Seeding the type gives no role any right
+    /// on it. The host applies this once, only for a role with no entry for the type, so rights an
+    /// admin changed later are kept.
+    /// </summary>
+    public ContentPermissionDefaults? ContentPermissions => ContentPermissionDefaults.None()
+        .Allow(ModuleNameContentTypes.Note, SystemRoles.Admin, ContentAction.Create, ContentAction.Read);
+
+    /// <summary>
     /// <paramref name="configuration"/> is this module's own section, <c>Modules:ModuleName</c>,
     /// never the application root. Bind it whole, or read keys directly.
     /// </summary>
@@ -28,17 +37,14 @@ public sealed class ModuleNameModule : IBarakoModule
         services.Configure<ModuleNameOptions>(configuration);
     }
 
-    /// <summary>The document types this module owns. Core refuses a type from another assembly.</summary>
-    public void ConfigureSchema(IModuleSchema schema)
-    {
-        schema.For<Note>().Index(x => x.CreatedAt);
-    }
-
     /// <summary>
-    /// Gives this module's capabilities to the roles that should hold them. Core cannot: it does
-    /// not know this module exists. Additive and idempotent, and a role the host never seeded is
-    /// skipped rather than created.
+    /// Seeds the note content type and gives this module's capabilities to the roles that should
+    /// hold them. Core cannot: it does not know this module exists. Additive and idempotent, so a
+    /// restart is not a write, and a role the host never seeded is skipped rather than created.
     /// </summary>
-    public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
-        ModuleNameCapabilities.Defaults.GrantAsync(context, ct);
+    public async Task SeedAsync(IModuleSeedContext context, CancellationToken ct)
+    {
+        await context.EnsureContentTypeAsync(ModuleNameContentTypes.NoteDefinition(), ct);
+        await ModuleNameCapabilities.Defaults.GrantAsync(context, ct);
+    }
 }
