@@ -215,6 +215,8 @@ public class RoleGateTests
         new("GET", "/api/user-groups/deleted", "/api/user-groups/deleted"),
         new("GET", "/api/tenant-settings/email", "/api/tenant-settings/email"),
         new("PUT", "/api/tenant-settings/email", "/api/tenant-settings/email"),
+        new("GET", "/api/tenant-settings/cdn-purge", "/api/tenant-settings/cdn-purge"),
+        new("PUT", "/api/tenant-settings/cdn-purge", "/api/tenant-settings/cdn-purge"),
         new("GET", "/api/tenant-settings/{section}", "/api/tenant-settings/Email.Smtp"),
         new("PUT", "/api/tenant-settings/{section}", "/api/tenant-settings/Email.Smtp"),
         new("GET", "/api/api-keys/{id}/usage", $"/api/api-keys/{NotAGuid}/usage"),

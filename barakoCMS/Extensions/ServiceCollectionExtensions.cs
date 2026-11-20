@@ -931,17 +931,28 @@ public static class ServiceCollectionExtensions
             .Index(x => x.CreatedAt);
     }
 
+    private static void MapTenantSettingsDocuments(StoreOptions options)
+    {
+        // One row per tenant, found by an id derived from the slug (like the per-tenant mail row), so
+        // the resolver can read any tenant outside a request.
+        options.Schema.For<TenantSettings>()
+            .SingleTenanted()
+            .DocumentAlias("tenant_settings");
+
+        // One row per tenant for CDN purge, found by an id derived from the slug. A new table;
+        // migrations/5.9.0/561-cdn-purge-settings.sql adds it to an existing database.
+        options.Schema.For<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeSettings>()
+            .SingleTenanted()
+            .DocumentAlias("cdn_purge_settings");
+    }
+
     private static void MapGlobalDocuments(StoreOptions options)
     {
         options.Schema.For<EmailSettings>()
             .SingleTenanted() // one mail provider for the deployment, not one per tenant
             .DocumentAlias("email_settings");
 
-        // One row per tenant, found by an id derived from the slug (like the per-tenant mail row), so
-        // the resolver can read any tenant outside a request.
-        options.Schema.For<TenantSettings>()
-            .SingleTenanted()
-            .DocumentAlias("tenant_settings");
+        MapTenantSettingsDocuments(options);
 
         // Stored in one table for the deployment, with the owning tenant kept as data. A name is
         // unique within a tenant, and among platform roles: NULLS NOT DISTINCT makes the platform
@@ -1415,6 +1426,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Security.ISecretProtector, barakoCMS.Infrastructure.Security.SecretProtector>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ITenantSettings, barakoCMS.Infrastructure.Services.TenantSettingsResolver>();
+        services.TryAddScoped<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeResolver>();
     }
 
     private static void AddConnectorServices(IServiceCollection services)
