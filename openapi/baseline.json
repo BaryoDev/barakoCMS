@@ -1280,6 +1280,10 @@
             "nullable": true,
             "type": "string"
           },
+          "lastUsedIp": {
+            "nullable": true,
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },
@@ -4821,6 +4825,112 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesContentTypeSetLifecycleRefusal": {
+        "additionalProperties": false,
+        "description": "The 409 body of a refused edit.",
+        "properties": {
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSInfrastructureServicesLifecycleBlocker"
+            },
+            "type": "array"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLifecycleRefusalError"
+            },
+            "type": "array"
+          },
+          "status": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSInfrastructureServicesLifecycleBlocker"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeSetLifecycleRefusalError": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeSetLifecycleRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "dryRun": {
+            "description": "Run every check the real edit runs and answer 200 with what would block it, storing nothing.",
+            "type": "boolean"
+          },
+          "lifecycle": {
+            "description": "The lifecycle the type declares from now on: its states, its initial state and its\ntransitions, each with the fields it requires or takes. It replaces the stored one whole.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsLifecycleDefinition"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeSetLifecycleResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "blockers": {
+            "description": "Everything that would refuse the edit, every kind in one list. Empty on a stored edit. A dry\nrun lists every blocker, not the first.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSInfrastructureServicesLifecycleBlocker"
+            },
+            "type": "array"
+          },
+          "canApply": {
+            "description": "For a dry run, whether the real edit would be accepted. True otherwise.",
+            "type": "boolean"
+          },
+          "changed": {
+            "description": "False when the proposed lifecycle is the one already stored: nothing was written.",
+            "type": "boolean"
+          },
+          "dryRun": {
+            "description": "True when this answers a dry run: nothing was stored.",
+            "type": "boolean"
+          },
+          "lifecycle": {
+            "description": "The lifecycle the type declares now. For a dry run, the one it would declare if\nCanApply is true.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsLifecycleDefinition"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "warnings": {
+            "description": "What the edit leaves dangling without refusing it, such as a template link.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSInfrastructureServicesLifecycleBlocker"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesContentTypeSetLinesRequest": {
         "additionalProperties": false,
         "properties": {
@@ -7494,6 +7604,40 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesSessionsEndAllForUserRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSessionsEndForUserRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSessionsEndMineRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesSessionsListForUserRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
+      "BarakoCMSFeaturesSessionsListMineRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
       "BarakoCMSFeaturesSettingsEmailEmailSettingsResponse": {
         "additionalProperties": false,
         "description": "What is configured, and where each value came from. Never the key itself.",
@@ -8863,6 +9007,10 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesUsersBlockRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
       "BarakoCMSFeaturesUsersListRequest": {
         "allOf": [
           {
@@ -8877,6 +9025,11 @@
       "BarakoCMSFeaturesUsersListUserResponse": {
         "additionalProperties": false,
         "properties": {
+          "blocked": {
+            "description": "True when a SuperAdmin has blocked the account. Absent when it is not blocked.",
+            "nullable": true,
+            "type": "boolean"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -8965,6 +9118,10 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesUsersUnblockRequest": {
+        "additionalProperties": false,
         "type": "object"
       },
       "BarakoCMSFeaturesViewersCreateCreateViewerTokenRequest": {
@@ -10797,6 +10954,44 @@
         },
         "type": "object"
       },
+      "BarakoCMSInfrastructureAuthSessionItem": {
+        "additionalProperties": false,
+        "description": "One live session as the routes show it. Ids and addresses of the person's own devices only.",
+        "properties": {
+          "current": {
+            "type": "boolean"
+          },
+          "device": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "guid",
+            "type": "string"
+          },
+          "lastSeenAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "lastSeenIp": {
+            "nullable": true,
+            "type": "string"
+          },
+          "signInIp": {
+            "nullable": true,
+            "type": "string"
+          },
+          "signInMethod": {
+            "nullable": true,
+            "type": "string"
+          },
+          "startedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSInfrastructureMultitenancyTenantDomainStatus": {
         "description": "Whether a tenant has proved it controls a domain.",
         "enum": [
@@ -10855,6 +11050,42 @@
           "replicas": {
             "format": "int32",
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSInfrastructureServicesLifecycleBlocker": {
+        "additionalProperties": false,
+        "description": "One thing the edit would break, or for a warning, leave dangling.",
+        "properties": {
+          "count": {
+            "description": "How many, where it has a count: entries, runs. Null otherwise.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
+          "kind": {
+            "description": "One of LifecycleBlockerKind.",
+            "type": "string"
+          },
+          "message": {
+            "description": "A sentence for a person.",
+            "type": "string"
+          },
+          "name": {
+            "description": "What blocks: a role, a workflow, a rule. Null for entries.",
+            "nullable": true,
+            "type": "string"
+          },
+          "state": {
+            "description": "The state it is about, or null when it is about a transition.",
+            "nullable": true,
+            "type": "string"
+          },
+          "transition": {
+            "description": "The transition it is about, or null when it is about a state.",
+            "nullable": true,
+            "type": "string"
           }
         },
         "type": "object"
@@ -12886,6 +13117,48 @@
             "description": "Items for the current page",
             "items": {
               "$ref": "#/components/schemas/BarakoCMSFeaturesServicePrincipalsServicePrincipalResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsPaginatedResponseOfSessionItem": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSInfrastructureAuthSessionItem"
             },
             "type": "array"
           },
@@ -19296,6 +19569,69 @@
         ]
       }
     },
+    "/api/content-types/{name}/lifecycle": {
+      "put": {
+        "description": "Its own endpoint because content types have no general update, and a config apply or a bundle\nimport refuses a changed lifecycle. No entry is read into memory or rewritten, so every reader\nfollows the new lifecycle at once, and an edit that would leave something pointing at a state or\na transition that is gone is refused instead: 409, with every blocker listed, each with its kind,\nthe state or transition it is about, what blocks it and a count where it has one. There is no\nforce and no mapping of entries to another state. Move the entries with a transition\nfirst.\n            \nThe type's lock is taken exclusive before anything is read. A move in flight holds it shared, so\nthe edit waits for it and a move that starts after it sees the new lifecycle, and two edits\ncannot interleave. The counts are a reading taken before the save, so the type is read again\nafter them and the edit is refused if its lifecycle is no longer the one counted against. A dry\nrun runs the same checks and answers 200 with the blockers, stored nothing.",
+        "operationId": "barakoCMSFeaturesContentTypeSetLifecycleEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLifecycleRequest"
+              }
+            }
+          },
+          "description": "",
+          "required": true,
+          "x-name": "Request",
+          "x-position": 1
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLifecycleResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeSetLifecycleRefusal"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "PUT /api/content-types/{name}/lifecycle, which replaces the states, the initial state and the\ntransitions of a type that already exists.",
+        "tags": [
+          "ContentType"
+        ]
+      }
+    },
     "/api/content-types/{name}/lines": {
       "put": {
         "description": "Opt in per type: a type with no lines declared is created exactly as before. Declaring lines\nchanges nothing already stored. Only a create that carries lines uses it.",
@@ -21889,6 +22225,119 @@
         "summary": "PUT /api/me/profile, the signed-in user sets their own display name. It sits under the global\n/api/me identity prefix like the password change, so it is not tenant-scoped.",
         "tags": [
           "Me"
+        ]
+      }
+    },
+    "/api/me/sessions": {
+      "get": {
+        "operationId": "barakoCMSFeaturesSessionsListMineEndpoint",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfSessionItem"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/me/sessions: the caller's live sessions, newest activity first, the current one marked.",
+        "tags": [
+          "Sessions"
+        ]
+      }
+    },
+    "/api/me/sessions/revoke-others": {
+      "post": {
+        "operationId": "barakoCMSFeaturesSessionsRevokeOthersEndpoint",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/me/sessions/revoke-others: ends every session of the caller except the one the request\ncame from. A token with no session (one from before sessions) keeps nothing, since there is no\ncurrent session to name.",
+        "tags": [
+          "Sessions"
+        ]
+      }
+    },
+    "/api/me/sessions/{id}": {
+      "delete": {
+        "operationId": "barakoCMSFeaturesSessionsEndMineEndpoint",
+        "parameters": [
+          {
+            "description": "Bound from the {id} route segment.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/me/sessions/{id}: ends one of the caller's own sessions. Ending the current one signs\nthe caller out: this answers 204 and the next request answers 401.",
+        "tags": [
+          "Sessions"
         ]
       }
     },
@@ -27136,6 +27585,183 @@
         ]
       }
     },
+    "/api/users/{id}/sessions": {
+      "delete": {
+        "operationId": "barakoCMSFeaturesSessionsEndAllForUserEndpoint",
+        "parameters": [
+          {
+            "description": "Bound from the {id} route segment.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/users/{id}/sessions: ends every session of a user, for a global SuperAdmin.",
+        "tags": [
+          "Sessions"
+        ]
+      },
+      "get": {
+        "operationId": "barakoCMSFeaturesSessionsListForUserEndpoint",
+        "parameters": [
+          {
+            "description": "Bound from the {id} route segment.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfSessionItem"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/users/{id}/sessions: a user's live sessions, for a global SuperAdmin. The addresses come\nfrom every tenant the user signs in to, which is why a tenant administrator cannot read them.",
+        "tags": [
+          "Sessions"
+        ]
+      }
+    },
+    "/api/users/{id}/sessions/{sessionId}": {
+      "delete": {
+        "operationId": "barakoCMSFeaturesSessionsEndForUserEndpoint",
+        "parameters": [
+          {
+            "description": "Bound from the {id} route segment.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Bound from the {sessionId} route segment.",
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "DELETE /api/users/{id}/sessions/{sessionId}: ends one session of a user, for a global SuperAdmin.",
+        "tags": [
+          "Sessions"
+        ]
+      }
+    },
+    "/api/users/{userId}/block": {
+      "post": {
+        "operationId": "barakoCMSFeaturesUsersBlockEndpoint",
+        "parameters": [
+          {
+            "description": "Bound from the {userId} route segment.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/users/{userId}/block: a global SuperAdmin blocks an account. The user cannot sign in\nby any path, their sessions and access tokens end, and their API keys stop working until\n/unblock. Not for yourself or another SuperAdmin. Blocking a blocked user changes nothing.",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
     "/api/users/{userId}/external-identities": {
       "get": {
         "operationId": "BarakoCMSExternalAuthListExternalIdentitiesEndpoint",
@@ -27569,6 +28195,40 @@
             "JWTBearerAuth": []
           }
         ],
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/users/{userId}/unblock": {
+      "post": {
+        "operationId": "barakoCMSFeaturesUsersUnblockEndpoint",
+        "parameters": [
+          {
+            "description": "Bound from the {userId} route segment.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/users/{userId}/unblock: a global SuperAdmin lifts a block. Sessions and tokens the\nblock ended stay ended, and the lockout fields are not touched. A user who is not blocked is\nleft as is.",
         "tags": [
           "Users"
         ]

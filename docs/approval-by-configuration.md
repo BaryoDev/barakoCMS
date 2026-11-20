@@ -467,6 +467,59 @@ whose new lifecycle names a field the bundle's type does not declare. A stored t
 names a field the type does not have anyway is skipped for that name and logged at warning level,
 and the rest of what it requires still applies.
 
+## Editing a lifecycle after the type exists
+
+`PUT /api/content-types/{name}/lifecycle` replaces a stored type's states, initial state and
+transitions, with the fields each transition requires or takes. It needs `manage_content_types`
+(`SuperAdmin` and `Admin` by default), the same as creating the type. The body is
+`{ "lifecycle": { "states": [...], "initialState": "...", "transitions": [...] }, "dryRun": false }`.
+The edit rewrites no entry, so get, list and the change feed follow the new lifecycle at once.
+
+A type with no lifecycle gets one only while it has no entries. The lifecycle is checked the way
+create checks it, and a transition naming a field the type does not declare is a 400.
+
+What is refused, with 409, while anything stands in the way:
+
+- **A state an entry holds.** Removing a state, or renaming it, is refused while any entry is in
+  it. Entries are counted in the database, ignoring case, in this tenant and in every branch, and
+  an entry with no stored state counts under the initial state. The body gives each state with its
+  count. A case-only rename is a rename: an entry in `Approved` blocks `APPROVED`. Reordering
+  states or transitions, and changing the spelling of a state no entry is in, are allowed.
+- **A new initial state.** Changing it is refused while the type has any entry, event sourced or
+  not, because an entry with no stored state reads as the initial state.
+
+There is no `force` and no mapping of entries to another state. To rename a state that entries
+hold, add the new state, move the entries through a transition into it, then remove the old state
+with a second edit.
+
+The body of a refusal has the `status`, `title` and `errors` every 409 has, and `blockers` and
+`warnings` with one object per finding:
+
+```json
+{
+  "status": 409,
+  "title": "Conflict",
+  "errors": [{ "name": "entryState", "reason": "3 entries are in 'Approved', which this edit removes or renames. Move them to another state first." }],
+  "blockers": [{ "kind": "entryState", "state": "Approved", "transition": null, "name": null, "count": 3, "message": "..." }],
+  "warnings": []
+}
+```
+
+`kind` is one of `entryState`, `initialState`, `role`, `workflowTrigger`, `workflowAction`,
+`workflowRun`, `rule`, `uniqueness` or `schedule`, and a warning has the kind `templateLink`.
+`state` or `transition` says what the finding is about, `name` says what blocks (a role or a
+workflow, null for entries) and `count` is set where there is a count.
+
+With `"dryRun": true` the same checks run and the answer is 200 with `dryRun: true`, `canApply`,
+`lifecycle`, and every blocker and warning in the same shape, not the first. Nothing is stored: no
+audit row, no cache invalidation, and the `Idempotency-Key` is released. A stored edit writes the
+audit row `contenttype.lifecycle.changed` with the lifecycle before and after.
+
+A config apply and a bundle import still refuse a changed lifecycle, and the refusal names this
+route. The comparison is order sensitive, so a reorder in the git document reads as a change. A
+type edited here exports a lifecycle that differs from an older git document, so that document is
+refused until it matches what `GET /api/config/export` returns.
+
 ## Making a transition from code
 
 A webhook, a job or a module moves an entry through `IContentTransitioner`
@@ -689,8 +742,9 @@ A request definition sent through a connector has its own placeholders
 
 ## What this page does not cover
 
-`GET /api/contents/{id}` does not return the lifecycle state today; the status change response,
-the history and the workflow runs are where it shows. `Submitted` and `Approved` do not change
+`GET /api/contents/{id}` returns the lifecycle state as `lifecycleState`, the type's initial state
+for an entry that has not moved; the status change response, the history and the workflow runs
+show it too. `Submitted` and `Approved` do not change
 `status`, so an approved invoice stays out of public delivery unless somebody also publishes it
 and the type is opted in (`isPubliclyDeliverable`). Conditions on a transition permission (row
 level rules, [access control](access-control.md) layer 2) apply to transitions the same way they
