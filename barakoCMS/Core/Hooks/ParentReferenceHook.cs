@@ -70,9 +70,26 @@ public sealed class ParentReferenceHook : IContentLifecycleHook
     /// <summary>The most ancestors an entry may have, and so the most entries the walk reads.</summary>
     public int MaxDepth { get; }
 
-    public async Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct)
+    public Task<IReadOnlyList<string>> OnBeforeSaveAsync(ContentLifecycleContext context, CancellationToken ct) =>
+        CheckAsync(context, context.EntryId, ct);
+
+    public Task<IReadOnlyList<string>> BeforeSaveAsync(IContentHookContext context, CancellationToken ct) =>
+        CheckAsync(context, context?.EntryId, ct);
+
+    /// <summary>
+    /// Checks the write as if the entry had the id <paramref name="entryId"/>, for a caller that
+    /// walks a create under an id it minted for the purpose. A null id checks nothing.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> CheckAsync(IContentHookContext hookContext, Guid? entryId, CancellationToken ct)
     {
-        if (context.EntryId is not { } self)
+        ArgumentNullException.ThrowIfNull(hookContext);
+        if (hookContext is not ContentLifecycleContext context)
+        {
+            throw new NotSupportedException(
+                "ParentReferenceHook walks the tree in the write's transaction, which needs the host's own context.");
+        }
+
+        if (entryId is not { } self)
         {
             return [];
         }

@@ -26,4 +26,15 @@ public interface IContentReader
 
     /// <summary>Every entry of a content type, read a page at a time.</summary>
     IAsyncEnumerable<Content> ReadAllAsync(string contentType, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The definition of a content type, matched by name without regard to case, or null when
+    /// there is none.
+    /// </summary>
+    /// <remarks>
+    /// A reader written before this member existed throws <see cref="NotSupportedException"/>
+    /// from the default, so an outside implementer keeps compiling.
+    /// </remarks>
+    Task<ContentTypeDefinition?> GetContentTypeAsync(string name, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("This reader does not look up content type definitions.");
 }

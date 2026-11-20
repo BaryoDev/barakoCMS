@@ -99,7 +99,7 @@
 98 barakoCMS/Infrastructure/Services/SensitivityService.cs::SensitivityService.GuardWriteAsync
 114 barakoCMS/Infrastructure/Services/WorkflowSchemaValidator.cs::WorkflowSchemaValidator.Validate
 107 barakoCMS/Infrastructure/Services/WorkflowSchemaValidator.cs::WorkflowSchemaValidator.ValidateAction
-137 barakoCMS/Infrastructure/Sync/CollectionSyncRunner.cs::CollectionSyncRunner.ApplyAsync
+138 barakoCMS/Infrastructure/Sync/CollectionSyncRunner.cs::CollectionSyncRunner.ApplyAsync
 99 barakoCMS/Infrastructure/Sync/CollectionSyncRunner.cs::CollectionSyncRunner.Map
 118 barakoCMS/Infrastructure/Sync/CollectionSyncService.cs::CollectionSyncService.SweepTenantAsync
 96 barakoCMS/Infrastructure/Sync/SyncRules.cs::SyncRules.ShapeProblem

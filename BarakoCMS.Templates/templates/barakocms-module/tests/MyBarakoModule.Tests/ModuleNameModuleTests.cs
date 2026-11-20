@@ -27,13 +27,13 @@ public class ModuleNameModuleTests : IClassFixture<ModuleNameHost>
     [Fact]
     public async Task The_module_loads_and_its_endpoint_answers()
     {
-        await using (var session = _host.OpenSession())
-        {
-            session.Store(new Note { Id = Guid.NewGuid(), Title = "first" });
-            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
-        }
-
         var client = await _host.CreateAdminClientAsync(TestContext.Current.CancellationToken);
+        var created = await client.PostAsJsonAsync(
+            "/api/contents",
+            new { contentType = ModuleNameContentTypes.Note, data = new { Title = "first" } },
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+
         var response = await client.GetAsync("/api/modulename/notes", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
