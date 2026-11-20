@@ -943,6 +943,12 @@ public static class ServiceCollectionExtensions
             .SingleTenanted()
             .DocumentAlias("tenant_settings");
 
+        // One row per tenant for CDN purge, found by an id derived from the slug. A new table, so
+        // there is no migration file under CreateOnly.
+        options.Schema.For<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeSettings>()
+            .SingleTenanted()
+            .DocumentAlias("cdn_purge_settings");
+
         // Stored in one table for the deployment, with the owning tenant kept as data. A name is
         // unique within a tenant, and among platform roles: NULLS NOT DISTINCT makes the platform
         // roles, which have no tenant, one group. migrations/5.0.0/role-tenancy.sql replaces the
@@ -1415,6 +1421,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Security.ISecretProtector, barakoCMS.Infrastructure.Security.SecretProtector>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ITenantSettings, barakoCMS.Infrastructure.Services.TenantSettingsResolver>();
+        services.TryAddScoped<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeResolver>();
     }
 
     private static void AddConnectorServices(IServiceCollection services)

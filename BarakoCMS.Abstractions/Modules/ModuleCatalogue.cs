@@ -22,10 +22,11 @@ internal sealed class ModuleCatalogue
     public IReadOnlyList<ModuleCatalogueEntry> Entries { get; }
 
     /// <summary>
-    /// The settings section name the host serves itself at <c>/api/tenant-settings/email</c>. A module
-    /// section with this name would never be reached, because the fixed route wins.
+    /// The settings section names the host serves itself at <c>/api/tenant-settings/email</c> and
+    /// <c>/api/tenant-settings/cdn-purge</c>. A module section with one of these names would never be
+    /// reached, because the fixed route wins.
     /// </summary>
-    internal const string ReservedSectionName = "email";
+    internal static readonly IReadOnlyList<string> ReservedSectionNames = ["email", "cdn-purge"];
 
     public static ModuleCatalogue Of(IEnumerable<IBarakoModule> seen, IEnumerable<IBarakoModule> enabled)
     {
@@ -54,11 +55,11 @@ internal sealed class ModuleCatalogue
         {
             foreach (var section in module.SettingsSections)
             {
-                if (string.Equals(section.Name, ReservedSectionName, StringComparison.OrdinalIgnoreCase))
+                if (ReservedSectionNames.Contains(section.Name, StringComparer.OrdinalIgnoreCase))
                 {
                     throw new InvalidOperationException(
                         $"Module '{module.Name}' declares a settings section named '{section.Name}'. "
-                        + $"'{ReservedSectionName}' is reserved for the host's own route, so the section could never be reached.");
+                        + $"'{section.Name}' is reserved for the host's own route, so the section could never be reached.");
                 }
 
                 if (!owners.TryAdd(section.Name, module.Name))
