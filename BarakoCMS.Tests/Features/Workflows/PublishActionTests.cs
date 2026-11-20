@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using BarakoCMS.Tests.Features.Tenants;
+using barakoCMS.Features.Workflows;
 using barakoCMS.Features.Workflows.Actions;
 using barakoCMS.Features.Workflows.Outbox;
 using barakoCMS.Infrastructure.Auth;
@@ -17,6 +18,7 @@ using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -290,12 +292,12 @@ public class PublishActionTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Two_overlapping_deliveries_write_back_once(bool firstToArriveWritesLast)
+    public async Task Two_deliveries_of_one_message_write_back_once_in_either_arrival_order(bool firstToArriveWritesLast)
     {
         var site = await WriteBackSiteAsync();
         // Holding the first delivery back flips which write reaches the API first, so one case has the
-        // later delivery win the key and the other the earlier one. A write that meets the key still in
-        // progress is answered 409, and the receiver tries again until it gets the stored response.
+        // later delivery win the key and the other the earlier one. Either way the second write must
+        // end in the first one's entry. Whether the two ever overlap is not forced here.
         using var receiver = site.Receiver(
             sendKey: true,
             wait: call => firstToArriveWritesLast && call == 0 ? TimeSpan.FromMilliseconds(300) : TimeSpan.Zero);
@@ -303,12 +305,141 @@ public class PublishActionTests
 
         var results = await Task.WhenAll(SendOnceAsync(site.Tenant, id), SendOnceAsync(site.Tenant, id));
 
+        results.Should().HaveCount(2);
         results.Should().OnlyContain(r => r.Delivered);
         receiver.Error.Should().BeNull();
         receiver.Writes.Should().HaveCount(2);
         receiver.Writes.Should().OnlyContain(w => w.EntryId != null, "each write ended in the one entry or its replay");
         receiver.Writes.Select(w => w.EntryId).Distinct().Should().HaveCount(1);
         (await EntriesAsync(site.Tenant, site.Type)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_delivery_that_arrives_while_the_first_write_is_running_gets_409_then_writes_back_once()
+    {
+        var site = await WriteBackSiteAsync();
+        using var receiver = site.Receiver(sendKey: true);
+        var id = await QueueAsync(site.Tenant, site.Type, receiver.Url, TitlePayload, secret: null);
+
+        // A first write that has claimed the key and not finished: the record is stored, not completed.
+        var key = ScopedKey(site.Tenant, site.KeyId, id.ToString());
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession())
+        {
+            session.Store(new IdempotencyRecord { Key = key, ClaimId = Guid.NewGuid(), Completed = false, CreatedAt = DateTime.UtcNow, Method = "POST" });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var delivery = SendOnceAsync(site.Tenant, id);
+        await WaitUntilAsync(() => receiver.Conflicts >= 1, "the write to be answered 409 while the key is in progress");
+
+        // The first write finishes: its claim goes away and the retry takes the key.
+        await using (var session = store.LightweightSession())
+        {
+            session.Delete<IdempotencyRecord>(key);
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var result = await delivery;
+
+        result.Delivered.Should().BeTrue();
+        receiver.Error.Should().BeNull();
+        receiver.Conflicts.Should().BeGreaterThanOrEqualTo(1, "the write met the key in progress");
+        receiver.Writes.Should().HaveCount(1);
+        receiver.Writes[0].Key.Should().Be(id.ToString());
+        (await EntriesAsync(site.Tenant, site.Type)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_workflow_run_with_a_publish_step_redelivered_writes_back_once()
+    {
+        var site = await WriteBackSiteAsync();
+        using var receiver = site.Receiver(sendKey: true);
+        var content = Entry(site.Type);
+        var run = new WorkflowRun
+        {
+            Id = Guid.NewGuid(),
+            WorkflowDefinitionId = Guid.NewGuid(),
+            WorkflowName = "Publish run",
+            ContentId = content.Id,
+            ContentType = content.ContentType,
+            TriggerEvent = "Published",
+            TriggeringEventSequence = 1,
+        };
+        var parameters = Parameters(receiver.Url, TitlePayload, null);
+        parameters["IdempotencyKey"] = $"{run.Id:N}-0";
+        run.Actions.Add(new WorkflowActionAttempt
+        {
+            Ordinal = 0,
+            ActionType = "Publish",
+            Parameters = parameters,
+            IdempotencyKey = $"{run.Id:N}-0",
+        });
+        run.Recompute();
+
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await _fixture.WithWorkflowRunnersPausedAsync(async () =>
+        {
+            await using (var session = store.LightweightSession(site.Tenant))
+            {
+                session.Store(content);
+                session.Store(run);
+                await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+            }
+
+            var runner = new WorkflowRunner(
+                _fixture.Services,
+                _fixture.Services.GetRequiredService<ILogger<WorkflowRunner>>(),
+                _fixture.Services.GetRequiredService<IConfiguration>());
+            var polls = 0;
+            while (await runner.RunOnceAsync(TestContext.Current.CancellationToken))
+            {
+                (++polls).Should().BeLessThan(200);
+            }
+        }, TestContext.Current.CancellationToken);
+
+        await using var check = store.QuerySession(site.Tenant);
+        var messages = await check.Query<OutboxMessage>().Where(m => m.ContentId == content.Id).ToListAsync(TestContext.Current.CancellationToken);
+        messages.Should().HaveCount(1, "the run queued one message");
+        var id = messages[0].Id;
+
+        await DeliverAsync(site.Tenant, DateTimeOffset.UtcNow);
+        (await LoadAsync(site.Tenant, id)).Status.Should().Be(OutboxStatus.Delivered);
+        await ResetToPendingAsync(site.Tenant, id);
+        await DeliverAsync(site.Tenant, DateTimeOffset.UtcNow);
+
+        receiver.Error.Should().BeNull();
+        receiver.Writes.Should().HaveCount(2);
+        receiver.Writes.Select(w => w.Key).Should().OnlyContain(k => k == id.ToString(), "the key is the message id the runner produced");
+        receiver.Writes[1].Replayed.Should().BeTrue();
+        (await EntriesAsync(site.Tenant, site.Type)).Should().Be(1);
+    }
+
+    /// <summary>The key the API stores for this tenant, API key and raw Idempotency-Key.</summary>
+    private static string ScopedKey(string tenant, Guid apiKeyId, string rawKey)
+    {
+        var services = new ServiceCollection().AddSingleton(new barakoCMS.Infrastructure.Multitenancy.TenantContext { Slug = tenant }).BuildServiceProvider();
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext
+        {
+            RequestServices = services,
+            User = new System.Security.Claims.ClaimsPrincipal(
+                new System.Security.Claims.ClaimsIdentity([new System.Security.Claims.Claim("apikey_id", apiKeyId.ToString())], "ApiKey")),
+        };
+        return IdempotencyKeyScope.Build(http, rawKey);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition, string what)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (!condition())
+        {
+            if (DateTime.UtcNow > deadline)
+            {
+                throw new TimeoutException("Timed out waiting for " + what);
+            }
+
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+        }
     }
 
     [Fact]
@@ -439,7 +570,7 @@ public class PublishActionTests
         return "sha256=" + Convert.ToHexStringLower(HMACSHA256.HashData(Encoding.UTF8.GetBytes(secret), material));
     }
 
-    private sealed record WriteBackSite(string Tenant, string Type, HttpClient Api)
+    private sealed record WriteBackSite(string Tenant, string Type, HttpClient Api, Guid KeyId)
     {
         public WritingReceiver Receiver(bool sendKey, Func<int, int>? answer = null, Func<int, TimeSpan>? wait = null) =>
             new(Api, Type, sendKey, answer ?? (_ => 200), wait ?? (_ => TimeSpan.Zero));
@@ -481,6 +612,7 @@ public class PublishActionTests
             RoleIds = [role.Id],
         };
         var secret = "bcms_" + Guid.NewGuid().ToString("N");
+        var keyId = Guid.NewGuid();
 
         using (var scope = _fixture.Services.CreateScope())
         {
@@ -497,7 +629,7 @@ public class PublishActionTests
             });
             session.Store(new ApiKey
             {
-                Id = Guid.NewGuid(),
+                Id = keyId,
                 Name = "receiver",
                 KeyHash = ApiKeyService.Hash(secret),
                 Prefix = secret[..12],
@@ -511,7 +643,7 @@ public class PublishActionTests
         var api = _fixture.CreateClient();
         api.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", secret);
         api.DefaultRequestHeaders.Add("X-Tenant", tenant);
-        return new WriteBackSite(tenant, type, api);
+        return new WriteBackSite(tenant, type, api, keyId);
     }
 
     private async Task<int> EntriesAsync(string tenant, string type)
@@ -561,6 +693,7 @@ public class PublishActionTests
         private readonly Func<int, int> _answer;
         private readonly Func<int, TimeSpan> _wait;
         private int _calls;
+        private int _conflicts;
 
         public WritingReceiver(HttpClient api, string type, bool sendKey, Func<int, int> answer, Func<int, TimeSpan> wait)
         {
@@ -575,6 +708,9 @@ public class PublishActionTests
         }
 
         public string Url { get; }
+
+        /// <summary>How many writes were answered 409 because the key was still in progress.</summary>
+        public int Conflicts => Volatile.Read(ref _conflicts);
 
         /// <summary>The first failure inside the receiver, which a test reads so a broken receiver is not mistaken for a pass.</summary>
         public string? Error { get; private set; }
@@ -635,6 +771,7 @@ public class PublishActionTests
                 using var response = await _api.SendAsync(request);
                 if (response.StatusCode == HttpStatusCode.Conflict && attempt < 50)
                 {
+                    Interlocked.Increment(ref _conflicts);
                     await Task.Delay(100);
                     continue;
                 }

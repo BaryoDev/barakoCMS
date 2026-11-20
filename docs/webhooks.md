@@ -171,8 +171,11 @@ the body) goes out as both `X-Barako-Delivery` and `Idempotency-Key`. The id is 
 retry of that message. A receiver that writes back to the barakoCMS API (`POST /api/contents`, for
 one) should send the id it was given as the `Idempotency-Key` of that write, with the same API key
 each time. A repeat delivery then gets the first write's response back, with `Idempotent-Replayed:
-true`, and no second entry is made. See `docs/idempotency.md` for what a key does and how long it
-lasts.
+true`, and no second entry is made. That replay happens on a write route that replays. A route
+marked `NoIdempotentReplay` (API keys, sessions and sign-in, for example) answers a repeat with
+`409` "already processed" instead. The repeat must also be the same request: the same key with a
+different body is a `422`, so do not put a timestamp or a random value in the write. See
+`docs/idempotency.md` for what a key does and how long it lasts.
 
 Two deliveries of one message can reach the receiver at once. The write that arrives while the first
 is still running is answered `409`; retry it, and it gets the stored response once the first has
