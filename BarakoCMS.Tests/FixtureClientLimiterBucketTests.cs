@@ -66,7 +66,7 @@ public class FixtureClientLimiterBucketTests
         foreach (var address in new[] { first, second })
         {
             var bytes = IPAddress.Parse(address).GetAddressBytes();
-            (bytes[0] == 198 && (bytes[1] == 18 || bytes[1] == 19)).Should().BeTrue("{0} is in 198.18.0.0/15", address);
+            (bytes[0] == 100 && bytes[1] >= 64 && bytes[1] <= 127).Should().BeTrue("{0} is in 100.64.0.0/10", address);
         }
     }
 

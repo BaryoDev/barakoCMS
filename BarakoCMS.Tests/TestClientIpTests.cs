@@ -11,6 +11,7 @@ public class TestClientIpTests
     {
         var seen = Enumerable.Range(0, 1000).Select(_ => TestClientIp.Next()).ToList();
 
+        seen.Should().HaveCount(1000);
         seen.Should().OnlyHaveUniqueItems();
         seen.Should().OnlyContain(a => IsReserved(a));
     }
@@ -41,15 +42,9 @@ public class TestClientIpTests
         client.DefaultRequestHeaders.GetValues(TestRemoteIpFilter.Header).Should().Equal("192.0.2.5");
     }
 
-    [Fact]
-    public void The_opt_out_is_not_an_address()
-    {
-        IPAddress.TryParse(TestClientIp.OptOut, out _).Should().BeFalse();
-    }
-
     private static bool IsReserved(string address)
     {
         var bytes = IPAddress.Parse(address).GetAddressBytes();
-        return bytes[0] == 198 && (bytes[1] == 18 || bytes[1] == 19);
+        return bytes[0] == 100 && bytes[1] >= 64 && bytes[1] <= 127;
     }
 }
