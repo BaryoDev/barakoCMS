@@ -157,9 +157,7 @@ public sealed class ContentCreator(
     public async Task<IReadOnlyList<string>> CheckAsync(
         ContentCreateRequest request, Guid userId, HttpContext httpContext, ContentCreateBatch? batch, CancellationToken ct)
     {
-        await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeSharedAsync(session, request.ContentType, ct); // before any hook runs
-        var schema = await AccountContentTypes.FindDefinitionAsync(session, request.ContentType, ct)
-            ?? batch?.SchemaFor(request.ContentType);
+        var schema = await LockedSchemaAsync(request, batch, ct);
 
         // WRITE-PATH SENSITIVITY: drop any sensitive fields this caller may not see, so they cannot
         // inject values into fields that would be masked from them on read.
@@ -226,6 +224,17 @@ public sealed class ContentCreator(
 
         batch?.Accept(request.ContentType, slug);
         return [];
+    }
+
+    /// <summary>
+    /// The type's lock, then its definition. Taken before any hook runs: a hook may take an advisory
+    /// lock of its own, and a move takes the type's lock first and then runs the same hooks.
+    /// </summary>
+    private async Task<ContentTypeDefinition?> LockedSchemaAsync(ContentCreateRequest request, ContentCreateBatch? batch, CancellationToken ct)
+    {
+        await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeSharedAsync(session, request.ContentType, ct);
+        return await AccountContentTypes.FindDefinitionAsync(session, request.ContentType, ct)
+            ?? batch?.SchemaFor(request.ContentType);
     }
 
     /// <summary>

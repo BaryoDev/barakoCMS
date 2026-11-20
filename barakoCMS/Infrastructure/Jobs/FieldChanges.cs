@@ -149,6 +149,13 @@ internal static class FieldChanges
             $"barakocms:field-change:{session.TenantId}:{contentType.ToLower()}");
     }
 
+    /// <summary>The type's definition, read after <see cref="LockTypeSharedAsync"/> so a committed edit is seen.</summary>
+    public static async Task<ContentTypeDefinition?> LockAndReadAsync(IDocumentSession session, string contentType, CancellationToken ct)
+    {
+        await LockTypeSharedAsync(session, contentType, ct);
+        return await session.Query<ContentTypeDefinition>().FirstNamedAsync(contentType, ct);
+    }
+
     /// <summary>
     /// Takes <see cref="LockTypeSharedAsync"/> on each type, lowest lowered name first, the order
     /// ContentTypeConfigProvider takes its exclusive locks in. A write over several types asks for

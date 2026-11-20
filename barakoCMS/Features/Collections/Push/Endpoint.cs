@@ -77,9 +77,7 @@ internal sealed class Endpoint(
             return;
         }
 
-        await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeSharedAsync(session, req.Type, ct);
-        var definition = await session.Query<ContentTypeDefinition>()
-            .FirstNamedAsync(req.Type, ct);
+        var definition = await barakoCMS.Infrastructure.Jobs.FieldChanges.LockAndReadAsync(session, req.Type, ct);
         if (definition is null)
         {
             await Send.NotFoundAsync(ct);
