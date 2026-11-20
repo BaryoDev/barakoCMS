@@ -540,38 +540,37 @@ public class ContentTransitionLockTests(IntegrationTestFixture factory)
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
     }
 
-    [Fact]
-    public async Task A_header_with_lines_locks_its_types_in_name_order_whatever_order_it_writes_them()
+    /// <summary>Stores a header type that declares lines of a second type, and that line type.</summary>
+    private async Task StoreLineTypesAsync(string header, string line)
     {
-        // LineWriter hands the types over line type first, then the header, so the later-named type
-        // is the line's and the order it passes them in is the reverse of name order.
-        var header = "lwaa" + Guid.NewGuid().ToString("n")[..10];
-        var line = "lwzz" + Guid.NewGuid().ToString("n")[..10];
-        using (var scope = factory.Services.CreateScope())
+        using var scope = factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(new ContentTypeDefinition
         {
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(new ContentTypeDefinition
-            {
-                Id = Guid.NewGuid(), Name = header, DisplayName = header,
-                Fields = [new FieldDefinition { Name = "Title", Type = "string" }],
-                Lines = new LinesDefinition { ContentType = line, ParentField = "Order" },
-            });
-            session.Store(new ContentTypeDefinition
-            {
-                Id = Guid.NewGuid(), Name = line, DisplayName = line,
-                Fields =
-                [
-                    new FieldDefinition { Name = "Title", Type = "string" },
-                    new FieldDefinition { Name = "Order", Type = "reference", ReferenceType = header },
-                ],
-            });
-            await session.SaveChangesAsync(Ct);
-        }
+            Id = Guid.NewGuid(), Name = header, DisplayName = header,
+            Fields = [new FieldDefinition { Name = "Title", Type = "string" }],
+            Lines = new LinesDefinition { ContentType = line, ParentField = "Order" },
+        });
+        session.Store(new ContentTypeDefinition
+        {
+            Id = Guid.NewGuid(), Name = line, DisplayName = line,
+            Fields =
+            [
+                new FieldDefinition { Name = "Title", Type = "string" },
+                new FieldDefinition { Name = "Order", Type = "reference", ReferenceType = header },
+            ],
+        });
+        await session.SaveChangesAsync(Ct);
+    }
 
+    /// <summary>Creates a header with one line while the exclusive lock on <paramref name="held"/> is held.</summary>
+    private async Task<(long OtherHeld, HttpResponseMessage Response)> CreateWithLineWhileHoldingAsync(
+        string header, string held, string other)
+    {
         var client = await AdminAsync();
         Task<HttpResponseMessage> create;
-        long lineHeldWhileQueued;
-        using (await HoldExclusiveAsync(header))
+        long otherHeldWhileQueued;
+        using (await HoldExclusiveAsync(held))
         {
             create = client.PostAsJsonAsync("/api/contents", new
             {
@@ -579,12 +578,39 @@ public class ContentTransitionLockTests(IntegrationTestFixture factory)
                 data = new Dictionary<string, object> { ["Title"] = "an order" },
                 lines = new object[] { new Dictionary<string, object> { ["Title"] = "a line" } },
             }, Ct);
-            await WaitForQueuedAsync(header);
-            lineHeldWhileQueued = await LocksAsync(line, granted: true);
+            await WaitForQueuedAsync(held);
+            otherHeldWhileQueued = await LocksAsync(other, granted: true);
         }
 
-        lineHeldWhileQueued.Should().Be(0, "the write holds no later type while it waits for the earlier one");
-        var response = await create.WaitAsync(Limit, Ct);
+        return (otherHeldWhileQueued, await create.WaitAsync(Limit, Ct));
+    }
+
+    [Fact]
+    public async Task A_header_with_lines_locks_its_types_in_name_order_whatever_order_it_writes_them()
+    {
+        // LineWriter hands the types over line type first, then the header, so the later-named type
+        // is the line's and the order it passes them in is the reverse of name order.
+        var header = "lwaa" + Guid.NewGuid().ToString("n")[..10];
+        var line = "lwzz" + Guid.NewGuid().ToString("n")[..10];
+        await StoreLineTypesAsync(header, line);
+
+        var (lineHeld, response) = await CreateWithLineWhileHoldingAsync(header, held: header, other: line);
+
+        lineHeld.Should().Be(0, "the write holds no later type while it waits for the earlier one");
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_header_named_after_its_lines_still_locks_the_lines_type_first()
+    {
+        // The header is written first, so without a pre-lock it would take the later-named type first.
+        var line = "lwaa" + Guid.NewGuid().ToString("n")[..10];
+        var header = "lwzz" + Guid.NewGuid().ToString("n")[..10];
+        await StoreLineTypesAsync(header, line);
+
+        var (headerHeld, response) = await CreateWithLineWhileHoldingAsync(header, held: line, other: header);
+
+        headerHeld.Should().Be(0, "the write holds no later type while it waits for the earlier one");
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
     }
 
