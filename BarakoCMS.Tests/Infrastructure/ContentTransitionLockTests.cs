@@ -543,9 +543,10 @@ public class ContentTransitionLockTests(IntegrationTestFixture factory)
     [Fact]
     public async Task A_header_with_lines_locks_its_types_in_name_order_whatever_order_it_writes_them()
     {
-        // The header is written first, so the later-named type is the header's.
-        var line = "lwaa" + Guid.NewGuid().ToString("n")[..10];
-        var header = "lwzz" + Guid.NewGuid().ToString("n")[..10];
+        // LineWriter hands the types over line type first, then the header, so the later-named type
+        // is the line's and the order it passes them in is the reverse of name order.
+        var header = "lwaa" + Guid.NewGuid().ToString("n")[..10];
+        var line = "lwzz" + Guid.NewGuid().ToString("n")[..10];
         using (var scope = factory.Services.CreateScope())
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -569,8 +570,8 @@ public class ContentTransitionLockTests(IntegrationTestFixture factory)
 
         var client = await AdminAsync();
         Task<HttpResponseMessage> create;
-        long headerHeldWhileQueued;
-        using (await HoldExclusiveAsync(line))
+        long lineHeldWhileQueued;
+        using (await HoldExclusiveAsync(header))
         {
             create = client.PostAsJsonAsync("/api/contents", new
             {
@@ -578,11 +579,11 @@ public class ContentTransitionLockTests(IntegrationTestFixture factory)
                 data = new Dictionary<string, object> { ["Title"] = "an order" },
                 lines = new object[] { new Dictionary<string, object> { ["Title"] = "a line" } },
             }, Ct);
-            await WaitForQueuedAsync(line);
-            headerHeldWhileQueued = await LocksAsync(header, granted: true);
+            await WaitForQueuedAsync(header);
+            lineHeldWhileQueued = await LocksAsync(line, granted: true);
         }
 
-        headerHeldWhileQueued.Should().Be(0, "the write holds no later type while it waits for the earlier one");
+        lineHeldWhileQueued.Should().Be(0, "the write holds no later type while it waits for the earlier one");
         var response = await create.WaitAsync(Limit, Ct);
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
     }
