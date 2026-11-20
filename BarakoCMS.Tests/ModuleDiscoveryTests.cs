@@ -327,7 +327,9 @@ public class ModuleDiscoveryTests
             .Where(a => a.GetName().Name?.StartsWith("BarakoCMS.", StringComparison.Ordinal) == true)
             .Where(a => a.GetTypes().Any(t => t is { IsAbstract: false, IsInterface: false }
                 && typeof(IBarakoModule).IsAssignableFrom(t) && t.IsPublic))
-            .Where(a => a.GetName().Name is not ("BarakoCMS.Tests" or "BarakoCMS.Abstractions"))
+            // BarakoCMS.Testing is not a module package: it hosts a real core for tests and its one
+            // module is the fixture, which reaches core and so is scanned without the attribute.
+            .Where(a => a.GetName().Name is not ("BarakoCMS.Tests" or "BarakoCMS.Abstractions" or "BarakoCMS.Testing"))
             .ToList();
 
         modules.Should().HaveCountGreaterThan(8, "the suite references every first-party module");

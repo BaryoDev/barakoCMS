@@ -11,8 +11,15 @@ namespace BarakoCMS.Tests;
 /// <c>IMfaService.CreateChallengeToken</c> (#972): how a module that does not reference core
 /// starts a second-factor challenge. Core signs the token, so the signing key stays in core.
 /// </summary>
+/// <remarks>
+/// Signing goes through <c>JwtBearer.CreateToken</c>, which reads FastEndpoints' process-wide resolver.
+/// A plain unit test has none, so the class joins the collection whose fixture host sets it.
+/// </remarks>
+[Collection("Integration1")]
 public class MfaChallengeMintTests
 {
+    public MfaChallengeMintTests(IntegrationTestFixture factory) => _ = factory;
+
     private static readonly IConfiguration Config = new ConfigurationBuilder()
         .AddInMemoryCollection(new Dictionary<string, string?>
         {
