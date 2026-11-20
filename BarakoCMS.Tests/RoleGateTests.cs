@@ -79,6 +79,7 @@ public class RoleGateTests
         new("PUT", "/api/content-types/{name}/icon", "/api/content-types/no-such-type/icon"),
         new("PUT", "/api/content-types/{name}/structured-data", "/api/content-types/no-such-type/structured-data"),
         new("PUT", "/api/content-types/{name}/uniqueness", "/api/content-types/no-such-type/uniqueness"),
+        new("PUT", "/api/content-types/{name}/lifecycle", "/api/content-types/no-such-type/lifecycle"),
         new("PUT", "/api/content-types/{name}/lookup", "/api/content-types/no-such-type/lookup"),
         new("PUT", "/api/content-types/{name}/lines", "/api/content-types/no-such-type/lines"),
         new("GET", "/api/content-types/{name}/uniqueness/{rule}/duplicates", "/api/content-types/no-such-type/uniqueness/NoSuchRule/duplicates?page=not-a-number"),

@@ -95,7 +95,8 @@ the repository.
   not have is refused, and with it the whole import. Restore the files first, with the same ids,
   then import the bundle. See `docs/file-fields.md`.
 - A stored type keeps its lifecycle when the bundle has none. A bundle that changes it, or adds one
-  to a type that already has entries, is refused.
+  to a type that already has entries, is refused, and the refusal points at
+  `PUT /api/content-types/{name}/lifecycle`, which edits a stored lifecycle.
 - The entries' events are written together just before the commit, so a long import leaves no
   gap in the event sequence and workflows run for every imported entry. The rows the import writes
   are held for the whole transaction: run a large import outside busy hours, since a post that

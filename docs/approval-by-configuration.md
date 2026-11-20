@@ -467,6 +467,95 @@ whose new lifecycle names a field the bundle's type does not declare. A stored t
 names a field the type does not have anyway is skipped for that name and logged at warning level,
 and the rest of what it requires still applies.
 
+## Editing a lifecycle after the type exists
+
+`PUT /api/content-types/{name}/lifecycle` replaces a stored type's states, initial state and
+transitions, with the fields each transition requires or takes. It needs `manage_content_types`
+(`SuperAdmin` and `Admin` by default), the same as creating the type. The body is
+`{ "lifecycle": { "states": [...], "initialState": "...", "transitions": [...] }, "dryRun": false }`.
+The edit rewrites no entry, so get, list and the change feed follow the new lifecycle at once.
+
+A save sends the version it started from as `If-Match`, the way `PUT /api/contents/{id}` does. The
+version is the type's stored document version, sent as a quoted ETag. Read it from the `version`
+field of the type in `GET /api/content-types`, or from the `ETag` header and `version` field of
+the last edit's 200. A save with no `If-Match` is `428`, one that is not a version is `400`, and a
+stale one is `412`: the type changed since it was loaded, nothing is stored and no audit row is
+written. The 412 body has `status`, `title`, `errors`, and the current `lifecycle` and `version`
+so a client can reload. The version is read under the type lock, so of two edits that started from
+the same version the second is refused. Any change to the type moves its version, not only a
+lifecycle edit. A dry run needs no `If-Match`, and one that sends a stale version gets the same 412.
+
+A type with no lifecycle gets one only while it has no entries. The lifecycle is checked the way
+create checks it, and a transition naming a field the type does not declare is a 400.
+
+What is refused, with 409, while anything stands in the way:
+
+- **A state an entry holds.** Removing a state, or renaming it, is refused while any entry is in
+  it. Entries are counted in the database, ignoring case, in this tenant and in every branch, and
+  an entry with no stored state counts under the initial state. The body gives each state with its
+  count. A case-only rename is a rename: an entry in `Approved` blocks `APPROVED`. Reordering
+  states or transitions, and changing the spelling of a state no entry is in, are allowed.
+- **A new initial state.** Changing it is refused while the type has any entry, event sourced or
+  not, because an entry with no stored state reads as the initial state.
+- **A transition that is removed or changed.** A transition counts as changed when its name, its
+  from or its to differs, ignoring case, except that a workflow trigger and a module's seeded
+  transitions match the name by spelling, so renaming `Approve` to `ApproVe` counts for those. It
+  is refused while a role grants it on this type (`role`), a workflow is triggered by it
+  (`workflowTrigger`), a workflow has a Transition action that makes it, nested or compensating
+  ones included (`workflowAction`), a rule runs on it (`rule`), or a workflow run carries it
+  (`workflowRun`, with the number of runs in `count`): one that is pending or running, or one
+  whose rollback is still pending a compensation that makes it.
+- **A state that is removed or renamed.** Also refused while a rule on this type or another one
+  names it, in `inState` or in the `state` list of a condition on this type (`rule`), while a
+  uniqueness rule applies in it (`uniqueness`), or while a date schedule sweeps it (`schedule`).
+  A schedule matches the state by spelling, so a case-only rename of a state it names is refused.
+- **What a module seeded.** A module that seeds a type with a lifecycle keeps it. Each time the
+  seed runs, core records the module name and the states, transitions (name, from, to) and initial
+  state the module passed. The record is kept on the default tenant, where module seeding runs. While that module is registered in the host, an
+  edit is refused (`module`, with the module in `name`) if it removes or renames a seeded state,
+  removes or renames a seeded transition or changes its from or to, or changes the initial state
+  while it is still the seeded one. Adding states and transitions is allowed, and something the
+  tenant already removed does not block. A record for a module that is no longer registered gives
+  no floor. A module that overrides only the obsolete session-based `SeedAsync` records nothing and
+  gets no floor: it needs the `IModuleSeedContext` overload and `EnsureContentTypeAsync`.
+- **A warning, not a refusal.** An email template of a workflow on this type that links to a
+  removed or changed transition with `links.transition` or `links.action` is listed under
+  `warnings` with the kind `templateLink`. The edit still applies and the link is left out of the
+  email.
+
+There is no `force` and no mapping of entries to another state. To rename a state that entries
+hold, add the new state, move the entries through a transition into it, then remove the old state
+with a second edit.
+
+The body of a refusal has the `status`, `title` and `errors` every 409 has, and `blockers` and
+`warnings` with one object per finding:
+
+```json
+{
+  "status": 409,
+  "title": "Conflict",
+  "errors": [{ "name": "entryState", "reason": "3 entries are in 'Approved', which this edit removes or renames. Move them to another state first." }],
+  "blockers": [{ "kind": "entryState", "state": "Approved", "transition": null, "name": null, "count": 3, "message": "..." }],
+  "warnings": []
+}
+```
+
+`kind` is one of `entryState`, `initialState`, `role`, `workflowTrigger`, `workflowAction`,
+`workflowRun`, `rule`, `uniqueness`, `schedule` or `module`, and a warning has the kind `templateLink`.
+These are all the kinds the route emits.
+`state` or `transition` says what the finding is about, `name` says what blocks (a role or a
+workflow, null for entries) and `count` is set where there is a count.
+
+With `"dryRun": true` the same checks run and the answer is 200 with `dryRun: true`, `canApply`,
+`lifecycle`, and every blocker and warning in the same shape, not the first. Nothing is stored: no
+audit row, no cache invalidation, and the `Idempotency-Key` is released. A stored edit writes the
+audit row `contenttype.lifecycle.changed` with the lifecycle before and after.
+
+A config apply and a bundle import still refuse a changed lifecycle, and the refusal names this
+route. The comparison is order sensitive, so a reorder in the git document reads as a change. A
+type edited here exports a lifecycle that differs from an older git document, so that document is
+refused until it matches what `GET /api/config/export` returns.
+
 ## Making a transition from code
 
 A webhook, a job or a module moves an entry through `IContentTransitioner`
@@ -671,6 +760,8 @@ deliverable with a Public slug field, and the entry is Published and Public. A d
 entry and a type that is not delivered get no address, so a slug delivery does not serve never
 reaches a message.
 
+A `links.transition` or `links.action` that names a transition the content type does not declare is listed in the `warnings` of a workflow save and of an email template preview. The save is not refused. A `links.action` for it renders empty, and a `links.transition` leads the console to a move it cannot make. A rollback restores an entry's data and keeps the lifecycle state it is in, so editing a lifecycle cannot make a rollback put an entry into a state the type no longer declares.
+
 A base that is not set, or is not an absolute http or https URL, makes its links render empty. The
 path given to `links.site` starts with one `/` (two would name another host) and is at most 200
 characters of a URL path, query and fragment. The transition name is escaped into the query. A
@@ -689,8 +780,9 @@ A request definition sent through a connector has its own placeholders
 
 ## What this page does not cover
 
-`GET /api/contents/{id}` does not return the lifecycle state today; the status change response,
-the history and the workflow runs are where it shows. `Submitted` and `Approved` do not change
+`GET /api/contents/{id}` returns the lifecycle state as `lifecycleState`, the type's initial state
+for an entry that has not moved; the status change response, the history and the workflow runs
+show it too. `Submitted` and `Approved` do not change
 `status`, so an approved invoice stays out of public delivery unless somebody also publishes it
 and the type is opted in (`isPubliclyDeliverable`). Conditions on a transition permission (row
 level rules, [access control](access-control.md) layer 2) apply to transitions the same way they

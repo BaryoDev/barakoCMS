@@ -1,3 +1,4 @@
+using barakoCMS.Core.Interfaces;
 using Marten;
 
 namespace BarakoCMS.Pages;
@@ -47,4 +48,8 @@ public sealed class PagesSettings
     /// <summary>The options the session's tenant reads: its own row over the deployment's.</summary>
     public static async Task<PagesOptions> ResolveAsync(IQuerySession session, PagesOptions deployment, CancellationToken ct) =>
         await session.LoadAsync<PagesSettings>(RowId, ct) is { } row ? row.Over(deployment) : deployment;
+
+    /// <summary>The options the write's tenant reads, loaded through the hook context so a hook names no Marten type.</summary>
+    public static async Task<PagesOptions> ResolveAsync(IContentHookContext context, PagesOptions deployment, CancellationToken ct) =>
+        await context.LoadAsync<PagesSettings>(RowId, ct) is { } row ? row.Over(deployment) : deployment;
 }

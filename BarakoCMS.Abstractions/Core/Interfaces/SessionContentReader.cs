@@ -28,6 +28,13 @@ internal sealed class SessionContentReader(IQuerySession session, int pageSize =
             .ToListAsync(cancellationToken);
     }
 
+    public Task<ContentTypeDefinition?> GetContentTypeAsync(string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        var lowered = name.ToLower();
+        return session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, cancellationToken);
+    }
+
     public Task<int> CountAsync(string contentType, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(contentType);
