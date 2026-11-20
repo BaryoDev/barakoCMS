@@ -347,6 +347,11 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 // itself, and a host sweeping every five seconds would reach the message first,
                 // refuse the test's plain-http listener and leave nothing due for the test to send.
                 { barakoCMS.Features.Workflows.Outbox.OutboxSender.PollSecondsKey, "3600" },
+                // The CDN purge sender waits ten minutes before it takes a row and polls once an hour, so a
+                // host left over from another class never sends a purge a purge test is waiting on. The
+                // purge tests drive the sender themselves with a clock past the window.
+                { "Delivery:CdnPurge:DebounceMs", "600000" },
+                { "Delivery:CdnPurge:PollSeconds", "3600" },
                 // The job queue, tuned for a test run: a retry waits nothing, so a job that fails
                 // five times dead-letters in seconds. The backoff arithmetic itself is
                 // JobBackoffTests, a unit test.
