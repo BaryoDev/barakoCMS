@@ -1,3 +1,4 @@
+using barakoCMS;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
@@ -261,6 +262,25 @@ public class CdnPurgeOnCommitTests(IntegrationTestFixture fixture)
         }
 
         AssertTags(a, await SendAsync(a), id);
+    }
+
+    // Only a definition changes, so only the definition path can name the type and the sitemap.
+    [Fact]
+    public async Task A_definition_change_alone_purges_the_type_and_sitemap_tags()
+    {
+        var a = await ArrangeEnabledAsync();
+
+        await using (var session = Host.Store.LightweightSession(TenantScopes.TenantIdFor(a.Tenant)))
+        {
+            var definition = await session.Query<ContentTypeDefinition>().SingleAsync(d => d.Name == a.Type, Ct);
+            definition.DisplayName = "changed alone";
+            session.Store(definition);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var calls = await SendAsync(a);
+        AssertTags(a, calls);
+        calls[0].Tags.Should().NotContain(t => t.Contains(":entry:"), "no entry changed");
     }
 
     // Route 10: erase. The eraser deletes the document, so the listener still knows its type.
@@ -542,6 +562,29 @@ public class CdnPurgeOnCommitTests(IntegrationTestFixture fixture)
 
         Host.StandIn.CallsFor(a.Zone).Should().HaveCount(1, "the second node loses the claim and leaves the rows");
         (await Host.PendingAsync(a.Tenant)).Should().BeEmpty();
+    }
+
+    // The mapping turns on optimistic concurrency for the pending rows, which is what refuses a second claim.
+    [Fact]
+    public async Task A_pending_row_claimed_twice_from_the_same_read_is_refused_the_second_time()
+    {
+        var a = await ArrangeEnabledAsync();
+        await Host.EntryAsync(a.Tenant, a.Type);
+        var tenantId = TenantScopes.TenantIdFor(a.Tenant);
+        await using var first = Host.Store.LightweightSession(tenantId);
+        await using var second = Host.Store.LightweightSession(tenantId);
+        var one = (await first.Query<PendingCdnPurge>().ToListAsync(Ct)).Single();
+        var two = (await second.Query<PendingCdnPurge>().ToListAsync(Ct)).Single();
+        one.ClaimedAt = DateTimeOffset.UtcNow;
+        first.Store(one);
+        await first.SaveChangesAsync(Ct);
+        two.ClaimedAt = DateTimeOffset.UtcNow;
+        second.Store(two);
+
+        var second_claim = async () => await second.SaveChangesAsync(Ct);
+
+        var thrown = await second_claim.Should().ThrowAsync<Exception>();
+        ConcurrencyConflict.Is(thrown.Which).Should().BeTrue("the stale claim is the one the version refuses");
     }
 
     [Fact]
