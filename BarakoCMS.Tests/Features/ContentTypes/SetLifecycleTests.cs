@@ -821,8 +821,9 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
         row.TargetType.Should().Be("ContentType");
         row.Metadata!.Keys.Should().BeEquivalentTo("contentType", "from", "to");
         row.Metadata["contentType"].ToString().Should().Be(type);
-        row.Metadata["from"].ToString().Should().Contain("Submitted").And.NotContain("Review");
-        row.Metadata["to"].ToString().Should().Contain("Review").And.Contain("Approve");
+        // Stored as the lifecycle itself, a nested object, so it is read as JSON.
+        JsonSerializer.Serialize(row.Metadata["from"]).Should().Contain("Submitted").And.NotContain("Review");
+        JsonSerializer.Serialize(row.Metadata["to"]).Should().Contain("Review").And.Contain("Approve");
         (await AuditAsync(other)).Should().BeEmpty("a lifecycle the type already has changes nothing and records nothing");
     }
 
