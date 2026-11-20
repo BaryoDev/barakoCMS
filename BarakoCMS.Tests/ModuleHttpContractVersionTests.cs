@@ -106,11 +106,13 @@ public class ModuleHttpContractVersionTests
         builder.DiscoverFrom();
 
         // A module's own assembly is the one that holds its endpoint classes. The suite's probe
-        // modules live in this assembly, and the Testing package's FixtureModule exists only for
-        // tests of core mechanisms. Neither is a product module, so both are left out.
+        // modules live in this assembly, the Testing package's FixtureModule exists only for tests
+        // of core mechanisms, and ContractOnlyProbe is the suite's contract-only module (#972).
+        // None is a product module, so all three are left out.
         var shipped = builder.Modules
             .Where(m => m.GetType().Assembly != typeof(ModuleHttpContractVersionTests).Assembly
-                && m.GetType().Assembly != typeof(BarakoCMS.Testing.Fixture.FixtureModule).Assembly)
+                && m.GetType().Assembly != typeof(BarakoCMS.Testing.Fixture.FixtureModule).Assembly
+                && m.GetType().Assembly != typeof(ContractOnlyProbe.ContractOnlyProbeModule).Assembly)
             .ToList();
         var withEndpoints = shipped.Where(m => MapsEndpoints(m.GetType().Assembly)).ToList();
 

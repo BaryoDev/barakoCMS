@@ -85,9 +85,10 @@ public class OpenApiTagTests
 
         // "Delivery" is excluded: it exists only while some content type is publicly deliverable,
         // which depends on what the rest of the suite has stored. DeliveryOpenApiTests covers it.
+        // "ContractOnlyProbe" is the suite's contract-only probe module (#972), not a product tag.
         var tags = Operations(doc)
             .SelectMany(o => o.Tags)
-            .Where(t => t != "Delivery")
+            .Where(t => t != "Delivery" && t != "ContractOnlyProbe")
             .Distinct()
             .OrderBy(t => t, StringComparer.Ordinal)
             .ToList();
