@@ -26,6 +26,10 @@ namespace barakoCMS.Features.Workflows;
 /// cast can fail on a value like 2026-02-30, widened by a day each side for an offset in the text.
 /// The exact window is applied to the parsed value afterwards.
 /// </para>
+/// <para>
+/// <c>InState</c> is matched in the query, ignoring case, with an entry that has no stored state
+/// read as being in the type's initial state, as the transition gate and uniqueness checks read it.
+/// </para>
 /// </remarks>
 internal static class ScheduleSweep
 {
@@ -51,6 +55,8 @@ internal static class ScheduleSweep
 
     private const string PrefilterSql =
         @"substr(d.data -> 'Data' ->> ?, 1, 10) COLLATE ""C"" >= ? AND substr(d.data -> 'Data' ->> ?, 1, 10) COLLATE ""C"" <= ?";
+
+    private const string StateSql = "lower(coalesce(d.data ->> 'LifecycleState', ?)) = lower(?)";
 
     /// <returns>How many runs were queued.</returns>
     internal static async Task<int> RunAsync(
@@ -97,6 +103,7 @@ internal static class ScheduleSweep
         var queued = 0;
         var skipped = 0;
         var lowered = schedule.ContentType.ToLower();
+        var initial = schedule.InState is { Length: > 0 } ? await InitialStateAsync(session, schedule.ContentType, ct) : string.Empty;
 
         while (true)
         {
@@ -106,7 +113,7 @@ internal static class ScheduleSweep
 
             if (schedule.InState is { Length: > 0 } state)
             {
-                page = page.Where(c => c.LifecycleState == state);
+                page = page.Where(c => c.MatchesSql(StateSql, initial, state));
             }
 
             var rows = await page.OrderBy(c => c.Id).Skip(skipped).Take(pageSize).ToListAsync(ct);
@@ -124,6 +131,10 @@ internal static class ScheduleSweep
             skipped += rows.Count;
         }
     }
+
+    /// <summary>The state an entry with none stored is read as being in, or empty when the type declares no lifecycle.</summary>
+    private static async Task<string> InitialStateAsync(IDocumentSession session, string contentType, CancellationToken ct) =>
+        (await session.Query<ContentTypeDefinition>().FirstNamedAsync(contentType, ct))?.Lifecycle?.InitialState ?? string.Empty;
 
     /// <summary>The date the field holds, or null when it is missing, empty or not a date.</summary>
     private static DateTimeOffset? ValueOf(barakoCMS.Models.Content content, string field)

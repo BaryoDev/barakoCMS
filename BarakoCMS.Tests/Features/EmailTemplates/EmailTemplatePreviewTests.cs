@@ -88,7 +88,7 @@ public class EmailTemplatePreviewTests
 
     /// <summary>A fresh entry type with a Sensitive field, one entry of it, and a template.</summary>
     private async Task<(string Type, Content Entry, Content Template)> ArrangeAsync(
-        string subject, string body, ContentStatus status = ContentStatus.Draft)
+        string subject, string body, ContentStatus status = ContentStatus.Draft, LifecycleDefinition? lifecycle = null)
     {
         var type = $"pv{Guid.NewGuid():N}"[..14];
         var entry = new Content
@@ -112,6 +112,7 @@ public class EmailTemplatePreviewTests
                 new FieldDefinition { Name = "Name", Type = "string" },
                 new FieldDefinition { Name = "Secret", Type = "string", Sensitivity = SensitivityLevel.Sensitive },
             ],
+            Lifecycle = lifecycle,
         });
         session.Store(entry);
         session.Store(template);
@@ -208,6 +209,189 @@ public class EmailTemplatePreviewTests
         named.IsValid.Should().BeTrue(string.Join("; ", named.Errors.Select(e => e.Message)));
         named.Warnings.Should().ContainSingle().Which.Should().Be(
             new Warning("actions[0].parameters.Template", $"In the template's Body: {expected[0]}"));
+    }
+
+    private static LifecycleDefinition ApprovalLifecycle() => new()
+    {
+        States = ["Draft", "Approved"],
+        InitialState = "Draft",
+        Transitions = [new StateTransition { Name = "Approve", From = "Draft", To = "Approved" }],
+    };
+
+    private const string TransitionLinks =
+        "Go {{links.transition \"Approve\"}} or {{links.action \"approve\"}} or {{links.transition \"Aprove\"}} or {{links.action \"Missing\"}}";
+
+    [Fact]
+    public async Task Warns_when_a_transition_link_names_an_undeclared_transition()
+    {
+        var (type, entry, template) = await ArrangeAsync("s", TransitionLinks, ContentStatus.Published, ApprovalLifecycle());
+
+        var preview = await ReadAsync(await PreviewAsync(await SuperAdminAsync(), template.Id.ToString(), entry.Id));
+
+        var warnings = preview.Warnings.Where(w => w.Field == "Body").Select(w => w.Message).ToList();
+        warnings.Should().HaveCount(2);
+        warnings.Should().ContainSingle(m => m.Contains("links.transition \"Aprove\"") && m.Contains($"'{type}' does not declare"));
+        warnings.Should().ContainSingle(m => m.Contains("links.action \"Missing\""));
+        preview.Subject.Should().Be("s");
+    }
+
+    [Fact]
+    public async Task Warns_without_refusing_when_a_template_link_names_an_undeclared_transition()
+    {
+        var (type, _, template) = await ArrangeAsync("s", TransitionLinks, ContentStatus.Published, ApprovalLifecycle());
+
+        var named = await ValidateAsync(await SuperAdminAsync(), type, new() { ["To"] = "a@example.com", ["Template"] = template.Id.ToString() });
+
+        named.IsValid.Should().BeTrue(string.Join("; ", named.Errors.Select(e => e.Message)));
+        named.Warnings.Should().HaveCount(2);
+        named.Warnings.Should().OnlyContain(w => w.Field == "actions[0].parameters.Template" && w.Message.StartsWith("In the template's Body: "));
+        named.Warnings.Should().ContainSingle(w => w.Message.Contains("links.transition \"Aprove\"") && w.Message.Contains($"'{type}' does not declare"));
+        named.Warnings.Should().ContainSingle(w => w.Message.Contains("links.action \"Missing\""));
+    }
+
+    [Fact]
+    public async Task Warns_without_refusing_when_an_inline_body_links_an_undeclared_transition()
+    {
+        var (type, _, _) = await ArrangeAsync("s", "b", ContentStatus.Published, ApprovalLifecycle());
+
+        var inline = await ValidateAsync(await SuperAdminAsync(), type, new() { ["To"] = "a@example.com", ["Subject"] = "s", ["Body"] = TransitionLinks });
+
+        inline.IsValid.Should().BeTrue(string.Join("; ", inline.Errors.Select(e => e.Message)));
+        inline.Warnings.Should().HaveCount(2);
+        inline.Warnings.Should().OnlyContain(w => w.Field == "actions[0].parameters.Body");
+        inline.Warnings.Should().ContainSingle(w => w.Message.Contains("links.transition \"Aprove\"") && w.Message.Contains($"'{type}' does not declare"));
+        inline.Warnings.Should().ContainSingle(w => w.Message.Contains("links.action \"Missing\""));
+    }
+
+    [Fact]
+    public async Task A_site_link_gives_no_transition_warning()
+    {
+        var (_, entry, template) = await ArrangeAsync("s", "Open {{links.site \"/x\"}}", ContentStatus.Published, ApprovalLifecycle());
+
+        var preview = await ReadAsync(await PreviewAsync(await SuperAdminAsync(), template.Id.ToString(), entry.Id));
+
+        preview.Warnings.Should().BeEmpty();
+    }
+
+    /// <summary>Red if the preview named a transition of an entry whose type the caller may not read.</summary>
+    [Fact]
+    public async Task A_hidden_entry_gets_no_transition_link_warning()
+    {
+        var (type, entry, template) = await ArrangeAsync("s", TransitionLinks, ContentStatus.Published, ApprovalLifecycle());
+        await using (var session = Store.LightweightSession())
+        {
+            var stored = await session.LoadAsync<Content>(entry.Id, Ct);
+            stored!.Sensitivity = SensitivityLevel.Hidden;
+            session.Store(stored);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var readable = new[] { type, EmailTemplateRenderer.TemplateType };
+        var preview = await ReadAsync(await PreviewAsync(await AuthorAsync(readable), template.Id.ToString(), entry.Id));
+
+        preview.Warnings.Should().NotContain(w => w.Message.Contains("does not declare"));
+    }
+
+    [Fact]
+    public async Task A_template_link_with_a_name_over_the_limit_gets_only_the_link_warning()
+    {
+        var body = "Go {{links.transition \"" + new string('a', 201) + "\"}}";
+        var (_, entry, template) = await ArrangeAsync("s", body, ContentStatus.Published, ApprovalLifecycle());
+
+        var preview = await ReadAsync(await PreviewAsync(await SuperAdminAsync(), template.Id.ToString(), entry.Id));
+
+        var warnings = preview.Warnings.Where(w => w.Field == "Body").ToList();
+        warnings.Should().ContainSingle().Which.Message.Should().Contain("not between 1 and");
+        warnings.Should().NotContain(w => w.Message.Contains("does not declare"));
+    }
+
+    [Fact]
+    public async Task Past_the_cap_the_preview_lists_the_warnings_up_to_it_and_one_notice()
+    {
+        var body = string.Concat(Enumerable.Range(0, WorkflowSchemaValidator.MaxPlaceholderWarnings + 10)
+            .Select(i => "{{links.transition \"Missing" + i + "\"}} "));
+        var (_, entry, template) = await ArrangeAsync("s", body, ContentStatus.Published, ApprovalLifecycle());
+
+        var preview = await ReadAsync(await PreviewAsync(await SuperAdminAsync(), template.Id.ToString(), entry.Id));
+
+        preview.Warnings.Where(w => w.Message.Contains("does not declare")).Should().HaveCount(WorkflowSchemaValidator.MaxPlaceholderWarnings);
+        preview.Warnings.Should().ContainSingle(w => w.Message.StartsWith("More than "));
+    }
+
+    [Fact]
+    public async Task A_workflow_with_two_trigger_types_warns_for_the_type_that_lacks_the_transition()
+    {
+        var (declares, _, _) = await ArrangeAsync("s", "b", ContentStatus.Published, ApprovalLifecycle());
+        var (lacks, _, _) = await ArrangeAsync("s", "b", ContentStatus.Published);
+        var action = new { type = "Email", parameters = Email("Go {{links.transition \"Approve\"}}") };
+
+        var result = await ValidateWorkflowAsync(await SuperAdminAsync(), new[] { declares, lacks }, action);
+
+        result.Warnings.Should().ContainSingle(w => w.Message.Contains("does not declare"))
+            .Which.Message.Should().Contain($"'{lacks}' does not declare");
+    }
+
+    [Fact]
+    public async Task A_link_in_a_compensation_parameter_warns()
+    {
+        var (type, _, _) = await ArrangeAsync("s", "b", ContentStatus.Published, ApprovalLifecycle());
+        var action = new
+        {
+            type = "Webhook",
+            parameters = new Dictionary<string, string> { ["Url"] = "https://hooks.example.com/do" },
+            compensate = new { type = "Webhook", parameters = new Dictionary<string, string> { ["Url"] = "https://hooks.example.com/undo", ["Body"] = "{{links.transition \"Aprove\"}}" } },
+        };
+
+        var result = await ValidateWorkflowAsync(await SuperAdminAsync(), [type], action);
+
+        result.Warnings.Should().ContainSingle(w => w.Field == "actions[0].compensate.parameters.Body" && w.Message.Contains("links.transition \"Aprove\""));
+    }
+
+    [Fact]
+    public async Task A_link_in_a_conditional_branch_warns()
+    {
+        var (type, _, _) = await ArrangeAsync("s", "b", ContentStatus.Published, ApprovalLifecycle());
+        var branch = JsonSerializer.Serialize(new[] { new { Type = "Email", Parameters = Email("{{links.transition \"Aprove\"}}") } });
+        var action = new
+        {
+            type = "Conditional",
+            parameters = new Dictionary<string, string> { ["Condition"] = "{{data.Name}} == \"x\"", ["ThenActions"] = branch },
+        };
+
+        var result = await ValidateWorkflowAsync(await SuperAdminAsync(), [type], action);
+
+        result.Warnings.Should().ContainSingle(w => w.Field == "actions[0].parameters.ThenActions[0].parameters.Body" && w.Message.Contains("links.transition \"Aprove\""));
+    }
+
+    [Fact]
+    public async Task Past_the_cap_a_workflow_save_lists_the_warnings_up_to_it_and_one_notice()
+    {
+        var (type, _, _) = await ArrangeAsync("s", "b", ContentStatus.Published, ApprovalLifecycle());
+        var body = string.Concat(Enumerable.Range(0, WorkflowSchemaValidator.MaxPlaceholderWarnings + 10)
+            .Select(i => "{{links.transition \"Missing" + i + "\"}} "));
+
+        var result = await ValidateWorkflowAsync(await SuperAdminAsync(), [type], new { type = "Email", parameters = Email(body) });
+
+        result.Warnings.Where(w => w.Message.Contains("does not declare")).Should().HaveCount(WorkflowSchemaValidator.MaxPlaceholderWarnings);
+        result.Warnings.Should().ContainSingle(w => w.Message.StartsWith("More than "));
+    }
+
+    private static Dictionary<string, string> Email(string body) =>
+        new() { ["To"] = "a@example.com", ["Subject"] = "s", ["Body"] = body };
+
+    private static async Task<ValidationResult> ValidateWorkflowAsync(HttpClient client, string[] types, object action)
+    {
+        var response = await client.PostAsJsonAsync("/api/workflows/validate", new
+        {
+            name = "link check",
+            triggerContentType = types[0],
+            triggerContentTypes = types,
+            triggerEvent = "Created",
+            actions = new[] { action },
+        }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        return (await response.Content.ReadFromJsonAsync<ValidationResult>(Json, Ct))!;
     }
 
     /// <summary>

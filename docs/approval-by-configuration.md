@@ -671,6 +671,8 @@ deliverable with a Public slug field, and the entry is Published and Public. A d
 entry and a type that is not delivered get no address, so a slug delivery does not serve never
 reaches a message.
 
+A `links.transition` or `links.action` that names a transition the content type does not declare is listed in the `warnings` of a workflow save and of an email template preview. The save is not refused. A `links.action` for it renders empty, and a `links.transition` leads the console to a move it cannot make. A rollback restores an entry's data and keeps the lifecycle state it is in, so editing a lifecycle cannot make a rollback put an entry into a state the type no longer declares.
+
 A base that is not set, or is not an absolute http or https URL, makes its links render empty. The
 path given to `links.site` starts with one `/` (two would name another host) and is at most 200
 characters of a URL path, query and fragment. The transition name is escaped into the query. A
