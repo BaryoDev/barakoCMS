@@ -252,8 +252,10 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
     /// drains everything, as it always did.
     ///
     /// The poll limit is the loop detector. Past it, a drain that is still working through a backlog
-    /// that is getting smaller goes on, and one whose due work is not shrinking fails, saying which
-    /// workflows and actions the runner kept finding.
+    /// that is getting smaller goes on, and one whose claimable work is not shrinking fails, saying
+    /// which workflows and actions the runner kept finding. Only claimable runs are counted. A run
+    /// that is due but has nothing to claim (a seeded run with no attempts) is offered and passed
+    /// over by every pass, so it cannot go down and is no sign of a loop. The message still lists it.
     /// </remarks>
     public async Task DrainAsync(params Guid[] runIds)
     {
@@ -276,14 +278,14 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
             }
 
             var now = await DueSnapshotAsync();
-            if (dueAtLastCheck is { } before && now.Total >= before)
+            if (dueAtLastCheck is { } before && now.Claimable >= before)
             {
                 Assert.Fail(
                     $"The runner should drain rather than find work forever, but it was still finding work after {polls} polls "
-                  + $"and the {now.Total} runs due had not gone down since the last check. Due now: {now.Describe()}");
+                  + $"and the {now.Claimable} claimable runs due had not gone down since the last check. Due now: {now.Describe()}");
             }
 
-            dueAtLastCheck = now.Total;
+            dueAtLastCheck = now.Claimable;
         }
     }
 
@@ -306,7 +308,6 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
         var partitions = await barakoCMS.Infrastructure.Multitenancy.TenantPartitions.ListAsync(
             store, factory.Services.GetRequiredService<IConfiguration>(), WorkflowRunner.PartitionsWithWorkSql, Ct);
 
-        var total = 0;
         var sample = new List<(string Tenant, WorkflowRun Run)>();
 
         foreach (var tenant in partitions)
@@ -314,15 +315,21 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
             await using var session = store.QuerySession(tenant);
             var due = session.Query<WorkflowRun>().Where(WorkflowExecutors.DueFor(WorkflowExecutors.BuiltIn, now));
 
-            total += await due.CountAsync(Ct);
-            sample.AddRange((await due.OrderBy(r => r.CreatedAt).Take(500).ToListAsync(Ct)).Select(r => (tenant, r)));
+            // All of them, not a page: the claimable count has to be of every due run.
+            var runs = await due.OrderBy(r => r.CreatedAt).ToListAsync(Ct);
+            sample.AddRange(runs.Select(r => (tenant, r)));
         }
 
-        return new DueSnapshot(total, sample);
+        return new DueSnapshot(sample);
     }
 
-    private sealed record DueSnapshot(int Total, List<(string Tenant, WorkflowRun Run)> Sample)
+    private sealed record DueSnapshot(List<(string Tenant, WorkflowRun Run)> Sample)
     {
+        public int Total => Sample.Count;
+
+        /// <summary>The due runs a pass would take a slot for, by the runner's own rule.</summary>
+        public int Claimable => Sample.Count(d => WorkflowRunner.CanClaim(d.Run));
+
         /// <summary>The due runs grouped by tenant, workflow and the action each is waiting on, most first.</summary>
         public string Describe()
         {
@@ -331,14 +338,15 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
                     d.Tenant,
                     d.Run.WorkflowDefinitionId,
                     d.Run.WorkflowName,
+                    Claimable: WorkflowRunner.CanClaim(d.Run),
                     Action: d.Run.Actions.OrderBy(a => a.Ordinal)
                         .FirstOrDefault(a => a.Status is AttemptStatus.Pending or AttemptStatus.Running)?.ActionType ?? "(none)"))
                 .OrderByDescending(g => g.Count())
                 .Take(8)
                 .Select(g => $"{g.Count()} x tenant '{g.Key.Tenant}' workflow {g.Key.WorkflowDefinitionId} '{g.Key.WorkflowName}' "
-                           + $"action '{g.Key.Action}' (most tries so far {g.Max(d => d.Run.Actions.Count == 0 ? 0 : d.Run.Actions.Max(a => a.Attempts))})");
+                           + $"action '{g.Key.Action}'{(g.Key.Claimable ? "" : " UNCLAIMABLE, nothing to claim")} (most tries so far {g.Max(d => d.Run.Actions.Count == 0 ? 0 : d.Run.Actions.Max(a => a.Attempts))})");
 
-            return $"{Total} due in all, looked at the oldest {Sample.Count}: " + string.Join("; ", groups);
+            return $"{Total} due in all, {Claimable} claimable: " + string.Join("; ", groups);
         }
     }
 }
