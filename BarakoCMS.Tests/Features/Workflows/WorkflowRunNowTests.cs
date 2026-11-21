@@ -319,7 +319,9 @@ public class WorkflowRunNowTests
             var response = await client.PostAsync(Url(workflowId), Body(entryId), Ct);
             response.StatusCode.Should().Be(HttpStatusCode.Accepted);
             runId = await RunIdOfAsync(response);
-            await _harness.DrainAsync();
+
+            // Named, so the drain ends when this run is done. Bare, it waits on every due run in the shared database.
+            await _harness.DrainAsync(runId);
         });
 
         var run = await _harness.LoadRunAsync(runId);
