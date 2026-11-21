@@ -96,11 +96,41 @@ public sealed class BatchTransaction(ILogger<BatchTransaction>? logger = null)
         return true;
     }
 
+    private readonly Dictionary<(object Owner, string Key), object> _held = new();
+
+    /// <summary>
+    /// Like <see cref="TryDeferUntilCommit"/>, but every call with the same owner and key in one batch
+    /// shares one state and one piece of held work, which runs once at the commit with what the calls
+    /// gathered. Returns false outside a batch, where the caller does the work now.
+    /// </summary>
+    internal static bool TryHold<T>(object owner, string key, Func<T> create, Func<T, CancellationToken, Task> run, out T state)
+        where T : class
+    {
+        state = null!;
+        if (Open.Value is not { } batch)
+        {
+            return false;
+        }
+
+        if (batch._held.TryGetValue((owner, key), out var existing))
+        {
+            state = (T)existing;
+            return true;
+        }
+
+        var made = create();
+        batch._held[(owner, key)] = made;
+        batch._afterCommit.Add(ct => run(made, ct));
+        state = made;
+        return true;
+    }
+
     /// <summary>Runs the work held for the commit, in order. Nothing is run for a batch that rolls back.</summary>
     internal async Task RunAfterCommitAsync(CancellationToken ct)
     {
         var held = _afterCommit.ToList();
         _afterCommit.Clear();
+        _held.Clear();
         foreach (var work in held)
         {
             try
