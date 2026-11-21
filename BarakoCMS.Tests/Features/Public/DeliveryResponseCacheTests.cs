@@ -40,12 +40,28 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
         public IConfiguration Config => Factory.Services.GetRequiredService<IConfiguration>();
     }
 
+    /// <summary>
+    /// One host per distinct set of settings, kept for the run. Every test reads and writes its own
+    /// tenant and content type, so a cached response, a tag or a logged statement from one test is
+    /// never one another test looks at. A test whose settings differ asks for its own host.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Host>> Shared = new();
+
     private Host HostWith(params (string Key, string Value)[] settings)
     {
-        var logger = new CapturingMartenLogger();
         var all = settings.ToDictionary(s => s.Key, s => (string?)s.Value);
-        var derived = fixture.WithSettings(all).WithWebHostBuilder(builder =>
-            builder.ConfigureServices(services => services.ConfigureMarten(options => options.Logger(logger))));
+        var key = string.Join('|', all.OrderBy(s => s.Key, StringComparer.Ordinal).Select(s => $"{s.Key}={s.Value}"));
+        return Shared.GetOrAdd(key, _ => new Lazy<Host>(() => Build(all))).Value;
+    }
+
+    private Host Build(Dictionary<string, string?> settings)
+    {
+        var logger = new CapturingMartenLogger();
+        var derived = fixture.WithRunScopedHost(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(settings));
+            builder.ConfigureServices(services => services.ConfigureMarten(options => options.Logger(logger)));
+        });
         return new Host(derived, logger);
     }
 
