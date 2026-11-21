@@ -253,6 +253,23 @@ fi
 for csproj in "${csprojs[@]}"; do
   module=$(dirname "$csproj")
 
+  # Testing's source-change measurement is skipped while the core's own version is published. Its
+  # version equals the core's (checked above), and a release only runs when the core's version is not
+  # on NuGet, so with the core published no release can happen at this number and a Testing change
+  # waits for the next core version. Measuring it then could only fire falsely: after a release, any
+  # change to Testing would fail until the core moved, and moving the core starts a release.
+  #
+  # With the core unpublished a release is coming, and Testing is measured like any module. A release
+  # that published Testing and failed before it pushed the core leaves Testing's number on NuGet
+  # with the core's not there, and the rerun would drop a Testing fix at --skip-duplicate. The same
+  # goes when NuGet cannot be asked. The core itself is outside this check, as its own gate decides.
+  if [ "$csproj" = "$testing_csproj" ]; then
+    ask_nuget "$core_csproj" BarakoCMS "$(read_version < "$core_csproj")"
+    core_nuget=$nuget
+    nuget=""
+    [ "$core_nuget" = "published" ] && continue
+  fi
+
   version=$(read_version < "$csproj")
   if [ -z "$version" ]; then
     echo "::warning::$module has no <Version>; skipping"
