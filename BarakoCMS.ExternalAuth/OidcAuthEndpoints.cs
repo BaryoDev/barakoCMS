@@ -38,11 +38,11 @@ internal sealed class OidcStartEndpoint(IConfiguration config, OidcBackchannel b
             return;
         }
 
-        var redirect = OidcSupport.CallbackUrl(config, HttpContext, provider);
+        var redirect = OidcSupport.CallbackUrl(HttpContext, provider);
         var endpoints = await backchannel.EndpointsAsync(provider, ct);
         if (endpoints is null)
         {
-            var to = $"{ExternalAuthSupport.BaseUrl(config, HttpContext)}/login?fberror="
+            var to = $"{ExternalAuthSupport.BaseUrl(HttpContext)}/login?fberror="
                 + Uri.EscapeDataString($"Couldn't reach {provider.DisplayName}. Please try again, or use your email code.");
             if (club.Length > 0) to += $"&club={Uri.EscapeDataString(club)}";
             await Send.ResultAsync(Results.Redirect(to));
@@ -185,7 +185,7 @@ internal abstract class OidcCallback(
 
     protected async Task CompleteAsync(OidcProvider provider, string? code, string? state, CancellationToken ct)
     {
-        var baseUrl = ExternalAuthSupport.BaseUrl(config, HttpContext);
+        var baseUrl = ExternalAuthSupport.BaseUrl(HttpContext);
         var club = (HttpContext.Request.Cookies[provider.ClubCookie] ?? "").Trim().ToLowerInvariant();
         if (club.Length > OidcSupport.MaxClubLength)
         {
@@ -228,7 +228,7 @@ internal abstract class OidcCallback(
         }
 
         var idToken = await backchannel.ExchangeCodeAsync(
-            provider, endpoints, code, OidcSupport.CallbackUrl(config, HttpContext, provider), flow.CodeVerifier, ct);
+            provider, endpoints, code, OidcSupport.CallbackUrl(HttpContext, provider), flow.CodeVerifier, ct);
         if (idToken is null)
         {
             await Fail(unreachable);

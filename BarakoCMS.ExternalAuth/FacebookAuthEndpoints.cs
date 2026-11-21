@@ -31,8 +31,8 @@ internal static class Fb
     public static string Scope(IConfiguration config) =>
         WantsExtendedProfile(config) ? "email,public_profile,user_birthday,user_location" : "email,public_profile";
 
-    public static string CallbackUrl(IConfiguration config, HttpContext ctx) =>
-        ExternalAuthSupport.BaseUrl(config, ctx) + "/api/auth/facebook/callback";
+    public static string CallbackUrl(HttpContext ctx) =>
+        ExternalAuthSupport.BaseUrl(ctx) + "/api/auth/facebook/callback";
 }
 
 /// <summary>GET /api/auth/facebook/start?club={handle} — redirect the browser to Facebook's consent dialog.</summary>
@@ -53,7 +53,7 @@ public class FacebookStartEndpoint(IConfiguration config, IQuerySession session)
         var state = begun.Value.State;
 
         var appId = config["Facebook:AppId"];
-        var redirect = Fb.CallbackUrl(config, HttpContext);
+        var redirect = Fb.CallbackUrl(HttpContext);
         var url =
             $"{Fb.Dialog}?client_id={appId}" +
             $"&redirect_uri={Uri.EscapeDataString(redirect)}" +
@@ -102,7 +102,7 @@ public class FacebookCallbackEndpoint(
         try
         {
             var http = httpFactory.CreateClient();
-            var redirect = Fb.CallbackUrl(config, HttpContext);
+            var redirect = Fb.CallbackUrl(HttpContext);
 
             var tokenUrl =
                 $"{Fb.Graph}/oauth/access_token?client_id={config["Facebook:AppId"]}" +

@@ -27,4 +27,8 @@
   <ItemGroup>
     <InternalsVisibleTo Include="BarakoCMS.Tests" />
   </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="barakoCMS.Modules.BarakoModuleAssembly" />
+  </ItemGroup>
 </Project>

@@ -181,8 +181,7 @@ public static class ServiceCollectionExtensions
         if (moduleBuilder.Discover)
             moduleBuilder.DiscoverFrom();
 
-        foreach (var skipped in moduleBuilder.Skipped)
-            WarnUnloadable(skipped.Assembly, skipped.Missing);
+        WarnAboutLibraries(moduleBuilder);
 
         var seen = moduleBuilder.Modules;
         var enabledNames = ModuleEnablement.ReadEnabled(configuration);
@@ -287,6 +286,33 @@ public static class ServiceCollectionExtensions
 
         WarnUnloadable(assembly, missing);
         return false;
+    }
+
+    /// <summary>The libraries discovery could not load, then the unmarked contract-only ones.</summary>
+    private static void WarnAboutLibraries(BarakoModuleBuilder moduleBuilder)
+    {
+        foreach (var skipped in moduleBuilder.Skipped)
+            WarnUnloadable(skipped.Assembly, skipped.Missing);
+
+        WarnUnmarked(moduleBuilder.Unmarked);
+    }
+
+    /// <summary>
+    /// One warning per library that holds a module, references only the contract package and does
+    /// not carry <see cref="BarakoModuleAssemblyAttribute"/>. Discovery scans it in 5.x and stops
+    /// in 6.0.0.
+    /// </summary>
+    internal static void WarnUnmarked(IEnumerable<System.Reflection.Assembly> assemblies)
+    {
+        foreach (var assembly in assemblies)
+        {
+            var name = assembly.GetName();
+            Log.Warning(
+                "{Assembly} {Version} holds a module and references only BarakoCMS.Abstractions, but is not marked "
+                + "as a module assembly. It is scanned now and will not be from barakoCMS 6.0.0. Add "
+                + "[assembly: BarakoModuleAssembly] to it.",
+                name.Name, name.Version);
+        }
     }
 
     private static void WarnUnloadable(System.Reflection.Assembly assembly, IReadOnlyList<string> missing)
@@ -1543,6 +1569,7 @@ public static class ServiceCollectionExtensions
     private static void AddMfaAndDeviceTrust(IServiceCollection services)
     {
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
+        services.AddSingleton<barakoCMS.Infrastructure.Security.IPublicBaseUrl, barakoCMS.Infrastructure.Security.CanonicalPublicBaseUrl>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
     }

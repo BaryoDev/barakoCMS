@@ -1,12 +1,18 @@
 // Aliased: Microsoft.Extensions.DependencyInjection also ships a ServiceCollectionExtensions.
 using Host = barakoCMS.Extensions.ServiceCollectionExtensions;
+using System.Reflection;
 using barakoCMS.Modules;
 using BarakoCMS.Files;
 using BarakoCMS.Files.S3;
+using ContractOnlyProbe;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyModel;
+using Serilog;
+using Serilog.Context;
+using Serilog.Core;
+using Serilog.Events;
 using Xunit;
 
 namespace BarakoCMS.Tests;
@@ -175,6 +181,200 @@ public class ModuleDiscoveryTests
             runtimeAssemblyGroups: [], nativeLibraryGroups: [], resourceAssemblies: [],
             dependencies: dependsOn.Select(d => new Dependency(d, "1.0.0")).ToList(),
             serviceable: false);
+
+    // The assemblies the fake contexts below hand back. Marked is a library built on the contract
+    // alone that carries the attribute; Unmarked is this test assembly, which holds
+    // DiscoverableProbeModule and carries none.
+    private static readonly Assembly Marked = typeof(ContractOnlyProbeModule).Assembly;
+    private static readonly Assembly Unmarked = typeof(ModuleDiscoveryTests).Assembly;
+
+    private static RuntimeLibrary LibraryWithAssembly(string name, params string[] dependsOn) =>
+        new("package", name, "1.0.0", hash: string.Empty,
+            runtimeAssemblyGroups: [new RuntimeAssetGroup(string.Empty, [$"lib/net10.0/{name}.dll"])],
+            nativeLibraryGroups: [], resourceAssemblies: [],
+            dependencies: dependsOn.Select(d => new Dependency(d, "1.0.0")).ToList(),
+            serviceable: false);
+
+    /// <summary>
+    /// Runs discovery over a synthetic context holding <paramref name="libraries"/> and the two
+    /// host libraries, and answers what it loaded. <paramref name="assemblies"/> says what each
+    /// library name loads as.
+    /// </summary>
+    private static (BarakoModuleBuilder Builder, List<string> Loaded) Discover(
+        IReadOnlyDictionary<string, Assembly> assemblies, params RuntimeLibrary[] libraries)
+    {
+        var context = new DependencyContext(
+            new TargetInfo(".NETCoreApp,Version=v10.0", null, null, isPortable: true),
+            CompilationOptions.Default,
+            compileLibraries: [],
+            runtimeLibraries:
+            [
+                Library("BarakoCMS.Abstractions"),
+                Library("BarakoCMS", "BarakoCMS.Abstractions"),
+                .. libraries,
+            ],
+            runtimeGraph: []);
+        var loaded = new List<string>();
+        var builder = new BarakoModuleBuilder();
+
+        builder.DiscoverFrom(context, name =>
+        {
+            loaded.Add(name.Name!);
+            return assemblies[name.Name!];
+        });
+
+        return (builder, loaded);
+    }
+
+    [Fact]
+    public void A_contract_only_library_with_the_attribute_is_scanned_without_a_warning()
+    {
+        // The control: the probe really is a library that never references core.
+        Marked.GetReferencedAssemblies().Select(a => a.Name).Should().NotContain("barakoCMS");
+        Marked.IsDefined(typeof(BarakoModuleAssemblyAttribute), inherit: false).Should().BeTrue();
+
+        var (builder, loaded) = Discover(
+            new Dictionary<string, Assembly> { ["Acme.Marked"] = Marked },
+            LibraryWithAssembly("Acme.Marked", "BarakoCMS.Abstractions"));
+
+        loaded.Should().Equal("Acme.Marked");
+        builder.Modules.Should().ContainSingle(m => m is ContractOnlyProbeModule);
+        builder.Unmarked.Should().BeEmpty("it carries the attribute, so there is nothing to warn about");
+    }
+
+    [Fact]
+    public void A_contract_only_library_without_the_attribute_is_still_scanned_and_listed_for_one_warning()
+    {
+        var (builder, _) = Discover(
+            new Dictionary<string, Assembly> { ["Acme.Old"] = Unmarked },
+            LibraryWithAssembly("Acme.Old", "BarakoCMS.Abstractions"));
+
+        builder.Modules.Should().Contain(m => m is DiscoverableProbeModule, "5.5.0 to 5.8.0 scanned it, so 5.9.0 does too");
+        builder.Unmarked.Should().ContainSingle().Which.Should().BeSameAs(Unmarked);
+    }
+
+    [Fact]
+    public void A_contract_only_library_that_holds_no_module_is_not_warned_about()
+    {
+        var (builder, _) = Discover(
+            new Dictionary<string, Assembly> { ["Acme.Helpers"] = typeof(IBarakoModule).Assembly },
+            LibraryWithAssembly("Acme.Helpers", "BarakoCMS.Abstractions"));
+
+        builder.Unmarked.Should().BeEmpty("a warning naming a library with no module would be noise");
+    }
+
+    [Fact]
+    public void A_library_that_reaches_core_is_scanned_without_the_attribute_and_without_a_warning()
+    {
+        var (builder, _) = Discover(
+            new Dictionary<string, Assembly> { ["Acme.Crm"] = Unmarked },
+            LibraryWithAssembly("Acme.Crm", "BarakoCMS"));
+
+        builder.Modules.Should().Contain(m => m is DiscoverableProbeModule);
+        builder.Unmarked.Should().BeEmpty("a library that reaches core is scanned as it always was");
+    }
+
+    [Fact]
+    public void An_unrelated_library_is_never_loaded()
+    {
+        var (builder, loaded) = Discover(
+            new Dictionary<string, Assembly> { ["Acme.Crm"] = Unmarked },
+            LibraryWithAssembly("Acme.Crm", "BarakoCMS"),
+            LibraryWithAssembly("Newtonsoft.Json"),
+            LibraryWithAssembly("Unrelated", "Newtonsoft.Json"));
+
+        loaded.Should().Equal("Acme.Crm");
+        builder.Modules.Should().NotBeEmpty("an empty result would make the assertion above vacuous");
+    }
+
+    [Fact]
+    public void The_host_warns_once_per_unmarked_library_and_says_how_to_fix_it()
+    {
+        var sink = new CollectingSink();
+        using (sink.Installed())
+        {
+            Host.WarnUnmarked([Unmarked]);
+        }
+
+        var warning = sink.Events.Should().ContainSingle().Which;
+        warning.Level.Should().Be(LogEventLevel.Warning);
+        var message = warning.RenderMessage();
+        message.Should().Contain(Unmarked.GetName().Name!);
+        message.Should().Contain("BarakoModuleAssembly");
+        message.Should().Contain("6.0.0");
+    }
+
+    [Fact]
+    public void Host_warns_about_nothing_when_no_library_is_unmarked()
+    {
+        var sink = new CollectingSink();
+        using (sink.Installed())
+        {
+            Host.WarnUnmarked([]);
+        }
+
+        sink.Events.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// Every first-party module is found by the attribute, so none of them depends on the
+    /// contract-only fallback that 6.0.0 removes.
+    /// </summary>
+    [Fact]
+    public void Every_first_party_module_assembly_carries_the_attribute()
+    {
+        var modules = AppDomain.CurrentDomain.GetAssemblies()
+            .Where(a => a.GetName().Name?.StartsWith("BarakoCMS.", StringComparison.Ordinal) == true)
+            .Where(a => a.GetTypes().Any(t => t is { IsAbstract: false, IsInterface: false }
+                && typeof(IBarakoModule).IsAssignableFrom(t) && t.IsPublic))
+            // BarakoCMS.Testing is not a module package: it hosts a real core for tests and its one
+            // module is the fixture, which reaches core and so is scanned without the attribute.
+            .Where(a => a.GetName().Name is not ("BarakoCMS.Tests" or "BarakoCMS.Abstractions" or "BarakoCMS.Testing"))
+            .ToList();
+
+        modules.Should().HaveCountGreaterThan(8, "the suite references every first-party module");
+        modules.Where(a => !a.IsDefined(typeof(BarakoModuleAssemblyAttribute), inherit: false))
+            .Select(a => a.GetName().Name)
+            .Should().BeEmpty("a module without the attribute is warned about at startup and not scanned from 6.0.0");
+    }
+
+    /// <summary>Warnings written while <see cref="Installed"/> is open, from this test's async flow only.</summary>
+    private sealed class CollectingSink : ILogEventSink
+    {
+        private const string Marker = "DiscoveryTest";
+        private readonly string _id = Guid.NewGuid().ToString("N");
+        private readonly List<LogEvent> _events = [];
+
+        public IReadOnlyList<LogEvent> Events => _events;
+
+        public void Emit(LogEvent logEvent)
+        {
+            if (logEvent.Properties.TryGetValue(Marker, out var value)
+                && value is ScalarValue { Value: string id } && id == _id)
+            {
+                lock (_events)
+                {
+                    _events.Add(logEvent);
+                }
+            }
+        }
+
+        public IDisposable Installed()
+        {
+            var previous = Log.Logger;
+            Log.Logger = new LoggerConfiguration().Enrich.FromLogContext().WriteTo.Sink(this).CreateLogger();
+            return new Restore(previous, LogContext.PushProperty(Marker, _id));
+        }
+
+        private sealed class Restore(Serilog.ILogger previous, IDisposable scope) : IDisposable
+        {
+            public void Dispose()
+            {
+                scope.Dispose();
+                Log.Logger = previous;
+            }
+        }
+    }
 
     [Fact]
     public void AddBarakoCMS_discovers_by_default()
