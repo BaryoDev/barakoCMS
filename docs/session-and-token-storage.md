@@ -153,8 +153,8 @@ treated as a race and revokes the user's tokens, as two plain refreshes of one t
 The window is `Auth:RefreshRetryWindowSeconds`. Default 30. `0` turns the retry off, so every replay
 is reuse. The most it can be is 300: a larger value, including one too big for a number, is clamped
 to 300 with a warning. A negative value means off (0), with a warning. A value that is not a whole
-number falls back to 30 with a warning. The value is read on each request, and the warnings are
-written at start only.
+number falls back to 30 with a warning. Surrounding spaces and a leading plus sign are accepted. The value is read on each request, and
+the warnings are written at start only.
 
 A used row with no device id (device trust off and no `X-Device-Id` at sign-in) gets the retry from
 any client, since there is nothing to compare. Only the window, the session and the unused successor

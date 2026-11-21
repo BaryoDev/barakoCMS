@@ -58,7 +58,7 @@ public class AuthTokenReuseTests
         r2.Should().NotBeNullOrEmpty();
         r2.Should().NotBe(r1);
 
-        // 2b. Rotate R2 -> R3. R1 is no longer the token just rotated, so replaying it is reuse and
+        // 2b. Rotate R2 to R3. R1 is no longer the token just rotated, so replaying it is reuse and
         // not a retry of a lost answer.
         var refresh2 = await _client.PostAsJsonAsync("/api/auth/refresh", new { RefreshToken = r2 });
         refresh2.EnsureSuccessStatusCode();

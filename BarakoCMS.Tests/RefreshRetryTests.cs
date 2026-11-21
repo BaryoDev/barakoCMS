@@ -243,7 +243,6 @@ public class RefreshRetryTests(IntegrationTestFixture factory)
         {
             Id = Guid.NewGuid(), TokenHash = RefreshToken.HashOf(nextPlain), UserId = user.Id,
             ExpiresAt = DateTime.UtcNow.AddDays(1),
-            // Empty, so a check that let a missing session id through as empty would match it.
             SessionId = Guid.Empty,
         };
         using (var scope = factory.Services.CreateScope())
