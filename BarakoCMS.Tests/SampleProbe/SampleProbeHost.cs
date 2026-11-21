@@ -1,8 +1,32 @@
 using barakoCMS.Models;
 using BarakoCMS.Testing;
 using Marten;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 
 namespace BarakoCMS.Tests.SampleProbe;
+
+/// <summary>
+/// Gives a request that names no client address one of its own, so the global limiter's hundred
+/// per window is never shared. The probe host's clients come from <c>BarakoTestHost</c>, which
+/// registers no address filter, and a hub connection sends a negotiate, a handshake, a poll per
+/// message and a close, so one class passed a hundred requests in the one "unknown" bucket and its
+/// next request waited for the window to turn. A test that sends <see cref="TestRemoteIpFilter.Header"/>
+/// keeps its address.
+/// </summary>
+internal sealed class ProbeClientAddressFilter : IStartupFilter
+{
+    public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+    {
+        app.Use(async (ctx, nxt) =>
+        {
+            ctx.Connection.RemoteIpAddress ??= System.Net.IPAddress.Parse(TestClientIp.Next());
+            await nxt();
+        });
+        next(app);
+    };
+}
 
 public sealed class SampleProbeHost : BarakoTestHost, IAsyncLifetime
 {

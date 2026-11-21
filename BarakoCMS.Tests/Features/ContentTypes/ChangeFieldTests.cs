@@ -56,11 +56,17 @@ public class ChangeFieldTests : IAsyncLifetime
 
         for (var i = 0; i < entries; i++)
         {
-            var created = await _client.PostAsJsonAsync("/api/contents", new
+            // Its own client address per post, so a hundred and one posts never queue on the global limiter.
+            using var post = new HttpRequestMessage(HttpMethod.Post, "/api/contents")
             {
-                contentType = name,
-                data = new Dictionary<string, object> { ["Title"] = $"entry {i}", ["Doctor"] = $"Dr {i}" },
-            }, Ct);
+                Content = JsonContent.Create(new
+                {
+                    contentType = name,
+                    data = new Dictionary<string, object> { ["Title"] = $"entry {i}", ["Doctor"] = $"Dr {i}" },
+                }),
+            };
+            post.Headers.Add(TestRemoteIpFilter.Header, TestClientIp.Next());
+            var created = await _client.SendAsync(post, Ct);
             created.StatusCode.Should().Be(HttpStatusCode.OK, await created.Content.ReadAsStringAsync(Ct));
         }
 
@@ -74,7 +80,9 @@ public class ChangeFieldTests : IAsyncLifetime
     {
         for (var i = 0; i < 600; i++)
         {
-            var status = await (await _client.GetAsync($"/api/content-types/field-changes/{id}", Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+            using var poll = new HttpRequestMessage(HttpMethod.Get, $"/api/content-types/field-changes/{id}");
+            poll.Headers.Add(TestRemoteIpFilter.Header, TestClientIp.Next());
+            var status = await (await _client.SendAsync(poll, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
             if (status.GetProperty("state").GetString() == "completed")
             {
                 return status;
