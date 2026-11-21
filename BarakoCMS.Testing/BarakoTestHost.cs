@@ -192,6 +192,8 @@ public class BarakoTestHost : IAsyncLifetime
         builder.WebHost.UseTestServer();
         builder.Configuration.AddInMemoryCollection(Settings());
 
+        // Its own metrics registry, so two hosts in one process do not write to the same series.
+        builder.Services.UseIsolatedMetricsRegistry();
         builder.Services.AddBarakoCMS(builder.Configuration, modules =>
         {
             modules.Discover = false;

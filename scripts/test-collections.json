@@ -26,6 +26,7 @@
     "LegacyModuleHostTests.cs": "swaps Serilog's process-wide Log.Logger and an AppContext switch",
     "LockedAccountResponseTests.cs": "replaces FastEndpoints' static service resolver with a host of its own",
     "MetricsEndpointTests.cs": "asserts on process-wide metrics or trace listeners that any parallel host would feed",
+    "MetricsSeriesGoldenTests.cs": "asserts the exact families on the process-wide default registry, which any parallel host would feed",
     "ModuleConfigureAppTests.cs": "starts hosts of its own or checks the fixture itself, which a second live fixture would disturb",
     "ModuleSchemaPreflightTests.cs": "swaps Serilog's process-wide Log.Logger",
     "NpgsqlSpanScrubTests.cs": "asserts on process-wide metrics or trace listeners that any parallel host would feed",

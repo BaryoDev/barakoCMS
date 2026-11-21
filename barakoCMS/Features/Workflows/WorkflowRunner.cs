@@ -111,7 +111,13 @@ internal sealed class WorkflowRunner(
     internal int PartitionScans { get; private set; }
 
     /// <summary>Where this runner counts what it does. A test gives it a registry of its own.</summary>
-    internal WorkflowMetrics Metrics { get; init; } = WorkflowMetrics.Default;
+    internal WorkflowMetrics Metrics
+    {
+        get => _metrics ??= services.GetService<WorkflowMetrics>() ?? new WorkflowMetrics(Prometheus.Metrics.NewCustomRegistry());
+        init => _metrics = value;
+    }
+
+    private WorkflowMetrics? _metrics;
 
     public const string BacklogIntervalKey = "Workflows:BacklogIntervalSeconds";
 

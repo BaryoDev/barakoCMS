@@ -45,11 +45,11 @@ public class AuthMailQueueTests
         for (var i = 0; i < AuthMailQueue.Capacity; i++)
             queue.Enqueue($"user{i}@example.com", "s", "b");
         queue.PendingCount.Should().Be(AuthMailQueue.Capacity);
-        var before = AuthMailQueue.DroppedCounter.Value;
+        var before = queue.DroppedCounter.Value;
 
         queue.Enqueue("overflow@example.com", "s", "b");
 
-        AuthMailQueue.DroppedCounter.Value.Should().Be(before + 1);
+        queue.DroppedCounter.Value.Should().Be(before + 1);
         queue.PendingCount.Should().Be(AuthMailQueue.Capacity);
         queue.PendingBody("overflow@example.com").Should().BeNull();
     }

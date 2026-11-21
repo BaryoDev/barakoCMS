@@ -50,7 +50,7 @@ try
     // check details to anonymous callers.
 
     // UseHttpMetrics is inside UseBarakoCMS, ahead of the endpoints that answer requests.
-    app.MapMetrics();
+    app.MapMetrics("/metrics", app.Services.GetRequiredService<barakoCMS.Infrastructure.Observability.HostMetrics>().Registry);
 
     Log.Information("Starting BarakoCMS Host...");
 
