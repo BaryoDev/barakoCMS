@@ -407,6 +407,7 @@ public class PrivateSiteModeTests
         ("/api/client-errors", false, "a write of client error reports"),
         ("/api/renderer/blocks/schema", false, "a write guarded by the renderer key"),
         ("/api/_test/", true, "test host only"),
+        ("/api/probe/", true, "the suite's contract-only probe module (#972): answers pong, no content"),
     ];
 
     [Fact]

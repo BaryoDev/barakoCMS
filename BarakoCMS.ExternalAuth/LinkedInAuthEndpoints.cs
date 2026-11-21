@@ -14,8 +14,8 @@ internal static class Li
     public const string UserInfo = "https://api.linkedin.com/v2/userinfo";
     public const string Scope = "openid profile email";
 
-    public static string CallbackUrl(IConfiguration c, HttpContext ctx) =>
-        ExternalAuthSupport.BaseUrl(c, ctx) + "/api/auth/linkedin/callback";
+    public static string CallbackUrl(HttpContext ctx) =>
+        ExternalAuthSupport.BaseUrl(ctx) + "/api/auth/linkedin/callback";
 }
 
 /// <summary>GET /api/auth/linkedin/start?club={handle} — redirect to LinkedIn's consent dialog.</summary>
@@ -35,7 +35,7 @@ public class LinkedInStartEndpoint(IConfiguration config, IQuerySession session)
         if (begun is null) { await Send.NotFoundAsync(ct); return; }
         var state = begun.Value.State;
 
-        var redirect = Li.CallbackUrl(config, HttpContext);
+        var redirect = Li.CallbackUrl(HttpContext);
         var url =
             $"{Li.Authorize}?response_type=code&client_id={config["LinkedIn:ClientId"]}" +
             $"&redirect_uri={Uri.EscapeDataString(redirect)}" +
@@ -88,7 +88,7 @@ public class LinkedInCallbackEndpoint(
             {
                 ["grant_type"] = "authorization_code",
                 ["code"] = code,
-                ["redirect_uri"] = Li.CallbackUrl(config, HttpContext),
+                ["redirect_uri"] = Li.CallbackUrl(HttpContext),
                 ["client_id"] = config["LinkedIn:ClientId"] ?? "",
                 ["client_secret"] = config["LinkedIn:ClientSecret"] ?? "",
             });

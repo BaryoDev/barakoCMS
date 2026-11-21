@@ -1,7 +1,9 @@
+using barakoCMS.Infrastructure.Security;
 using BarakoCMS.ExternalAuth;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace BarakoCMS.Tests.Infrastructure;
@@ -22,9 +24,16 @@ public class ExternalAuthBaseUrlTests
             .AddInMemoryCollection(settings.ToDictionary(s => s.Key, s => s.Value))
             .Build();
 
-    private static HttpContext Context(string host)
+    /// <summary>
+    /// A request whose services hold core's own <see cref="IPublicBaseUrl"/> over <paramref name="config"/>,
+    /// which is what a host registers and what ExternalAuth asks for.
+    /// </summary>
+    private static HttpContext Context(IConfiguration config, string host)
     {
-        var context = new DefaultHttpContext();
+        var services = new ServiceCollection()
+            .AddSingleton<IPublicBaseUrl>(new CanonicalPublicBaseUrl(config))
+            .BuildServiceProvider();
+        var context = new DefaultHttpContext { RequestServices = services };
         context.Request.Scheme = "https";
         context.Request.Host = new HostString(host);
         return context;
@@ -33,8 +42,8 @@ public class ExternalAuthBaseUrlTests
     [Fact]
     public void A_forged_host_does_not_become_the_redirect_uri()
     {
-        var act = () => ExternalAuthSupport.BaseUrl(
-            Config(("AllowedHosts", "*")), Context("attacker.example.net"));
+        var config = Config(("AllowedHosts", "*"));
+        var act = () => ExternalAuthSupport.BaseUrl(Context(config, "attacker.example.net"));
 
         act.Should().Throw<InvalidOperationException>()
             .WithMessage("*App:BaseUrl*",
@@ -44,9 +53,8 @@ public class ExternalAuthBaseUrlTests
     [Fact]
     public void The_configured_base_url_is_used_even_when_the_host_is_forged()
     {
-        ExternalAuthSupport.BaseUrl(
-                Config(("AllowedHosts", "*"), ("App:BaseUrl", "https://cms.example.com/")),
-                Context("attacker.example.net"))
+        var config = Config(("AllowedHosts", "*"), ("App:BaseUrl", "https://cms.example.com/"));
+        ExternalAuthSupport.BaseUrl(Context(config, "attacker.example.net"))
             .Should().Be("https://cms.example.com");
     }
 
@@ -57,8 +65,8 @@ public class ExternalAuthBaseUrlTests
     [Fact]
     public void A_deployment_that_names_its_hosts_still_works_with_no_base_url_set()
     {
-        ExternalAuthSupport.BaseUrl(
-                Config(("AllowedHosts", "cms.example.com")), Context("cms.example.com"))
+        var config = Config(("AllowedHosts", "cms.example.com"));
+        ExternalAuthSupport.BaseUrl(Context(config, "cms.example.com"))
             .Should().Be("https://cms.example.com");
     }
 }

@@ -131,6 +131,14 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheListener>>()));
         }
 
+        // A purge for the CDN, for a tenant that turned it on, whether or not the response cache is on.
+        // It only writes a row after the commit. The sender makes the call.
+        options.Listeners.Add(new barakoCMS.Infrastructure.Caching.Purge.CdnPurgeListener(
+            sp.GetRequiredService<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeGate>(),
+            sp.GetRequiredService<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeSignal>(),
+            sp.GetRequiredService<IConfiguration>(),
+            sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeListener>>()));
+
         // The private site check forgets its cached answer when a site entry is written.
         options.Listeners.Add(new barakoCMS.Infrastructure.Multitenancy.PrivateSiteCacheListener(
             sp.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.PrivateSiteCache>()));
@@ -173,8 +181,7 @@ public static class ServiceCollectionExtensions
         if (moduleBuilder.Discover)
             moduleBuilder.DiscoverFrom();
 
-        foreach (var skipped in moduleBuilder.Skipped)
-            WarnUnloadable(skipped.Assembly, skipped.Missing);
+        WarnAboutLibraries(moduleBuilder);
 
         var seen = moduleBuilder.Modules;
         var enabledNames = ModuleEnablement.ReadEnabled(configuration);
@@ -279,6 +286,33 @@ public static class ServiceCollectionExtensions
 
         WarnUnloadable(assembly, missing);
         return false;
+    }
+
+    /// <summary>The libraries discovery could not load, then the unmarked contract-only ones.</summary>
+    private static void WarnAboutLibraries(BarakoModuleBuilder moduleBuilder)
+    {
+        foreach (var skipped in moduleBuilder.Skipped)
+            WarnUnloadable(skipped.Assembly, skipped.Missing);
+
+        WarnUnmarked(moduleBuilder.Unmarked);
+    }
+
+    /// <summary>
+    /// One warning per library that holds a module, references only the contract package and does
+    /// not carry <see cref="BarakoModuleAssemblyAttribute"/>. Discovery scans it in 5.x and stops
+    /// in 6.0.0.
+    /// </summary>
+    internal static void WarnUnmarked(IEnumerable<System.Reflection.Assembly> assemblies)
+    {
+        foreach (var assembly in assemblies)
+        {
+            var name = assembly.GetName();
+            Log.Warning(
+                "{Assembly} {Version} holds a module and references only BarakoCMS.Abstractions, but is not marked "
+                + "as a module assembly. It is scanned now and will not be from barakoCMS 6.0.0. Add "
+                + "[assembly: BarakoModuleAssembly] to it.",
+                name.Name, name.Version);
+        }
     }
 
     private static void WarnUnloadable(System.Reflection.Assembly assembly, IReadOnlyList<string> missing)
@@ -762,6 +796,7 @@ public static class ServiceCollectionExtensions
             .DocumentAlias("system_settings");
 
         MapPendingBuilds(options);
+        MapPendingCdnPurges(options);
         MapOnDemandDocuments(options);
         options.Schema.For<barakoCMS.Modules.ModuleSeededType>().MultiTenanted().DocumentAlias("module_seeded_types");
         // Global: a webhook carries no tenant, and the receiver has to find a replay before it
@@ -1434,6 +1469,7 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ITenantSettings, barakoCMS.Infrastructure.Services.TenantSettingsResolver>();
         services.TryAddScoped<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeResolver>();
+        barakoCMS.Infrastructure.Caching.Purge.CdnPurgeRegistration.AddCdnPurgeOnCommit(services);
     }
 
     private static void AddConnectorServices(IServiceCollection services)
@@ -1499,6 +1535,13 @@ public static class ServiceCollectionExtensions
         options.Schema.For<WorkflowDefinition>().MultiTenanted();
     }
 
+    private static void MapPendingCdnPurges(StoreOptions options) =>
+        options.Schema.For<barakoCMS.Infrastructure.Caching.Purge.PendingCdnPurge>()
+            .MultiTenanted()
+            .DocumentAlias("pending_cdn_purges")
+            // Two nodes sweeping together must not send the same rows. The second claim is refused by the version.
+            .UseOptimisticConcurrency(true);
+
     private static void MapPendingBuilds(StoreOptions options) =>
         options.Schema.For<PendingBuild>()
             .MultiTenanted()
@@ -1532,6 +1575,7 @@ public static class ServiceCollectionExtensions
     private static void AddMfaAndDeviceTrust(IServiceCollection services)
     {
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
+        services.AddSingleton<barakoCMS.Infrastructure.Security.IPublicBaseUrl, barakoCMS.Infrastructure.Security.CanonicalPublicBaseUrl>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
     }

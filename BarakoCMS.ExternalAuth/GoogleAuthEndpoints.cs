@@ -55,8 +55,8 @@ internal static class Gg
         }
     }
 
-    public static string CallbackUrl(IConfiguration c, HttpContext ctx) =>
-        ExternalAuthSupport.BaseUrl(c, ctx) + "/api/auth/google/callback";
+    public static string CallbackUrl(HttpContext ctx) =>
+        ExternalAuthSupport.BaseUrl(ctx) + "/api/auth/google/callback";
 }
 
 /// <summary>GET /api/auth/google/start?club={handle}</summary>
@@ -76,7 +76,7 @@ public class GoogleStartEndpoint(IConfiguration config, IQuerySession session) :
         if (begun is null) { await Send.NotFoundAsync(ct); return; }
         var state = begun.Value.State;
 
-        var redirect = Gg.CallbackUrl(config, HttpContext);
+        var redirect = Gg.CallbackUrl(HttpContext);
         var url =
             $"{Gg.Authorize}?response_type=code&client_id={config["Google:ClientId"]}" +
             $"&redirect_uri={Uri.EscapeDataString(redirect)}" +
@@ -128,7 +128,7 @@ public class GoogleCallbackEndpoint(
             {
                 ["grant_type"] = "authorization_code",
                 ["code"] = code,
-                ["redirect_uri"] = Gg.CallbackUrl(config, HttpContext),
+                ["redirect_uri"] = Gg.CallbackUrl(HttpContext),
                 ["client_id"] = config["Google:ClientId"] ?? "",
                 ["client_secret"] = config["Google:ClientSecret"] ?? "",
             });
