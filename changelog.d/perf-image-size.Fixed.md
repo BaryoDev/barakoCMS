@@ -1,1 +1,0 @@
-- **The performance job could report the compressed image size as the uncompressed one.** On a Docker host with the containerd image store, `docker image inspect` returns the compressed size, so the budget on the uncompressed size passed whatever the image weighed. The job reads both sizes from the layers of the saved image now, so the image store does not change them.
