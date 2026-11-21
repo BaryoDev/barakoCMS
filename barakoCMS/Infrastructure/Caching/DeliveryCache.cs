@@ -57,7 +57,8 @@ public sealed class DeliveryValidatorsMetadata
 /// (Cloudflare), each one space-separated value. Every tag starts with <c>t:&lt;tenant&gt;</c>, so a
 /// purge by tag cannot cross a tenant. At most <see cref="MaxTags"/> tags and
 /// <see cref="MaxTagHeaderLength"/> bytes per header, which keeps both headers inside the 4 KB
-/// header buffer a default nginx proxy allows. Tags past either bound are dropped in order, the
+/// header buffer a default nginx proxy allows. A deployment raises both bounds with
+/// <c>Delivery:CacheTags</c> (<see cref="DeliveryTagBounds"/>). Tags past either bound are dropped in order, the
 /// tenant and type tags come first so they survive, and the count dropped is sent in
 /// <see cref="TagsDroppedHeader"/>. A response that lost entry tags is still purged by its type tag.
 /// </para>
@@ -75,7 +76,10 @@ public static class DeliveryCache
     public const string CacheTagHeader = "Cache-Tag";
     public const string TagsDroppedHeader = "X-Barako-Cache-Tags-Dropped";
 
+    /// <summary>The default tag count. A deployment raises it with <c>Delivery:CacheTags:MaxTags</c>; see <see cref="DeliveryTagBounds"/>.</summary>
     public const int MaxTags = 32;
+
+    /// <summary>The default bytes per tag header. A deployment raises it with <c>Delivery:CacheTags:MaxHeaderLength</c>.</summary>
     public const int MaxTagHeaderLength = 1024;
 
     /// <summary>Add to an endpoint's <c>Options</c> so its 200 gets an ETag and a 304 on a match.</summary>
@@ -103,7 +107,7 @@ public static class DeliveryCache
         var headers = http.Response.Headers;
         headers[ClassHeader] = Name(cacheClass);
 
-        var (value, dropped) = TagHeaderValue(TenantOf(http), scopes);
+        var (value, dropped) = TagHeaderValue(TenantOf(http), scopes, BoundsOf(http));
         if (value.Length > 0)
         {
             headers[SurrogateKeyHeader] = value;
@@ -115,6 +119,9 @@ public static class DeliveryCache
         if (lastModified is { } at)
             headers.LastModified = Seconds(at).ToString("R", CultureInfo.InvariantCulture);
     }
+
+    private static DeliveryTagBounds BoundsOf(HttpContext http) =>
+        http.RequestServices?.GetService(typeof(DeliveryTagBounds)) as DeliveryTagBounds ?? DeliveryTagBounds.Default;
 
     /// <summary>Marks a response built for one viewer: <c>no-store</c>, and no tag or validator.</summary>
     public static void NoStore(HttpContext http)
@@ -167,8 +174,13 @@ public static class DeliveryCache
     public static string Tag(string tenant, CacheScope scope) =>
         TenantTag(tenant) + ":" + Escape(scope.Kind) + (scope.Value is null ? string.Empty : ":" + Escape(scope.Value));
 
-    /// <summary>The tag header value for these scopes, and how many tags the bounds dropped.</summary>
-    public static (string Value, int Dropped) TagHeaderValue(string tenant, IEnumerable<CacheScope> scopes)
+    /// <summary>The tag header value for these scopes under the default bounds, and how many tags they dropped.</summary>
+    public static (string Value, int Dropped) TagHeaderValue(string tenant, IEnumerable<CacheScope> scopes) =>
+        TagHeaderValue(tenant, scopes, DeliveryTagBounds.Default);
+
+    /// <summary>The tag header value for these scopes under the given bounds, and how many tags they dropped.</summary>
+    public static (string Value, int Dropped) TagHeaderValue(
+        string tenant, IEnumerable<CacheScope> scopes, DeliveryTagBounds bounds)
     {
         var builder = new StringBuilder();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -181,7 +193,7 @@ public static class DeliveryCache
                 continue;
 
             var length = builder.Length + (builder.Length == 0 ? 0 : 1) + tag.Length;
-            if (kept >= MaxTags || length > MaxTagHeaderLength)
+            if (kept >= bounds.MaxTags || length > bounds.MaxHeaderLength)
             {
                 dropped++;
                 continue;
