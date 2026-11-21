@@ -1032,6 +1032,19 @@ internal sealed class WorkflowRunner(
         }
     }
 
+    /// <summary>Whether a pass would take a slot for this run now: an attempt or an undo to claim, or a stop to apply.</summary>
+    /// <remarks>
+    /// The same three tests as <see cref="TryClaimAsync"/>, in the same order. A due run that fails
+    /// all of them is offered and passed over, never claimed. Two things only the claim can learn:
+    /// a stopped run counts here even when nothing of it is left to cancel, where the claim writes
+    /// nothing, and a workflow switched off needs the database, so a run of one counts only when it
+    /// has an attempt or an undo due.
+    /// </remarks>
+    internal static bool CanClaim(WorkflowRun run) =>
+        run.CancelledAt is not null
+        || NextDue(run) is not null
+        || run.NextCompensation(DateTimeOffset.UtcNow) is { Compensation: not null };
+
     /// <summary>
     /// The attempt that should run next, or null.
     /// </summary>
