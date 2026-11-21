@@ -192,7 +192,13 @@ public class JwtMinterGoldenTests(IntegrationTestFixture factory)
     {
         using var provider = new ServiceCollection()
             .AddSingleton<TimeProvider>(new FakeTimeProvider(Start))
-            .AddFastEndpoints(o => o.DisableAutoDiscovery = true)
+            .AddFastEndpoints(o =>
+            {
+                // AddFastEndpoints refuses to start when it finds no endpoint declarations, so it is
+                // pointed at the host assembly alone. Only the resolver it registers is used here.
+                o.Assemblies = [typeof(JwtMinter).Assembly];
+                o.DisableAutoDiscovery = true;
+            })
             .BuildServiceProvider();
         var pointed = FastEndpointsResolver.PointAt(provider);
         try
