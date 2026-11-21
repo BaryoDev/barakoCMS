@@ -94,7 +94,7 @@ public class JwtMinterGoldenTests(IntegrationTestFixture factory)
         var recorder = NewRecorder();
         using var scope = factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        var user = new User { Id = Guid.NewGuid(), Username = $"golden-{Guid.NewGuid():n}", Email = "golden@example.com", RoleIds = [] };
+        var user = new User { Id = Guid.NewGuid(), Username = $"golden-{Guid.NewGuid():n}", Email = $"golden-{Guid.NewGuid():n}@example.com", RoleIds = [] };
         session.Store(user);
         await session.SaveChangesAsync(Ct);
         var issuer = new TokenIssuer(
@@ -184,19 +184,19 @@ public class JwtMinterGoldenTests(IntegrationTestFixture factory)
     private static string J(string text) => System.Text.Json.JsonSerializer.Serialize(text);
 
     /// <summary>
-    /// The payload entries named in <paramref name="expected"/>, in payload order, as JSON text, against
+    /// Every payload entry except iss, aud, exp, nbf and iat, in payload order, as JSON text, against
     /// the literal list. A null expected value means the entry must be there with any value.
     /// </summary>
     private static void AssertSiteClaims(string token, params (string Name, string? Json)[] expected)
     {
         var payload = Decode(token).Payload;
-        var names = expected.Select(e => e.Name).ToHashSet(StringComparer.Ordinal);
+        var library = new HashSet<string>(["iss", "aud", "exp", "nbf", "iat"], StringComparer.Ordinal);
         var actual = payload
+            .Where(p => !library.Contains(p.Key))
             .Select(p => (Name: p.Key, Json: p.Value?.ToJsonString() ?? "null"))
-            .Where(p => names.Contains(p.Name))
             .ToArray();
 
-        actual.Select(a => a.Name).Should().Equal(expected.Select(e => e.Name), "the claims, in the order the site signs them");
+        actual.Select(a => a.Name).Should().Equal(expected.Select(e => e.Name), "every claim but iss, aud, exp, nbf and iat, in the order the site signs them");
         for (var i = 0; i < expected.Length; i++)
         {
             if (expected[i].Json is { } json)
@@ -205,11 +205,11 @@ public class JwtMinterGoldenTests(IntegrationTestFixture factory)
         payload["iss"]!.GetValue<string>().Should().Be(Issuer);
     }
 
-    private static void AssertIssuedNow(string token)
+    private static void AssertIssuedAtTheMinterClock(string token)
     {
-        var iat = Decode(token).Payload["iat"]!.GetValue<long>();
-        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        iat.Should().BeInRange(now - 10, now + 10, "the issuer stamps iat from the system clock");
+        // The descriptor's IssuedAt comes from the minter's clock and replaces the iat claim the
+        // issuer adds, as JwtBearer's TimeProvider did.
+        Decode(token).Payload["iat"]!.GetValue<long>().Should().Be(Start.ToUnixTimeSeconds());
     }
 
     private static void AssertExpiresIn(string token, TimeSpan lifetime)
@@ -284,7 +284,7 @@ public class JwtMinterGoldenTests(IntegrationTestFixture factory)
             (ClaimTypes.Role, J("User")), ("extra", J("one")));
         Decode(token).Payload["aud"]!.GetValue<string>().Should().Be("golden-audience");
         AssertExpiresIn(token, TimeSpan.FromMinutes(5));
-        AssertIssuedNow(token);
+        AssertIssuedAtTheMinterClock(token);
     }
 
     [Fact]
