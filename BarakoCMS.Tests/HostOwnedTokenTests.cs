@@ -133,4 +133,26 @@ public class HostOwnedTokenTests(IntegrationTestFixture factory)
 
         provider.GetServices<IConfigureOptions<JwtCreationOptions>>().Should().HaveCount(1);
     }
+
+    [Fact]
+    public async Task A_host_whose_configuration_gets_a_weak_key_after_startup_wiring_is_refused()
+    {
+        // The startup guard reads the configuration as it was when AddBarakoCMS ran. A source added
+        // after that, as a test host or a late provider does, is not seen by it. The key is checked
+        // again where it is used, so the weak key is refused on first mint and on first validation.
+        var host = factory.WithWebHostBuilder(b => b.ConfigureServices((context, _) =>
+            ((IConfigurationBuilder)context.Configuration).AddInMemoryCollection(
+                new Dictionary<string, string?> { ["JWT:Key"] = "too-short" }))); // allow-secret
+        _ = host.Services;
+
+        var mint = () => MintOn(host, Guid.NewGuid());
+        mint.Should().Throw<InvalidOperationException>().WithMessage("*JWT:Key*");
+
+        var validate = async () =>
+        {
+            var status = await WhoAmIAsync(host, "not.a.token");
+            status.Should().NotBe(HttpStatusCode.Unauthorized, "an unusable key is a refusal to start validating, not a bad token");
+        };
+        await validate.Should().ThrowAsync<Exception>();
+    }
 }

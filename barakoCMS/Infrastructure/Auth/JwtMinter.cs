@@ -26,7 +26,7 @@ public interface IJwtMinter
     /// <param name="audience">The <c>aud</c> claim, or null for none.</param>
     /// <param name="expiresAt">The <c>exp</c> claim, in UTC.</param>
     /// <param name="claims">The subject's claims.</param>
-    /// <exception cref="InvalidOperationException">No <c>JWT:Key</c> is set.</exception>
+    /// <exception cref="InvalidOperationException">No <c>JWT:Key</c> is set, or it is too short or a shipped placeholder.</exception>
     string Mint(string? audience, DateTime expiresAt, IEnumerable<Claim> claims);
 }
 
@@ -35,11 +35,7 @@ public sealed class JwtMinter(IConfiguration config, TimeProvider clock) : IJwtM
 {
     public string Mint(string? audience, DateTime expiresAt, IEnumerable<Claim> claims)
     {
-        var key = config["JWT:Key"];
-        if (string.IsNullOrEmpty(key))
-        {
-            throw new InvalidOperationException("'JwtCreationOptions.SigningKey' is required!");
-        }
+        var key = JwtKeySource.Resolve(config);
 
         // The same descriptor JwtBearer.CreateToken builds in FastEndpoints.Security 8.3.0: the key
         // as ASCII bytes (the encoding bearer validation uses), HS256, the claims in the order

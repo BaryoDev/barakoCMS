@@ -501,15 +501,7 @@ public static class ServiceCollectionExtensions
                 Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme)
             .PostConfigure<IConfiguration>((o, config) =>
             {
-                var key = config["JWT:Key"];
-                if (string.IsNullOrWhiteSpace(key))
-                {
-                    key = Environment.GetEnvironmentVariable("JWT__Key");
-                }
-                if (string.IsNullOrWhiteSpace(key))
-                {
-                    return;
-                }
+                var key = barakoCMS.Infrastructure.Auth.JwtKeySource.Resolve(config);
 
                 o.TokenValidationParameters.IssuerSigningKeyResolver = null;
                 o.TokenValidationParameters.IssuerSigningKey =
