@@ -195,25 +195,28 @@ public class DeliveryCacheTagBoundsTests(IntegrationTestFixture fixture)
     [Fact]
     public async Task With_the_bounds_raised_a_list_of_forty_tags_every_entry_and_drops_nothing()
     {
-        var (tenant, type, ids) = await ListOfFortyAsync();
         var raised = fixture.WithWebHostBuilder(b =>
         {
             b.UseSetting(DeliveryTagBounds.MaxTagsKey, "200");
             b.UseSetting(DeliveryTagBounds.MaxHeaderLengthKey, "8192");
         });
+        // Start the derived host, and so its startup work, before anything is seeded or requested.
+        raised.Services.GetServices<IHostedService>().Should().ContainSingle(s => s is DeliveryTagBoundsCheck,
+            "the startup warning is registered");
+
+        var (tenant, type, ids) = await ListOfFortyAsync();
         var client = raised.CreateClient();
         client.DefaultRequestHeaders.Add("X-Tenant", tenant);
         client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, ShareLinkTestHost.NextIp());
 
         var response = await client.GetAsync(Url(type), Ct);
 
-        raised.Services.GetServices<IHostedService>().Should().ContainSingle(s => s is DeliveryTagBoundsCheck,
-            "the startup warning is registered");
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
         var tags = Tags(response);
-        tags.Should().Contain(ids.Select(id => $"t:{tenant}:entry:{id}"));
-        tags.Should().Contain($"t:{tenant}:type:{type}");
-        response.Headers.Contains(DeliveryCache.TagsDroppedHeader).Should().BeFalse();
+        var seen = $"tags {tags.Length}, dropped '{string.Join(',', response.Headers.TryGetValues(DeliveryCache.TagsDroppedHeader, out var d) ? d : [])}'";
+        tags.Should().Contain(ids.Select(id => $"t:{tenant}:entry:{id}"), seen);
+        tags.Should().Contain($"t:{tenant}:type:{type}", seen);
+        response.Headers.Contains(DeliveryCache.TagsDroppedHeader).Should().BeFalse(seen);
         response.Headers.GetValues(DeliveryCache.CacheTagHeader).Should().Equal(response.Headers.GetValues(DeliveryCache.SurrogateKeyHeader));
     }
 
@@ -228,7 +231,9 @@ public class DeliveryCacheTagBoundsTests(IntegrationTestFixture fixture)
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             if (logLevel == LogLevel.Warning)
+            {
                 Warnings.Add(formatter(state, exception));
+            }
         }
     }
 }
