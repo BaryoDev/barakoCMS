@@ -534,7 +534,7 @@ run; check "the core bumped without Testing" fail "set <Version> in BarakoCMS.Te
 echo "== BarakoCMS.Testing changes between core releases follow the core =="
 # While the core's version is published no release can run at it, so a Testing change waits for the
 # next core version and is never skipped. With the core unpublished a release is coming and Testing
-# is measured like any module. The equality check above still applies (the "Testing behind the
+# is measured like any module, as it is when NuGet cannot be asked. The equality check above still applies (the "Testing behind the
 # core" and "the core bumped without Testing" cases cover unequal versions).
 testing=BarakoCMS.Testing
 testing_tree() { # $1 = core and Testing version, $2 = tag to declare it
@@ -566,7 +566,7 @@ touch_module "fix" "$testing"; commit "Testing fix after 5.9.0"
 on_nuget 4.0.0
 on_nuget_as barakocms.testing 5.9.0 6.0.0
 on_nuget_as barakocms 5.9.0
-run; check "(d) core unpublished, Testing's number already on NuGet, Testing changed" fail \
+run; check "(c) core unpublished, Testing's number already on NuGet, Testing changed" fail \
   "BarakoCMS.Testing is at 6.0.0" "which is already on NuGet" "Source changes since v5.9.0"
 
 # The core never published: a release is coming, so Testing is measured. Its tree is tagged and its
@@ -575,8 +575,15 @@ testing_tree 5.9.0 v5.9.0
 touch_module "after the release" "$testing"; commit "Testing change after 5.9.0"
 on_nuget 4.0.0
 on_nuget_as barakocms.testing 5.9.0
-run; check "(e) no core entry on NuGet, Testing measured normally" fail \
+run; check "(d) no core entry on NuGet, Testing measured normally" fail \
   "BarakoCMS.Testing is at 5.9.0 but has 1 commit(s)" "since v5.9.0"
+
+# NuGet cannot be reached, so the core's answer is unknown and Testing is measured. Its own answer
+# is unknown too, and unknown enforces the check: the change after v5.9.0 fails.
+testing_tree 5.9.0 v5.9.0
+touch_module "after the release" "$testing"; commit "Testing change after 5.9.0"
+run "$work/no-such-directory"; check "(e) NuGet unreachable, Testing measured and enforced" fail \
+  "BarakoCMS.Testing is at 5.9.0 but has 1 commit(s)" "since v5.9.0" "NuGet could not be asked"
 
 echo "== git variables inherited from a hook =="
 # The whole script again, the way a hook would start it, with a bystander repository named by
