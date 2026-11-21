@@ -710,6 +710,12 @@ public static class ServiceCollectionExtensions
         // its size bounds only apply then, so the output cache keeps its defaults for everyone else.
         services.AddOptions<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheOptions>()
             .BindConfiguration(barakoCMS.Infrastructure.Caching.DeliveryResponseCacheOptions.SectionName);
+
+        // Cache tag bounds (#561): read once, clamped, with a warning at start for what was changed.
+        services.AddSingleton(sp => barakoCMS.Infrastructure.Caching.DeliveryTagBounds.Read(
+            sp.GetRequiredService<IConfiguration>(), out _));
+        services.AddHostedService<barakoCMS.Infrastructure.Caching.DeliveryTagBoundsCheck>();
+
         services.AddOptions<Microsoft.AspNetCore.OutputCaching.OutputCacheOptions>()
             .Configure<Microsoft.Extensions.Options.IOptions<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheOptions>>(
                 (output, cache) =>

@@ -483,8 +483,9 @@ internal static class PublicDelivery
     /// </summary>
     /// <remarks>
     /// Type tags come before entry tags because the bounds in <see cref="DeliveryCache"/> drop from
-    /// the end. A page of twenty with includes loses entry tags, and a publish of an included author
-    /// still reaches the list through the author type's tag.
+    /// the end. With the default 32 tags a page of twenty with includes loses entry tags, and a publish
+    /// of an included author still reaches the list through the author type's tag. A deployment that
+    /// raises <c>Delivery:CacheTags:MaxTags</c> and <c>MaxHeaderLength</c> keeps every entry tag.
     /// </remarks>
     public static IEnumerable<CacheScope> Scopes(
         string type, IEnumerable<PublicContentResponse> items, ContentTypeDefinition? def = null)
