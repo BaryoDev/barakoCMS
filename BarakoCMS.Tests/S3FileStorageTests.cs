@@ -23,8 +23,9 @@ public class S3FileStorageTests(S3FileStorageTests.SeaweedFsFixture server)
     private const ushort S3Port = 8333;
 
     /// <summary>
-    /// One SeaweedFS container for the class. Each test makes its own bucket on it, so no test sees
-    /// another's objects.
+    /// One SeaweedFS container and one bucket for the class. Every bucket is its own collection with
+    /// its own volumes, so a bucket per test ran the container out of volume slots after about five.
+    /// Tests run one at a time and write their own keys.
     /// </summary>
     /*
      * SeaweedFS, not MinIO. MinIO archived its repository and publishes no more images or security
@@ -46,10 +47,16 @@ public class S3FileStorageTests(S3FileStorageTests.SeaweedFsFixture server)
 
         public string Endpoint { get; private set; } = "";
 
+        public string Bucket => "media";
+
         public async ValueTask InitializeAsync()
         {
             await _s3Server.StartAsync();
             Endpoint = $"http://{_s3Server.Hostname}:{_s3Server.GetMappedPublicPort(S3Port)}";
+
+            var cfg = new AmazonS3Config { ServiceURL = Endpoint, ForcePathStyle = true };
+            using var admin = new AmazonS3Client(new BasicAWSCredentials(AccessKey, SecretKey), cfg);
+            await admin.PutBucketAsync(Bucket);
         }
 
         public async ValueTask DisposeAsync() => await _s3Server.DisposeAsync();
@@ -60,14 +67,12 @@ public class S3FileStorageTests(S3FileStorageTests.SeaweedFsFixture server)
 
     public async ValueTask InitializeAsync()
     {
-        var bucket = "t-" + Guid.NewGuid().ToString("n")[..20];
         var cfg = new AmazonS3Config { ServiceURL = server.Endpoint, ForcePathStyle = true };
         _s3 = new AmazonS3Client(new BasicAWSCredentials(AccessKey, SecretKey), cfg);
-        await _s3.PutBucketAsync(bucket);
 
         var opts = Options.Create(new S3StorageOptions
         {
-            Bucket = bucket,
+            Bucket = server.Bucket,
             ServiceUrl = server.Endpoint,
             AccessKey = AccessKey,
             SecretKey = SecretKey,
