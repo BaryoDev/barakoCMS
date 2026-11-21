@@ -87,16 +87,19 @@ public class RefreshRetryTests(IntegrationTestFixture factory)
         return await session.Query<RefreshToken>().FirstAsync(t => t.TokenHash == hash, Ct);
     }
 
-    private async Task AgeRotationAsync(string plain, TimeSpan by)
+    private async Task EditRowAsync(string plain, Action<RefreshToken> edit)
     {
         using var scope = factory.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var hash = RefreshToken.HashOf(plain);
         var row = await session.Query<RefreshToken>().FirstAsync(t => t.TokenHash == hash, Ct);
-        row.RevokedAt = row.RevokedAt!.Value - by;
+        edit(row);
         session.Store(row);
         await session.SaveChangesAsync(Ct);
     }
+
+    private Task AgeRotationAsync(string plain, TimeSpan by) =>
+        EditRowAsync(plain, row => row.RevokedAt = row.RevokedAt!.Value - by);
 
     private async Task<int> LiveAsync(Guid userId)
     {
@@ -240,6 +243,8 @@ public class RefreshRetryTests(IntegrationTestFixture factory)
         {
             Id = Guid.NewGuid(), TokenHash = RefreshToken.HashOf(nextPlain), UserId = user.Id,
             ExpiresAt = DateTime.UtcNow.AddDays(1),
+            // Empty, so a check that let a missing session id through as empty would match it.
+            SessionId = Guid.Empty,
         };
         using (var scope = factory.Services.CreateScope())
         {
@@ -257,6 +262,113 @@ public class RefreshRetryTests(IntegrationTestFixture factory)
         (await RefreshAsync(oldPlain)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         await AssertEverySessionRevokedAsync(user.Id, nextPlain, b1);
+    }
+
+    [Fact]
+    public async Task A_used_row_whose_successor_is_on_another_session_gets_no_retry()
+    {
+        var user = await SeedUserAsync();
+        var a1 = await LoginAsync(user);
+        var b1 = await LoginAsync(user);
+        await RotateAsync(a1);
+        var other = await RowAsync(b1);
+        await EditRowAsync(a1, row => row.SuccessorId = other.Id);
+
+        (await RefreshAsync(a1)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        await AssertEverySessionRevokedAsync(user.Id, b1);
+    }
+
+    [Fact]
+    public async Task A_used_row_whose_successor_belongs_to_another_user_gets_no_retry()
+    {
+        var user = await SeedUserAsync();
+        var stranger = await SeedUserAsync();
+        var a1 = await LoginAsync(user);
+        var sid = (await RowAsync(a1)).SessionId;
+        await RotateAsync(a1);
+        var foreignPlain = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(64));
+        var foreign = new RefreshToken
+        {
+            Id = Guid.NewGuid(), TokenHash = RefreshToken.HashOf(foreignPlain), UserId = stranger.Id,
+            ExpiresAt = DateTime.UtcNow.AddDays(1), SessionId = sid,
+        };
+        using (var scope = factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(foreign);
+            await session.SaveChangesAsync(Ct);
+        }
+        await EditRowAsync(a1, row => row.SuccessorId = foreign.Id);
+
+        (await RefreshAsync(a1)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        (await LiveAsync(user.Id)).Should().Be(0);
+        (await LiveAsync(stranger.Id)).Should().Be(1, "the stranger's token was not touched");
+    }
+
+    [Theory]
+    [InlineData("logout")]
+    [InlineData("admin_revoke")]
+    public async Task A_successor_revoked_for_another_reason_gets_no_retry(string reason)
+    {
+        var user = await SeedUserAsync();
+        var a1 = await LoginAsync(user);
+        var b1 = await LoginAsync(user);
+        var a2 = await RotateAsync(a1);
+        await EditRowAsync(a2, row => { row.IsRevoked = true; row.RevokedReason = reason; row.RevokedAt = DateTime.UtcNow; });
+
+        (await RefreshAsync(a1)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        await AssertEverySessionRevokedAsync(user.Id, b1);
+    }
+
+    [Fact]
+    public async Task A_successor_ended_with_its_session_gets_no_retry()
+    {
+        var user = await SeedUserAsync();
+        var a1 = await LoginAsync(user);
+        var sid = (await RowAsync(a1)).SessionId!.Value;
+        await RotateAsync(a1);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            (await SessionRevocation.EndAsync(session, null, user.Id, sid, Ct)).Should().BeTrue();
+        }
+
+        (await RefreshAsync(a1)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task A_used_row_with_a_session_id_and_no_successor_id_gets_no_retry()
+    {
+        var user = await SeedUserAsync();
+        var a1 = await LoginAsync(user);
+        var b1 = await LoginAsync(user);
+        var a2 = await RotateAsync(a1);
+        await EditRowAsync(a1, row => row.SuccessorId = null);
+        (await RowAsync(a1)).SessionId.Should().NotBeNull();
+
+        (await RefreshAsync(a1)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        await AssertEverySessionRevokedAsync(user.Id, a2, b1);
+    }
+
+    [Fact]
+    public async Task A_retry_racing_a_refresh_of_the_successor_never_leaves_two_live_rows_on_the_session()
+    {
+        // Which request wins is timing, so this holds the invariant and not an outcome.
+        for (var round = 0; round < 3; round++)
+        {
+            var user = await SeedUserAsync();
+            var a1 = await LoginAsync(user);
+            var a2 = await RotateAsync(a1);
+
+            var responses = await Task.WhenAll(RefreshAsync(a1), RefreshAsync(a2));
+
+            responses.Count(r => r.StatusCode == HttpStatusCode.OK).Should().BeLessThanOrEqualTo(1);
+            (await LiveAsync(user.Id)).Should().BeLessThanOrEqualTo(1);
+        }
     }
 
     [Fact]
@@ -293,10 +405,12 @@ public class RefreshRetryTests(IntegrationTestFixture factory)
     [Fact]
     public async Task Two_refreshes_of_one_token_at_once_still_revoke_the_user()
     {
+        // Window off, so a request that loads after the other committed is reuse and not a retry.
+        var host = factory.WithSetting(RefreshRetryWindow.Key, "0");
         var user = await SeedUserAsync();
-        var a1 = await LoginAsync(user);
+        var a1 = await LoginAsync(user, host: host);
 
-        var responses = await Task.WhenAll(RefreshAsync(a1), RefreshAsync(a1));
+        var responses = await Task.WhenAll(RefreshAsync(a1, host: host), RefreshAsync(a1, host: host));
 
         responses.Count(r => r.StatusCode == HttpStatusCode.OK).Should().BeLessThanOrEqualTo(1);
         (await LiveAsync(user.Id)).Should().Be(0, "the race path revokes, as before");
@@ -313,9 +427,8 @@ public class RefreshRetryTests(IntegrationTestFixture factory)
 
             var responses = await Task.WhenAll(RefreshAsync(a1), RefreshAsync(a1));
 
-            responses.Count(r => r.StatusCode == HttpStatusCode.OK).Should().BeLessThanOrEqualTo(1,
-                "the window covers one retry");
-            (await LiveAsync(user.Id)).Should().BeLessThanOrEqualTo(1, "one live refresh token per session");
+            responses.Count(r => r.StatusCode == HttpStatusCode.OK).Should().Be(1, "the window covers one retry");
+            (await LiveAsync(user.Id)).Should().Be(0, "the request that lost revoked the user's sessions");
         }
     }
 
@@ -331,7 +444,8 @@ public class RefreshRetryTests(IntegrationTestFixture factory)
     [InlineData("300", 300, 0)]
     [InlineData("301", 300, 1)]
     [InlineData("99999", 300, 1)]
-    [InlineData("-1", 30, 1)]
+    [InlineData("-1", 0, 1)]
+    [InlineData("99999999999999999999", 300, 1)]
     [InlineData("soon", 30, 1)]
     [InlineData("1.5", 30, 1)]
     public void The_window_is_clamped_and_each_change_is_reported(string? raw, int seconds, int warnings)

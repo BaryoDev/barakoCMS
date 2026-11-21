@@ -58,12 +58,18 @@ public class AuthTokenReuseTests
         r2.Should().NotBeNullOrEmpty();
         r2.Should().NotBe(r1);
 
+        // 2b. Rotate R2 -> R3. R1 is no longer the token just rotated, so replaying it is reuse and
+        // not a retry of a lost answer.
+        var refresh2 = await _client.PostAsJsonAsync("/api/auth/refresh", new { RefreshToken = r2 });
+        refresh2.EnsureSuccessStatusCode();
+        var r3 = (await refresh2.Content.ReadFromJsonAsync<barakoCMS.Features.Auth.Refresh.Response>())!.RefreshToken;
+
         // 3. Replaying the already-used R1 must be rejected (reuse detection).
         var reuse = await _client.PostAsJsonAsync("/api/auth/refresh", new { RefreshToken = r1 });
         reuse.IsSuccessStatusCode.Should().BeFalse("a rotated refresh token cannot be used again");
 
-        // 4. Reuse detection must revoke the whole family, so the freshly rotated R2 is now dead too.
-        var afterReuse = await _client.PostAsJsonAsync("/api/auth/refresh", new { RefreshToken = r2 });
+        // 4. Reuse detection must revoke the whole family, so the live R3 is now dead too.
+        var afterReuse = await _client.PostAsJsonAsync("/api/auth/refresh", new { RefreshToken = r3 });
         afterReuse.IsSuccessStatusCode.Should().BeFalse("detecting reuse must revoke every active token for the user");
     }
 

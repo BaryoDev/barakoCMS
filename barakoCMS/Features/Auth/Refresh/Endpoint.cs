@@ -86,7 +86,7 @@ internal class Endpoint : Endpoint<Request, Response>
             return null;
 
         if (!string.IsNullOrEmpty(used.DeviceId)
-            && used.DeviceId != barakoCMS.Infrastructure.DeviceContext.From(HttpContext).DeviceId)
+            && used.DeviceId != RefreshToken.CapDeviceId(barakoCMS.Infrastructure.DeviceContext.From(HttpContext).DeviceId))
             return null;
 
         // Through the document session, so the successor's version is guarded with the rest.
@@ -95,6 +95,53 @@ internal class Endpoint : Endpoint<Request, Response>
             return null;
 
         return successor;
+    }
+
+    /// <summary>
+    /// Stages the rotation, or the retry when <paramref name="unusedSuccessor"/> is set, and returns
+    /// the new row. Nothing is saved here: the caller commits it all under the concurrency guard.
+    /// </summary>
+    private async Task<RefreshToken> StageRotationAsync(
+        RefreshToken refreshToken, RefreshToken? unusedSuccessor, string newRefreshTokenString,
+        DateTime newRefreshTokenExpiry, Guid sessionId, User user, CancellationToken ct)
+    {
+        // Device binding, session id and sign-in facts carry across rotation. Without the device id,
+        // device trust stopped enforcing anything from the second refresh onward.
+        // A retry builds on the successor the client never saw, so the session facts it holds carry on.
+        var newRefreshToken = (unusedSuccessor ?? refreshToken).Successor(
+            newRefreshTokenString, newRefreshTokenExpiry,
+            barakoCMS.Infrastructure.DeviceContext.From(HttpContext), sessionId);
+
+        if (unusedSuccessor is null)
+        {
+            // Revoke old refresh token (rotation)
+            refreshToken.IsRevoked = true;
+            refreshToken.RevokedReason = "used";
+            refreshToken.RevokedAt = DateTime.UtcNow;
+            // The used row keeps no address or device text. The new row holds them.
+            refreshToken.ClearIdentifiers();
+            refreshToken.SuccessorId = newRefreshToken.Id;
+        }
+        else
+        {
+            // The retry is spent: the old token has no successor to point at, so a second replay is
+            // reuse. The unused successor and the new one commit with it, under the same guard.
+            refreshToken.SuccessorId = null;
+            unusedSuccessor.IsRevoked = true;
+            unusedSuccessor.RevokedReason = "superseded";
+            unusedSuccessor.RevokedAt = DateTime.UtcNow;
+            unusedSuccessor.ClearIdentifiers();
+            _documentSession.Update(unusedSuccessor);
+        }
+
+        _documentSession.Update(refreshToken);
+        _documentSession.Store(newRefreshToken);
+        await AuditLog.RecordAsync(_documentSession, _tenant.Slug,
+            unusedSuccessor is null ? "auth.token.refreshed" : "auth.token.refresh_retried",
+            user.Id, user.Username,
+            ipAddress: barakoCMS.Infrastructure.DeviceContext.From(HttpContext).IpAddress, ct: ct);
+
+        return newRefreshToken;
     }
 
     private static List<System.Security.Claims.Claim> RefreshClaims(RefreshToken refreshToken, Guid sessionId)
@@ -224,41 +271,8 @@ internal class Endpoint : Endpoint<Request, Response>
         var newRefreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var newRefreshTokenExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
         
-        // Device binding, session id and sign-in facts carry across rotation. Without the device id,
-        // device trust stopped enforcing anything from the second refresh onward.
-        // A retry builds on the successor the client never saw, so the session facts it holds carry on.
-        var newRefreshToken = (unusedSuccessor ?? refreshToken).Successor(
-            newRefreshTokenString, newRefreshTokenExpiry,
-            barakoCMS.Infrastructure.DeviceContext.From(HttpContext), sessionId);
-
-        if (unusedSuccessor is null)
-        {
-            // Revoke old refresh token (rotation)
-            refreshToken.IsRevoked = true;
-            refreshToken.RevokedReason = "used";
-            refreshToken.RevokedAt = DateTime.UtcNow;
-            // The used row keeps no address or device text. The new row holds them.
-            refreshToken.ClearIdentifiers();
-            refreshToken.SuccessorId = newRefreshToken.Id;
-        }
-        else
-        {
-            // The retry is spent: the old token has no successor to point at, so a second replay is
-            // reuse. The unused successor and the new one commit with it, under the same guard.
-            refreshToken.SuccessorId = null;
-            unusedSuccessor.IsRevoked = true;
-            unusedSuccessor.RevokedReason = "superseded";
-            unusedSuccessor.RevokedAt = DateTime.UtcNow;
-            unusedSuccessor.ClearIdentifiers();
-            _documentSession.Update(unusedSuccessor);
-        }
-
-        _documentSession.Update(refreshToken);
-        _documentSession.Store(newRefreshToken);
-        await AuditLog.RecordAsync(_documentSession, _tenant.Slug,
-            unusedSuccessor is null ? "auth.token.refreshed" : "auth.token.refresh_retried",
-            user.Id, user.Username,
-            ipAddress: barakoCMS.Infrastructure.DeviceContext.From(HttpContext).IpAddress, ct: ct);
+        var newRefreshToken = await StageRotationAsync(
+            refreshToken, unusedSuccessor, newRefreshTokenString, newRefreshTokenExpiry, sessionId, user, ct);
 
         try
         {

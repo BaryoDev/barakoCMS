@@ -151,8 +151,14 @@ optimistic concurrency guard as rotation, so two retries at once cannot both suc
 treated as a race and revokes the user's tokens, as two plain refreshes of one token do.
 
 The window is `Auth:RefreshRetryWindowSeconds`. Default 30. `0` turns the retry off, so every replay
-is reuse. The most it can be is 300: a larger value is clamped to 300 and logged as a warning at
-start. A negative value or one that is not a whole number falls back to 30 with a warning.
+is reuse. The most it can be is 300: a larger value, including one too big for a number, is clamped
+to 300 with a warning. A negative value means off (0), with a warning. A value that is not a whole
+number falls back to 30 with a warning. The value is read on each request, and the warnings are
+written at start only.
+
+A used row with no device id (device trust off and no `X-Device-Id` at sign-in) gets the retry from
+any client, since there is nothing to compare. Only the window, the session and the unused successor
+limit it.
 
 Inside the window a thief who replays a stolen token before the real client uses its successor gets
 a working session, and the real client loses that one session instead of all of them. Keep the

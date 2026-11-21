@@ -91,6 +91,11 @@ public class RefreshReuseSessionTests(IntegrationTestFixture factory)
 
         var rotate = await Client().PostAsJsonAsync("/api/auth/refresh", new { RefreshToken = first }, TestContext.Current.CancellationToken);
         rotate.StatusCode.Should().Be(HttpStatusCode.OK);
+        // Rotate once more: replaying the token just rotated is a retry, and the first one is now old.
+        var second = (await rotate.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(TestContext.Current.CancellationToken))
+            .GetProperty("refreshToken").GetString();
+        (await Client().PostAsJsonAsync("/api/auth/refresh", new { RefreshToken = second }, TestContext.Current.CancellationToken))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
         var replay = await Client().PostAsJsonAsync("/api/auth/refresh", new { RefreshToken = first }, TestContext.Current.CancellationToken);
         replay.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
@@ -102,14 +107,24 @@ public class RefreshReuseSessionTests(IntegrationTestFixture factory)
     [Fact]
     public async Task Two_refreshes_of_one_token_at_once_leave_no_live_refresh_token()
     {
+        // Window off: a request that loads after the other committed is reuse, not a retry.
+        var host = factory.WithSetting(barakoCMS.Infrastructure.Auth.RefreshRetryWindow.Key, "0");
+        HttpClient HostClient()
+        {
+            var c = host.CreateClient();
+            c.DefaultRequestHeaders.Add(
+                TestRemoteIpFilter.Header, $"2001:db8:5400:{Interlocked.Increment(ref _ipCounter):x}::1");
+            return c;
+        }
+
         for (var round = 0; round < 3; round++)
         {
             var (id, _) = await SeedUserWithAccessTokenAsync();
             var token = await StoreRefreshTokenAsync(id);
 
             var responses = await Task.WhenAll(
-                Client().PostAsJsonAsync("/api/auth/refresh", new { RefreshToken = token }, TestContext.Current.CancellationToken),
-                Client().PostAsJsonAsync("/api/auth/refresh", new { RefreshToken = token }, TestContext.Current.CancellationToken));
+                HostClient().PostAsJsonAsync("/api/auth/refresh", new { RefreshToken = token }, TestContext.Current.CancellationToken),
+                HostClient().PostAsJsonAsync("/api/auth/refresh", new { RefreshToken = token }, TestContext.Current.CancellationToken));
 
             responses.Count(r => r.StatusCode == HttpStatusCode.OK).Should().BeLessThanOrEqualTo(1,
                 "one token rotates once");

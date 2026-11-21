@@ -36,16 +36,16 @@ public static class RefreshRetryWindow
         if (string.IsNullOrWhiteSpace(raw))
             return DefaultSeconds;
 
-        if (!long.TryParse(raw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+        if (!System.Numerics.BigInteger.TryParse(raw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
         {
             notes.Add($"{Key} is '{raw}', which is not a whole number, so the default {DefaultSeconds} is used.");
             return DefaultSeconds;
         }
 
-        if (parsed < 0)
+        if (parsed.Sign < 0)
         {
-            notes.Add($"{Key} is {parsed}, below 0, so the default {DefaultSeconds} is used.");
-            return DefaultSeconds;
+            notes.Add($"{Key} is {parsed}, below 0, so the retry is off (0).");
+            return 0;
         }
 
         if (parsed > CeilingSeconds)
