@@ -256,6 +256,9 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
     /// which workflows and actions the runner kept finding. Only claimable runs are counted. A run
     /// that is due but has nothing to claim (a seeded run with no attempts) is offered and passed
     /// over by every pass, so it cannot go down and is no sign of a loop. The message still lists it.
+    /// A check that finds no claimable run due is no sign of one either: a run the runner keeps
+    /// claiming without moving it on stays due, so the passes in between found work that then
+    /// finished, which is what a whole-suite run with other classes adding runs looks like.
     /// </remarks>
     public async Task DrainAsync(params Guid[] runIds)
     {
@@ -278,7 +281,7 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
             }
 
             var now = await DueSnapshotAsync();
-            if (dueAtLastCheck is { } before && now.Claimable >= before)
+            if (dueAtLastCheck is { } before && now.Claimable > 0 && now.Claimable >= before)
             {
                 Assert.Fail(
                     $"The runner should drain rather than find work forever, but it was still finding work after {polls} polls "
@@ -308,7 +311,7 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
         var partitions = await barakoCMS.Infrastructure.Multitenancy.TenantPartitions.ListAsync(
             store, factory.Services.GetRequiredService<IConfiguration>(), WorkflowRunner.PartitionsWithWorkSql, Ct);
 
-        var sample = new List<(string Tenant, WorkflowRun Run)>();
+        var sample = new List<(string Tenant, WorkflowRun Run, bool Claimable)>();
 
         foreach (var tenant in partitions)
         {
@@ -317,18 +320,18 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
 
             // All of them, not a page: the claimable count has to be of every due run.
             var runs = await due.OrderBy(r => r.CreatedAt).ToListAsync(Ct);
-            sample.AddRange(runs.Select(r => (tenant, r)));
+            sample.AddRange(runs.Select(r => (tenant, r, WorkflowRunner.CanClaim(r))));
         }
 
         return new DueSnapshot(sample);
     }
 
-    private sealed record DueSnapshot(List<(string Tenant, WorkflowRun Run)> Sample)
+    private sealed record DueSnapshot(List<(string Tenant, WorkflowRun Run, bool Claimable)> Sample)
     {
         public int Total => Sample.Count;
 
         /// <summary>The due runs a pass would take a slot for, by the runner's own rule.</summary>
-        public int Claimable => Sample.Count(d => WorkflowRunner.CanClaim(d.Run));
+        public int Claimable => Sample.Count(d => d.Claimable);
 
         /// <summary>The due runs grouped by tenant, workflow and the action each is waiting on, most first.</summary>
         public string Describe()
@@ -338,7 +341,7 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
                     d.Tenant,
                     d.Run.WorkflowDefinitionId,
                     d.Run.WorkflowName,
-                    Claimable: WorkflowRunner.CanClaim(d.Run),
+                    d.Claimable,
                     Action: d.Run.Actions.OrderBy(a => a.Ordinal)
                         .FirstOrDefault(a => a.Status is AttemptStatus.Pending or AttemptStatus.Running)?.ActionType ?? "(none)"))
                 .OrderByDescending(g => g.Count())
