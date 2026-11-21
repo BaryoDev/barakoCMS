@@ -56,7 +56,7 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
 
     private Host Build(Dictionary<string, string?> settings)
     {
-        var logger = new CapturingMartenLogger();
+        var logger = new CapturingMartenLogger(keepRaw: false);
         var derived = fixture.WithRunScopedHost(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(settings));

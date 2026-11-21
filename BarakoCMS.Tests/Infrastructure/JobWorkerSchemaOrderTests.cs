@@ -59,7 +59,8 @@ public class JobWorkerSchemaOrderTests
     /// </summary>
     /// <remarks>
     /// An event trigger sleeps inside any DDL on the jobs table issued on its own, which is what
-    /// Marten's lazy path sends, and keeps that create uncommitted for a second. The explicit
+    /// Marten's lazy path sends, and keeps that create uncommitted for a second per DDL statement on
+    /// the table (the table, then each of its indexes), so the window is the sum of those. The explicit
     /// apply sends the jobs table in one batch with the event store, so its DDL is never slowed. An
     /// apply that starts in that window does not see the table, issues its own create, waits on the
     /// uncommitted one, and fails once it commits. With nothing creating the table lazily, this passes.

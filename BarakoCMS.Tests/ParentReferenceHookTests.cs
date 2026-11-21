@@ -170,7 +170,8 @@ public class ParentReferenceHookTests
 
     private const string StalledMessage =
         "the first writer reached the barrier and, in 10 seconds, no second writer arrived and none waited "
-        + "on an advisory lock in pg_locks, so the race the test sets up never formed";
+        + "on an advisory lock in pg_locks, so the race the test sets up never formed "
+        + "(this can also mean the hook took no advisory lock at all, so check the hook first)";
     private static readonly Lock HostGate = new();
     private static WebApplicationFactory<Program>? _host;
 
@@ -462,8 +463,8 @@ public class ParentReferenceHookTests
     public async Task Two_concurrent_writes_cannot_close_a_cycle_between_them()
     {
         var client = await AdminAsync();
-        var a = await CreateAsync(client, "race-a-create");
-        var b = await CreateAsync(client, "race-b-create");
+        var a = await CreateAsync(client, "seed-a");
+        var b = await CreateAsync(client, "seed-b");
         var marker = "race-" + Guid.NewGuid().ToString("n");
 
         var results = await Task.WhenAll(
@@ -590,6 +591,7 @@ public class ParentReferenceHookTests
 
         results.Should().HaveCount(2);
         results.Should().OnlyContain(r => r.StatusCode == HttpStatusCode.OK);
+        SharedBarrier.Stalled(marker).Should().BeFalse(StalledMessage);
         SharedBarrier.TimedOut(marker).Should().BeFalse("neither edit waited for the other to commit");
     }
 
