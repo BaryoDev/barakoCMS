@@ -467,6 +467,13 @@ public class RefreshRetryTests(IntegrationTestFixture factory)
         quiet.Warnings.Should().BeEmpty();
     }
 
+    [Fact]
+    public void The_host_registers_the_startup_check()
+    {
+        factory.Services.GetServices<Microsoft.Extensions.Hosting.IHostedService>()
+            .OfType<RefreshRetryWindowCheck>().Should().ContainSingle();
+    }
+
     private sealed class CapturingLogger<T> : ILogger<T>
     {
         public List<string> Warnings { get; } = [];
