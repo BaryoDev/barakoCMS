@@ -8,7 +8,8 @@ namespace barakoCMS.Infrastructure.Auth.Mfa;
 public sealed class MfaService(
     IDocumentSession session,
     IMfaSecretProtector protector,
-    IConfiguration config) : IMfaService
+    IConfiguration config,
+    IJwtMinter minter) : IMfaService
 {
     private const int RecoveryCodeCount = 10;
     private const int SecretBytes = 20; // 160-bit TOTP secret
@@ -25,7 +26,7 @@ public sealed class MfaService(
         var grant = grantTenantSlug is not null && grantRoleIds is { Count: > 0 }
             ? new PendingExternalGrant(grantTenantSlug, grantSource ?? string.Empty, grantRoleIds)
             : null;
-        return MfaChallengeToken.Create(config, userId, grant, firstFactor).Token;
+        return MfaChallengeToken.Create(minter, config, userId, grant, firstFactor).Token;
     }
 
     public async Task<bool> IsEnabledAsync(Guid userId, CancellationToken ct)

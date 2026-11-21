@@ -356,7 +356,7 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
         await DefineAsync(host, tenant, type);
         await EntryAsync(host, tenant, type, "open-entry", open);
         await EntryAsync(host, tenant, type, "members-entry", members, sensitivity: SensitivityLevel.Members);
-        var viewer = ViewerToken.Create(host.Config, tenant, "member-1").Token;
+        var viewer = ViewerToken.Create(host.Factory.Services.GetRequiredService<barakoCMS.Infrastructure.Auth.IJwtMinter>(), host.Config, tenant, "member-1").Token;
         var url = $"/api/public/{type}";
 
         using var anonymous = In(host, tenant);
@@ -478,7 +478,7 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
         var type = $"rsp{Guid.NewGuid():n}"[..12];
         await DefineAsync(host, tenant, type);
         await EntryAsync(host, tenant, type, "the-entry", "marker");
-        var viewer = ViewerToken.Create(host.Config, tenant, "member-1").Token;
+        var viewer = ViewerToken.Create(host.Factory.Services.GetRequiredService<barakoCMS.Infrastructure.Auth.IJwtMinter>(), host.Config, tenant, "member-1").Token;
         using var member = In(host, tenant);
         member.DefaultRequestHeaders.Add(ViewerToken.Header, viewer);
 

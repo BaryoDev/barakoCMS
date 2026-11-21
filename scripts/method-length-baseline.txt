@@ -72,7 +72,7 @@
 74 barakoCMS/Features/Workflows/WorkflowEndpoints.cs::DeleteWorkflowEndpoint.HandleAsync
 105 barakoCMS/Features/Workflows/WorkflowEngine.cs::WorkflowEngine.ExecuteActionsAsync
 107 barakoCMS/Features/Workflows/WorkflowRunner.cs::WorkflowRunner.ExecuteAttemptAsync
-77 barakoCMS/Infrastructure/Auth/TokenIssuer.cs::TokenIssuer.IssueAccessTokenAsync
+71 barakoCMS/Infrastructure/Auth/TokenIssuer.cs::TokenIssuer.IssueAccessTokenAsync
 91 barakoCMS/Infrastructure/Connectors/ConnectorSender.cs::ConnectorSender.FetchAsync
 83 barakoCMS/Infrastructure/Connectors/ConnectorSender.cs::ConnectorSender.TryAttachGrantedTokenAsync
 75 barakoCMS/Infrastructure/Connectors/ConnectorTokens.cs::ClientCredentialsGrant.RequestAsync

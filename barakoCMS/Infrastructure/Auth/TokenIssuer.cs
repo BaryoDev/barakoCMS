@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Models;
-using FastEndpoints.Security;
 using Marten;
 using Microsoft.IdentityModel.JsonWebTokens;
 using barakoCMS.Infrastructure.Logging;
@@ -13,11 +12,12 @@ public sealed class TokenIssuer(
     IQuerySession session,
     IConfiguration config,
     ILogger<TokenIssuer> logger,
-    TenancyOptions tenancy) : ITokenIssuer
+    TenancyOptions tenancy,
+    IJwtMinter minter) : ITokenIssuer
 {
     /// <summary>The constructor as it shipped. The mode is read from <paramref name="config"/>.</summary>
     public TokenIssuer(IQuerySession session, IConfiguration config, ILogger<TokenIssuer> logger)
-        : this(session, config, logger, TenancyOptions.FromConfiguration(config))
+        : this(session, config, logger, TenancyOptions.FromConfiguration(config), new JwtMinter(config, TimeProvider.System))
     {
     }
 
@@ -66,42 +66,36 @@ public sealed class TokenIssuer(
         if (now.Add(refreshLifetime) < expiresAt)
             expiresAt = now.Add(refreshLifetime);
 
-        var token = JwtBearer.CreateToken(o =>
-        {
-            o.SigningKey = config["JWT:Key"]!;
-            o.ExpireAt = expiresAt;
-            o.Issuer = config["JWT:Issuer"];
-            o.Audience = config["JWT:Audience"];
-            var u = o.User;
-                u.Claims.Add(new(JwtRegisteredClaimNames.Jti, jti));
+        var claims = new List<Claim> { new(JwtRegisteredClaimNames.Jti, jti) };
 
-                // Set explicitly rather than left to the library. The session epoch check in
-                // TokenValidationMiddleware compares this against the user's TokensValidFrom, and it
-                // serves the request when it cannot read an iat, because refusing on a parse failure
-                // would lock out every user at once. So an absent iat is not an error anywhere: it
-                // is a security control that silently does nothing, which is the worst of the three
-                // possible outcomes. TokenIssuerTests asserts the claim is present for that reason.
-                u.Claims.Add(new(
-                    JwtRegisteredClaimNames.Iat,
-                    DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)));
-                u.Claims.Add(new("UserId", user.Id.ToString()));
-                u.Claims.Add(new("Username", user.Username));
-                u.Claims.Add(new("tenant", slug));
+        // Set explicitly rather than left to the library. The session epoch check in
+        // TokenValidationMiddleware compares this against the user's TokensValidFrom, and it
+        // serves the request when it cannot read an iat, because refusing on a parse failure
+        // would lock out every user at once. So an absent iat is not an error anywhere: it
+        // is a security control that silently does nothing, which is the worst of the three
+        // possible outcomes. TokenIssuerTests asserts the claim is present for that reason.
+        claims.Add(new(
+            JwtRegisteredClaimNames.Iat,
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        claims.Add(new("UserId", user.Id.ToString()));
+        claims.Add(new("Username", user.Username));
+        claims.Add(new("tenant", slug));
 
-                foreach (var role in roles)
-                    u.Claims.Add(new(ClaimTypes.Role, role));
+        foreach (var role in roles)
+            claims.Add(new(ClaimTypes.Role, role));
 
-                // A user with a membership but no roles still needs a role claim, or authorization
-                // policies that require any role reject them outright.
-                if (roles.Count == 0)
-                    u.Claims.Add(new(ClaimTypes.Role, "User"));
+        // A user with a membership but no roles still needs a role claim, or authorization
+        // policies that require any role reject them outright.
+        if (roles.Count == 0)
+            claims.Add(new(ClaimTypes.Role, "User"));
 
-                foreach (var claim in extraClaims ?? Enumerable.Empty<Claim>())
-                    u.Claims.Add(claim);
+        foreach (var claim in extraClaims ?? Enumerable.Empty<Claim>())
+            claims.Add(claim);
 
-                if (mustEnroll)
-                    u.Claims.Add(new(barakoCMS.Infrastructure.Auth.Mfa.MfaEnrollment.Claim, "required"));
-            });
+        if (mustEnroll)
+            claims.Add(new(barakoCMS.Infrastructure.Auth.Mfa.MfaEnrollment.Claim, "required"));
+
+        var token = minter.Mint(config["JWT:Audience"], expiresAt, claims);
 
         return TokenIssueResult.Granted(token, jti, expiresAt, roles, mustEnroll, refreshLifetime);
     }

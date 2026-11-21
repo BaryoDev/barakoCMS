@@ -1,6 +1,5 @@
 using barakoCMS.Extensions;
 using FastEndpoints;
-using FastEndpoints.Security;
 using FluentAssertions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -109,7 +108,7 @@ public class JobWorkerSchemaOrderTests
     /// failed (#554). Every test above keeps the resolver; this one shows what keeping it is for.
     /// </summary>
     [Fact]
-    public async Task A_disposed_host_of_its_own_leaves_tokens_issuable_in_the_process()
+    public async Task A_disposed_host_of_its_own_leaves_the_resolver_usable_in_the_process()
     {
         var ct = TestContext.Current.CancellationToken;
         var connectionString = await FreshDatabaseAsync(ct);
@@ -119,13 +118,9 @@ public class JobWorkerSchemaOrderTests
             app.UseBarakoCMS();
         }
 
-        var issue = () => JwtBearer.CreateToken(o =>
-        {
-            o.SigningKey = IntegrationTestFixture.JwtKey;
-            o.ExpireAt = DateTime.UtcNow.AddMinutes(1);
-        });
+        var usable = FastEndpointsResolver.IsUsable();
 
-        issue.Should().NotThrow("the resolver points at a live provider again once the test's own host is gone");
+        usable.Should().BeTrue("the resolver points at a live provider again once the test's own host is gone");
     }
 
     private WebApplication Build(string connectionString)

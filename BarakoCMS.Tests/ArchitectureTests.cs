@@ -122,6 +122,42 @@ public class ArchitectureTests
             "account mail (codes, verification, resets) must use SendEmailAsync, the host transport");
     }
 
+    /// <summary>
+    /// <c>JwtBearer.CreateToken</c> reads FastEndpoints' process-wide resolver, so a test that calls it
+    /// is only right while no other host is starting or disposing. The host's <c>IJwtMinter</c> reads
+    /// nothing global, and a test that needs a token takes it from there (#1408). The files that still
+    /// call the old method are the serial ones, which run alone.
+    /// </summary>
+    [Fact]
+    public void Only_serial_test_classes_call_JwtBearer_CreateToken()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !Directory.Exists(Path.Combine(root.FullName, "barakoCMS")))
+            root = root.Parent;
+        root.Should().NotBeNull("the repository root is above the test output");
+
+        var serial = System.Text.Json.JsonDocument
+            .Parse(File.ReadAllText(Path.Combine(root!.FullName, "scripts", "test-collections.json")))
+            .RootElement.GetProperty("serial").EnumerateObject()
+            .Select(p => p.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        serial.Should().NotBeEmpty("the serial list is what excuses a caller");
+
+        var callers = new[] { "BarakoCMS.Tests", "BarakoCMS.Testing" }
+            .SelectMany(project => Directory.EnumerateFiles(Path.Combine(root.FullName, project), "*.cs", SearchOption.AllDirectories))
+            .Where(f => !f.Split(Path.DirectorySeparatorChar).Any(part => part is "obj" or "bin")
+                     && Path.GetFileName(f) != nameof(ArchitectureTests) + ".cs")
+            .Where(f => File.ReadLines(f).Any(l =>
+                l.Contains("JwtBearer.CreateToken(", StringComparison.Ordinal)
+                && !l.TrimStart().StartsWith("//", StringComparison.Ordinal)))
+            .Select(f => Path.GetRelativePath(Path.Combine(root.FullName, "BarakoCMS.Tests"), f).Replace('\\', '/'))
+            .ToArray();
+
+        callers.Should().Contain("JwtMinterGoldenTests.cs", "the scan has to find the golden test or it proves nothing");
+        callers.Where(c => !serial.Contains(c)).Should().HaveCount(0,
+            "a test outside the serial list takes its token from the host's IJwtMinter, not from JwtBearer.CreateToken");
+    }
+
     [Fact]
     public void The_scan_finds_the_endpoints_validators_and_list_endpoints_Features_holds()
     {

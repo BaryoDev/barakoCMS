@@ -1,6 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
-using FastEndpoints.Security;
 using Microsoft.IdentityModel.Tokens;
 
 namespace barakoCMS.Infrastructure.Auth.Mfa;
@@ -32,18 +31,14 @@ public static class StepUpToken
                 System.Globalization.CultureInfo.InvariantCulture, out var seconds) ? seconds : DefaultSeconds,
             30, 3600));
 
-    public static (string Token, DateTime ExpiresAt) Create(IConfiguration config, Guid userId)
+    public static (string Token, DateTime ExpiresAt) Create(IJwtMinter minter, IConfiguration config, Guid userId)
     {
         var expiresAt = DateTime.UtcNow.Add(Lifetime(config));
-        var token = JwtBearer.CreateToken(o =>
-        {
-            o.SigningKey = config["JWT:Key"]!;
-            o.ExpireAt = expiresAt;
-            o.Issuer = config["JWT:Issuer"];
-            o.Audience = Audience(config);
-            o.User.Claims.Add(new(PurposeClaim, PurposeValue));
-            o.User.Claims.Add(new(UserClaim, userId.ToString()));
-        });
+        var token = minter.Mint(Audience(config), expiresAt,
+        [
+            new(PurposeClaim, PurposeValue),
+            new(UserClaim, userId.ToString()),
+        ]);
         return (token, expiresAt);
     }
 

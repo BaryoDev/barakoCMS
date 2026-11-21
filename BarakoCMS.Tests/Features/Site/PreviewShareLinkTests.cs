@@ -355,8 +355,8 @@ public class PreviewShareLinkTests
         var type = await _host.TypeAsync(tenant);
         var wip = await _host.EntryAsync(tenant, type, "wip");
         var config = _fixture.Services.GetRequiredService<IConfiguration>();
-        var jwt = PreviewToken.Create(config, tenant, type, "wip", wip).Token;
-        var expiredJwt = PreviewToken.Create(config, tenant, type, "wip", wip, TimeSpan.FromMinutes(-5)).Token;
+        var jwt = PreviewToken.Create(_fixture.Services.GetRequiredService<barakoCMS.Infrastructure.Auth.IJwtMinter>(), config, tenant, type, "wip", wip).Token;
+        var expiredJwt = PreviewToken.Create(_fixture.Services.GetRequiredService<barakoCMS.Infrastructure.Auth.IJwtMinter>(), config, tenant, type, "wip", wip, TimeSpan.FromMinutes(-5)).Token;
 
         var preview = await _host.SlugReadAsync(tenant, type, "wip", preview: jwt);
 

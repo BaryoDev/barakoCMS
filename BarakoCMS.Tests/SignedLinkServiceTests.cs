@@ -133,7 +133,7 @@ public class SignedLinkServiceTests
         var (svc, scope) = Make();
         using var _ = scope;
         var entryId = Guid.NewGuid();
-        var jwt = PreviewToken.Create(Config, "default", "article", "wip", entryId).Token;
+        var jwt = PreviewToken.Create(_factory.Services.GetRequiredService<barakoCMS.Infrastructure.Auth.IJwtMinter>(), Config, "default", "article", "wip", entryId).Token;
         jwt.Should().Contain(".");
 
         var id = await PreviewToken.ValidatedEntryIdAsync(svc, Config, jwt, "default", "article", "wip");
