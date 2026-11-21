@@ -131,6 +131,14 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheListener>>()));
         }
 
+        // A purge for the CDN, for a tenant that turned it on, whether or not the response cache is on.
+        // It only writes a row after the commit. The sender makes the call.
+        options.Listeners.Add(new barakoCMS.Infrastructure.Caching.Purge.CdnPurgeListener(
+            sp.GetRequiredService<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeGate>(),
+            sp.GetRequiredService<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeSignal>(),
+            sp.GetRequiredService<IConfiguration>(),
+            sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeListener>>()));
+
         // The private site check forgets its cached answer when a site entry is written.
         options.Listeners.Add(new barakoCMS.Infrastructure.Multitenancy.PrivateSiteCacheListener(
             sp.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.PrivateSiteCache>()));
@@ -783,6 +791,7 @@ public static class ServiceCollectionExtensions
             .DocumentAlias("system_settings");
 
         MapPendingBuilds(options);
+        MapPendingCdnPurges(options);
         MapOnDemandDocuments(options);
         options.Schema.For<barakoCMS.Modules.ModuleSeededType>().MultiTenanted().DocumentAlias("module_seeded_types");
         // Global: a webhook carries no tenant, and the receiver has to find a replay before it
@@ -1455,6 +1464,7 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ITenantSettings, barakoCMS.Infrastructure.Services.TenantSettingsResolver>();
         services.TryAddScoped<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeResolver>();
+        barakoCMS.Infrastructure.Caching.Purge.CdnPurgeRegistration.AddCdnPurgeOnCommit(services);
     }
 
     private static void AddConnectorServices(IServiceCollection services)
@@ -1519,6 +1529,13 @@ public static class ServiceCollectionExtensions
         options.Schema.For<UserGroup>().MultiTenanted();
         options.Schema.For<WorkflowDefinition>().MultiTenanted();
     }
+
+    private static void MapPendingCdnPurges(StoreOptions options) =>
+        options.Schema.For<barakoCMS.Infrastructure.Caching.Purge.PendingCdnPurge>()
+            .MultiTenanted()
+            .DocumentAlias("pending_cdn_purges")
+            // Two nodes sweeping together must not send the same rows. The second claim is refused by the version.
+            .UseOptimisticConcurrency(true);
 
     private static void MapPendingBuilds(StoreOptions options) =>
         options.Schema.For<PendingBuild>()

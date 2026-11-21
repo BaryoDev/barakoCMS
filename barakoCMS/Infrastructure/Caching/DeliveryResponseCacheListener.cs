@@ -1,10 +1,8 @@
 using barakoCMS.Infrastructure.Multitenancy;
-using barakoCMS.Models;
 using Marten;
 using Marten.Services;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.Extensions.Logging;
-using ContentDoc = barakoCMS.Models.Content;
 
 namespace barakoCMS.Infrastructure.Caching;
 
@@ -30,16 +28,9 @@ internal sealed class DeliveryResponseCacheListener(
     public override async Task AfterCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken token)
     {
         var tenant = TenantScopes.SlugFor(session.TenantId);
-        IReadOnlyCollection<string> tags;
-        try
-        {
-            tags = await TagsAsync(session, commit, tenant, token);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Working out the delivery response cache tags failed after a commit; the whole tenant is evicted");
-            tags = [DeliveryCache.TenantTag(tenant)];
-        }
+        var tags = await DeliveryTagSet.ForCommitAsync(session, commit, tenant,
+            ex => logger.LogError(ex, "Working out the delivery response cache tags failed after a commit; the whole tenant is evicted"),
+            token);
 
         // Inside a content batch this is a flush, not a commit. A read before the commit would cache
         // the old state again, so the eviction waits for the commit.
@@ -55,7 +46,9 @@ internal sealed class DeliveryResponseCacheListener(
         try
         {
             foreach (var tag in tags)
+            {
                 await store.EvictByTagAsync(tag, CancellationToken.None);
+            }
         }
         catch (Exception ex)
         {
@@ -69,54 +62,5 @@ internal sealed class DeliveryResponseCacheListener(
                 logger.LogError(inner, "Evicting the whole tenant from the delivery response cache failed");
             }
         }
-    }
-
-    private static async Task<IReadOnlyCollection<string>> TagsAsync(
-        IDocumentSession session, IChangeSet commit, string tenant, CancellationToken token)
-    {
-        var scopes = new List<CacheScope>();
-
-        var contents = commit.Inserted.Concat(commit.Updated).OfType<ContentDoc>().ToList();
-        foreach (var content in contents)
-            AddContent(scopes, content.Id, content.ContentType);
-
-        foreach (var definition in commit.Inserted.Concat(commit.Updated).OfType<ContentTypeDefinition>())
-        {
-            scopes.Add(CacheScope.Type(definition.Name));
-            scopes.Add(CacheScope.Named("sitemap"));
-        }
-
-        var redirectChanged = commit.Inserted.Concat(commit.Updated).OfType<UrlRedirect>().Any()
-            || commit.Deleted.Any(d => d.DocumentType == typeof(UrlRedirect));
-        if (redirectChanged)
-            scopes.Add(CacheScope.Named("redirects"));
-
-        var known = contents.Select(c => c.Id).ToHashSet();
-        foreach (var stream in commit.GetEvents().Select(e => e.StreamId).Distinct().Where(id => !known.Contains(id)))
-        {
-            var content = await session.LoadAsync<ContentDoc>(stream, token);
-            if (content is not null)
-                AddContent(scopes, content.Id, content.ContentType);
-        }
-
-        foreach (var deleted in commit.Deleted)
-        {
-            if (deleted.Document is ContentDoc gone)
-                AddContent(scopes, gone.Id, gone.ContentType);
-            else if (deleted.Document is ContentTypeDefinition type)
-                scopes.Add(CacheScope.Type(type.Name));
-            else if (deleted.DocumentType == typeof(ContentDoc) || deleted.DocumentType == typeof(ContentTypeDefinition))
-                return [DeliveryCache.TenantTag(tenant)];
-        }
-
-        return scopes.Select(s => DeliveryCache.Tag(tenant, s)).Distinct(StringComparer.Ordinal).ToList();
-    }
-
-    private static void AddContent(List<CacheScope> scopes, Guid id, string type)
-    {
-        scopes.Add(CacheScope.Entry(id));
-        scopes.Add(CacheScope.Type(type));
-        scopes.Add(CacheScope.Named("sitemap"));
-        scopes.Add(CacheScope.Named(UntypedReferences));
     }
 }

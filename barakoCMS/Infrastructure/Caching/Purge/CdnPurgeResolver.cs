@@ -28,7 +28,11 @@ internal sealed class CdnPurgeResolver(
 
     public static bool IsValidTargetId(string? value) => value is not null && TargetIdPattern.IsMatch(value);
 
-    public async Task<ICdnPurger?> ForTenantAsync(string slug, CancellationToken ct)
+    public async Task<ICdnPurger?> ForTenantAsync(string slug, CancellationToken ct) =>
+        (await ResolveAsync(slug, ct))?.Purger;
+
+    /// <summary>The client and the target it was built for, so a caller can name the host it sent to.</summary>
+    internal async Task<(CdnPurgeTarget Target, ICdnPurger Purger)?> ResolveAsync(string slug, CancellationToken ct)
     {
         var target = await TargetForAsync(slug, ct);
         if (target is null)
@@ -37,9 +41,10 @@ internal sealed class CdnPurgeResolver(
         }
 
         var http = httpClientFactory.CreateClient(HttpClientNames.ExternalApi);
-        return string.Equals(target.Provider, CdnPurgeProvider.Cloudflare, StringComparison.OrdinalIgnoreCase)
+        ICdnPurger purger = string.Equals(target.Provider, CdnPurgeProvider.Cloudflare, StringComparison.OrdinalIgnoreCase)
             ? new CloudflarePurger(http, target, loggerFactory.CreateLogger<CloudflarePurger>())
             : new FastlyPurger(http, target, loggerFactory.CreateLogger<FastlyPurger>());
+        return (target, purger);
     }
 
     internal async Task<CdnPurgeTarget?> TargetForAsync(string slug, CancellationToken ct)
@@ -50,13 +55,12 @@ internal sealed class CdnPurgeResolver(
         }
 
         var row = await session.LoadAsync<CdnPurgeSettings>(CdnPurgeSettings.IdForTenant(slug), ct);
-        if (row is null || !row.Enabled || !IsPurgeable(row.Provider) || !IsValidTargetId(row.TargetId)
-            || string.IsNullOrEmpty(row.ProtectedToken))
+        if (!RowIsComplete(row))
         {
             return null;
         }
 
-        var token = protector.Unprotect(row.ProtectedToken);
+        var token = protector.Unprotect(row!.ProtectedToken);
         if (string.IsNullOrWhiteSpace(token))
         {
             loggerFactory.CreateLogger<CdnPurgeResolver>().LogError(
@@ -65,8 +69,23 @@ internal sealed class CdnPurgeResolver(
             return null;
         }
 
-        return Build(row.Provider, row.TargetId, token.Trim());
+        return Build(row!.Provider, row.TargetId, token.Trim());
     }
+
+    /// <summary>
+    /// What a tenant's settings row needs before a purge can be built from it, apart from a token that
+    /// decrypts. The commit gate asks the same question, so a setup the sender cannot use writes no rows.
+    /// </summary>
+    internal static bool RowIsComplete(CdnPurgeSettings? row) =>
+        row is { Enabled: true } && IsPurgeable(row.Provider) && IsValidTargetId(row.TargetId)
+        && !string.IsNullOrEmpty(row.ProtectedToken);
+
+    /// <summary>The same check for the default tenant, whose settings come from host configuration.</summary>
+    internal static bool HostIsComplete(IConfiguration configuration) =>
+        configuration.GetValue($"{ConfigSection}:Enabled", false)
+        && IsPurgeable(configuration[$"{ConfigSection}:Provider"]?.Trim())
+        && IsValidTargetId(configuration[$"{ConfigSection}:TargetId"]?.Trim())
+        && !string.IsNullOrEmpty(configuration[$"{ConfigSection}:ApiToken"]?.Trim());
 
     private CdnPurgeTarget? FromHost()
     {
