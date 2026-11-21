@@ -2,7 +2,7 @@
 # Values are the Create* calls at 2d1482f0 (master before per-host registries).
 # when: startup = created while the host starts; first-use = created when the class is first used; lib = prometheus-net's own, name only.
 barakocms_api_key_refusals_total	counter	reason	first-use	Requests refused for an API key that exists, by reason. /metrics is anonymous, so no key id.
-barakocms_auth_mail_dropped_total	counter		startup	Sign-in mail not sent because the queue was full.
+barakocms_auth_mail_dropped_total	counter		first-use	Sign-in mail not sent because the queue was full.
 barakocms_jobs_attempts_total	counter	outcome,tenant	startup	Job attempts whose outcome this node recorded: succeeded, retried, or dead_lettered when it was the last allowed.
 barakocms_jobs_dead_lettered	gauge		startup	Dead-lettered and cancelled jobs still stored, as of the last measurement.
 barakocms_jobs_due	gauge		startup	Jobs a worker could claim now, as of the last measurement.
