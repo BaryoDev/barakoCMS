@@ -29,21 +29,6 @@ public class ScheduledContentService : BackgroundService
     // Transitions the scheduler makes are attributed to the system, not a user.
     public static readonly Guid SystemActor = Guid.Empty;
 
-    public ScheduledContentService(IDocumentStore store, ILogger<ScheduledContentService> logger)
-        : this(store, logger, null)
-    {
-    }
-
-    /// <param name="store">The document store.</param>
-    /// <param name="logger">The logger.</param>
-    /// <param name="configuration">Where <c>Tenancy:Mode</c> is read. Null is Single.</param>
-    /// <remarks>Counts to a registry nothing scrapes. The host uses the constructor that takes a metric factory.</remarks>
-    public ScheduledContentService(
-        IDocumentStore store, ILogger<ScheduledContentService> logger, IConfiguration? configuration)
-        : this(store, logger, configuration, Prometheus.Metrics.WithCustomRegistry(Prometheus.Metrics.NewCustomRegistry()))
-    {
-    }
-
     /// <param name="store">The document store.</param>
     /// <param name="logger">The logger.</param>
     /// <param name="configuration">Where <c>Tenancy:Mode</c> is read. Null is Single.</param>

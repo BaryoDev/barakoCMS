@@ -53,7 +53,7 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
     /// <summary>How long one count for the queue gauges may take before it is given up.</summary>
     internal static readonly TimeSpan MeasureBudget = TimeSpan.FromSeconds(10);
 
-    /// <summary>Where this provider counts what it does. The host hands it its own; a bare construction gets a registry nothing scrapes.</summary>
+    /// <summary>Where this provider counts what it does. The host hands it its own, built from its metric factory.</summary>
     internal JobMetrics Metrics { get; init; }
 
     /// <summary>The run spans of the jobs this provider claimed and has not finished.</summary>
@@ -65,9 +65,9 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
     public MartenJobStorageProvider(
         IDocumentStore store, IHttpContextAccessor http, JobOptions options,
         ILogger<MartenJobStorageProvider> logger, JobStorageGate gate, IConfiguration configuration,
-        JobMetrics? metrics = null)
+        JobMetrics metrics)
     {
-        Metrics = metrics ?? new JobMetrics(Prometheus.Metrics.NewCustomRegistry());
+        Metrics = metrics;
         _store = store;
         _http = http;
         _options = options;

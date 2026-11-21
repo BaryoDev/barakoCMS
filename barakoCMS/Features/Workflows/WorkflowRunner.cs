@@ -59,7 +59,8 @@ internal static class WorkflowRetryPolicy
 internal sealed class WorkflowRunner(
     IServiceProvider services,
     ILogger<WorkflowRunner> logger,
-    IConfiguration config) : BackgroundService
+    IConfiguration config,
+    WorkflowMetrics metrics) : BackgroundService
 {
     internal static readonly TimeSpan Idle = TimeSpan.FromSeconds(5);
 
@@ -111,13 +112,7 @@ internal sealed class WorkflowRunner(
     internal int PartitionScans { get; private set; }
 
     /// <summary>Where this runner counts what it does. A test gives it a registry of its own.</summary>
-    internal WorkflowMetrics Metrics
-    {
-        get => _metrics ??= services.GetService<WorkflowMetrics>() ?? new WorkflowMetrics(Prometheus.Metrics.NewCustomRegistry());
-        init => _metrics = value;
-    }
-
-    private WorkflowMetrics? _metrics;
+    internal WorkflowMetrics Metrics => metrics;
 
     public const string BacklogIntervalKey = "Workflows:BacklogIntervalSeconds";
 

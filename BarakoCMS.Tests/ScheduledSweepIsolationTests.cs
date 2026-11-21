@@ -58,7 +58,7 @@ public class ScheduledSweepIsolationTests
         var logger = _fixture.Services.GetRequiredService<ILogger<ScheduledContentService>>();
 
         // Leftover due content in other tenants would take the one throw, so clear it first.
-        (await new ScheduledContentService(Store(), logger).TrySweepAllTenantsAsync(DateTime.UtcNow, ct))
+        (await new ScheduledContentService(Store(), logger, null, TestMetricFactory.New()).TrySweepAllTenantsAsync(DateTime.UtcNow, ct))
             .Should().BeTrue();
 
         var first = await SeedDueTenantAsync();
@@ -66,7 +66,7 @@ public class ScheduledSweepIsolationTests
 
         var calls = 0;
         var errors = new CapturingLogger();
-        var service = new ScheduledContentService(Store(), errors)
+        var service = new ScheduledContentService(Store(), errors, null, TestMetricFactory.New())
         {
             AfterLoad = _ =>
             {
@@ -121,7 +121,7 @@ public class ScheduledSweepIsolationTests
         var ct = TestContext.Current.CancellationToken;
         var logger = _fixture.Services.GetRequiredService<ILogger<ScheduledContentService>>();
 
-        (await new ScheduledContentService(Store(), logger).TrySweepAllTenantsAsync(DateTime.UtcNow, ct))
+        (await new ScheduledContentService(Store(), logger, null, TestMetricFactory.New()).TrySweepAllTenantsAsync(DateTime.UtcNow, ct))
             .Should().BeTrue();
 
         var tenant = await SeedDueTenantAsync();
@@ -143,7 +143,7 @@ public class ScheduledSweepIsolationTests
             await session.SaveChangesAsync(ct);
         }
 
-        var service = new ScheduledContentService(Store(), logger)
+        var service = new ScheduledContentService(Store(), logger, null, TestMetricFactory.New())
         {
             AfterLoad = _ => throw new InvalidOperationException("the content sweep fails"),
         };

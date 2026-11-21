@@ -150,12 +150,12 @@ public class TenancyModeBackgroundTests
         var store = _fixture.Services.GetRequiredService<IDocumentStore>();
         var logger = NullLogger<ScheduledContentService>.Instance;
 
-        (await new ScheduledContentService(store, logger, Configuration("Multi"))
+        (await new ScheduledContentService(store, logger, Configuration("Multi"), TestMetricFactory.New())
             .TrySweepAllTenantsAsync(DateTime.UtcNow, ct)).Should().BeTrue("nothing else holds the sweep lock in this fixture");
         (await StatusAsync(store, id, ct)).Should().Be(ContentStatus.Draft,
             "in Multi the default partition belongs to no tenant, so the sweep does not visit it");
 
-        (await new ScheduledContentService(store, logger, Configuration(null))
+        (await new ScheduledContentService(store, logger, Configuration(null), TestMetricFactory.New())
             .TrySweepAllTenantsAsync(DateTime.UtcNow, ct)).Should().BeTrue();
         (await StatusAsync(store, id, ct)).Should().Be(ContentStatus.Published,
             "with no setting the same item is published, so it was due and only the mode held it back");

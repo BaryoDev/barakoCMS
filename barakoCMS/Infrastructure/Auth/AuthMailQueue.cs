@@ -20,11 +20,6 @@ public sealed class AuthMailQueue(
     ILogger<AuthMailQueue> logger,
     IMetricFactory metrics) : BackgroundService
 {
-    /// <summary>For a caller with no host to publish to: the count goes to a registry nothing scrapes.</summary>
-    public AuthMailQueue(IServiceScopeFactory scopes, ILogger<AuthMailQueue> logger)
-        : this(scopes, logger, Metrics.WithCustomRegistry(Metrics.NewCustomRegistry()))
-    {
-    }
 
     internal const int Capacity = 1000;
     internal const int Readers = 4;

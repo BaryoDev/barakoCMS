@@ -17,8 +17,6 @@
     "Features/Site/PrivateSiteCacheTests.cs": "asserts on process-wide metrics or trace listeners that any parallel host would feed",
     "Features/Site/PrivateSiteModeTests.cs": "replaces FastEndpoints' static service resolver with a host of its own",
     "Features/Tenants/TlsAskTests.cs": "replaces FastEndpoints' static service resolver with a host of its own",
-    "Features/Workflows/WorkflowQueueMetricsTests.cs": "asserts on process-wide metrics or trace listeners that any parallel host would feed",
-    "Features/Workflows/WorkflowRunnerMetricsTests.cs": "asserts on process-wide metrics or trace listeners that any parallel host would feed",
     "Infrastructure/JobWorkerSchemaOrderTests.cs": "queues FastEndpoints jobs through the process-wide JobQueues static, which every host start overwrites",
     "Jobs/JobQueueHygieneTests.cs": "queues FastEndpoints jobs through the process-wide JobQueues static, which every host start overwrites",
     "Jobs/JobRetryJitterTests.cs": "queues FastEndpoints jobs through the process-wide JobQueues static, which every host start overwrites",

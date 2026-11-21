@@ -293,7 +293,7 @@ public class WorkflowMissedTriggerTests
     }
 
     private ScheduledContentService ServiceWith(Func<IDocumentSession, CancellationToken, Task>? hook) =>
-        new(Store, _fixture.Services.GetRequiredService<ILogger<ScheduledContentService>>())
+        new(Store, _fixture.Services.GetRequiredService<ILogger<ScheduledContentService>>(), null, TestMetricFactory.New())
         {
             BeforeMissedTriggers = hook,
         };

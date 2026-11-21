@@ -23,8 +23,10 @@ namespace BarakoCMS.Tests;
 /// Run it alone: on a tree without isolation the default registry is shared by every host in the
 /// process, and another class's families would show up here.
 ///
-/// Compared by family name from the # TYPE lines, because a family is declared when its holder is
-/// built, with or without a sample. Only the prefixes this change touches are compared:
+/// Compared by family from the # TYPE and # HELP lines, because a family is declared when its holder
+/// is built, with or without a sample. The golden file is
+/// Fixtures/MetricsGolden/barakocms-metrics.golden.tsv, taken from 2d1482f0. It marks each family
+/// startup or first-use. Only the prefixes this change touches are compared:
 /// <c>barakocms_</c>, the request, process and .NET collector families, and the
 /// <c>prometheus_net_</c> ones. The event counter families (<c>system_runtime_*</c>) and the
 /// <c>private_internaldiagnostics_*</c> ones appear when the runtime reports, not when the host
@@ -38,44 +40,58 @@ public class MetricsSeriesGoldenTests
     private static readonly string[] Prefixes =
         ["barakocms_", "http_request", "process_", "dotnet_collection", "dotnet_total_memory", "prometheus_net_"];
 
-    private static readonly string[] Expected =
-    [
-        "barakocms_api_key_refusals_total",
-        "barakocms_auth_mail_dropped_total",
-        "barakocms_jobs_attempts_total",
-        "barakocms_jobs_dead_lettered",
-        "barakocms_jobs_due",
-        "barakocms_jobs_oldest_due_age_seconds",
-        "barakocms_projection_lag_events",
-        "barakocms_workflow_action_duration_seconds",
-        "barakocms_workflow_attempts_claimed_total",
-        "barakocms_workflow_attempts_total",
-        "barakocms_workflow_backlog_measured_timestamp_seconds",
-        "barakocms_workflow_due_runs",
-        "barakocms_workflow_oldest_due_run_age_seconds",
-        "barakocms_workflow_runner_last_pass_timestamp_seconds",
-        "barakocms_workflow_runs_finished_total",
-        "barakocms_workflow_runs_halted_total",
-        "barakocms_workflow_runs_queued_total",
-        "dotnet_collection_count_total",
-        "dotnet_total_memory_bytes",
-        "http_request_duration_seconds",
-        "http_requests_in_progress",
-        "http_requests_received_total",
-        "process_cpu_seconds_total",
-        "process_num_threads",
-        "process_open_handles",
-        "process_private_memory_bytes",
-        "process_start_time_seconds",
-        "process_virtual_memory_bytes",
-        "process_working_set_bytes",
-        "prometheus_net_eventcounteradapter_sources_connected_total",
-        "prometheus_net_exemplars_recorded_total",
-        "prometheus_net_meteradapter_instruments_connected",
-        "prometheus_net_metric_families",
-        "prometheus_net_metric_instances",
-        "prometheus_net_metric_timeseries",
-    ];
+    private sealed record Family(string Name, string Type, string Labels, string When, string Help);
+
+    /// <summary>The golden file. Its values come from the Create* calls at 2d1482f0, not from this tree.</summary>
+    private static List<Family> Golden()
+    {
+        using var stream = typeof(MetricsSeriesGoldenTests).Assembly.GetManifestResourceStream("barakocms-metrics.golden.tsv")!;
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd().Split('\n')
+            .Where(l => l.Length > 0 && l[0] != '#')
+            .Select(l => l.Split('\t'))
+            .Select(c => new Family(c[0], c[1], c[2], c[3], c[4]))
+            .ToList();
+    }
+
+    /// <summary>Name, TYPE, HELP and label names of every barakocms_ family the default registry holds.</summary>
+    private static List<Family> Scraped(string body)
+    {
+        var help = new Dictionary<string, string>();
+        var type = new Dictionary<string, string>();
+        foreach (var line in body.Split('\n'))
+        {
+            var parts = line.Split(' ', 4);
+            if (parts.Length < 3 || parts[0] != "#") continue;
+            if (parts[1] == "HELP") help[parts[2]] = parts.Length > 3 ? parts[3] : "";
+            if (parts[1] == "TYPE") type[parts[2]] = parts.Length > 3 ? parts[3] : "";
+        }
+
+        // A family with no child shows no sample, so its label names come from the collector.
+        var collectors = (System.Collections.IDictionary)typeof(Prometheus.CollectorRegistry)
+            .GetField("_collectors", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(Prometheus.Metrics.DefaultRegistry)!;
+
+        return type.Keys
+            .Where(n => n.StartsWith("barakocms_", StringComparison.Ordinal))
+            .Order(StringComparer.Ordinal)
+            .Select(n => new Family(
+                n,
+                type[n],
+                string.Join(',', ((Prometheus.Collector)collectors[n]!).LabelNames),
+                "",
+                help.GetValueOrDefault(n, "")))
+            .ToList();
+    }
+
+    private static List<string> LibraryNames(string body) =>
+        body.Split('\n')
+            .Where(l => l.StartsWith("# TYPE ", StringComparison.Ordinal))
+            .Select(l => l.Split(' ')[2])
+            .Where(n => Prefixes.Where(p => p != "barakocms_").Any(p => n.StartsWith(p, StringComparison.Ordinal)))
+            .Distinct()
+            .Order(StringComparer.Ordinal)
+            .ToList();
 
     private readonly IntegrationTestFixture _factory;
 
@@ -115,33 +131,43 @@ public class MetricsSeriesGoldenTests
         }
     }
 
-    [Fact]
-    public async Task A_production_configured_host_publishes_exactly_these_series_names()
+    private static async Task<string> ScrapeAsync(HttpClient client)
     {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/metrics");
+        request.Headers.Add(MetricsScrapeAccess.HeaderName, ScrapeKey);
+        using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>
+    /// Stage one scrapes right after startup, before any other request: the startup families and
+    /// the library ones must be there and the first-use ones must not. Stage two builds every
+    /// holder, which is what first use does, and every barakocms_ family must then match the golden
+    /// file in name, TYPE, HELP and label names.
+    /// </summary>
+    [Fact]
+    public async Task A_production_configured_host_publishes_the_golden_series()
+    {
+        var golden = Golden();
         var host = _factory.WithWebHostBuilder(builder =>
         {
             builder.UseSetting(MetricsScrapeAccess.ConfigurationKey, ScrapeKey);
             builder.ConfigureServices(KeepTheDefaultRegistry);
         });
         var client = host.CreateClient();
-        (await client.GetAsync("/health/live", TestContext.Current.CancellationToken)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var atStartup = await ScrapeAsync(client);
+        Scraped(atStartup).Select(f => f.Name).Should().Equal(
+            golden.Where(g => g.When == "startup").Select(g => g.Name).Order(StringComparer.Ordinal),
+            "these families are created while the host starts, and the first-use ones are not");
+        LibraryNames(atStartup).Should().Equal(golden.Where(g => g.When == "lib").Select(g => g.Name));
+
         BuildEveryHolder(host.Services);
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/metrics");
-        request.Headers.Add(MetricsScrapeAccess.HeaderName, ScrapeKey);
-        using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
-
-        var names = body.Split('\n')
-            .Where(l => l.StartsWith("# TYPE ", StringComparison.Ordinal))
-            .Select(l => l.Split(' ')[2])
-            .Where(n => Prefixes.Any(p => n.StartsWith(p, StringComparison.Ordinal)))
-            .Distinct()
-            .Order(StringComparer.Ordinal)
-            .ToList();
-
-        names.Should().NotBeEmpty();
-        names.Should().Equal(Expected);
+        var afterUse = await ScrapeAsync(client);
+        Scraped(afterUse).Should().BeEquivalentTo(
+            golden.Where(g => g.When != "lib").Select(g => g with { When = "" }).OrderBy(g => g.Name, StringComparer.Ordinal),
+            o => o.WithStrictOrdering());
+        LibraryNames(afterUse).Should().Equal(golden.Where(g => g.When == "lib").Select(g => g.Name));
     }
 }

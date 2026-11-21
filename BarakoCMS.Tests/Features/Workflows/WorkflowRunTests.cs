@@ -420,7 +420,8 @@ public class WorkflowRunTests
         var runner = new barakoCMS.Features.Workflows.WorkflowRunner(
             services,
             services.GetRequiredService<ILogger<barakoCMS.Features.Workflows.WorkflowRunner>>(),
-            services.GetRequiredService<IConfiguration>());
+            services.GetRequiredService<IConfiguration>(),
+        services.GetRequiredService<barakoCMS.Features.Workflows.WorkflowMetrics>());
 
         var polls = 0;
         while (await runner.RunOnceAsync(TestContext.Current.CancellationToken))

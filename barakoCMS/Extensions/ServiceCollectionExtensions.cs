@@ -387,6 +387,10 @@ public static class ServiceCollectionExtensions
     /// one process then no longer write to the same series.
     /// </summary>
     /// <remarks>
+    /// The Meter and EventCounter listeners are process wide, so with two hosts alive each isolated
+    /// registry also shows the other host's System.Diagnostics Meter series. The series this
+    /// library writes itself (requests, workflows, jobs, API keys, mail) stay on their own host.
+    ///
     /// Production does not call this: a host that does not keeps prometheus-net's default registry
     /// and the same series it always had.
     /// </remarks>

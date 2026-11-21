@@ -1,0 +1,38 @@
+# name<TAB>type<TAB>label names<TAB>when<TAB>help
+# Values are the Create* calls at 2d1482f0 (master before per-host registries).
+# when: startup = created while the host starts; first-use = created when the class is first used; lib = prometheus-net's own, name only.
+barakocms_api_key_refusals_total	counter	reason	first-use	Requests refused for an API key that exists, by reason. /metrics is anonymous, so no key id.
+barakocms_auth_mail_dropped_total	counter		startup	Sign-in mail not sent because the queue was full.
+barakocms_jobs_attempts_total	counter	outcome,tenant	startup	Job attempts whose outcome this node recorded: succeeded, retried, or dead_lettered when it was the last allowed.
+barakocms_jobs_dead_lettered	gauge		startup	Dead-lettered and cancelled jobs still stored, as of the last measurement.
+barakocms_jobs_due	gauge		startup	Jobs a worker could claim now, as of the last measurement.
+barakocms_jobs_oldest_due_age_seconds	gauge		startup	Seconds the oldest due job has waited past the time it was due, as of the last measurement. Zero when none is due.
+barakocms_projection_lag_events	gauge	projection	first-use	Events appended but not yet processed by an async projection shard.
+barakocms_workflow_action_duration_seconds	histogram	action,tenant	startup	How long a workflow action took, for attempts whose outcome was recorded, by action type.
+barakocms_workflow_attempts_claimed_total	counter		startup	Workflow action attempts this node's runner claimed.
+barakocms_workflow_attempts_total	counter	action,outcome,tenant	startup	Workflow action attempts whose outcome this node's runner recorded, by action type and outcome.
+barakocms_workflow_backlog_measured_timestamp_seconds	gauge		startup	Unix time the due runs were last counted by this node.
+barakocms_workflow_due_runs	gauge		startup	Workflow runs with an action that could be claimed now, as of the last measurement.
+barakocms_workflow_oldest_due_run_age_seconds	gauge		startup	Seconds since the oldest workflow run that is due was queued, as of the last measurement. Zero when none is due.
+barakocms_workflow_runner_last_pass_timestamp_seconds	gauge		startup	Unix time this node's workflow runner last completed a pass.
+barakocms_workflow_runs_finished_total	counter	status,tenant	startup	Workflow runs this node's runner finished, by the status they ended in.
+barakocms_workflow_runs_halted_total	counter	tenant	startup	Workflow runs where an action set to halt failed and the actions after it were skipped.
+barakocms_workflow_runs_queued_total	counter	trigger,tenant	startup	Workflow runs queued, by the kind of event that fired them.
+dotnet_collection_count_total			lib	
+dotnet_total_memory_bytes			lib	
+http_request_duration_seconds			lib	
+http_requests_in_progress			lib	
+http_requests_received_total			lib	
+process_cpu_seconds_total			lib	
+process_num_threads			lib	
+process_open_handles			lib	
+process_private_memory_bytes			lib	
+process_start_time_seconds			lib	
+process_virtual_memory_bytes			lib	
+process_working_set_bytes			lib	
+prometheus_net_eventcounteradapter_sources_connected_total			lib	
+prometheus_net_exemplars_recorded_total			lib	
+prometheus_net_meteradapter_instruments_connected			lib	
+prometheus_net_metric_families			lib	
+prometheus_net_metric_instances			lib	
+prometheus_net_metric_timeseries			lib	

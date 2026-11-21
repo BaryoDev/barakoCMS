@@ -97,7 +97,7 @@ public class AdvisoryLeaseTests
 
         // The default partition is swept first and holds a due item, so the hook fires there, once
         // that tenant's batch is loaded and before the tenant after it is visited.
-        var sweeper = new ScheduledContentService(store, logger)
+        var sweeper = new ScheduledContentService(store, logger, null, TestMetricFactory.New())
         {
             AfterLoad = ct => TerminateHolderAsync(store, 8_242_026_001L, ct),
         };
@@ -239,7 +239,7 @@ public class AdvisoryLeaseTests
             result.LockHeld.Should().BeFalse();
             visited.Should().BeEmpty("nothing is swept behind a pooler when the flag is on");
 
-            var scheduled = new ScheduledContentService(store, logger, on);
+            var scheduled = new ScheduledContentService(store, logger, on, TestMetricFactory.New());
             (await scheduled.TrySweepAllTenantsAsync(DateTime.UtcNow, default)).Should().BeFalse();
         }
         finally

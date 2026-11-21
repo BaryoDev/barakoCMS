@@ -154,7 +154,8 @@ public class WorkflowCredentialEncryptionTests
         var runner = new WorkflowRunner(
             _fixture.Services,
             _fixture.Services.GetRequiredService<ILogger<WorkflowRunner>>(),
-            _fixture.Services.GetRequiredService<IConfiguration>());
+            _fixture.Services.GetRequiredService<IConfiguration>(),
+            _fixture.Services.GetRequiredService<barakoCMS.Features.Workflows.WorkflowMetrics>());
 
         var key = run.Id.ToString();
         for (var polls = 0; polls < 200 && !CredentialEchoAction.ReceivedByRun.ContainsKey(key); polls++)
@@ -248,7 +249,8 @@ public class WorkflowCredentialEncryptionTests
         var runner = new WorkflowRunner(
             _fixture.Services,
             _fixture.Services.GetRequiredService<ILogger<WorkflowRunner>>(),
-            _fixture.Services.GetRequiredService<IConfiguration>());
+            _fixture.Services.GetRequiredService<IConfiguration>(),
+            _fixture.Services.GetRequiredService<barakoCMS.Features.Workflows.WorkflowMetrics>());
 
         var key = run.Id.ToString();
         for (var polls = 0; polls < 100 && !CredentialEchoAction.ReceivedByRun.ContainsKey(key); polls++)

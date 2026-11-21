@@ -10,7 +10,7 @@ public class AuthMailQueueTests
 {
     private static AuthMailQueue Queue() =>
         new(new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
-            NullLogger<AuthMailQueue>.Instance);
+            NullLogger<AuthMailQueue>.Instance, TestMetricFactory.New());
 
     [Fact]
     public void Two_messages_for_one_address_leave_one_queued_with_the_newer_body()
