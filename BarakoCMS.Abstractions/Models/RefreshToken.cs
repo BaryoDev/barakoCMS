@@ -133,6 +133,12 @@ public class RefreshToken
     /// </summary>
     public Guid? SessionId { get; set; }
 
+    /// <summary>
+    /// The row that replaced this one on rotation (#1391). Lets a retry of this token find the
+    /// successor. Cleared once the retry is spent, and null on rows from before this field.
+    /// </summary>
+    public Guid? SuccessorId { get; set; }
+
     /// <summary>When the session began, carried across rotation.</summary>
     public DateTime? SessionStartedAt { get; set; }
 

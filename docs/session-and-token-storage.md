@@ -125,6 +125,45 @@ token reuse.
 
 Logout is unchanged and does not end only the current session.
 
+### Rotation, reuse and the retry window
+
+Each refresh rotates the token: the old row is marked `used` and a new row takes its place. A
+`used` token presented again is reuse. It revokes every refresh token the user has (reason
+`reuse_detected`), audits `auth.token.reuse_detected` and answers 401.
+
+One replay is allowed as a retry, for a client that never got the answer to its refresh. It is a
+retry, not reuse, only when all of these hold:
+
+- the token was rotated no more than the window ago
+- its successor has never been used or revoked
+- the row has a session id (rows from before sessions never qualify)
+- the request carries the same `X-Device-Id` when the row is bound to a device
+- the token has not been retried already
+
+A retry revokes the unused successor with reason `superseded`, issues a new successor on the same
+session and answers like a normal refresh. It is audited as `auth.token.refresh_retried`. The
+`superseded` token answers 401 and revokes no other session. A second replay of the old token is
+reuse. The cookie path follows the same rule, and a caller that sent only the cookie still gets no
+refresh token in the body.
+
+The retry, the revoke of the successor and the new successor commit together under the same
+optimistic concurrency guard as rotation, so two retries at once cannot both succeed. The loser is
+treated as a race and revokes the user's tokens, as two plain refreshes of one token do.
+
+The window is `Auth:RefreshRetryWindowSeconds`. Default 30. `0` turns the retry off, so every replay
+is reuse. The most it can be is 300: a larger value, including one too big for a number, is clamped
+to 300 with a warning. A negative value means off (0), with a warning. A value that is not a whole
+number falls back to 30 with a warning. Surrounding spaces and a leading plus sign are accepted. The value is read on each request, and
+the warnings are written at start only.
+
+A used row with no device id (device trust off and no `X-Device-Id` at sign-in) gets the retry from
+any client, since there is nothing to compare. Only the window, the session and the unused successor
+limit it.
+
+Inside the window a thief who replays a stolen token before the real client uses its successor gets
+a working session, and the real client loses that one session instead of all of them. Keep the
+window short.
+
 ### Listing and ending sessions
 
 | Route | Who | What |

@@ -664,6 +664,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Auth.AuthMailQueue>();
         services.AddHostedService(sp => sp.GetRequiredService<barakoCMS.Infrastructure.Auth.AuthMailQueue>());
         services.AddSingleton<barakoCMS.Infrastructure.Auth.AccountLockout>();
+        services.AddHostedService<barakoCMS.Infrastructure.Auth.RefreshRetryWindowCheck>();
         services.AddScoped<ITokenRevocationService, TokenRevocationService>();
         services.AddScoped<ISessionEpochService, SessionEpochService>();
         services.AddScoped<IPasswordPolicyValidator, PasswordPolicyValidator>();
