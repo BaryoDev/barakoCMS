@@ -13,8 +13,9 @@ namespace BarakoCMS.Tests;
 /// <c>UseFastEndpoints</c> points a static resolver at the provider of the host that called it. Once
 /// that host is disposed the static still points at the disposed provider, and the next code in the
 /// process that goes through it outside a request fails with <see cref="ObjectDisposedException"/>.
-/// <c>JwtBearer.CreateToken</c> is one: it reads its default options through the resolver, so every
-/// token the core issues after such a test fails.
+/// <c>JwtBearer.CreateToken</c> is one: it reads its default options through the resolver. The core
+/// signs through <c>IJwtMinter</c> and no longer depends on it (#1408), but other FastEndpoints
+/// lookups made outside a request still do.
 /// </para>
 /// <para>
 /// A test that builds its own host takes <see cref="Keep"/> before it builds, and declares it before
@@ -44,6 +45,36 @@ internal static class FastEndpointsResolver
     private static readonly Lock Gate = new();
 
     private static readonly List<Func<IEnumerable<IServiceProvider>>> Fallbacks = [];
+
+    private static int _repairsOff;
+
+    /// <summary>
+    /// Turns the repair off until the result is disposed, so a test can show what a host does while
+    /// the static points at a disposed one. Every other test keeps it on. The static is process-wide,
+    /// so the switch is too: a test that takes it goes in the serial list.
+    /// </summary>
+    public static IDisposable WithoutRepair()
+    {
+        lock (Gate)
+        {
+            _repairsOff++;
+            return new RepairBack();
+        }
+    }
+
+    /// <summary>
+    /// Points the static at <paramref name="provider"/> until the result is disposed, then puts back
+    /// what was there. For a test that gives <c>JwtBearer.CreateToken</c> a clock of its own.
+    /// </summary>
+    public static IDisposable PointAt(IServiceProvider provider)
+    {
+        lock (Gate)
+        {
+            var previous = Current();
+            Write(provider.GetRequiredService<IServiceResolver>());
+            return new PutBack(previous);
+        }
+    }
 
     private static readonly System.Collections.IDictionary JobQueues =
         (System.Collections.IDictionary?)typeof(JobQueueExtensions).Assembly.GetType("FastEndpoints.JobQueueBase")?
@@ -135,7 +166,7 @@ internal static class FastEndpointsResolver
     {
         lock (Gate)
         {
-            if (IsUsable())
+            if (_repairsOff > 0 || IsUsable())
             {
                 return;
             }
@@ -178,7 +209,7 @@ internal static class FastEndpointsResolver
     {
         lock (Gate)
         {
-            if (Current() is null || IsUsable())
+            if (_repairsOff > 0 || Current() is null || IsUsable())
             {
                 return;
             }
@@ -231,6 +262,28 @@ internal static class FastEndpointsResolver
             lock (Gate)
             {
                 Fallbacks.Remove(hosts);
+            }
+        }
+    }
+
+    private sealed class RepairBack : IDisposable
+    {
+        public void Dispose()
+        {
+            lock (Gate)
+            {
+                _repairsOff--;
+            }
+        }
+    }
+
+    private sealed class PutBack(IServiceResolver? previous) : IDisposable
+    {
+        public void Dispose()
+        {
+            lock (Gate)
+            {
+                Write(previous);
             }
         }
     }

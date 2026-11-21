@@ -12,14 +12,11 @@ namespace BarakoCMS.Tests;
 /// starts a second-factor challenge. Core signs the token, so the signing key stays in core.
 /// </summary>
 /// <remarks>
-/// Signing goes through <c>JwtBearer.CreateToken</c>, which reads FastEndpoints' process-wide resolver.
-/// A plain unit test has none, so the class joins the collection whose fixture host sets it.
+/// Signing goes through <c>IJwtMinter</c>, which reads only the configuration and the clock it is
+/// given, so the class needs no host and no FastEndpoints resolver.
 /// </remarks>
-[Collection("Integration1")]
 public class MfaChallengeMintTests
 {
-    public MfaChallengeMintTests(IntegrationTestFixture factory) => _ = factory;
-
     private static readonly IConfiguration Config = new ConfigurationBuilder()
         .AddInMemoryCollection(new Dictionary<string, string?>
         {
@@ -30,7 +27,9 @@ public class MfaChallengeMintTests
         .Build();
 
     private static IMfaService Core() =>
-        new MfaService(Substitute.For<IDocumentSession>(), Substitute.For<IMfaSecretProtector>(), Config);
+        new MfaService(
+            Substitute.For<IDocumentSession>(), Substitute.For<IMfaSecretProtector>(), Config,
+            new barakoCMS.Infrastructure.Auth.JwtMinter(Config, TimeProvider.System));
 
     /// <summary>An implementation compiled before the member existed: it declares none of it.</summary>
     private sealed class OlderImplementation : IMfaService

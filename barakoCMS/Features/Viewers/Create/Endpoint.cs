@@ -18,7 +18,8 @@ namespace barakoCMS.Features.Viewers.Create;
 internal sealed class Endpoint(
     IDocumentSession session,
     IConfiguration config,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant)
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    IJwtMinter minter)
     : Endpoint<CreateViewerTokenRequest, CreateViewerTokenResponse>
 {
     public override void Configure()
@@ -38,7 +39,7 @@ internal sealed class Endpoint(
 
         var lifetime = req.LifetimeMinutes is { } m ? TimeSpan.FromMinutes(m) : (TimeSpan?)null;
         var subject = req.Subject.Trim();
-        var (token, expiresAt) = ViewerToken.Create(config, tenant.Slug, subject, lifetime);
+        var (token, expiresAt) = ViewerToken.Create(minter, config, tenant.Slug, subject, lifetime);
         var actorId = Guid.TryParse(User.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
 
         // The token itself is never written down, only who it was minted for and until when.

@@ -31,8 +31,8 @@ namespace BarakoCMS.Tests;
 /// <c>UseBarakoCMS</c>, so every app here has mapped its FastEndpoints routes by then, the ones
 /// expected to throw included. Mapping points FastEndpoints' process-wide service resolver at the
 /// app that mapped last, and it stays there until another host maps. Code that resolves through
-/// it outside a request, <c>JwtBearer.CreateToken</c> in the token issuer for one, then asks this
-/// app's container, so a disposed one fails a later test in another class with
+/// it outside a request then asks this app's container, so a disposed one fails a later test in
+/// another class with
 /// <c>ObjectDisposedException</c>. Left alive, the container answers. It is the rule
 /// <c>IntegrationTestFixture.WithSetting</c> states for the hosts it builds.
 /// </para>

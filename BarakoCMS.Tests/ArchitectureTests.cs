@@ -122,6 +122,53 @@ public class ArchitectureTests
             "account mail (codes, verification, resets) must use SendEmailAsync, the host transport");
     }
 
+    /// <summary>
+    /// <c>JwtBearer.CreateToken</c> reads FastEndpoints' process-wide resolver, so a test that calls it
+    /// is only right while no other host is starting or disposing. The host's <c>IJwtMinter</c> reads
+    /// nothing global, and a test that needs a token takes it from there (#1408). No production file
+    /// calls the old method, and the test files that still do are the serial ones, which run alone.
+    /// </summary>
+    [Fact]
+    public void Only_serial_test_classes_call_JwtBearer_CreateToken()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !Directory.Exists(Path.Combine(root.FullName, "barakoCMS")))
+            root = root.Parent;
+        root.Should().NotBeNull("the repository root is above the test output");
+
+        var serial = System.Text.Json.JsonDocument
+            .Parse(File.ReadAllText(Path.Combine(root!.FullName, "scripts", "test-collections.json")))
+            .RootElement.GetProperty("serial").EnumerateObject()
+            .Select(p => p.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        serial.Should().NotBeEmpty("the serial list is what excuses a caller");
+
+        // Whole-file text, so a call split across lines or spaced out is still found. Comments are
+        // cut first, so a remark that names the method does not count.
+        var call = new System.Text.RegularExpressions.Regex(@"JwtBearer\s*\.\s*CreateToken\s*\(");
+        var comments = new System.Text.RegularExpressions.Regex(
+            @"//[^\r\n]*|/\*.*?\*/", System.Text.RegularExpressions.RegexOptions.Singleline);
+        var projects = Directory.EnumerateDirectories(root.FullName)
+            .Where(d => Path.GetFileName(d) is var n && (n == "barakoCMS" || n.StartsWith("BarakoCMS.", StringComparison.Ordinal)))
+            .ToArray();
+        projects.Should().Contain(d => Path.GetFileName(d) == "BarakoCMS.Tests", "the scan has to reach the tests");
+
+        var callers = projects
+            .SelectMany(project => Directory.EnumerateFiles(project, "*.cs", SearchOption.AllDirectories))
+            .Where(f => !f.Split(Path.DirectorySeparatorChar).Any(part => part is "obj" or "bin")
+                     && Path.GetFileName(f) != nameof(ArchitectureTests) + ".cs")
+            .Where(f => call.IsMatch(comments.Replace(File.ReadAllText(f), "")))
+            .Select(f => Path.GetRelativePath(Path.Combine(root.FullName, "BarakoCMS.Tests"), f).Replace('\\', '/'))
+            .ToArray();
+
+        callers.Should().Contain("JwtMinterGoldenTests.cs", "the scan has to find the golden test or it proves nothing");
+        var production = callers.Where(c => c.StartsWith("../", StringComparison.Ordinal)
+                                         && !c.StartsWith("../BarakoCMS.Testing/", StringComparison.Ordinal)).ToArray();
+        production.Should().HaveCount(0, "the host signs through IJwtMinter, never JwtBearer.CreateToken");
+        callers.Except(production).Where(c => !serial.Contains(c)).Should().HaveCount(0,
+            "a test outside the serial list takes its token from the host's IJwtMinter, not from JwtBearer.CreateToken");
+    }
+
     [Fact]
     public void The_scan_finds_the_endpoints_validators_and_list_endpoints_Features_holds()
     {

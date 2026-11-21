@@ -41,7 +41,8 @@ internal class VerifyEndpoint(
     barakoCMS.Core.Interfaces.IDeviceGate deviceGate,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
     barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
-    barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa) : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
+    barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
+    barakoCMS.Infrastructure.Auth.IJwtMinter minter) : Endpoint<OtpVerifyRequest, OtpVerifyResponse>
 {
     private const int MaxAttempts = 5;
 
@@ -193,7 +194,7 @@ internal class VerifyEndpoint(
             // Refuse on a lost race instead of issuing the challenge: the code was consumed by
             // the request that won, and one code must not yield two challenges.
             if (!await TrySaveAsync(ct)) { ThrowError("Invalid or expired code."); return; }
-            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(config, user.Id, null, "code");
+            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(minter, config, user.Id, null, "code");
             await Send.ResponseAsync(new OtpVerifyResponse { RequiresMfa = true, MfaChallengeToken = challenge });
             return;
         }

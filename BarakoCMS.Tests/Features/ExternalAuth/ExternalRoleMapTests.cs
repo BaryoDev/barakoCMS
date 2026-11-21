@@ -1160,7 +1160,7 @@ public class ExternalRoleMapTests
         var roles = new List<Guid> { Guid.NewGuid(), Guid.NewGuid() };
         var userId = Guid.NewGuid();
 
-        var (token, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(config, userId,
+        var (token, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(_host!.Services.GetRequiredService<barakoCMS.Infrastructure.Auth.IJwtMinter>(), config, userId,
             new barakoCMS.Infrastructure.Auth.Mfa.PendingExternalGrant("a|b", "stub|x", roles));
         var read = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Validated(config, token);
 
