@@ -67,20 +67,27 @@ public class MetricsSeriesGoldenTests
             if (parts[1] == "TYPE") type[parts[2]] = parts.Length > 3 ? parts[3] : "";
         }
 
-        // A family with no child shows no sample, so its label names come from the collector.
-        var collectors = (System.Collections.IDictionary)typeof(Prometheus.CollectorRegistry)
-            .GetField("_collectors", BindingFlags.Instance | BindingFlags.NonPublic)!
+        // A family with no child shows no sample, so its label names come from its collector.
+        // prometheus-net 8.2.1 keeps a CollectorFamily per name in _families, and each family
+        // keeps its collectors in _collectors.
+        var families = (System.Collections.IDictionary)typeof(Prometheus.CollectorRegistry)
+            .GetField("_families", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(Prometheus.Metrics.DefaultRegistry)!;
+
+        string LabelNames(string name)
+        {
+            var family = families[name]!;
+            var collectors = (System.Collections.IDictionary)family.GetType()
+                .GetField("_collectors", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(family)!;
+            return string.Join(';', collectors.Values.Cast<Prometheus.Collector>()
+                .Select(c => string.Join(',', c.LabelNames)));
+        }
 
         return type.Keys
             .Where(n => n.StartsWith("barakocms_", StringComparison.Ordinal))
             .Order(StringComparer.Ordinal)
-            .Select(n => new Family(
-                n,
-                type[n],
-                string.Join(',', ((Prometheus.Collector)collectors[n]!).LabelNames),
-                "",
-                help.GetValueOrDefault(n, "")))
+            .Select(n => new Family(n, type[n], LabelNames(n), "", help.GetValueOrDefault(n, "")))
             .ToList();
     }
 
