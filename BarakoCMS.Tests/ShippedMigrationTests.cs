@@ -97,6 +97,8 @@ public class ShippedMigrationTests
         ["core/5.7.2/workflow-run-content-status-tenant-index"] = "45a232374b304fa92d4ce54669c72a57bbe977f71c803012cc4372b608a4794e",
         ["core/5.7.2/workflow-run-status-tenant-index"] = "0a32eab8f277752b2ffb3e029305c12361d308f36f882806361a2a474fc61a41",
         ["core/5.7.2/workflow-run-workflow-status-tenant-index"] = "f4fd03182ba67853d97e752172ac35af3197a91982dc39d7de2ac21a644d387e",
+        ["core/5.9.0/561-cdn-purge-settings"] = "d45af11cfc9aebfe23a16e1af552afbde1e7babf6f8feb6458e07625cece7f98",
+        ["core/5.9.0/561-pending-cdn-purges"] = "e69873303169a3f176df9e55dafe7c90dbe6fcaef820cb490f3f6c5dee8716fc",
         ["core/5.9.0/module-seeded-types"] = "a9ee1b2bf5865d2d2eca91d74fcc228c34fa89646392ba60934a34fadcef0cc2",
         ["ExternalAuth/5.5.0/1270-external-auth-social-handoff"] = "187b21746f52fed4fa7d613a6ab155a6e27ba175b0852fde08f9297f3312dc9a",
         ["ExternalAuth/5.5.0/915-external-auth-provider-settings"] = "f10f22aacc47fba6f52349beae150b705ea93defc7ad4b1206ccaee89cbeaecb",
