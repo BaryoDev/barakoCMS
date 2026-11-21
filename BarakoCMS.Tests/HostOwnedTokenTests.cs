@@ -135,24 +135,27 @@ public class HostOwnedTokenTests(IntegrationTestFixture factory)
     }
 
     [Fact]
-    public async Task A_host_whose_configuration_gets_a_weak_key_after_startup_wiring_is_refused()
+    public void A_key_made_weak_in_the_host_configuration_is_refused_when_minting_and_when_the_bearer_options_are_built()
     {
-        // The startup guard reads the configuration as it was when AddBarakoCMS ran. A source added
-        // after that, as a test host or a late provider does, is not seen by it. The key is checked
-        // again where it is used, so the weak key is refused on first mint and on first validation.
-        var host = factory.WithWebHostBuilder(b => b.ConfigureServices((context, _) =>
-            ((IConfigurationBuilder)context.Configuration).AddInMemoryCollection(
-                new Dictionary<string, string?> { ["JWT:Key"] = "too-short" }))); // allow-secret
-        _ = host.Services;
-
-        var mint = () => MintOn(host, Guid.NewGuid());
-        mint.Should().Throw<InvalidOperationException>().WithMessage("*JWT:Key*");
-
-        var validate = async () =>
+        // The startup guard read the key as it was when AddBarakoCMS ran. The key is checked again
+        // where it is used, so a weak key set on the host's configuration afterwards is refused.
+        var host = HostWithKey(FirstKey);
+        var config = host.Services.GetRequiredService<IConfiguration>();
+        var original = config["JWT:Key"];
+        try
         {
-            var status = await WhoAmIAsync(host, "not.a.token");
-            status.Should().NotBe(HttpStatusCode.Unauthorized, "an unusable key is a refusal to start validating, not a bad token");
-        };
-        await validate.Should().ThrowAsync<Exception>();
+            config["JWT:Key"] = "too-short"; // allow-secret
+
+            var mint = () => MintOn(host, Guid.NewGuid());
+            mint.Should().Throw<InvalidOperationException>().WithMessage("*JWT:Key*");
+
+            var build = () => host.Services.GetRequiredService<IOptionsFactory<Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions>>()
+                .Create(Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme);
+            build.Should().Throw<InvalidOperationException>().WithMessage("*JWT:Key*");
+        }
+        finally
+        {
+            config["JWT:Key"] = original;
+        }
     }
 }
