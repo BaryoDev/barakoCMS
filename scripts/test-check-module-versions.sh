@@ -531,6 +531,28 @@ run; check "Testing at the core's version" pass
 set_version 4.7.0 barakoCMS; commit "core to 4.7.0 alone"
 run; check "the core bumped without Testing" fail "set <Version> in BarakoCMS.Testing/BarakoCMS.Testing.csproj to 4.7.0"
 
+echo "== BarakoCMS.Testing changes between core releases follow the core =="
+# Testing is published with the core, so a Testing change after a release waits for the next core
+# version and is never skipped. Its version equality check above still applies (the "Testing behind
+# the core" and "the core bumped without Testing" cases cover the unequal versions).
+testing=BarakoCMS.Testing
+new_repo
+set_version 5.9.0 barakoCMS
+set_version 5.9.0 "$testing"
+set_version 4.0.0; touch_module "first"; touch_module "first" "$testing"
+commit "core 5.9.0, Testing 5.9.0"; tag v5.9.0
+touch_module "after the release" "$testing"; commit "Testing change after 5.9.0"
+on_nuget 4.0.0
+on_nuget_as barakocms.testing 5.9.0
+run; check "Testing changed after the release that published its version" pass
+
+touch_module "after the release"; commit "Demo change after 5.9.0"
+run; check "the same tree with another module changed since its release" fail \
+  "BarakoCMS.Demo is at 4.0.0" "since v5.9.0"
+out_all=$out; code=0
+grep -qF "BarakoCMS.Testing is at" <<< "$out_all" && code=1
+out=""; check "Testing is not named in that failure" pass
+
 echo "== git variables inherited from a hook =="
 # The whole script again, the way a hook would start it, with a bystander repository named by
 # GIT_DIR. It must come through with nothing moved, added or tagged.

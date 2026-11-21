@@ -253,6 +253,13 @@ fi
 for csproj in "${csprojs[@]}"; do
   module=$(dirname "$csproj")
 
+  # Testing is left out of the source-change measurement. Its version equals the core's (checked
+  # above), and a release only publishes when the core's version is not on NuGet, so Testing's is
+  # not there either and --skip-duplicate cannot drop a Testing change. The measurement could only
+  # fire falsely: after a release, any change to Testing would fail until the core moved, and moving
+  # the core starts a release. The core is outside this check for the same reason.
+  [ "$csproj" = "$testing_csproj" ] && continue
+
   version=$(read_version < "$csproj")
   if [ -z "$version" ]; then
     echo "::warning::$module has no <Version>; skipping"
