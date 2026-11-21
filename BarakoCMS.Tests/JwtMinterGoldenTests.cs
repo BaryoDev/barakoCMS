@@ -37,9 +37,16 @@ namespace BarakoCMS.Tests;
 /// <c>JsonWebTokenHandler</c> fills <c>nbf</c> from <c>DateTime.UtcNow</c>, so the old path reads
 /// the system clock for it. The minter leaves it unset for the same reason, to keep the bytes
 /// production signs the same. A whole-string comparison would fail whenever the two calls straddle
-/// a second. So the header and the payload, with <c>nbf</c> removed, are compared as exact text,
-/// each <c>nbf</c> is checked to be within seconds of now, and the minter's signature is verified
-/// against the key.
+/// a second. So the header is compared as exact text, the payload with <c>nbf</c> removed is
+/// compared as exact text in claim order, each <c>nbf</c> is checked to be within seconds of now,
+/// and the signature bytes are compared exactly: each signature must equal HMACSHA256 over its own
+/// <c>header.payload</c> with the ASCII key bytes. With <c>nbf</c> the only value left out, header,
+/// payload and signature are all exact.
+/// </para>
+/// <para>
+/// Both paths are fed the claims the site passed, so those tests cannot see a site that changes
+/// them. The claim tests at the end of the class pin, for each site, the claims it signed at
+/// 640a9bf1 as literals: type, value and order.
 /// </para>
 /// <para>
 /// Serial, because the old path reads FastEndpoints' process-wide resolver and each test points it
@@ -156,10 +163,173 @@ public class JwtMinterGoldenTests(IntegrationTestFixture factory)
     public void A_minter_with_no_signing_key_refuses_as_JwtBearer_did()
     {
         var unset = new ConfigurationBuilder().AddInMemoryCollection().Build();
+        var before = Environment.GetEnvironmentVariable("JWT__Key");
+        Environment.SetEnvironmentVariable("JWT__Key", null);
+        try
+        {
+            var mint = () => new JwtMinter(unset, TimeProvider.System).Mint("a", DateTime.UtcNow.AddMinutes(1), []);
 
-        var mint = () => new JwtMinter(unset, TimeProvider.System).Mint("a", DateTime.UtcNow.AddMinutes(1), []);
+            mint.Should().Throw<InvalidOperationException>().WithMessage("*JWT:Key must be configured*");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("JWT__Key", before);
+        }
+    }
 
-        mint.Should().Throw<InvalidOperationException>().WithMessage("*SigningKey*required*");
+    private const string FixedUser = "6f1c2a3e-0000-4000-8000-00000000a001";
+    private const string FixedRoleName = "golden-role";
+    private static readonly Guid FixedRoleId = Guid.Parse("6f1c2a3e-0000-4000-8000-00000000b001");
+
+    private static string J(string text) => System.Text.Json.JsonSerializer.Serialize(text);
+
+    /// <summary>
+    /// The payload entries named in <paramref name="expected"/>, in payload order, as JSON text, against
+    /// the literal list. A null expected value means the entry must be there with any value.
+    /// </summary>
+    private static void AssertSiteClaims(string token, params (string Name, string? Json)[] expected)
+    {
+        var payload = Decode(token).Payload;
+        var names = expected.Select(e => e.Name).ToHashSet(StringComparer.Ordinal);
+        var actual = payload
+            .Select(p => (Name: p.Key, Json: p.Value?.ToJsonString() ?? "null"))
+            .Where(p => names.Contains(p.Name))
+            .ToArray();
+
+        actual.Select(a => a.Name).Should().Equal(expected.Select(e => e.Name), "the claims, in the order the site signs them");
+        for (var i = 0; i < expected.Length; i++)
+        {
+            if (expected[i].Json is { } json)
+                actual[i].Json.Should().Be(json, $"the value of {expected[i].Name}");
+        }
+        payload["iss"]!.GetValue<string>().Should().Be(Issuer);
+    }
+
+    private static void AssertIssuedNow(string token)
+    {
+        var iat = Decode(token).Payload["iat"]!.GetValue<long>();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        iat.Should().BeInRange(now - 10, now + 10, "the issuer stamps iat from the system clock");
+    }
+
+    private static void AssertExpiresIn(string token, TimeSpan lifetime)
+    {
+        var exp = Decode(token).Payload["exp"]!.GetValue<long>();
+        var want = DateTimeOffset.UtcNow.Add(lifetime).ToUnixTimeSeconds();
+        exp.Should().BeInRange(want - 10, want + 10, "the site's lifetime from the system clock");
+    }
+
+    [Fact]
+    public void The_step_up_token_carries_the_claims_it_carried_at_the_base()
+    {
+        var (token, _) = StepUpToken.Create(NewRecorder(), Config, Guid.Parse(FixedUser));
+
+        AssertSiteClaims(token, ("purpose", J("stepup")), ("uid", J(FixedUser)));
+        Decode(token).Payload["aud"]!.GetValue<string>().Should().Be("golden-audience:stepup");
+        AssertExpiresIn(token, StepUpToken.Lifetime(Config));
+    }
+
+    [Fact]
+    public void The_MFA_challenge_token_carries_the_claims_it_carried_at_the_base()
+    {
+        var (token, _) = MfaChallengeToken.Create(NewRecorder(), Config, Guid.Parse(FixedUser), null, "password");
+
+        AssertSiteClaims(token, ("purpose", J("mfa")), ("mfauid", J(FixedUser)), ("mfafactor", J("password")));
+        Decode(token).Payload["aud"]!.GetValue<string>().Should().Be("golden-audience:mfa");
+        AssertExpiresIn(token, MfaChallengeToken.Lifetime);
+    }
+
+    [Fact]
+    public void The_MFA_challenge_token_carries_an_external_grant_after_the_first_factor()
+    {
+        var grant = new PendingExternalGrant("acme", "oidc|golden", [Guid.NewGuid()]);
+
+        var (token, _) = MfaChallengeToken.Create(NewRecorder(), Config, Guid.Parse(FixedUser), grant, "social:google");
+
+        AssertSiteClaims(token, ("purpose", J("mfa")), ("mfauid", J(FixedUser)), ("mfafactor", J("social:google")), ("mfagrant", null));
+    }
+
+    [Fact]
+    public void The_preview_token_carries_the_claims_it_carried_at_the_base()
+    {
+        var entry = Guid.Parse("6f1c2a3e-0000-4000-8000-00000000c001");
+
+        var (token, _) = PreviewToken.Create(NewRecorder(), Config, "acme", "article", "wip", entry, TimeSpan.FromMinutes(7));
+
+        AssertSiteClaims(token,
+            ("purpose", J("preview")), ("ptenant", J("acme")), ("ptype", J("article")), ("pslug", J("wip")), ("pid", J(entry.ToString())));
+        Decode(token).Payload["aud"]!.GetValue<string>().Should().Be("golden-audience:preview");
+        AssertExpiresIn(token, TimeSpan.FromMinutes(7));
+    }
+
+    [Fact]
+    public void The_viewer_token_carries_the_claims_it_carried_at_the_base()
+    {
+        var (token, _) = ViewerToken.Create(NewRecorder(), Config, "acme", "member-1", TimeSpan.FromMinutes(9));
+
+        AssertSiteClaims(token, ("purpose", J("viewer")), ("vtenant", J("acme")), ("vsub", J("member-1")));
+        Decode(token).Payload["aud"]!.GetValue<string>().Should().Be("golden-audience:viewer");
+        AssertExpiresIn(token, TimeSpan.FromMinutes(9));
+    }
+
+    [Fact]
+    public async Task The_access_token_of_a_user_with_no_roles_carries_the_User_role_and_the_extra_claim()
+    {
+        var user = await StoredGoldenUserAsync(roleIds: []);
+
+        var token = await IssueAsync(user);
+
+        AssertSiteClaims(token,
+            ("jti", null), ("UserId", J(FixedUser)), ("Username", J("golden-user")), ("tenant", J("default")),
+            (ClaimTypes.Role, J("User")), ("extra", J("one")));
+        Decode(token).Payload["aud"]!.GetValue<string>().Should().Be("golden-audience");
+        AssertExpiresIn(token, TimeSpan.FromMinutes(5));
+        AssertIssuedNow(token);
+    }
+
+    [Fact]
+    public async Task The_access_token_of_a_user_with_a_role_that_needs_MFA_carries_the_role_and_the_enrolment_claim_last()
+    {
+        using (var scope = factory.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new Role { Id = FixedRoleId, Name = FixedRoleName, TenantSlug = null, RequireMfa = true });
+            await session.SaveChangesAsync(Ct);
+        }
+        var user = await StoredGoldenUserAsync(roleIds: [FixedRoleId]);
+
+        var token = await IssueAsync(user);
+
+        AssertSiteClaims(token,
+            ("jti", null), ("UserId", J(FixedUser)), ("Username", J("golden-user")), ("tenant", J("default")),
+            (ClaimTypes.Role, J(FixedRoleName)), ("extra", J("one")), (MfaEnrollment.Claim, J("required")));
+    }
+
+    private async Task<User> StoredGoldenUserAsync(List<Guid> roleIds)
+    {
+        using var scope = factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var user = new User
+        {
+            Id = Guid.Parse(FixedUser), Username = "golden-user", Email = "golden@example.com", RoleIds = roleIds,
+        };
+        session.Store(user);
+        await session.SaveChangesAsync(Ct);
+        return user;
+    }
+
+    private async Task<string> IssueAsync(User user)
+    {
+        using var scope = factory.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var issuer = new TokenIssuer(
+            session, Config, NullLogger<TokenIssuer>.Instance, TenancyOptions.FromConfiguration(Config), NewRecorder());
+
+        var issued = await issuer.IssueAccessTokenAsync(
+            user, "default", [new Claim("extra", "one")], DateTime.UtcNow.AddMinutes(5), Ct);
+
+        issued.Allowed.Should().BeTrue();
+        return issued.Token;
     }
 
     private static void AssertMatchesOldPath(string minted, Call call, string audience)
@@ -181,6 +351,8 @@ public class JwtMinterGoldenTests(IntegrationTestFixture factory)
         oldNbf.Should().BeInRange(now - 10, now + 10, "the old path took nbf from the system clock too");
 
         VerifiesWithAsciiKey(minted, audience).Should().BeTrue("the key is signed as ASCII bytes, as bearer validation reads it");
+        SignatureIsHmacOfSignedPart(minted).Should().BeTrue("the minted signature is HMACSHA256 of header.payload under the ASCII key bytes");
+        SignatureIsHmacOfSignedPart(old).Should().BeTrue("the old path signed the same way");
     }
 
     /// <summary>
@@ -232,6 +404,14 @@ public class JwtMinterGoldenTests(IntegrationTestFixture factory)
         var nbf = payload["nbf"]!.GetValue<long>();
         payload.Remove("nbf");
         return nbf;
+    }
+
+    private static bool SignatureIsHmacOfSignedPart(string token)
+    {
+        var parts = token.Split('.');
+        var expected = System.Security.Cryptography.HMACSHA256.HashData(
+            Encoding.ASCII.GetBytes(Key), Encoding.ASCII.GetBytes(parts[0] + "." + parts[1]));
+        return expected.AsSpan().SequenceEqual(Base64UrlEncoder.DecodeBytes(parts[2]));
     }
 
     private static bool VerifiesWithAsciiKey(string token, string audience)
