@@ -92,6 +92,11 @@ internal sealed class SampleProbeModule : IBarakoModule
         services.PostConfigure<ConnectionOptions>(o => o.DisconnectTimeout = TimeSpan.FromMinutes(5));
         services.PostConfigure<HubOptions>(o => o.HandshakeTimeout = HubHandshakeTimeout);
         services.PostConfigure<HubOptions<RealtimeHub>>(o => o.HandshakeTimeout = HubHandshakeTimeout);
+
+        // The probe host has no remote address on any request, so every client shares the limiter's
+        // one bucket. The first filter honours an address a test sends, the second fills in the rest.
+        services.AddSingleton<Microsoft.AspNetCore.Hosting.IStartupFilter, TestRemoteIpFilter>();
+        services.AddSingleton<Microsoft.AspNetCore.Hosting.IStartupFilter, ProbeClientAddressFilter>();
     }
 
     internal static readonly TimeSpan HubHandshakeTimeout = TimeSpan.FromMinutes(2);

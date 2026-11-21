@@ -284,6 +284,9 @@ public class RoleGateTests
     {
         var request = new HttpRequestMessage(new HttpMethod(route.Verb), route.Probe);
 
+        // Its own client address, so the static clients never pass the global limiter's hundred in one bucket.
+        request.Headers.Add(TestRemoteIpFilter.Header, TestClientIp.Next());
+
         if (route.Verb is "POST" or "PUT" or "PATCH")
         {
             // Deliberately not valid JSON. Authorization runs before model binding, so this changes

@@ -18,6 +18,11 @@ namespace BarakoCMS.Tests;
 /// </summary>
 internal sealed class CapturingMartenLogger : IMartenLogger, IMartenSessionLogger
 {
+    private readonly bool _keepRaw;
+
+    /// <param name="keepRaw">False for a logger that lives a whole run and never reads RawCommands, so the queue does not grow.</param>
+    public CapturingMartenLogger(bool keepRaw = true) => _keepRaw = keepRaw;
+
     public ConcurrentQueue<(string Sql, string[] Parameters)> Commands { get; } = new();
 
     /// <summary>The same statements with their parameters cloned, so a test can run one again.</summary>
@@ -36,7 +41,7 @@ internal sealed class CapturingMartenLogger : IMartenLogger, IMartenSessionLogge
         foreach (var command in batch.BatchCommands)
         {
             Commands.Enqueue((command.CommandText, Values(command.Parameters)));
-            RawCommands.Enqueue((command.CommandText, Clones(command.Parameters)));
+            if (_keepRaw) RawCommands.Enqueue((command.CommandText, Clones(command.Parameters)));
         }
     }
 
@@ -53,7 +58,7 @@ internal sealed class CapturingMartenLogger : IMartenLogger, IMartenSessionLogge
     private void Record(NpgsqlCommand command)
     {
         Commands.Enqueue((command.CommandText, Values(command.Parameters)));
-        RawCommands.Enqueue((command.CommandText, Clones(command.Parameters)));
+        if (_keepRaw) RawCommands.Enqueue((command.CommandText, Clones(command.Parameters)));
     }
 
     private static NpgsqlParameter[] Clones(System.Collections.IEnumerable parameters) =>
