@@ -47,10 +47,8 @@ public class JobQueueHygieneTests
             new JobOptions(),
             NullLogger<MartenJobStorageProvider>.Instance,
             gate,
-            _fixture.Services.GetRequiredService<IConfiguration>())
-        {
-            Metrics = metrics,
-        };
+            _fixture.Services.GetRequiredService<IConfiguration>(),
+            metrics);
     }
 
     private static JobMetrics OwnMetrics() => new(Prometheus.Metrics.NewCustomRegistry());

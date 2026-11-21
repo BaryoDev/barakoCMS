@@ -134,7 +134,7 @@ internal static class WorkflowSchedule
     /// the claim already exists another host took the time, and this one does nothing for it.
     /// </remarks>
     public static async Task<int> FireDueAsync(
-        IDocumentSession session, DateTime nowUtc, ILogger? logger, CancellationToken ct)
+        IDocumentSession session, WorkflowMetrics metrics, DateTime nowUtc, ILogger? logger, CancellationToken ct)
     {
         var workflows = (await session.Query<WorkflowDefinition>()
             .Where(w => w.Schedule != null)
@@ -191,7 +191,7 @@ internal static class WorkflowSchedule
                 }
 
                 var previous = i > 0 ? window[i - 1] : Previous(cron, zone, window[i]);
-                if (await TryQueueAsync(session, workflow, window[i], previous, nowUtc, logger, ct)) queued++;
+                if (await TryQueueAsync(session, metrics, workflow, window[i], previous, nowUtc, logger, ct)) queued++;
             }
         }
 
@@ -236,8 +236,8 @@ internal static class WorkflowSchedule
     }
 
     private static async Task<bool> TryQueueAsync(
-        IDocumentSession session, WorkflowDefinition workflow, DateTime latest, DateTime? previous,
-        DateTime nowUtc, ILogger? logger, CancellationToken ct)
+        IDocumentSession session, WorkflowMetrics metrics, WorkflowDefinition workflow, DateTime latest,
+        DateTime? previous, DateTime nowUtc, ILogger? logger, CancellationToken ct)
     {
         var run = WorkflowRunQueue.NewRun(
             workflow, Guid.Empty, WorkflowTriggers.ContentTypes(workflow).FirstOrDefault() ?? string.Empty,
@@ -257,7 +257,7 @@ internal static class WorkflowSchedule
         try
         {
             await session.SaveChangesAsync(ct);
-            WorkflowMetrics.Default.Queued(WorkflowEvents.Schedule, 1, session.TenantId);
+            metrics.Queued(WorkflowEvents.Schedule, 1, session.TenantId);
             return true;
         }
         catch (DocumentAlreadyExistsException)

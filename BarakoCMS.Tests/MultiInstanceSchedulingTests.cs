@@ -57,7 +57,7 @@ public class MultiInstanceSchedulingTests
 
         try
         {
-            var swept = await new ScheduledContentService(store, logger)
+            var swept = await new ScheduledContentService(store, logger, null, TestMetricFactory.New())
                 .TrySweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None);
 
             swept.Should().BeFalse(
@@ -81,7 +81,7 @@ public class MultiInstanceSchedulingTests
         var logger = scope.ServiceProvider
             .GetRequiredService<Microsoft.Extensions.Logging.ILogger<ScheduledContentService>>();
 
-        var swept = await new ScheduledContentService(store, logger)
+        var swept = await new ScheduledContentService(store, logger, null, TestMetricFactory.New())
             .TrySweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None);
 
         swept.Should().BeTrue("nothing holds the lock, so the sweep must run");
@@ -102,7 +102,7 @@ public class MultiInstanceSchedulingTests
         var logger = scope.ServiceProvider
             .GetRequiredService<Microsoft.Extensions.Logging.ILogger<ScheduledContentService>>();
 
-        var service = new ScheduledContentService(store, logger);
+        var service = new ScheduledContentService(store, logger, null, TestMetricFactory.New());
 
         (await service.TrySweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None)).Should().BeTrue();
         (await service.TrySweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None)).Should().BeTrue(
@@ -157,8 +157,8 @@ public class MultiInstanceSchedulingTests
                 .GetRequiredService<Microsoft.Extensions.Logging.ILogger<ScheduledContentService>>();
 
             await Task.WhenAll(
-                new ScheduledContentService(store, logger).SweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None),
-                new ScheduledContentService(store, logger).SweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None));
+                new ScheduledContentService(store, logger, null, TestMetricFactory.New()).SweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None),
+                new ScheduledContentService(store, logger, null, TestMetricFactory.New()).SweepAllTenantsAsync(DateTime.UtcNow, CancellationToken.None));
         }
 
         var transitions = 0;
@@ -246,7 +246,7 @@ public class MultiInstanceSchedulingTests
                 .GetRequiredService<Microsoft.Extensions.Logging.ILogger<ScheduledContentService>>();
 
             var killed = 0;
-            var firstLeader = new ScheduledContentService(store, logger)
+            var firstLeader = new ScheduledContentService(store, logger, null, TestMetricFactory.New())
             {
                 AfterLoad = async ct =>
                 {
@@ -259,7 +259,7 @@ public class MultiInstanceSchedulingTests
                         + "and ((classid::bigint << 32) | objid::bigint) = 8242026001) t";
                     killed = Convert.ToInt32(await kill.ExecuteScalarAsync(ct));
 
-                    var second = new ScheduledContentService(store, logger);
+                    var second = new ScheduledContentService(store, logger, null, TestMetricFactory.New());
                     var swept = false;
                     for (var attempt = 0; attempt < 60 && !swept; attempt++)
                     {

@@ -238,7 +238,8 @@ internal sealed class WorkflowStopHarness(IntegrationTestFixture factory)
                 {
                     [WorkflowRunner.ConcurrencyKey] = bound.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 })
-                .Build());
+                .Build(),
+        factory.Services.GetRequiredService<barakoCMS.Features.Workflows.WorkflowMetrics>());
 
     /// <summary>
     /// Runs a runner of the test's own until it finds nothing due, or until the test's own runs have

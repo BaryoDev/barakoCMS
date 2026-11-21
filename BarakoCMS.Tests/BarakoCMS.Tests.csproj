@@ -66,6 +66,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Fixtures\MetricsGolden\barakocms-metrics.golden.tsv" LogicalName="barakocms-metrics.golden.tsv" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Collections run side by side, each on its own fixture. See scripts/assign-test-collections.py. -->
     <Content Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

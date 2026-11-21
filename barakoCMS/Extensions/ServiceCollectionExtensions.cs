@@ -367,8 +367,44 @@ public static class ServiceCollectionExtensions
         });
     }
 
+    /// <summary>
+    /// Makes this host's internal registry-bound collectors resolvable from one place. Production
+    /// publishes to prometheus-net's default registry. <see cref="UseIsolatedMetricsRegistry"/>
+    /// swaps in a registry of the host's own, in either call order.
+    /// </summary>
+    private static void AddHostMetrics(IServiceCollection services)
+    {
+        services.TryAddSingleton(_ => barakoCMS.Infrastructure.Observability.HostMetrics.Default());
+        services.TryAddSingleton<IMetricFactory>(
+            sp => sp.GetRequiredService<barakoCMS.Infrastructure.Observability.HostMetrics>().Factory);
+        services.TryAddSingleton(sp => new barakoCMS.Features.Workflows.WorkflowMetrics(sp.GetRequiredService<IMetricFactory>()));
+        services.TryAddSingleton(sp => new barakoCMS.Infrastructure.Jobs.JobMetrics(sp.GetRequiredService<IMetricFactory>()));
+    }
+
+    /// <summary>
+    /// For a test factory only. Gives the host a metrics registry of its own, with its own runtime,
+    /// process, event counter and meter collectors, stopped when the host is disposed. Two hosts in
+    /// one process then no longer write to the same series.
+    /// </summary>
+    /// <remarks>
+    /// The Meter and EventCounter listeners are process wide, so with two hosts alive each isolated
+    /// registry also shows the other host's System.Diagnostics Meter series. The series this
+    /// library writes itself (requests, workflows, jobs, API keys, mail) stay on their own host.
+    ///
+    /// Production does not call this: a host that does not keeps prometheus-net's default registry
+    /// and the same series it always had.
+    /// </remarks>
+    public static IServiceCollection UseIsolatedMetricsRegistry(this IServiceCollection services)
+    {
+        services.Replace(ServiceDescriptor.Singleton(_ => barakoCMS.Infrastructure.Observability.HostMetrics.Isolated()));
+        return services;
+    }
+
     private static void AddJobQueue(IServiceCollection services)
     {
+        // The job queue counts to the host's metrics, so they are registered first.
+        AddHostMetrics(services);
+
         // The job queue. The storage provider is a singleton that reaches the request's scoped
         // session through IHttpContextAccessor, which is what makes an enqueue commit with the
         // request; see MartenJobStorageProvider and docs/background-jobs.md.
@@ -488,7 +524,9 @@ public static class ServiceCollectionExtensions
                 tags: new[] { "workflow", "projection" });
 
         services.AddSingleton(sp => new barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck(
-            sp.GetRequiredService<IDocumentStore>(), maxProjectionLag));
+            sp.GetRequiredService<IDocumentStore>(),
+            sp.GetRequiredService<barakoCMS.Infrastructure.Observability.HostMetrics>().Factory,
+            maxProjectionLag));
     }
 
     private static void AddJwtAndApiKeyAuth(IServiceCollection services, IConfiguration configuration)
@@ -2062,10 +2100,17 @@ public static class ServiceCollectionExtensions
     // the health probes and FastEndpoints, which end the pipeline for the requests they answer.
     // Placed after UseBarakoCMS in Program.cs it only ever saw requests nothing answered.
     // Tenant slug when it is a registered tenant, else the default tenant; "all" when Metrics:TenantLabel is off.
-    private static void UseRequestMetrics(IApplicationBuilder app) =>
-        app.UseHttpMetrics(options => options.AddCustomLabel(
-            barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.Name,
-            context => barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.ForRequest(context)));
+    private static void UseRequestMetrics(IApplicationBuilder app)
+    {
+        var host = app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Observability.HostMetrics>();
+        app.UseHttpMetrics(options =>
+        {
+            options.SetMetricFactory(host.Factory);
+            options.AddCustomLabel(
+                barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.Name,
+                context => barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.ForRequest(context));
+        });
+    }
 
     private static void UseExceptionHandling(IApplicationBuilder app)
     {

@@ -52,7 +52,7 @@ public class WorkflowScheduleTests
     {
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        return await WorkflowSchedule.FireDueAsync(session, now, null, Ct);
+        return await WorkflowSchedule.FireDueAsync(session, new WorkflowMetrics(Prometheus.Metrics.NewCustomRegistry()), now, null, Ct);
     }
 
     private async Task<List<WorkflowRun>> RunsOfAsync(Guid workflowId)

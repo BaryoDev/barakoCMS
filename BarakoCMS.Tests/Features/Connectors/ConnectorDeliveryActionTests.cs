@@ -204,7 +204,8 @@ public class ConnectorDeliveryActionTests : IAsyncLifetime
         var runner = new WorkflowRunner(
             _factory.Services,
             _factory.Services.GetRequiredService<ILogger<WorkflowRunner>>(),
-            _factory.Services.GetRequiredService<IConfiguration>());
+            _factory.Services.GetRequiredService<IConfiguration>(),
+            _factory.Services.GetRequiredService<barakoCMS.Features.Workflows.WorkflowMetrics>());
 
         var polls = 0;
         while (await runner.RunOnceAsync(Ct))

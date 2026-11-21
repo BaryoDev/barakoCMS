@@ -378,7 +378,8 @@ public class WebhookDeliveryTests
         var runner = new barakoCMS.Features.Workflows.WorkflowRunner(
             _fixture.Services,
             _fixture.Services.GetRequiredService<ILogger<barakoCMS.Features.Workflows.WorkflowRunner>>(),
-            _fixture.Services.GetRequiredService<IConfiguration>());
+            _fixture.Services.GetRequiredService<IConfiguration>(),
+        _fixture.Services.GetRequiredService<barakoCMS.Features.Workflows.WorkflowMetrics>());
 
         var polls = 0;
         while (await runner.RunOnceAsync(TestContext.Current.CancellationToken))

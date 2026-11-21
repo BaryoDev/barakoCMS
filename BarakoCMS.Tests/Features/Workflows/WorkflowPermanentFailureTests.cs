@@ -78,7 +78,8 @@ public class WorkflowPermanentFailureTests
         var runner = new WorkflowRunner(
             _fixture.Services,
             _fixture.Services.GetRequiredService<ILogger<WorkflowRunner>>(),
-            _fixture.Services.GetRequiredService<IConfiguration>());
+            _fixture.Services.GetRequiredService<IConfiguration>(),
+            _fixture.Services.GetRequiredService<barakoCMS.Features.Workflows.WorkflowMetrics>());
         var store = _fixture.Services.GetRequiredService<IDocumentStore>();
 
         for (var i = 0; i < 200; i++)
