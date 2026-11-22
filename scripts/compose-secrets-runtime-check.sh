@@ -69,10 +69,12 @@ with_override up -d --wait --wait-timeout 240 postgres app db-backup || fail "th
 step "the initial admin signs in with the password from secrets/admin_password"
 # An empty admin password makes the seeder generate one, so a healthy app proves nothing about the
 # file. The body goes in on stdin, and neither the password nor the token is printed. The API has no
-# published port, so the request comes from a throwaway container on the project network.
+# published port, so the request comes from a throwaway container on the project network, pinned by
+# digest like the images in the compose files.
+CURL_IMAGE="curlimages/curl:8.11.1@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69"
 login() {
   printf '{"username":"admin","password":"%s"}' "$1" \
-    | docker run --rm -i --network "${PROJECT}_default" curlimages/curl:8.11.1 -s -o /dev/null -w '%{http_code}' \
+    | docker run --rm -i --network "${PROJECT}_default" "$CURL_IMAGE" -s -o /dev/null -w '%{http_code}' \
         -H 'Content-Type: application/json' --data-binary @- http://app:8080/api/auth/login
 }
 [ "$(login "$ADMIN_PASSWORD_VALUE")" = "200" ] || fail "the initial admin could not sign in with secrets/admin_password"
@@ -84,7 +86,8 @@ with_override run --rm --no-deps postgres-extensions || fail "postgres-extension
 step "the backup reads its password from the file and writes an archive"
 ok=0
 for _ in $(seq 1 60); do
-  if with_override logs --no-color db-backup 2>&1 | grep -q "Backup OK"; then ok=1; break; fi
+  with_override logs --no-color db-backup > "$LOGS" 2>&1 || true
+  if grep -q "Backup OK" "$LOGS"; then ok=1; break; fi
   sleep 3
 done
 [ "$ok" = 1 ] || fail "db-backup never logged a successful backup"
