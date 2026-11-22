@@ -127,6 +127,27 @@ err=$(bash "$gate" trivy "$d/img-clean.json" "$d/allow-baddate.json" $today 2>&1
 printf '%s\n' "$err" | grep -q 'CVE-2099-0001 (libfake) has the impossible expiry date 2026-13-45'
 check "impossible date names the entry" pass $?
 
+# An entry with "images" accepts only in a listed repository (tag and digest removed).
+echo '[{"id":"CVE-2099-0001","package":"libfake","reason":"gosu in postgres","expires":"2026-12-31","images":["postgres"]}]' > "$d/allow-scoped.json"
+img_gate() { VULN_GATE_IMAGE=$1 bash "$gate" trivy "$d/img-high.json" "$2" $today > /dev/null 2>&1; }
+img_gate "postgres:16-alpine@sha256:aaaa" "$d/allow-scoped.json"; check "scoped entry, tag and digest"       pass $?
+img_gate "postgres@sha256:aaaa" "$d/allow-scoped.json";           check "scoped entry, digest only"          pass $?
+img_gate "postgres:16-alpine" "$d/allow-scoped.json";             check "scoped entry, tag only"             pass $?
+img_gate "postgres" "$d/allow-scoped.json";                       check "scoped entry, bare repository"      pass $?
+img_gate "caddy@sha256:aaaa" "$d/allow-scoped.json";              check "scoped entry, other image"          fail $?
+img_gate "docker.io/postgres:16" "$d/allow-scoped.json";          check "scoped entry, registry host differs" fail $?
+img_gate "" "$d/allow-scoped.json";                               check "scoped entry, no image name"        fail $?
+img_gate "caddy@sha256:aaaa" "$d/allow-ok.json";                  check "unscoped entry, any image"          pass $?
+echo '[{"id":"CVE-2099-0001","package":"libfake","reason":"x","expires":"2026-12-31","images":[]}]' > "$d/allow-img-empty.json"
+echo '[{"id":"CVE-2099-0001","package":"libfake","reason":"x","expires":"2026-12-31","images":"postgres"}]' > "$d/allow-img-string.json"
+echo '[{"id":"CVE-2099-0001","package":"libfake","reason":"x","expires":"2026-12-31","images":[""]}]' > "$d/allow-img-blank.json"
+img_gate "postgres:16" "$d/allow-img-empty.json";                 check "images is an empty array"           fail $?
+img_gate "postgres:16" "$d/allow-img-string.json";                check "images is a string"                 fail $?
+img_gate "postgres:16" "$d/allow-img-blank.json";                 check "images holds an empty string"       fail $?
+echo '{"projects":[{"frameworks":[{"topLevelPackages":[{"id":"Some.Pkg","vulnerabilities":[{"severity":"High","advisoryurl":"https://github.com/advisories/GHSA-aaaa"}]}]}]}]}' > "$d/net-pkg.json"
+echo '[{"id":"GHSA-aaaa","package":"Some.Pkg","reason":"x","expires":"2026-12-31","images":["postgres"]}]' > "$d/allow-net-scoped.json"
+bash "$gate" dotnet "$d/net-pkg.json" "$d/allow-net-scoped.json" $today > /dev/null 2>&1; check "scoped entry, dotnet report" fail $?
+
 # Writes SARIF for the findings that failed, and only those.
 VULN_GATE_SARIF="$d/out.sarif" bash "$gate" trivy "$d/img-high.json" "$d/allow-none.json" $today > /dev/null
 jq -e '(.runs[0].results | length) == 1 and .runs[0].results[0].ruleId == "CVE-2099-0001"' "$d/out.sarif" > /dev/null 2>&1

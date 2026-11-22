@@ -3,168 +3,278 @@
     "id": "CVE-2025-61726",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2025-61729",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2025-68121",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-111943",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-25679",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-27145",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-32280",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-32281",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-32283",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-33811",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-33814",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-33818",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-39820",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-39821",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-39822",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-39836",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-42499",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-42504",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-56853",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-56858",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-56859",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-56860",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-56862",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-78661",
     "package": "golang.org/x/net",
     "reason": "golang.org/x/net v0.60.0 in /usr/bin/caddy of the newest caddy:alpine image; fixed in 0.62.0, no newer caddy image ships it. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "caddy"
+    ]
   },
   {
     "id": "CVE-2026-78667",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-78669",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   },
   {
     "id": "CVE-2026-86144",
     "package": "libxml2",
     "reason": "libxml2 2.13.9-r2 in the newest postgres:16-alpine image; Alpine ships 2.13.9-r3 but the image is not rebuilt yet. Move the pin when it is.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres"
+    ]
   },
   {
     "id": "CVE-2026-97031",
     "package": "stdlib",
     "reason": "Go stdlib 1.24.6 inside the gosu helper binary of the newest postgres 16 and pgvector pg16 images (postgres:16-alpine, pgvector/pgvector:pg16); no newer image of that line rebuilds gosu. Move the pin when one does.",
-    "expires": "2026-12-20"
+    "expires": "2026-12-20",
+    "images": [
+      "postgres",
+      "pgvector/pgvector"
+    ]
   }
 ]

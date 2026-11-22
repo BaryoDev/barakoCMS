@@ -134,8 +134,8 @@ When deploying BarakoCMS:
 
 ## Known advisories we accept
 
-None, currently. The accepted advisories live in `.github/vuln-allowlist.json`, one entry each with
-the advisory id, the package, the reason and an expiry date. CI and the nightly run read the same
+Until 2026-12-20: Go stdlib and x/net findings in the postgres, pgvector and caddy images, and a libxml2 finding in postgres, where no newer image of the pinned tag ships the fix. The accepted advisories live in `.github/vuln-allowlist.json`, one entry each with
+the advisory id, the package, the reason and an expiry date, and optionally `images`, a list of image repositories (such as `postgres`) the entry applies to; without it the entry applies to every image. CI and the nightly run read the same
 file for NuGet packages and container images. A Critical or High finding that has a fix fails the
 build unless it has an entry. An entry accepts through its expiry date and stops after it, so the
 gate goes red again and somebody looks. Trivy can report a NuGet advisory by its CVE id while the
