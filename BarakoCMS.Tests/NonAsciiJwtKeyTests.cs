@@ -5,6 +5,7 @@ using barakoCMS.Infrastructure.Security;
 using barakoCMS.Infrastructure.Viewers;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace BarakoCMS.Tests;
@@ -85,5 +86,38 @@ public class NonAsciiJwtKeyTests
     public void The_guard_stays_quiet_about_an_ASCII_key()
     {
         JwtKeyGuard.NonAsciiWarning("this-is-a-real-random-looking-signing-key-0123456789").Should().BeNull();
+    }
+
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Entries.Add((logLevel, formatter(state, exception)));
+    }
+
+    private static async Task<List<(LogLevel Level, string Message)>> StartupLog(string key)
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["JWT:Key"] = key }).Build();
+        var logger = new CapturingLogger<JwtKeyWarningCheck>();
+        await new JwtKeyWarningCheck(config, logger).StartAsync(CancellationToken.None);
+        return logger.Entries;
+    }
+
+    [Fact]
+    public async Task Startup_logs_the_non_ASCII_warning_to_the_hosts_logger_at_Warning()
+    {
+        var entries = await StartupLog(Config["JWT:Key"]!);
+
+        entries.Should().ContainSingle().Which.Level.Should().Be(LogLevel.Warning);
+        entries[0].Message.Should().Contain("ASCII");
+    }
+
+    [Fact]
+    public async Task Startup_logs_nothing_for_an_ASCII_key()
+    {
+        (await StartupLog("this-is-a-real-random-looking-signing-key-0123456789")).Should().BeEmpty();
     }
 }

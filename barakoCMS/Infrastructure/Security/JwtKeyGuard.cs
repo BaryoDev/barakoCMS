@@ -50,18 +50,6 @@ internal static class JwtKeyGuard
         return key;
     }
 
-    /// <summary><see cref="Validate"/>, then logs the non-ASCII warning once. Startup only, so a mint does not repeat it.</summary>
-    public static string ValidateAtStartup(string? key, bool isDevelopment)
-    {
-        var valid = Validate(key, isDevelopment);
-        if (NonAsciiWarning(valid) is { } warning)
-        {
-            Serilog.Log.Warning("{JwtKeyWarning}", warning);
-        }
-
-        return valid;
-    }
-
     /// <summary>
     /// A warning when the key holds a non-ASCII character, otherwise null. Never an error: tokens
     /// are signed and validated with the key read as ASCII, so such a site works, but the key is

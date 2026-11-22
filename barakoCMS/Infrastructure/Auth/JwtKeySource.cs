@@ -21,16 +21,17 @@ internal static class JwtKeySource
     /// </summary>
     public static byte[] Bytes(string key) => System.Text.Encoding.ASCII.GetBytes(key);
 
-    public static string Resolve(IConfiguration config)
+    /// <summary>The configured key before any check, or null when none is set.</summary>
+    public static string? Read(IConfiguration config)
     {
         var key = config["JWT:Key"];
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            key = Environment.GetEnvironmentVariable("JWT__Key");
-        }
+        return string.IsNullOrWhiteSpace(key) ? Environment.GetEnvironmentVariable("JWT__Key") : key;
+    }
 
+    public static string Resolve(IConfiguration config)
+    {
         return JwtKeyGuard.Validate(
-            key,
+            Read(config),
             Extensions.ServiceCollectionExtensions.IsDevelopment(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")));
     }
 }

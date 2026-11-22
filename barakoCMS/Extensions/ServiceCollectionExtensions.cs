@@ -548,6 +548,7 @@ public static class ServiceCollectionExtensions
 
         // The one place this host's tokens are signed. See IJwtMinter.
         services.TryAddSingleton(TimeProvider.System);
+        services.AddHostedService<barakoCMS.Infrastructure.Security.JwtKeyWarningCheck>();
         services.AddSingleton<barakoCMS.Infrastructure.Auth.IJwtMinter, barakoCMS.Infrastructure.Auth.JwtMinter>();
     }
 
@@ -562,7 +563,7 @@ public static class ServiceCollectionExtensions
         }
         // Fail fast on a missing, too-short, or placeholder key. See JwtKeyGuard for why a length
         // check alone is not enough (the shipped k8s manifest carries a length-valid placeholder).
-        jwtKey = barakoCMS.Infrastructure.Security.JwtKeyGuard.ValidateAtStartup(jwtKey, IsDevelopmentEnvironment());
+        jwtKey = barakoCMS.Infrastructure.Security.JwtKeyGuard.Validate(jwtKey, IsDevelopmentEnvironment());
 
         services.AddAuthenticationJwtBearer(
             s => s.SigningKey = jwtKey,
