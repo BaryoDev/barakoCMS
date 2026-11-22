@@ -46,10 +46,11 @@ public static class ServiceCollectionExtensions
     {
         // Before anything is registered: a host that must not start should not get as far as the
         // database. See HostFilteringGuard and InitialAdminGuard.
+        var developmentHost = IsDevelopmentHost(configuration, Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"));
         barakoCMS.Infrastructure.Security.HostFilteringGuard.Validate(
-            configuration, IsDevelopmentEnvironment(), message => Log.Warning("{OpenHostFiltering}", message));
+            configuration, developmentHost, message => Log.Warning("{OpenHostFiltering}", message));
         barakoCMS.Infrastructure.Security.InitialAdminGuard.Validate(
-            configuration["InitialAdmin:Username"], configuration["InitialAdmin:Password"], IsDevelopmentEnvironment());
+            configuration["InitialAdmin:Username"], configuration["InitialAdmin:Password"], developmentHost);
 
         var (seen, enabled, modules, unloadable) = AddModules(services, configuration, configureModules);
 
@@ -1922,6 +1923,20 @@ public static class ServiceCollectionExtensions
 
     private static bool IsDevelopmentEnvironment() =>
         IsDevelopment(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"));
+
+    /// <summary>
+    /// Whether the host being built is Development, from the environment the host itself was given
+    /// (<c>WebApplicationOptions.EnvironmentName</c>, <c>DOTNET_ENVIRONMENT</c> or
+    /// <c>ASPNETCORE_ENVIRONMENT</c>, all of which the host writes to its configuration), and the
+    /// process variable only when the configuration has none.
+    /// </summary>
+    /// <remarks>
+    /// The startup guards use this. A process can hold hosts in more than one environment, as a test
+    /// process does, and a guard that read only the process variable would let a Production host in
+    /// it start with settings a Production process refuses.
+    /// </remarks>
+    internal static bool IsDevelopmentHost(IConfiguration configuration, string? processEnvironment) =>
+        IsDevelopment(configuration[Microsoft.Extensions.Hosting.HostDefaults.EnvironmentKey] ?? processEnvironment);
 
     /// <summary>The ports the quickstart and <c>dotnet run</c> serve a frontend on.</summary>
     private static readonly string[] DevelopmentOrigins =

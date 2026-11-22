@@ -110,6 +110,20 @@ public class SecureDefaultsTests
     }
 
     [Theory]
+    [InlineData("Production", "Development", false)]
+    [InlineData("Development", "Production", true)]
+    [InlineData(null, "Development", true)]
+    [InlineData(null, null, false)]
+    public void StartupGuards_TakeTheHostEnvironmentOverTheProcessVariable(
+        string? hostEnvironment, string? processEnvironment, bool development)
+    {
+        var configuration = Config(("environment", hostEnvironment));
+
+        barakoCMS.Extensions.ServiceCollectionExtensions.IsDevelopmentHost(configuration, processEnvironment)
+            .Should().Be(development);
+    }
+
+    [Theory]
     [InlineData("short1!", "admin")]
     [InlineData("elevenchars", "admin")]
     public void WeakInitialAdminPassword_StopsStartup_WhenTooShort(string password, string user)
