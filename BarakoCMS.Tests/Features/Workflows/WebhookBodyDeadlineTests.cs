@@ -59,7 +59,7 @@ public class WebhookBodyDeadlineTests
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new NeverEndingContent() });
     }
 
-    [Fact]
+    [Fact(Timeout = 10_000)]
     public async Task A_body_that_never_completes_fails_the_action_within_the_deadline()
     {
         using var client = new HttpClient(new HeadersThenHangHandler());

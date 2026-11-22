@@ -513,9 +513,6 @@ public static class ServiceCollectionExtensions
     private static void BindKestrelLimits(
         Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerLimits limits, IConfiguration section)
     {
-        var maxConnections = limits.MaxConcurrentConnections;
-        var maxUpgraded = limits.MaxConcurrentUpgradedConnections;
-
         // A blank value is the same as a key that is left out, so it never reaches the binder.
         var set = new ConfigurationBuilder()
             .AddInMemoryCollection(section.AsEnumerable(makePathsRelative: true)
@@ -547,8 +544,6 @@ public static class ServiceCollectionExtensions
 
         set.Bind(limits);
 
-        limits.MaxConcurrentConnections ??= maxConnections;
-        limits.MaxConcurrentUpgradedConnections ??= maxUpgraded;
         RefuseNonPositive(limits.MaxConcurrentConnections, "MaxConcurrentConnections", "number");
         RefuseNonPositive(limits.MaxConcurrentUpgradedConnections, "MaxConcurrentUpgradedConnections", "number");
         // Kestrel reads -00:00:00.001 (Timeout.InfiniteTimeSpan) as no timeout and stores MaxValue.
