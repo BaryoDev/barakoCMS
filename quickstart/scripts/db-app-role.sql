@@ -1,6 +1,7 @@
 -- The login role the barakoCMS API connects as: no superuser, owner of everything in schema public.
 --
--- Run by the database owner (a superuser). It is meant to run on every start; the compose files call
+-- Run by the database owner (a superuser). Run as any other role, it stops before it changes anything
+-- and names the managed database steps. It is meant to run on every start; the compose files call
 -- it from 6.0. Until then, run it by hand:
 --
 --   DB_APP_USER=barako_app DB_APP_PASSWORD=... psql -d barako -f scripts/db-app-role.sql
@@ -61,6 +62,9 @@
 -- the app password. Unset or empty (.pgpass, peer auth) skips those checks.
 \getenv owner_password PGPASSWORD
 \if :{?owner_password} \else \set owner_password '' \endif
+
+-- Runs before the first setting only a superuser may change.
+DO $$ BEGIN IF NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) THEN RAISE EXCEPTION 'db-app-role: role % is not a superuser, which this file needs. On a managed database, follow "The app role on a managed database" in docs/deploy-on-a-managed-platform.md. Refused, nothing changed.', current_user; END IF; END $$;
 
 -- Whether a transaction is sampled for logging is decided when it starts, so this cannot wait for
 -- a SET LOCAL inside it.
