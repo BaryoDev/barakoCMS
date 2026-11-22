@@ -15,12 +15,6 @@ public sealed class TokenIssuer(
     TenancyOptions tenancy,
     IJwtMinter minter) : ITokenIssuer
 {
-    /// <summary>The constructor as it shipped. The mode is read from <paramref name="config"/>.</summary>
-    public TokenIssuer(IQuerySession session, IConfiguration config, ILogger<TokenIssuer> logger)
-        : this(session, config, logger, TenancyOptions.FromConfiguration(config), new JwtMinter(config, TimeProvider.System))
-    {
-    }
-
     public Task<TokenIssueResult> IssueAccessTokenAsync(
         User user,
         string tenantSlug,
