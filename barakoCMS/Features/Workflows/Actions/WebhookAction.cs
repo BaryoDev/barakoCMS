@@ -70,6 +70,9 @@ internal class WebhookAction : IWorkflowAction
         _allowInsecureSignedUrls = WebhookSigning.AllowsInsecureSignedUrls(configuration);
     }
 
+    /// <summary>How long the response body may take to arrive once the headers have.</summary>
+    internal TimeSpan BodyTimeout { get; init; } = OutboundResilienceOptions.ResponseBodyAllowance;
+
     /// <inheritdoc />
     public string Type => "Webhook";
 
@@ -217,7 +220,28 @@ internal class WebhookAction : IWorkflowAction
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
             delivery.ResponseStatus = (int)response.StatusCode;
-            delivery.ResponseBody = await ReadBoundedAsync(response.Content, ct);
+            // The client's timeout ends at the headers, so a receiver that sends them and then drips
+            // the body would hold this run until its lease lapsed. The read has its own deadline.
+            using var allowance = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            allowance.CancelAfter(BodyTimeout);
+            try
+            {
+                delivery.ResponseBody = await ReadBoundedAsync(response.Content, allowance.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                timer.Stop();
+                _logger.LogWarning("Webhook to {Url} answered {StatusCode} but its body did not arrive in time", Redact(url), response.StatusCode);
+
+                delivery.DurationMs = timer.ElapsedMilliseconds;
+                delivery.Error = "The response body did not arrive in time.";
+                await RecordAsync(delivery, ct);
+
+                return WorkflowActionResult.Failure(
+                    $"Webhook to {Redact(url)} answered {(int)response.StatusCode} but its response body did not arrive in time.")
+                    with { ResponseStatus = (int)response.StatusCode };
+            }
+
             timer.Stop();
             delivery.DurationMs = timer.ElapsedMilliseconds;
             await RecordAsync(delivery, ct);
