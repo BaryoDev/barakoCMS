@@ -32,14 +32,14 @@ def load_accepted(path):
     try:
         with open(path, encoding="utf-8") as handle:
             lines = handle.read().splitlines()
-    except OSError:
+    except (OSError, UnicodeError):
         raise BadInput("accepted file %s could not be read" % os.path.basename(path))
     accepted = set()
     for number, line in enumerate(lines, 1):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         plugin_id = line.split("\t")[0].strip()
-        if not plugin_id.isdigit():
+        if not (plugin_id.isascii() and plugin_id.isdigit()):
             raise BadInput("accepted file %s line %d does not start with a numeric plugin id"
                            % (os.path.basename(path), number))
         accepted.add(plugin_id)
@@ -51,7 +51,7 @@ def read_report(path):
     try:
         with open(path, encoding="utf-8") as handle:
             text = handle.read()
-    except OSError:
+    except (OSError, UnicodeError):
         raise BadInput("report %s is missing or unreadable" % name)
     if not text.strip():
         raise BadInput("report %s is empty" % name)
@@ -74,6 +74,8 @@ def read_report(path):
 
 def risk_of(alert, name):
     code = alert.get("riskcode") if isinstance(alert, dict) else None
+    if isinstance(code, bool):
+        raise BadInput("report %s has an alert with no risk code" % name)
     try:
         code = int(code)
     except (TypeError, ValueError):
@@ -91,7 +93,8 @@ def summarise(paths, accepted):
         dropped = 0
         for alert in read_report(path):
             code = risk_of(alert, name)
-            if str(alert.get("pluginid", "")).strip() in accepted:
+            plugin_id = str(alert.get("pluginid", "")).strip()
+            if plugin_id.isascii() and plugin_id in accepted:
                 dropped += 1
                 continue
             counts[code] += 1
@@ -122,6 +125,9 @@ def main(argv):
         high_left = summarise(paths, accepted)
     except BadInput as error:
         print("DAST result: could not read the scan (%s)" % error)
+        return 2
+    except Exception:  # a report shape nobody planned for is never a pass, and prints nothing from it
+        print("DAST result: could not read the scan (unexpected report content)")
         return 2
     if high_left:
         print("DAST result: FAIL, %d new High" % high_left)

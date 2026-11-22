@@ -8,35 +8,53 @@
 #
 #   1. starts docker-compose.prod.yml (no caddy) under its own compose project, with secrets made
 #      here by openssl and never printed
-#   2. runs scripts/security-smoke.sh against it
+#   2. runs scripts/security-smoke.sh against it (its output goes to the report folder; the terminal
+#      gets a pass line, or the number of failed checks)
 #   3. signs in as the seeded admin, registers one user (the only user creation route, and it gives
-#      the global User role, the least the API hands out) and signs in as that user
-#   4. runs the ZAP API scan twice against openapi/baseline.json with the target set to the stack,
-#      once anonymous and once with that user's bearer token
+#      the global User role, the least the API hands out)
+#   4. runs the ZAP API scan against openapi/baseline.json with the target set to the stack: once
+#      anonymous, then once with that user's bearer token. The user signs in right before the second
+#      pass, and the token is tried on GET /api/auth/mfa/status (any signed-in user may read it)
+#      before and after the pass. Access tokens last 15 minutes, so a 401 after the pass means the
+#      token expired during it and the pass proved nothing: exit 2.
 #   5. prints counts per risk level and a result line (scripts/dast-summary.py), then tears the
 #      stack down with its volumes
 #
 # This repository is public and so are its CI logs. Nothing ZAP found is printed: ZAP's own output
-# goes to a file in the report folder, the summary prints counts only, and in CI the report folder is
-# deleted at the end and never uploaded. On a developer's machine the folder stays and its path is
-# printed so the full reports can be read.
+# goes to a file in the report folder, the summary prints counts only, and in CI a report folder this
+# script made is deleted at the end and never uploaded. On a developer's machine the folder stays
+# (it is its own temporary folder, outside the one that holds the secrets) and its path is printed.
 #
 # Environment:
-#   DAST_REPORT_DIR    where reports go (default: a new temporary folder)
-#   DAST_MAX_MINUTES   cap for each ZAP pass, active scan and wait for start (default 15)
-#   DAST_ACCEPTED      the accepted alerts file (default security/zap/accepted.tsv)
+#   DAST_REPORT_DIR           where reports go (default: a new temporary folder). In CI it is deleted
+#                             only when this script made it
+#   DAST_MAX_MINUTES          active scan cap and start wait for the anonymous pass (default 15)
+#   DAST_AUTH_MAX_MINUTES     the same for the signed-in pass (default 8). Smaller on purpose: the
+#                             token lasts 15 minutes and the pass has to end inside that
+#   DAST_MIN_URLS             floor for the URL count ZAP prints ("Total of N URLs"). Below it, or no
+#                             such line, is exit 2 (default 100; the spec has 253 paths)
+#   DAST_ACCEPTED             the accepted alerts file (default security/zap/accepted.tsv)
+# The caps bound the active scan and ZAP's waits for start and passive scan, so a whole pass can take
+# longer than its cap. Only the signed-in pass has a hard limit, the token, which is checked after it.
+#
+# One run per machine at a time: the stack uses a fixed subnet (10.87.53.0/28, the compose file's
+# proxy network). Container names carry the project name, so they do not collide.
 #
 # Exit: 0 no new High, 1 a new High (or the smoke check failed), 2 the scan could not run. A scan
 # that could not run never passes.
 #
 # The stack start mirrors scripts/compose-runtime-check.sh (same env file, same ordering). The
 # requests to the API reuse api_call from scripts/lib-db-role-check.sh, which reaches the API from a
-# throwaway container on the project network, so no port is published.
+# throwaway container on the project network, so no port is published. The decisions (ZAP exit code,
+# URL floor, token state, report folder) are functions in scripts/lib-dast.sh, tested by
+# scripts/test-dast.sh.
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 2
 # shellcheck source=scripts/lib-db-role-check.sh
 . scripts/lib-db-role-check.sh
+# shellcheck source=scripts/lib-dast.sh
+. scripts/lib-dast.sh
 
 # Pinned by version and digest. Look the digest up with
 #   docker buildx imagetools inspect ghcr.io/zaproxy/zaproxy:<version>
@@ -68,34 +86,67 @@ USER_NAME="dast-user-$(openssl rand -hex 4)"
 USER_PASSWORD="Dast-$(openssl rand -hex 8)-Aa1!"
 mask_all "$DB_PASSWORD" "$APP_PASSWORD" "$JWT_KEY" "$ADMIN_PASSWORD" "$USER_PASSWORD"
 
-IMAGE="${1:-}"
-if [ -z "$IMAGE" ]; then
-  say "building this checkout as barako-cms:dast"
-  docker build -q -f Dockerfile.suite -t barako-cms:dast . > /dev/null || die "the image did not build"
-  IMAGE="barako-cms:dast"
-fi
-
 PROJECT="dast-$$"
-# The compose file names ghcr.io/baryodev/barako-cms:<BARAKO_TAG>, so the image under test is
-# tagged that way for the run and the tag is removed again at the end.
 TAG="dast-$$"
 STACK_IMAGE="ghcr.io/baryodev/barako-cms:$TAG"
-docker tag "$IMAGE" "$STACK_IMAGE" || die "the image does not exist"
+ZAP_NAME="dast-zap-$$"
+DC=()
+TAGGED=0
+REPORT_DIR=""
+REPORT_CREATED=0
+WORK="$(mktemp -d)" || die "no temporary folder"
 
-WORK="$(mktemp -d)"
-if [ -n "${DAST_REPORT_DIR:-}" ]; then
-  REPORT_DIR="$DAST_REPORT_DIR"
-  mkdir -p "$REPORT_DIR" || die "the report folder could not be made"
-else
-  REPORT_DIR="$WORK/reports"
-  mkdir -p "$REPORT_DIR"
-fi
+dc() { "${DC[@]}" "$@"; }
+
+# Safe at any point after WORK exists: what is not set yet is skipped.
+# shellcheck disable=SC2329 # runs from the EXIT trap
+cleanup() {
+  local rc=$?
+  trap - EXIT
+  docker rm -f "$ZAP_NAME" > /dev/null 2>&1 || true
+  if [ "${#DC[@]}" -gt 0 ]; then
+    # The app's log holds the requests ZAP sent, so it is kept only where a person reads it.
+    if [ "$IN_CI" = 0 ] && [ -n "$REPORT_DIR" ]; then dc logs --no-color app > "$REPORT_DIR/app.log" 2>&1 || true; fi
+    dc down -v --remove-orphans > /dev/null 2>&1 || true
+  fi
+  if [ "$TAGGED" = 1 ]; then docker rmi "$STACK_IMAGE" > /dev/null 2>&1 || true; fi
+  if [ -n "$REPORT_DIR" ]; then
+    if dast_delete_reports "$IN_CI" "$REPORT_CREATED"; then
+      rm -rf "${REPORT_DIR:?}"
+      say "reports removed (CI never keeps them)"
+    elif [ "$IN_CI" = 1 ]; then
+      # A folder the caller made stays, but what this run put in it does not.
+      rm -rf "${REPORT_DIR:?}/zap-wrk" "${REPORT_DIR:?}/stack.log" "${REPORT_DIR:?}/smoke.log" \
+        "${REPORT_DIR:?}/zap-anonymous.log" "${REPORT_DIR:?}/zap-authenticated.log"
+      say "this run's reports removed from the folder you gave (CI never keeps them)"
+    else
+      say "full reports: $REPORT_DIR"
+    fi
+  fi
+  # The env file holds the generated secrets, so it goes with the rest of the work folder.
+  rm -rf "${WORK:?}"
+  exit "$rc"
+}
+trap cleanup EXIT
+
+dast_choose_report_dir "${DAST_REPORT_DIR:-}" "$WORK" || die "the report folder could not be made"
 # The ZAP user inside the container is not this user, so the folder it writes to is open. It sits
 # inside the report folder, which keeps the access of the folder around it.
 ZAP_WRK="$REPORT_DIR/zap-wrk"
 mkdir -p "$ZAP_WRK" && chmod 777 "$ZAP_WRK"
 STACK_LOG="$REPORT_DIR/stack.log"
 : > "$STACK_LOG"
+
+IMAGE="${1:-}"
+if [ -z "$IMAGE" ]; then
+  say "building this checkout as barako-cms:dast"
+  docker build -q -f Dockerfile.suite -t barako-cms:dast . > /dev/null || die "the image did not build"
+  IMAGE="barako-cms:dast"
+fi
+# The compose file names ghcr.io/baryodev/barako-cms:<BARAKO_TAG>, so the image under test is
+# tagged that way for the run and the tag is removed again at the end.
+docker tag "$IMAGE" "$STACK_IMAGE" || die "the image does not exist"
+TAGGED=1
 
 ENVFILE="$WORK/stack.env"
 OVERRIDE="$WORK/dast-override.yml"
@@ -112,17 +163,26 @@ PROXY_ADDRESS=10.87.53.2
 ENV
 # Registration asks for an emailed link by default, and there is no mailbox here. The scan stack
 # turns that off, with the acknowledgement the API demands, so the low-privilege user can exist.
-# Nothing else about the production file changes.
-cat > "$OVERRIDE" <<'YML'
+# The container names carry the project name, because the production file fixes them and a second
+# stack on the machine would collide. Nothing else about the production file changes.
+cat > "$OVERRIDE" <<YML
 services:
   app:
+    container_name: $PROJECT-app
     environment:
       - Auth__RequireEmailVerification=false
       - Auth__AcknowledgeUnverifiedRegistration=true
+  postgres:
+    container_name: $PROJECT-postgres
+  postgres-extensions:
+    container_name: $PROJECT-postgres-extensions
+  db-backup:
+    container_name: $PROJECT-db-backup
+  caddy:
+    container_name: $PROJECT-caddy
 YML
 
 DC=(docker compose -p "$PROJECT" --env-file "$ENVFILE" -f docker-compose.prod.yml -f "$OVERRIDE")
-dc() { "${DC[@]}" "$@"; }
 CHECK_API=app
 
 # security-smoke.sh calls curl on the host. The stack publishes no port, so a curl on the PATH for
@@ -133,26 +193,6 @@ cat > "$WORK/bin/curl" <<SHIM
 exec docker run --rm --network "${PROJECT}_default" "$CURL_IMAGE" "\$@"
 SHIM
 chmod +x "$WORK/bin/curl"
-
-# shellcheck disable=SC2329 # runs from the EXIT trap
-cleanup() {
-  local rc=$?
-  docker rm -f "dast-zap-$$" > /dev/null 2>&1 || true
-  # The app's log holds the requests ZAP sent, so it is kept only where a person reads it.
-  if [ "$IN_CI" = 0 ]; then dc logs --no-color app > "$REPORT_DIR/app.log" 2>&1 || true; fi
-  dc down -v --remove-orphans > /dev/null 2>&1 || true
-  docker rmi "$STACK_IMAGE" > /dev/null 2>&1 || true
-  if [ "$IN_CI" = 1 ]; then
-    rm -rf "${REPORT_DIR:?}"
-    say "reports removed (CI never keeps them)"
-  else
-    say "full reports: $REPORT_DIR"
-  fi
-  # The env file holds the generated secrets, so it goes with the rest of the work folder.
-  rm -rf "${WORK:?}"
-  exit "$rc"
-}
-trap cleanup EXIT
 
 say "=== starting the stack"
 dc up -d --wait --wait-timeout 240 postgres > "$STACK_LOG" 2>&1 || die "postgres did not become healthy"
@@ -170,9 +210,16 @@ for svc in app db-backup; do
 done
 say "stack is healthy"
 
+# The smoke script names every path and header it checks, so its output stays in the report folder.
 say "=== security smoke"
 smoke_rc=0
-PATH="$WORK/bin:$PATH" bash scripts/security-smoke.sh "http://$CHECK_API:8080" || smoke_rc=$?
+PATH="$WORK/bin:$PATH" bash scripts/security-smoke.sh "http://$CHECK_API:8080" > "$REPORT_DIR/smoke.log" 2>&1 || smoke_rc=$?
+smoke_failed="$(dast_smoke_failures "$REPORT_DIR/smoke.log")"
+if [ "$smoke_rc" -eq 0 ]; then
+  say "security smoke: pass"
+else
+  say "security smoke: FAIL, ${smoke_failed:-0} checks failed (exit $smoke_rc)"
+fi
 
 # token_for <username> <password>: prints an access token, or nothing.
 token_for() {
@@ -180,6 +227,18 @@ token_for() {
   resp="$(printf '{"username":"%s","password":"%s"}' "$1" "$2" | api_call POST /api/auth/login)"
   [ "$(api_status "$resp")" = "200" ] || return 0
   api_body "$resp" | json_field token
+}
+
+# token_state <token> <phase>: tries the token on a route any signed-in user may read, prints only
+# the status class, and returns 0 for a 2xx. The status is kept in TOKEN_STATE (ok, expired, failed).
+TOKEN_STATE=""
+token_state() {
+  local resp code
+  resp="$(api_call GET /api/auth/mfa/status "$1")"
+  code="$(api_status "$resp")"
+  TOKEN_STATE="$(dast_token_state "$code")"
+  say "token check ($2): status $(dast_status_class "$code")"
+  [ "$TOKEN_STATE" = ok ]
 }
 
 say "=== sign-in"
@@ -192,22 +251,21 @@ unset ADMIN_TOKEN
 resp="$(printf '{"username":"%s","password":"%s","email":"%s@example.test"}' \
   "$USER_NAME" "$USER_PASSWORD" "$USER_NAME" | api_call POST /api/auth/register)"
 [ "$(api_status "$resp")" = "200" ] || die "the low-privilege user could not be registered"
-USER_TOKEN="$(token_for "$USER_NAME" "$USER_PASSWORD")"
-[ -n "$USER_TOKEN" ] || die "the low-privilege user could not sign in"
-mask_all "$USER_TOKEN"
-say "signed in as the seeded admin and as a new low-privilege user"
+say "signed in as the seeded admin and registered a low-privilege user"
 
 cp openapi/baseline.json "$ZAP_WRK/openapi.json" || die "openapi/baseline.json is missing"
 chmod 644 "$ZAP_WRK/openapi.json"
 MAX="${DAST_MAX_MINUTES:-15}"
+AUTH_MAX="${DAST_AUTH_MAX_MINUTES:-8}"
+MIN_URLS="${DAST_MIN_URLS:-100}"
 
-# run_zap <pass name> [bearer token]. ZAP prints alert names and URLs, so its stdout and stderr go
-# to a file. Exit 0, 1 and 2 are a finished scan (alerts are judged from the JSON, not from this
-# code); 3 and anything else are a scan that could not run. The bearer token reaches ZAP through its
-# replacer rule, the documented way to add a header to every request.
+# run_zap <pass name> <minutes> [bearer token]. ZAP prints alert names and URLs, so its stdout and
+# stderr go to a file. The bearer token reaches ZAP through its replacer rule, the documented way to
+# add a header to every request. After the pass the URL count ZAP printed is read back: no count, or
+# one under the floor, is a scan that reached nothing.
 run_zap() {
-  local name="$1" token="${2:-}" rc=0 opts
-  opts="-config scanner.maxScanDurationInMins=$MAX"
+  local name="$1" minutes="$2" token="${3:-}" rc=0 opts urls
+  opts="-config scanner.maxScanDurationInMins=$minutes"
   if [ -n "$token" ]; then
     opts="$opts -config replacer.full_list(0).description=dast-auth"
     opts="$opts -config replacer.full_list(0).enabled=true"
@@ -217,18 +275,30 @@ run_zap() {
     opts="$opts -config \"replacer.full_list(0).replacement=Bearer $token\""
   fi
   say "=== ZAP API scan ($name)"
-  docker run --rm --name "dast-zap-$$" --network "${PROJECT}_default" \
+  docker run --rm --name "$ZAP_NAME" --network "${PROJECT}_default" \
     -v "$ZAP_WRK:/zap/wrk:rw" "$ZAP_IMAGE" \
     zap-api-scan.py -t openapi.json -f openapi -O "http://$CHECK_API:8080" \
-    -J "$name.json" -T "$MAX" -I -z "$opts" > "$REPORT_DIR/zap-$name.log" 2>&1 || rc=$?
-  case "$rc" in
-    0 | 1 | 2) say "ZAP finished the $name pass" ;;
-    *) die "ZAP exited with an error on the $name pass" ;;
-  esac
+    -J "$name.json" -T "$minutes" -I -z "$opts" > "$REPORT_DIR/zap-$name.log" 2>&1 || rc=$?
+  dast_zap_finished "$rc" || die "ZAP exited with an error on the $name pass"
+  urls="$(dast_url_count "$REPORT_DIR/zap-$name.log")" || die "ZAP printed no URL count on the $name pass, so it reached nothing"
+  dast_url_floor_ok "$urls" "$MIN_URLS" || die "ZAP held $urls URLs on the $name pass, under the floor of $MIN_URLS"
+  say "ZAP finished the $name pass with $urls URLs"
 }
 
-run_zap anonymous
-run_zap authenticated "$USER_TOKEN"
+run_zap anonymous "$MAX"
+
+# Signed in right before the pass: the token lasts 15 minutes and the pass has to fit inside them.
+USER_TOKEN="$(token_for "$USER_NAME" "$USER_PASSWORD")"
+[ -n "$USER_TOKEN" ] || die "the low-privilege user could not sign in"
+mask_all "$USER_TOKEN"
+token_state "$USER_TOKEN" "before the signed-in pass" || die "the user token was not accepted before the pass"
+run_zap authenticated "$AUTH_MAX" "$USER_TOKEN"
+if ! token_state "$USER_TOKEN" "after the signed-in pass"; then
+  if [ "$TOKEN_STATE" = expired ]; then
+    die "the token expired during the signed-in pass, so the pass proved nothing"
+  fi
+  die "the token was not accepted after the signed-in pass, so the pass proved nothing"
+fi
 
 say "=== summary"
 accepted="${DAST_ACCEPTED:-security/zap/accepted.tsv}"

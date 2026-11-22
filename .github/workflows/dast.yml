@@ -15,6 +15,10 @@ on:
     paths:
       - ".github/workflows/dast.yml"
       - "scripts/dast-*"
+      - "scripts/lib-dast.sh"
+      - "scripts/security-smoke.sh"
+      - "docker-compose.prod.yml"
+      - "openapi/baseline.json"
       - "security/zap/**"
 
 permissions:

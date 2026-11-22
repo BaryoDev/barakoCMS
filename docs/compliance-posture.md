@@ -146,12 +146,27 @@ about session handling, because the honest answer includes what this does not fi
 The DAST workflow (`.github/workflows/dast.yml`) starts the production compose stack on a runner, with
 secrets made on the spot, and runs the ZAP API scan against it twice, using `openapi/baseline.json`
 as the list of routes: once anonymous, and once signed in as a user with only the User role. It runs
-weekly, on demand from the Actions tab, and when the workflow, `scripts/dast-*` or `security/zap/` change.
-Each pass is capped at 15 minutes. The job fails on a new High alert and on a scan that could not run.
+weekly, on demand from the Actions tab, and when the workflow, the scan scripts, the production compose
+file, the OpenAPI baseline or `security/zap/` change.
+
+What is capped: the active scan of each pass (15 minutes for the anonymous pass, 8 for the signed-in
+one) and ZAP's waits for start and for the passive scan. A whole pass can therefore run longer than
+its cap. The signed-in user signs in right before its pass, because an access token lasts 15 minutes.
+The token is tried on `GET /api/auth/mfa/status` before the pass and again after it. A rejected token
+before the pass, or a 401 after it (the token expired during the pass, so the pass proved nothing),
+is a scan that could not run. `DAST_MAX_MINUTES` and `DAST_AUTH_MAX_MINUTES` set the two caps.
+
+After each pass the script reads the URL count ZAP prints (`Total of N URLs`). No such line, or a count
+under `DAST_MIN_URLS` (default 100; the spec lists 253 paths), is a scan that reached nothing and
+exits 2. An empty alert list in a report that did reach the API is still a pass.
+
+The job fails on a new High alert (exit 1) and on a scan that could not run (exit 2). The security
+smoke check runs first, and a failed check fails the job too.
 
 This repository's logs are public, so CI prints only the count of alerts per risk level and a pass or
-fail line. The full reports are written to a folder on the runner that the script deletes at the end
-of the job. Nothing is uploaded.
+fail line (the smoke check prints a pass line or the number of failed checks). The full reports are
+written to a folder the script makes with `mktemp -d`, which it deletes at the end of the job. A folder
+you name with `DAST_REPORT_DIR` is not deleted in CI. Nothing is uploaded.
 
 To run it on your machine (Docker and `openssl` are needed):
 
@@ -159,7 +174,9 @@ To run it on your machine (Docker and `openssl` are needed):
 bash scripts/dast-scan.sh
 ```
 
-It prints the folder it wrote the full reports to, with ZAP's own output and the API's log beside them.
+It prints the folder it wrote the full reports to, with ZAP's own output, the smoke check output and the
+API's log beside them. That folder is separate from the one that holds the generated secrets, which is
+always deleted. Run one scan per machine at a time: the stack uses a fixed subnet.
 
 To accept an alert, add a line to `security/zap/accepted.tsv`: the plugin id from the full report, a
 tab, the reason, a tab, and the date. The file says how. An accepted plugin id is dropped from the
