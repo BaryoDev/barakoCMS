@@ -7,11 +7,12 @@ using Xunit;
 namespace BarakoCMS.Tests;
 
 /// <summary>
-/// The only files in the repository that create a Postgres extension are the owner script and its
+/// The only files in the repository that hold a statement creating a Postgres extension are the owner script and its
 /// quickstart copy, which run as the database owner. The API connects as a role that may not create
 /// one, so a statement anywhere else would only ever fail there.
 /// </summary>
 /// <remarks>
+/// The scan matches statements, not mentions: prose or a comment that names the statement is fine.
 /// This proves the repository's own sources ask for no extension. It does not prove that nothing asks
 /// at runtime: Marten and Weasel can emit such a statement from their own code. The runtime checks in
 /// <c>scripts/compose-runtime-check.sh</c>, <c>scripts/compose-secrets-runtime-check.sh</c> and
@@ -26,7 +27,15 @@ public class ExtensionStatementTests
         "quickstart/scripts/db-app-role.sql",
     ];
 
-    private static readonly Regex Statement = new(@"create\s+extension", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    /// <summary>
+    /// A statement: the keywords, an optional IF NOT EXISTS, a name (bare or double quoted), then a
+    /// semicolon, a closing quote (a psql -c string), or WITH, SCHEMA, VERSION or CASCADE. A bare end
+    /// of line after the name does not count, so prose such as "drops the CREATE EXTENSION and" does not
+    /// match with the name "and".
+    /// </summary>
+    internal static readonly Regex Statement = new(
+        @"\bcreate\s+extension\s+(?:if\s+not\s+exists\s+)?(?:""[^""]+""|[A-Za-z_][\w$-]*)(?:\s*;|\s*[""']|\s+(?:with|schema|version|cascade)\b)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private const long LargestFile = 5 * 1024 * 1024;
 
@@ -76,8 +85,24 @@ public class ExtensionStatementTests
         files.Should().Contain(Allowed);
         foreach (var path in Allowed)
         {
-            File.ReadAllText(Path.Combine(RepoPaths.Root, path)).Should().MatchRegex("(?i)create\\s+extension");
+            File.ReadAllText(Path.Combine(RepoPaths.Root, path)).Split('\n').Any(l => Statement.IsMatch(l)).Should().BeTrue("{0} holds the statement the scan looks for", path);
         }
+    }
+
+    [Theory]
+    [InlineData("4. Restore as the app role: the stream drops the `CREATE EXTENSION` and `COMMENT ON EXTENSION` lines", false)]
+    [InlineData("# Restore as the app role. The awk drops CREATE EXTENSION and COMMENT ON EXTENSION lines and", false)]
+    [InlineData("the extensions in the empty database first, the restore stream drops the `CREATE EXTENSION` and", false)]
+    [InlineData("# the role and the extensions in the empty database, the stream drops the CREATE EXTENSION and", false)]
+    [InlineData("# Drops CREATE EXTENSION and COMMENT ON EXTENSION lines, and leaves COPY data blocks alone.", false)]
+    [InlineData("CREATE EXTENSION IF NOT EXISTS pg_stat_statements SCHEMA public;", true)]
+    [InlineData("create extension hstore;", true)]
+    [InlineData("psql -c \"CREATE EXTENSION IF NOT EXISTS unaccent\"", true)]
+    [InlineData("CREATE EXTENSION \"uuid-ossp\" WITH SCHEMA public;", true)]
+    [InlineData("CREATE EXTENSION vector CASCADE;", true)]
+    public void The_pattern_matches_statements_and_not_mentions(string line, bool matches)
+    {
+        Statement.IsMatch(line).Should().Be(matches);
     }
 
     private static bool IsExcluded(string path) =>
