@@ -1,7 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using FastEndpoints.Security;
+using barakoCMS.Infrastructure.Auth;
 using Microsoft.IdentityModel.Tokens;
 
 namespace barakoCMS.Infrastructure.Viewers;
@@ -47,22 +47,18 @@ internal static class ViewerToken
     private static string Audience(IConfiguration config) => (config["JWT:Audience"] ?? string.Empty) + ":viewer";
 
     public static (string Token, DateTime ExpiresAt) Create(
-        IConfiguration config, string tenant, string subject, TimeSpan? lifetime = null)
+        IJwtMinter minter, IConfiguration config, string tenant, string subject, TimeSpan? lifetime = null)
     {
         if (!IsConfigured(config))
             throw new InvalidOperationException("JWT:Key is not set, so a viewer token cannot be signed.");
 
         var expiresAt = DateTime.UtcNow.Add(lifetime ?? DefaultLifetime);
-        var token = JwtBearer.CreateToken(o =>
-        {
-            o.SigningKey = config["JWT:Key"]!;
-            o.ExpireAt = expiresAt;
-            o.Issuer = config["JWT:Issuer"];
-            o.Audience = Audience(config);
-            o.User.Claims.Add(new(PurposeClaim, PurposeValue));
-            o.User.Claims.Add(new(TenantClaim, tenant));
-            o.User.Claims.Add(new(SubjectClaim, subject));
-        });
+        var token = minter.Mint(Audience(config), expiresAt,
+        [
+            new(PurposeClaim, PurposeValue),
+            new(TenantClaim, tenant),
+            new(SubjectClaim, subject),
+        ]);
         return (token, expiresAt);
     }
 

@@ -30,7 +30,7 @@ public class MembersAudienceTests
     private IConfiguration Config => _factory.Services.GetRequiredService<IConfiguration>();
     private static string DefaultTenant => barakoCMS.Models.Tenant.DefaultSlug;
 
-    private string Viewer(string? tenant = null) => ViewerToken.Create(Config, tenant ?? DefaultTenant, "member-1").Token;
+    private string Viewer(string? tenant = null) => ViewerToken.Create(_factory.Services.GetRequiredService<barakoCMS.Infrastructure.Auth.IJwtMinter>(), Config, tenant ?? DefaultTenant, "member-1").Token;
 
     private static HttpRequestMessage Get(string url, string? viewerToken = null)
     {
@@ -491,7 +491,7 @@ public class MembersAudienceTests
         }
 
         var unset = new ConfigurationBuilder().AddInMemoryCollection().Build();
-        var thrown = () => ViewerToken.Create(unset, DefaultTenant, "x");
+        var thrown = () => ViewerToken.Create(_factory.Services.GetRequiredService<barakoCMS.Infrastructure.Auth.IJwtMinter>(), unset, DefaultTenant, "x");
         thrown.Should().Throw<InvalidOperationException>();
         ViewerToken.Validate(unset, Viewer(), DefaultTenant).Should().BeNull();
     }

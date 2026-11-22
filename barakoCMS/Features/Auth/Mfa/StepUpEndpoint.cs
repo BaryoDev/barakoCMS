@@ -16,7 +16,8 @@ internal class StepUpEndpoint(
     IQuerySession query,
     IConfiguration config,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
-    barakoCMS.Infrastructure.Auth.AccountLockout lockout) : Endpoint<CodeRequest, StepUpResponse>
+    barakoCMS.Infrastructure.Auth.AccountLockout lockout,
+    barakoCMS.Infrastructure.Auth.IJwtMinter minter) : Endpoint<CodeRequest, StepUpResponse>
 {
     public override void Configure()
     {
@@ -64,7 +65,7 @@ internal class StepUpEndpoint(
 
         barakoCMS.Infrastructure.Auth.AccountLockout.ClearFailures(session, user);
 
-        var (token, expiresAt) = StepUpToken.Create(config, user.Id);
+        var (token, expiresAt) = StepUpToken.Create(minter, config, user.Id);
         await AuditLog.RecordAsync(session, tenant.Slug, "auth.stepup.succeeded", user.Id, user.Username,
             ipAddress: device.IpAddress, ct: ct);
         await session.SaveChangesAsync(ct);

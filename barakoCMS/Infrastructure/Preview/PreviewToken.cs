@@ -3,7 +3,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using barakoCMS.Core.Interfaces;
-using FastEndpoints.Security;
+using barakoCMS.Infrastructure.Auth;
 using Microsoft.IdentityModel.Tokens;
 
 namespace barakoCMS.Infrastructure.Preview;
@@ -31,22 +31,17 @@ public static class PreviewToken
     private static string Audience(IConfiguration config) => (config["JWT:Audience"] ?? string.Empty) + ":preview";
 
     public static (string Token, DateTime ExpiresAt) Create(
-        IConfiguration config, string tenant, string type, string slug, Guid entryId, TimeSpan? lifetime = null)
+        IJwtMinter minter, IConfiguration config, string tenant, string type, string slug, Guid entryId, TimeSpan? lifetime = null)
     {
         var expiresAt = DateTime.UtcNow.Add(lifetime ?? DefaultLifetime);
-        var token = JwtBearer.CreateToken(o =>
-        {
-            o.SigningKey = config["JWT:Key"]!;
-            o.ExpireAt = expiresAt;
-            o.Issuer = config["JWT:Issuer"];
-            o.Audience = Audience(config);
-            var u = o.User;
-                u.Claims.Add(new(PurposeClaim, PurposeValue));
-                u.Claims.Add(new(TenantClaim, tenant));
-                u.Claims.Add(new(TypeClaim, type));
-                u.Claims.Add(new(SlugClaim, slug));
-                u.Claims.Add(new(EntryIdClaim, entryId.ToString()));
-            });
+        var token = minter.Mint(Audience(config), expiresAt,
+        [
+            new(PurposeClaim, PurposeValue),
+            new(TenantClaim, tenant),
+            new(TypeClaim, type),
+            new(SlugClaim, slug),
+            new(EntryIdClaim, entryId.ToString()),
+        ]);
         return (token, expiresAt);
     }
 

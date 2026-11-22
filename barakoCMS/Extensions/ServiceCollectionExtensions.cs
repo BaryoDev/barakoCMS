@@ -529,6 +529,28 @@ public static class ServiceCollectionExtensions
             maxProjectionLag));
     }
 
+    private static void AddHostOwnedTokenKey(IServiceCollection services)
+    {
+        // FastEndpoints keeps the validation key in a process-wide static (JwtSigningOptions) that
+        // the bearer options read through a resolver, so a second host in the process decided which
+        // key the first one validated with. Set the key on this host's own options instead, read
+        // from this host's configuration when the options are first built.
+        services.AddOptions<Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions>(
+                Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme)
+            .PostConfigure<IConfiguration>((o, config) =>
+            {
+                var key = barakoCMS.Infrastructure.Auth.JwtKeySource.Resolve(config);
+
+                o.TokenValidationParameters.IssuerSigningKeyResolver = null;
+                o.TokenValidationParameters.IssuerSigningKey =
+                    new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(System.Text.Encoding.ASCII.GetBytes(key));
+            });
+
+        // The one place this host's tokens are signed. See IJwtMinter.
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<barakoCMS.Infrastructure.Auth.IJwtMinter, barakoCMS.Infrastructure.Auth.JwtMinter>();
+    }
+
     private static void AddJwtAndApiKeyAuth(IServiceCollection services, IConfiguration configuration)
     {
         // Validate JWT key exists and has minimum length for security. Fail fast rather than
@@ -697,6 +719,7 @@ public static class ServiceCollectionExtensions
         // The only place an access token is minted — it owns the "may this user hold a token for
         // this tenant?" check, so no endpoint can skip it by omission. See ITokenIssuer.
         services.AddScoped<barakoCMS.Infrastructure.Auth.ITokenIssuer, barakoCMS.Infrastructure.Auth.TokenIssuer>();
+        AddHostOwnedTokenKey(services);
         services.AddSingleton<barakoCMS.Infrastructure.Auth.LockoutNoticeSender>();
         services.AddHostedService(sp => sp.GetRequiredService<barakoCMS.Infrastructure.Auth.LockoutNoticeSender>());
         services.AddSingleton<barakoCMS.Infrastructure.Auth.AuthMailQueue>();

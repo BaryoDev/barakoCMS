@@ -33,9 +33,8 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         .Build();
 
     /// <summary>
-    /// The key this host signs and validates with. FastEndpoints validates through one process-wide
-    /// key, overwritten by whichever host starts last, so any other host started in this test
-    /// process (a <c>BarakoTestHost</c>, say) has to use the same one.
+    /// The key this host signs and validates with. Each host now validates with the key from its own
+    /// configuration (#1408), so a host that sets another is only reached with a token signed for it.
     /// </summary>
     public const string JwtKey = "test-super-secret-key-that-is-at-least-32-chars-long";
 
@@ -230,7 +229,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     /// <remarks>
     /// <c>MapFastEndpoints</c> sets a static <c>ServiceResolver.Instance</c> to the provider of each
     /// host that maps endpoints, so the last host started owns it. Disposing that host leaves the
-    /// static on a disposed provider, and <c>JwtBearer.CreateToken</c> and every other lookup made
+    /// static on a disposed provider, and every lookup through it made
     /// outside a request then throws <see cref="ObjectDisposedException"/>. That is the reason these
     /// hosts were never disposed. <see cref="FastEndpointsResolver.RepairIfDisposed"/> moves the
     /// static to the newest host still up (this fixture's own at the latest), which is what it

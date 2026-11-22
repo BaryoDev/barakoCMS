@@ -16,6 +16,7 @@ internal class Endpoint : Endpoint<Request, Response>
     private readonly IQuerySession _session;
     private readonly IDocumentSession _documentSession;
     private readonly IConfiguration _config;
+    private readonly barakoCMS.Infrastructure.Auth.IJwtMinter _minter;
     private readonly ILogger<Endpoint> _logger;
     private readonly barakoCMS.Core.Interfaces.IDeviceGate _deviceGate;
     private readonly barakoCMS.Core.Interfaces.IOtpService _otp;
@@ -36,8 +37,10 @@ internal class Endpoint : Endpoint<Request, Response>
         barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
         barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
         barakoCMS.Infrastructure.Auth.Mfa.IMfaService mfa,
-        barakoCMS.Infrastructure.Auth.AccountLockout lockout)
+        barakoCMS.Infrastructure.Auth.AccountLockout lockout,
+        barakoCMS.Infrastructure.Auth.IJwtMinter minter)
     {
+        _minter = minter;
         _lockout = lockout;
         _repo = repo;
         _session = session;
@@ -240,7 +243,7 @@ internal class Endpoint : Endpoint<Request, Response>
         // /api/auth/mfa/verify. This takes precedence over device approval — MFA is the stronger factor.
         if (await _mfa.IsEnabledAsync(user.Id, ct))
         {
-            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(_config, user.Id, null, "password");
+            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(_minter, _config, user.Id, null, "password");
             await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.mfa.challenge", user.Id, user.Username,
                 ipAddress: device.IpAddress, ct: ct);
             await _documentSession.SaveChangesAsync(ct);
