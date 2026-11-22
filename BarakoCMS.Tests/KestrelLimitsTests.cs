@@ -161,11 +161,31 @@ public class KestrelLimitsTests
     [InlineData("Kestrel:Limits:MinResponseDataRate:GracePeriod", "00:00:00")]
     [InlineData("Kestrel:Limits:Http2:MaxStreamsPerConnection", "many")]
     [InlineData("Kestrel:Limits:Http2:MaxStreamsPerConnection", "0")]
-    [InlineData("RequestLimits:MaxBodyBytes", "0")]
-    [InlineData("RequestLimits:MaxBodyBytes", "-5")]
     public void Kestrel_ABadRateHttp2OrBodyValueIsRefusedAndNamesTheKey(string key, string value)
     {
         Limits((key, value)).Should().Throw<Exception>().Where(e => e.ToString().Contains(key));
+    }
+
+    // No host here: the form options refuse the value while a host starts, and a host that throws
+    // mid-start cannot be disposed, which would fail every test in the collection.
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-5")]
+    public void RequestLimits_AZeroOrNegativeMaxBodyBytesIsRefusedAndNamesTheKey(string value)
+    {
+        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["RequestLimits:MaxBodyBytes"] = value })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddSingleton<Microsoft.Extensions.Configuration.IConfiguration>(configuration);
+        barakoCMS.Extensions.ServiceCollectionExtensions.AddRequestLimits(services);
+        using var provider = services.BuildServiceProvider();
+
+        var form = () => provider.GetRequiredService<IOptions<FormOptions>>().Value;
+        var kestrel = () => provider.GetRequiredService<IOptions<KestrelServerOptions>>().Value;
+
+        form.Should().Throw<Exception>().Where(e => e.ToString().Contains("RequestLimits:MaxBodyBytes"));
+        kestrel.Should().Throw<Exception>().Where(e => e.ToString().Contains("RequestLimits:MaxBodyBytes"));
     }
 
     [Fact]

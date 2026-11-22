@@ -426,7 +426,7 @@ public static class ServiceCollectionExtensions
         services.AddJobQueues<barakoCMS.Models.JobRecord, barakoCMS.Infrastructure.Jobs.MartenJobStorageProvider>();
     }
 
-    private static void AddRequestLimits(IServiceCollection services)
+    internal static void AddRequestLimits(IServiceCollection services)
     {
         // Request body size limit (defends against large-payload memory pressure / DoS on the
         // arbitrary-JSON content endpoints). Configurable via RequestLimits:MaxBodyBytes; default 10 MB.
