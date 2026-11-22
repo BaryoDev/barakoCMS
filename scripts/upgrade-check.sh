@@ -266,7 +266,11 @@ if ! docker exec "$PG" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
 fi
 
 step "creating a ${FROM_VERSION} database with data in it"
+# Database__AllowSuperuser: a throwaway container in CI, which connects as postgres. A from-version
+# that holds the superuser guard needs it; an older one ignores it. The later restart of this
+# container (docker start) keeps the same environment.
 OLD_ID=$(docker run -d --cidfile "$WORK/old.cid" --name "$OLD" --network "$NETWORK" \
+    -e Database__AllowSuperuser=true \
     -e ConnectionStrings__DefaultConnection="Host=${PG};Database=barako_cms;Username=postgres;Password=barako-ci-not-an-example" \
     -e JWT__Key="$JWT_KEY" \
     -e InitialAdmin__Username=admin -e InitialAdmin__Password="$ADMIN_PASSWORD" \

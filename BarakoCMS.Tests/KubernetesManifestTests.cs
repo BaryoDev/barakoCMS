@@ -345,6 +345,8 @@ public class KubernetesManifestTests
         var job = RoleJob();
 
         job.Should().Contain("kind: Job").And.Contain("ttlSecondsAfterFinished:");
+        job.Should().MatchRegex(@"(?m)^\s*activeDeadlineSeconds:\s*[1-9][0-9]*\s*$", "a hung Job must end");
+        job.Should().MatchRegex(@"limits:\s*\n\s*cpu:\s*\S+\s*\n\s*memory:", "the Job has a cpu limit next to its memory limit");
         job.Should().MatchRegex(@"image:\s*postgres:16-alpine@sha256:[0-9a-f]{64}");
         MissingContainerHardening(job).Should().BeEmpty();
         Regex.IsMatch(job, @"(?m)^\s*runAsNonRoot:\s*true\s*$").Should().BeTrue();

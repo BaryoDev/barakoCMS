@@ -25,6 +25,10 @@ completes. If the Job fails, `kubectl logs -n barako-cms job/barako-db-app-role`
 Job and the files above also apply together with `kubectl apply -f k8s/` on a cluster you can
 afford to let the pods restart until the role exists.
 
+A finished Job is not run again until it is deleted. After changing `DB_APP_PASSWORD`, delete the
+Job (`kubectl delete job -n barako-cms barako-db-app-role`) and apply it again. Its logs go when
+the Job is removed, an hour after it finishes (`ttlSecondsAfterFinished`).
+
 `k8s/observability/` holds a Grafana dashboard and is deliberately outside that apply. It is not a
 Kubernetes manifest, and while it sat in this directory `kubectl apply -f k8s/` failed on it.
 
