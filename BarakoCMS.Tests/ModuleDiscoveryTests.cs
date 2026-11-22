@@ -381,7 +381,7 @@ public class ModuleDiscoveryTests
     {
         var services = new ServiceCollection();
 
-        Host.AddBarakoCMS(services, Config(), configureModules: null);
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), Config(), configureModules: null);
 
         RegisteredTypes(services).Should().Contain(typeof(DiscoverableProbeModule));
     }
@@ -391,7 +391,7 @@ public class ModuleDiscoveryTests
     {
         var services = new ServiceCollection();
 
-        Host.AddBarakoCMS(services, Config(), m =>
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), Config(), m =>
         {
             m.Discover = false;
             m.Add(new Explicit());
@@ -408,7 +408,7 @@ public class ModuleDiscoveryTests
         // the environment variable form of the same key.
         var services = new ServiceCollection();
 
-        Host.AddBarakoCMS(services, Config(("BarakoCMS:Modules:Discover", "false")), configureModules: null);
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), Config(("BarakoCMS:Modules:Discover", "false")), configureModules: null);
 
         RegisteredTypes(services).Should().BeEmpty();
     }
@@ -418,7 +418,7 @@ public class ModuleDiscoveryTests
     {
         var services = new ServiceCollection();
 
-        Host.AddBarakoCMS(services, Config(("BarakoCMS:Modules:Discover", "false")), m => m.Discover = true);
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), Config(("BarakoCMS:Modules:Discover", "false")), m => m.Discover = true);
 
         RegisteredTypes(services).Should().Contain(typeof(DiscoverableProbeModule));
     }
@@ -432,7 +432,7 @@ public class ModuleDiscoveryTests
     {
         var services = new ServiceCollection();
 
-        Host.AddBarakoCMS(services, Config(("BarakoCMS:Modules:Enabled", "Files")), configureModules: null);
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), Config(("BarakoCMS:Modules:Enabled", "Files")), configureModules: null);
 
         RegisteredTypes(services).Should().Equal(typeof(FilesModule));
         var catalogue = (ModuleCatalogue)services.Single(d => d.ServiceType == typeof(ModuleCatalogue)).ImplementationInstance!;

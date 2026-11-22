@@ -151,8 +151,8 @@ internal static class ModuleSchemaPreflight
             + "first: run the same image with db-patch as its argument in place of a normal start, "
             + "docker run --rm <your environment> -v \"$PWD:/out\" <image> db-patch /out/upgrade.sql "
             + "(see docs/upgrading-to-4.0.md), or run the store "
-            + "with AutoCreate.CreateOrUpdate, which this host uses when ASPNETCORE_ENVIRONMENT is "
-            + $"Development. {EnabledKey}=false skips this check and leaves the refusal to Marten.");
+            + "with AutoCreate.CreateOrUpdate, which a Development host uses. "
+            + $"{EnabledKey}=false skips this check and leaves the refusal to Marten.");
     }
 
     /// <summary>Whether a store under <paramref name="autoCreate"/> applies a delta of this kind.</summary>

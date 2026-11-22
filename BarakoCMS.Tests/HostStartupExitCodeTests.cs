@@ -364,6 +364,8 @@ public class HostStartupExitCodeTests
         start.Environment["Kubernetes__Enabled"] = "false";
         start.Environment["JWT__Key"] = "test-super-secret-key-that-is-at-least-32-chars-long";
         start.Environment["ConnectionStrings__DefaultConnection"] = connectionString;
+        // The test container's role is a superuser, which a Production host refuses without this.
+        start.Environment["Database__AllowSuperuser"] = "true";
 
         return Process.Start(start)!;
     }

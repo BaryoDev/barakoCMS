@@ -50,7 +50,7 @@ public class ModuleContractTests
             })
             .Build();
 
-        services.AddBarakoCMS(config, m =>
+        services.AsDevelopmentHost().AddBarakoCMS(config, m =>
         {
             // The explicit list is the subject. Discovery would add every module this test
             // project references, and this file is about what the host was handed.

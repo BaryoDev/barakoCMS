@@ -45,7 +45,7 @@ public class ModuleLoadFailureTests
         Action act;
         using (sink.Installed())
         {
-            act = () => services.AddBarakoCMS(
+            act = () => services.AsDevelopmentHost().AddBarakoCMS(
                 Config(("BarakoCMS:Modules:Enabled", "BrokenFixture")),
                 modules =>
                 {
@@ -72,7 +72,7 @@ public class ModuleLoadFailureTests
 
         using (sink.Installed())
         {
-            services.AddBarakoCMS(Config(), modules =>
+            services.AsDevelopmentHost().AddBarakoCMS(Config(), modules =>
             {
                 modules.Discover = false;
                 modules.DiscoverFrom(Broken);

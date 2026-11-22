@@ -28,7 +28,7 @@ public static class DataSeeder
             await SeedDemoHrRoleAsync(session);
 
         // 2. Seed Users (Admin, HR, Standard users)
-        await SeedUsersAsync(session, configuration);
+        await SeedUsersAsync(session, configuration, environment);
 
         // 3-5. Everything demo. One gate at the top so the next demo seeder added below inherits it
         // instead of having to remember. See SeedsDemoContent for what decides this.
@@ -80,6 +80,10 @@ public static class DataSeeder
         // reaching for a process-wide variable that every other test can see.
         return configuration.GetValue("Seed:DemoContent", environment.IsDevelopment());
     }
+
+    /// <summary>Whether this host seeds the sample login accounts: only a Development host does.</summary>
+    internal static bool SeedsDemoAccounts(IHostEnvironment environment) =>
+        barakoCMS.Infrastructure.Security.DevelopmentHost.Of(environment);
 
     // Well-known deterministic GUIDs for system roles (must match CachedPermissionResolver)
     // Kept as aliases so existing callers and tests compile. The values live in
@@ -335,7 +339,7 @@ public static class DataSeeder
         return new string(buffer);
     }
 
-    private static async Task SeedUsersAsync(IDocumentSession session, IConfiguration configuration)
+    private static async Task SeedUsersAsync(IDocumentSession session, IConfiguration configuration, IHostEnvironment environment)
     {
         var userCount = await session.Query<User>().CountAsync();
         if (userCount > 0)
@@ -396,7 +400,7 @@ public static class DataSeeder
 
         // Sample login accounts with fixed passwords are demo data — only seed them outside
         // production so they never ship as usable accounts in a real deployment.
-        var isDevelopment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
+        var isDevelopment = SeedsDemoAccounts(environment);
 
         // The HR account needs the HR role, which is only there with the demo content or in a
         // database that was seeded before the role moved behind it.

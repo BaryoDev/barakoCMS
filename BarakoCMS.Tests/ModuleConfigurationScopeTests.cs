@@ -127,7 +127,7 @@ public class ModuleConfigurationScopeTests
             ("Modules:Probe:ApiKey", "the-module-key"));
 
         // Discovery off: the probe is the subject, not every module this project references.
-        Host.AddBarakoCMS(new ServiceCollection(), root, m => { m.Discover = false; m.Add(probe); });
+        Host.AddBarakoCMS(new ServiceCollection().AsDevelopmentHost(), root, m => { m.Discover = false; m.Add(probe); });
 
         probe.Seen.Should().NotBeNull("the module must have been configured at all");
         probe.Seen!["ApiKey"].Should().Be("the-module-key", "its own settings must arrive");

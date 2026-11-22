@@ -459,7 +459,7 @@ public class OutboundResilienceTests
         settings["JWT:Key"] = "test-super-secret-key-that-is-at-least-32-chars-long";
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
 
-        new ServiceCollection().AddBarakoCMS(configuration, m => m.Discover = false);
+        new ServiceCollection().AsDevelopmentHost().AddBarakoCMS(configuration, m => m.Discover = false);
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

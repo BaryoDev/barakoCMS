@@ -31,7 +31,7 @@ public class ConnectionStringTests
     {
         var config = CreateConfig(databaseUrl: "postgres://user:pw@remotehost:5432/mydb");
 
-        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
+        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config, isDevelopment: false);
 
         conn.Should().Contain("SSL Mode=Require");
         conn.Should().Contain("Host=remotehost");
@@ -58,7 +58,7 @@ public class ConnectionStringTests
     {
         var config = CreateConfig(databaseUrl: "postgres://user:pa%3Bss%3Bword@remotehost:5432/mydb");
 
-        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
+        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config, isDevelopment: false);
 
         var parsed = new Npgsql.NpgsqlConnectionStringBuilder(conn);
         parsed.Password.Should().Be("pa;ss;word");
@@ -72,7 +72,7 @@ public class ConnectionStringTests
     {
         var config = CreateConfig(databaseUrl: "postgres://user:p%3Dss%27w%22rd@remotehost:5432/mydb");
 
-        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
+        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config, isDevelopment: false);
 
         new Npgsql.NpgsqlConnectionStringBuilder(conn).Password.Should().Be("p=ss'w\"rd");
     }
@@ -82,7 +82,7 @@ public class ConnectionStringTests
     {
         var config = CreateConfig(databaseUrl: "postgres://user:pw@remotehost/mydb");
 
-        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
+        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config, isDevelopment: false);
 
         conn.Should().Contain("Port=5432");
         conn.Should().NotContain("Port=-1");
@@ -93,7 +93,7 @@ public class ConnectionStringTests
     {
         var config = CreateConfig(databaseUrl: "postgres://user:pw@remotehost:6543/mydb");
 
-        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
+        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config, isDevelopment: false);
 
         conn.Should().Contain("Port=6543");
     }
@@ -113,7 +113,7 @@ public class ConnectionStringTests
     {
         var config = CreateConfig(databaseUrl: $"postgres://user:pw@remotehost:5432/mydb?sslmode={queryMode}&other=1");
 
-        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
+        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config, isDevelopment: false);
 
         conn.Should().Contain($"SSL Mode={expectedSslMode}");
     }
@@ -126,7 +126,7 @@ public class ConnectionStringTests
     {
         var config = CreateConfig(databaseUrl: $"postgres://user:pw@remotehost:5432/mydb?sslmode={invalidMode}");
 
-        var act = () => barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
+        var act = () => barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config, isDevelopment: false);
 
         act.Should().Throw<ArgumentException>()
             .WithMessage($"*Invalid sslmode '{invalidMode}' in DATABASE_URL*");
@@ -137,7 +137,7 @@ public class ConnectionStringTests
     {
         var config = CreateConfig(databaseUrl: "postgres://user%40example.com:p%40ss%25w%3Ard@remotehost:5432/my%20db");
 
-        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
+        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config, isDevelopment: false);
 
         // Parsed back rather than string-matched. The connection string is built by
         // NpgsqlConnectionStringBuilder now, which quotes a value containing a space, so asserting
@@ -155,7 +155,7 @@ public class ConnectionStringTests
         const string rawConn = "Host=localhost;Port=5432;Database=mydb;Username=postgres;Password=pw";
         var config = CreateConfig(databaseUrl: rawConn);
 
-        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
+        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config, isDevelopment: false);
 
         conn.Should().Be(rawConn);
     }
@@ -166,7 +166,7 @@ public class ConnectionStringTests
         const string defaultConn = "Host=localhost;Database=mydb;Username=postgres;Password=pw";
         var config = CreateConfig(defaultConnection: defaultConn);
 
-        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config);
+        var conn = barakoCMS.Extensions.ServiceCollectionExtensions.ResolveConnectionString(config, isDevelopment: false);
 
         conn.Should().Be(defaultConn);
     }
@@ -180,10 +180,7 @@ public class ConnectionStringTests
     /// a database" into a connection refused against localhost, surfacing long after startup as
     /// something unrelated.
     ///
-    /// Both halves are asserted, through the overload that takes the Development flag as an
-    /// argument. Reading ASPNETCORE_ENVIRONMENT here instead would not merely fail to reach the
-    /// Development half: it would make this test depend on whether IntegrationTestFixture, which
-    /// sets that variable process-wide in its constructor, had started first.
+    /// Both halves are asserted with the Development flag passed as an argument, so neither half depends on the environment the test process runs in.
     /// </remarks>
     [Fact]
     public void No_connection_string_anywhere_is_refused_by_name()

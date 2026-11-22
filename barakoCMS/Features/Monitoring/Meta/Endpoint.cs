@@ -6,7 +6,7 @@ namespace barakoCMS.Features.Monitoring.Meta;
 // Authenticated on purpose, and deliberately not role-restricted. Handing an exact CMS version to
 // anonymous callers is free CVE matching, but every signed-in backoffice user needs to be able to
 // answer "what am I running" when something behaves unexpectedly.
-internal class Endpoint(IConfiguration configuration, Marten.IQuerySession session) : EndpointWithoutRequest<MetaResponse>
+internal class Endpoint(IConfiguration configuration, Marten.IQuerySession session, IHostEnvironment environment) : EndpointWithoutRequest<MetaResponse>
 {
     public override void Configure()
     {
@@ -28,7 +28,7 @@ internal class Endpoint(IConfiguration configuration, Marten.IQuerySession sessi
                 DeliveryContractVersion = ApiContract.DeliveryVersion,
                 SwaggerEnabled = configuration.GetValue(
                     "Swagger:Enabled",
-                    Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development"),
+                    barakoCMS.Infrastructure.Security.DevelopmentHost.Of(environment)),
                 Locales = locales is { Locales.Count: > 0 }
                     ? new MetaLocales { DefaultLocale = locales.DefaultLocale, Locales = [.. locales.Locales] }
                     : null,

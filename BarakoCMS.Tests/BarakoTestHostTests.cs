@@ -259,6 +259,8 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
             o.EnvironmentName = "Production";
             o.Modules.Add(new PortabilityModule());
             o.Settings["JWT:Key"] = SharedJwtKey;
+            // The test container's role is a superuser, which a Production host refuses without this.
+            o.Settings["Database:AllowSuperuser"] = "true";
         });
         await production.InitializeAsync();
 

@@ -28,10 +28,8 @@ internal static class JwtKeySource
         return string.IsNullOrWhiteSpace(key) ? Environment.GetEnvironmentVariable("JWT__Key") : key;
     }
 
-    public static string Resolve(IConfiguration config)
+    public static string Resolve(IConfiguration config, bool isDevelopment)
     {
-        return JwtKeyGuard.Validate(
-            Read(config),
-            Extensions.ServiceCollectionExtensions.IsDevelopment(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")));
+        return JwtKeyGuard.Validate(Read(config), isDevelopment);
     }
 }

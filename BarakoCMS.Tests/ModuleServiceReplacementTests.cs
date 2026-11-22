@@ -45,7 +45,7 @@ public class ModuleServiceReplacementTests
         }).Build();
 
         var services = new ServiceCollection();
-        Host.AddBarakoCMS(services, config, m =>
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), config, m =>
         {
             m.Discover = false;
             m.Add(module);

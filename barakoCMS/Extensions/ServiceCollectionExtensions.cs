@@ -44,7 +44,7 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         Action<BarakoModuleBuilder>? configureModules)
     {
-        ValidateStartupGuards(configuration);
+        ValidateStartupGuards(services, configuration);
 
         var (seen, enabled, modules, unloadable) = AddModules(services, configuration, configureModules);
 
@@ -115,9 +115,9 @@ public static class ServiceCollectionExtensions
     /// <see cref="barakoCMS.Infrastructure.Security.InitialAdminGuard"/> and
     /// <see cref="barakoCMS.Infrastructure.Security.DatabasePasswordGuard"/>.
     /// </summary>
-    private static void ValidateStartupGuards(IConfiguration configuration)
+    internal static void ValidateStartupGuards(IServiceCollection services, IConfiguration configuration)
     {
-        var developmentHost = IsDevelopmentHost(configuration, Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"));
+        var developmentHost = barakoCMS.Infrastructure.Security.DevelopmentHost.Of(services);
         barakoCMS.Infrastructure.Security.HostFilteringGuard.Validate(
             configuration, developmentHost, message => Log.Warning("{OpenHostFiltering}", message));
         barakoCMS.Infrastructure.Security.InitialAdminGuard.Validate(
@@ -627,8 +627,7 @@ public static class ServiceCollectionExtensions
         // Config wins, and the environment supplies the default, so Development keeps Swagger with
         // no configuration at all while production stays off unless it is asked for. Defaulting to
         // false everywhere would have removed it for every developer.
-        var swaggerOnByDefault =
-            IsDevelopmentEnvironment();
+        var swaggerOnByDefault = barakoCMS.Infrastructure.Security.DevelopmentHost.Of(services);
         if (configuration.GetValue("Swagger:Enabled", swaggerOnByDefault))
         {
             services.SwaggerDocument(o =>
@@ -652,7 +651,7 @@ public static class ServiceCollectionExtensions
 
     private static void AddHealthProbes(IServiceCollection services, IConfiguration configuration)
     {
-        var connectionString = ResolveConnectionString(configuration);
+        var connectionString = ResolveConnectionString(configuration, barakoCMS.Infrastructure.Security.DevelopmentHost.Of(services));
 
         // Thresholds are configurable. The memory default is deliberately generous:
         // .NET's server GC holds ~1.3GB of private memory on an idle container, so a
@@ -710,6 +709,8 @@ public static class ServiceCollectionExtensions
 
     private static void AddHostOwnedTokenKey(IServiceCollection services)
     {
+        var developmentHost = barakoCMS.Infrastructure.Security.DevelopmentHost.Of(services);
+
         // FastEndpoints keeps the validation key in a process-wide static (JwtSigningOptions) that
         // the bearer options read through a resolver, so a second host in the process decided which
         // key the first one validated with. Set the key on this host's own options instead, read
@@ -718,7 +719,7 @@ public static class ServiceCollectionExtensions
                 Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme)
             .PostConfigure<IConfiguration>((o, config) =>
             {
-                var key = barakoCMS.Infrastructure.Auth.JwtKeySource.Resolve(config);
+                var key = barakoCMS.Infrastructure.Auth.JwtKeySource.Resolve(config, developmentHost);
 
                 o.TokenValidationParameters.IssuerSigningKeyResolver = null;
                 o.TokenValidationParameters.IssuerSigningKey =
@@ -731,7 +732,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Auth.IJwtMinter, barakoCMS.Infrastructure.Auth.JwtMinter>();
     }
 
-    private static void AddJwtAndApiKeyAuth(IServiceCollection services, IConfiguration configuration)
+    internal static void AddJwtAndApiKeyAuth(IServiceCollection services, IConfiguration configuration)
     {
         // Validate JWT key exists and has minimum length for security. Fail fast rather than
         // booting with broken or insecure auth. Check both config and the JWT__Key env var.
@@ -742,7 +743,8 @@ public static class ServiceCollectionExtensions
         }
         // Fail fast on a missing, too-short, or placeholder key. See JwtKeyGuard for why a length
         // check alone is not enough (the shipped k8s manifest carries a length-valid placeholder).
-        jwtKey = barakoCMS.Infrastructure.Security.JwtKeyGuard.Validate(jwtKey, IsDevelopmentEnvironment());
+        jwtKey = barakoCMS.Infrastructure.Security.JwtKeyGuard.Validate(
+            jwtKey, barakoCMS.Infrastructure.Security.DevelopmentHost.Of(services));
 
         services.AddAuthenticationJwtBearer(
             s => s.SigningKey = jwtKey,
@@ -813,6 +815,8 @@ public static class ServiceCollectionExtensions
 
     private static void AddHstsAndCors(IServiceCollection services, IConfiguration configuration)
     {
+        var developmentHost = barakoCMS.Infrastructure.Security.DevelopmentHost.Of(services);
+
         // Strict-Transport-Security. Registered here, applied by UseHsts outside Development.
         services.AddHsts(options =>
             barakoCMS.Infrastructure.Security.HstsPolicy.Configure(options, configuration));
@@ -862,7 +866,7 @@ public static class ServiceCollectionExtensions
                 // appsettings.json; configuration binding treats them as the same key.
                 var allowedOrigins = ResolveCorsOrigins(
                     configuration["CORS:AllowedOrigins"],
-                    IsDevelopmentEnvironment());
+                    developmentHost);
 
                 if (allowedOrigins.Length > 0)
                 {
@@ -1435,7 +1439,8 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         IReadOnlyList<IBarakoModule> modules)
     {
-        var connectionString = ResolveConnectionString(configuration);
+        var developmentHost = barakoCMS.Infrastructure.Security.DevelopmentHost.Of(services);
+        var connectionString = ResolveConnectionString(configuration, developmentHost);
         var marten = services.AddMarten((IServiceProvider sp) =>
         {
             var options = new StoreOptions();
@@ -1467,9 +1472,7 @@ public static class ServiceCollectionExtensions
             // pre-registered and can't stand up a fresh database. Development keeps CreateOrUpdate for
             // a frictionless local loop. NOTE: changing Events.TenancyStyle on an existing store is
             // still not auto-migratable — it requires an event-store rebuild, never a live migration.
-            var isDevelopment =
-                IsDevelopmentEnvironment();
-            options.AutoCreateSchemaObjects = isDevelopment
+            options.AutoCreateSchemaObjects = developmentHost
                 ? JasperFx.AutoCreate.CreateOrUpdate
                 : JasperFx.AutoCreate.CreateOnly;
 
@@ -2093,23 +2096,6 @@ public static class ServiceCollectionExtensions
         ["verifyfull"] = "VerifyFull"
     };
 
-    private static bool IsDevelopmentEnvironment() =>
-        IsDevelopment(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"));
-
-    /// <summary>
-    /// Whether the host being built is Development, from the environment the host itself was given
-    /// (<c>WebApplicationOptions.EnvironmentName</c>, <c>DOTNET_ENVIRONMENT</c> or
-    /// <c>ASPNETCORE_ENVIRONMENT</c>, all of which the host writes to its configuration), and the
-    /// process variable only when the configuration has none.
-    /// </summary>
-    /// <remarks>
-    /// The startup guards use this. A process can hold hosts in more than one environment, as a test
-    /// process does, and a guard that read only the process variable would let a Production host in
-    /// it start with settings a Production process refuses.
-    /// </remarks>
-    internal static bool IsDevelopmentHost(IConfiguration configuration, string? processEnvironment) =>
-        IsDevelopment(configuration[Microsoft.Extensions.Hosting.HostDefaults.EnvironmentKey] ?? processEnvironment);
-
     /// <summary>The ports the quickstart and <c>dotnet run</c> serve a frontend on.</summary>
     private static readonly string[] DevelopmentOrigins =
         ["http://localhost:3000", "http://localhost:3001", "https://localhost:7049"];
@@ -2146,17 +2132,12 @@ public static class ServiceCollectionExtensions
     internal static bool IsDevelopment(string? environmentName) =>
         string.Equals(environmentName, "Development", StringComparison.OrdinalIgnoreCase);
 
-    internal static string ResolveConnectionString(IConfiguration configuration) =>
-        ResolveConnectionString(configuration, IsDevelopmentEnvironment());
-
     /// <summary>
     /// Resolves the connection string, taking the Development decision as an argument.
     /// </summary>
     /// <remarks>
-    /// The flag is a parameter so a unit test can assert both halves without reading
-    /// ASPNETCORE_ENVIRONMENT. IntegrationTestFixture sets that variable process-wide in its
-    /// constructor and xUnit runs collections in parallel, so a test that reads it is really
-    /// asserting which collection started first.
+    /// The flag is a parameter so a unit test can assert both halves without a host. Callers get it
+    /// from <see cref="barakoCMS.Infrastructure.Security.DevelopmentHost"/>.
     /// </remarks>
     internal static string ResolveConnectionString(IConfiguration configuration, bool isDevelopment)
     {
@@ -2252,7 +2233,7 @@ public static class ServiceCollectionExtensions
         app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Realtime.TopicRegistry>();
         app.ApplicationServices.GetRequiredService<barakoCMS.Features.Workflows.WorkflowTriggerRegistry>();
         var configuration = app.ApplicationServices.GetRequiredService<IConfiguration>();
-        var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+        var env = barakoCMS.Infrastructure.Security.DevelopmentHost.NameFor(app.ApplicationServices);
 
         // Building the store is what runs each module's ConfigureSchema, and it is built on first
         // use. Asked for here so the schema hook runs before any ConfigureApp below, which is the
@@ -2845,6 +2826,15 @@ public static class ServiceCollectionExtensions
     public static async Task ApplyMartenSchemaAsync(this IHost host)
     {
         var store = host.Services.GetRequiredService<Marten.IDocumentStore>();
+
+        // Before everything else the schema apply does, so a host connecting as a superuser never
+        // reaches the lock, the ledger or any DDL. Serving path only: the db commands run as the owner.
+        await barakoCMS.Infrastructure.Security.DatabaseRoleGuard.AssertAsync(
+            host.Services.GetRequiredService<IConfiguration>(),
+            barakoCMS.Infrastructure.Security.DevelopmentHost.Of(host.Services.GetService<IHostEnvironment>()),
+            store,
+            host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Database"),
+            host.Services);
 
         // Before the schema, not after. If database tenancy is on and the connection cannot be
         // subject to it, the right outcome is refusing to start, and doing that before any DDL keeps
