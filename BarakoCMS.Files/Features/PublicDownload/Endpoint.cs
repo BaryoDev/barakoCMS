@@ -69,6 +69,7 @@ public class Endpoint(IQuerySession session, BarakoCMS.Files.Storage.FileStorage
         DeliveryCache.Shared(
             HttpContext, DeliveryCacheClass.Long, [new CacheScope("file", file.Id.ToString("D"))], lastModified);
         HttpContext.Response.Headers.ETag = etag;
+        FileServing.AllowCrossOrigin(HttpContext);
         if (DeliveryCache.IsNotModified(HttpContext.Request, etag, lastModified))
         {
             await Send.ResultAsync(Results.StatusCode(StatusCodes.Status304NotModified));

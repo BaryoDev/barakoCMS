@@ -35,7 +35,9 @@ internal static class InitialAdminGuard
             return;
         }
 
-        var reason = Reason(username, password);
+        // Whitespace around a value is not part of a password anyone means to set, so the checks
+        // read the trimmed value and a value that is only whitespace is refused.
+        var reason = Reason(username, password.Trim());
         if (reason is not null)
         {
             throw new InvalidOperationException(

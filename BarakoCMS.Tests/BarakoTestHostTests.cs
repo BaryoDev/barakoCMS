@@ -250,6 +250,23 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
     }
 
     [Fact]
+    public async Task A_host_run_as_Production_starts_and_answers_a_request()
+    {
+        // appsettings.json ships AllowedHosts "*", which a Production host refuses to start with.
+        // The test host defaults it to the hosts its client sends.
+        await using var production = new BarakoTestHost(o =>
+        {
+            o.EnvironmentName = "Production";
+            o.Settings["JWT:Key"] = SharedJwtKey;
+        });
+        await production.InitializeAsync();
+
+        var response = await production.CreateClient().GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "the host started and routed the request");
+    }
+
+    [Fact]
     public async Task A_host_running_no_modules_does_not_serve_the_module_endpoint()
     {
         // Registration is what puts a module's endpoints in the host, so the same request on a host

@@ -219,7 +219,8 @@ by the module schema preflight.
 When a release needs a SQL step, it ships under `migrations/<version>/` and inside the image. From
 4.6.0 the image applies it: `db-migrate`, run as a one-off job in the same form as `db-assert`
 below, runs the files this database has not had and records each in a ledger table.
-[migrations.md](migrations.md) describes it. The job form on each platform is not tested here.
+[migrations.md](migrations.md) describes it. The job form on each platform is not tested here. The job runs with the same `AllowedHosts` and
+`InitialAdmin` settings as the service, because the host checks run before the command starts.
 
 The order is the same as on a VM. Run `db-migrate --status` as a job first; it only reads, so the
 service can stay up. If it exits 0 there is nothing to apply. If it exits 1, stop the service (stop

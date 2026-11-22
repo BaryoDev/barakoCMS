@@ -149,9 +149,14 @@ public class HostStartupExitCodeTests
             environment["Security__AllowAnyHost"] = allowAny;
         }
 
-        var (_, output) = await RunHostAsync(HostAssembly, UnreachableDatabase, ValidJwtKey, environment);
+        var (exitCode, output) = await RunHostAsync(HostAssembly, UnreachableDatabase, ValidJwtKey, environment);
 
+        // Program.cs logs this once AddBarakoCMS and Build have run, which is after the host guard.
+        // The database is unreachable, so the host still exits non-zero, but for that reason.
+        output.Should().Contain("Starting BarakoCMS Host...", $"Output:\n{Truncate(output)}");
         output.Should().NotContain("accepts any Host header");
+        exitCode.Should().NotBe(0, "the database is unreachable");
+        exitCode.Should().NotBe(134, "a startup failure has to be handled, not abort");
     }
 
     [Fact]
@@ -164,7 +169,7 @@ public class HostStartupExitCodeTests
             new Dictionary<string, string> { ["InitialAdmin__Username"] = "admin", ["InitialAdmin__Password"] = weak });
 
         exitCode.Should().Be(1, $"Output:\n{Truncate(output)}");
-        output.Should().Contain("InitialAdmin:Password");
+        output.Should().Contain("InitialAdmin:Password is refused");
         output.Should().NotContain(weak);
     }
 

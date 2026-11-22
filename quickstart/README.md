@@ -119,6 +119,9 @@ From 6.0.0 the API refuses to start in Production when `ALLOWED_HOSTS` is `*` or
 here is `localhost;127.0.0.1`, which is right for the local compose. For a real domain list it. To
 accept any host on purpose, set `Security__AllowAnyHost=true` and keep `APP_BASE_URL` set.
 
+To open the local compose from another machine, add that IP or name to the list, for example
+`ALLOWED_HOSTS=localhost;127.0.0.1;192.168.1.20`. `docker-compose.hub.yml` reads the same variable.
+
 TLS is terminated by the proxy, so add HSTS there:
 
 ```nginx

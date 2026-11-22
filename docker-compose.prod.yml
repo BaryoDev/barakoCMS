@@ -133,11 +133,12 @@ services:
       # Passed through rather than assumed: quickstart has had them and this file did not, so the
       # runbook told operators to set variables that reached nothing. Defaults are today's behaviour
       # exactly, an unset base URL (the feed and the OAuth start endpoints say which key to set).
-      # AllowedHosts defaults to DOMAIN_API, the one host Caddy serves, because the API refuses to
-      # start in Production when it accepts any host. Set ALLOWED_HOSTS (semicolon separated) to
-      # list more, or Security__AllowAnyHost=true to accept any host on purpose.
+      # AllowedHosts defaults to DOMAIN_API, the host Caddy serves, plus the service name app, which
+      # callers inside the compose network use (the on-demand TLS ask in docs/deploy-in-production.md).
+      # The API refuses to start in Production when it accepts any host. Set ALLOWED_HOSTS
+      # (semicolon separated) to replace the list, keeping app in it if something calls it by name, or Security__AllowAnyHost=true to accept any host on purpose.
       - App__BaseUrl=${APP_BASE_URL:-}
-      - AllowedHosts=${ALLOWED_HOSTS:-${DOMAIN_API}}
+      - AllowedHosts=${ALLOWED_HOSTS:-${DOMAIN_API};app}
       # The site the feed points at, which is the client's front end rather than this API. Preferred
       # over App__BaseUrl when set.
       - Feeds__SiteUrl=${FEEDS_SITE_URL:-}

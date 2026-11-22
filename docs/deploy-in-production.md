@@ -165,6 +165,9 @@ bucket, holds that name's answers at 429 (which Caddy reads as no) while it last
 A site proxy that issues certificates on demand, for barakoPress serving the client domains (the
 shipped `Caddyfile` here serves only `{$DOMAIN_API}` and stays as it is):
 
+The ask URL uses the service name, so `app` must be in `AllowedHosts` (the shipped
+`docker-compose.prod.yml` default lists it beside `DOMAIN_API`).
+
 ```caddyfile
 {
     email {$ACME_EMAIL}

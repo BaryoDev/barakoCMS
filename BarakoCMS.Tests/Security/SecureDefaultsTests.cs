@@ -66,6 +66,10 @@ public class SecureDefaultsTests
     [InlineData("")]
     [InlineData(null)]
     [InlineData("api.example.com;*")]
+    [InlineData("0.0.0.0")]
+    [InlineData("[::]")]
+    [InlineData("api.example.com;0.0.0.0")]
+    [InlineData("[::];api.example.com")]
     public void OpenAllowedHosts_StopsProductionStartup(string? allowedHosts)
     {
         var act = () => HostFilteringGuard.Validate(Config(("AllowedHosts", allowedHosts)), isDevelopment: false);
@@ -135,6 +139,22 @@ public class SecureDefaultsTests
     public void WeakInitialAdminPassword_StopsStartup_WhenItIsAnExampleValue(string password)
     {
         var act = () => InitialAdminGuard.Validate("someone-else", password, isDevelopment: false);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*example or default*");
+    }
+
+    [Fact]
+    public void WeakInitialAdminPassword_StopsStartup_WhenItIsOnlyWhitespace()
+    {
+        var act = () => InitialAdminGuard.Validate("someone-else", new string(' ', 12), isDevelopment: false);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*InitialAdmin:Password*");
+    }
+
+    [Fact]
+    public void WeakInitialAdminPassword_StopsStartup_WhenAnExampleIsPaddedWithSpaces()
+    {
+        var act = () => InitialAdminGuard.Validate("someone-else", " changeme-in-production ", isDevelopment: false);
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*example or default*");
     }
