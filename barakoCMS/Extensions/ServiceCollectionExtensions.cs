@@ -44,13 +44,7 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         Action<BarakoModuleBuilder>? configureModules)
     {
-        ValidateStartupGuards(services, configuration);
-
-        // A host that never calls ApplyMartenSchemaAsync, such as one built from docs/delivering-a-client-project.md,
-        // still has its database role checked as it starts. The schema apply runs the check first
-        // when it is called, and this skips then.
-        services.AddSingleton<barakoCMS.Infrastructure.Security.DatabaseRoleGuardKey>();
-        services.AddSingleton<IHostedService, barakoCMS.Infrastructure.Security.DatabaseRoleBackstop>();
+        AddStartupGuards(services, configuration);
 
         var (seen, enabled, modules, unloadable) = AddModules(services, configuration, configureModules);
 
@@ -113,6 +107,17 @@ public static class ServiceCollectionExtensions
         LegacyEmailKeyCheck.WarnIfIgnored(services, configuration);
 
         return services;
+    }
+
+    private static void AddStartupGuards(IServiceCollection services, IConfiguration configuration)
+    {
+        ValidateStartupGuards(services, configuration);
+
+        // A host that never calls ApplyMartenSchemaAsync, such as one built from docs/delivering-a-client-project.md,
+        // still has its database role checked as it starts. The schema apply runs the check first
+        // when it is called, and this skips then.
+        services.AddSingleton<barakoCMS.Infrastructure.Security.DatabaseRoleGuardKey>();
+        services.AddSingleton<IHostedService, barakoCMS.Infrastructure.Security.DatabaseRoleBackstop>();
     }
 
     /// <summary>

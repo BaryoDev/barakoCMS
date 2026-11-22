@@ -53,6 +53,10 @@ public class OtpRequestMockMailTests
     {
         var host = _fixture.WithWebHostBuilder(b =>
         {
+            // The stubbed environment reaches the startup guards too, and the test container's role is
+            // a superuser, which a host outside Development refuses without this.
+            if (!string.Equals(environment, Environments.Development, StringComparison.OrdinalIgnoreCase))
+                b.UseSetting("Database:AllowSuperuser", "true");
             // Not UseEnvironment: which environment a derived host resolves to depends on the order
             // hosts were built in (see RefreshCookieTests). The endpoint reads IHostEnvironment
             // from DI, so that is what gets replaced.

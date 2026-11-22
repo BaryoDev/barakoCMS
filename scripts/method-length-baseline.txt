@@ -16,9 +16,9 @@
 93 barakoCMS/Core/Validation/UniquenessRules.cs::UniquenessRules.Problems
 86 barakoCMS/Data/DataSeeder.cs::DataSeeder.BackfillSearchTextAsync
 95 barakoCMS/Data/DataSeeder.cs::DataSeeder.SeedUsersAsync
-71 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddHstsAndCors
-79 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddJwtAndApiKeyAuth
-132 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddMartenStore
+73 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddHstsAndCors
+80 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddJwtAndApiKeyAuth
+131 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddMartenStore
 79 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddModules
 135 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapGlobalDocuments
 133 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.MapTenantScopedDocuments
@@ -65,7 +65,7 @@
 125 barakoCMS/Features/Workflows/Actions/EmailAction.cs::EmailAction.RunAsync
 86 barakoCMS/Features/Workflows/Actions/PublishAction.cs::PublishAction.RunAsync
 369 barakoCMS/Features/Workflows/Actions/UpdateFieldAction.cs::UpdateFieldAction.RunAsync
-198 barakoCMS/Features/Workflows/Actions/WebhookAction.cs::WebhookAction.RunAsync
+188 barakoCMS/Features/Workflows/Actions/WebhookAction.cs::WebhookAction.RunAsync
 82 barakoCMS/Features/Workflows/DryRunWorkflow/Endpoint.cs::Endpoint.HandleAsync
 86 barakoCMS/Features/Workflows/Outbox/SignedHttpOutboxTransport.cs::SignedHttpOutboxTransport.SendAsync
 74 barakoCMS/Features/Workflows/WorkflowEndpoints.cs::DeleteWorkflowEndpoint.HandleAsync
