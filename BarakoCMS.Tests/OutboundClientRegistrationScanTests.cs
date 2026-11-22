@@ -37,7 +37,11 @@ public class OutboundClientRegistrationScanTests
     };
 
     // Key: file, then "new HttpClient(" and its first argument. Empty: production code builds none.
-    internal static readonly Dictionary<string, string> DirectHttpClients = new();
+    internal static readonly Dictionary<string, string> DirectHttpClients = new()
+    {
+        ["barakoCMS/Infrastructure/Health/HealthProbe.cs|new HttpClient(handler)"] =
+            "the health probe runs before the host exists, so there is no factory; it only calls 127.0.0.1 on the port from ASPNETCORE_URLS, with its own timeout, no proxy and redirects off",
+    };
 
     // The dot may be followed by whitespace or a newline (a chained call split over lines), and the
     // type arguments may nest, so the angle brackets are balanced rather than cut at the first ">".
