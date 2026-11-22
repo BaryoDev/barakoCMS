@@ -144,7 +144,7 @@ public class KestrelLimitsTests
     [InlineData("Kestrel:Limits:MaxRequestLineSize")]
     public void Kestrel_ABlankValueIsTheSameAsAKeyLeftOut(string key)
     {
-        var limits = Limits((key, ""), (key + "x", " "))();
+        var limits = Limits((key, ""))();
 
         limits.RequestHeadersTimeout.Should().Be(TimeSpan.FromSeconds(15));
         limits.KeepAliveTimeout.Should().Be(TimeSpan.FromSeconds(130));
