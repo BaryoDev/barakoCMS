@@ -40,6 +40,14 @@ spec:
       labels:
         app: barako-cms
     spec:
+      # The image runs as the user "app", which is uid 1654. runAsNonRoot needs the number, because
+      # the kubelet cannot tell a name from root.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654
+        runAsGroup: 1654
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: barako-cms
           # Pinned. With :latest plus IfNotPresent a node keeps whatever it cached, so two replicas
@@ -73,6 +81,18 @@ spec:
                 secretKeyRef:
                   name: barako-secrets
                   key: InitialAdmin__Password
+          # Read-only root. The API writes only to /tmp (upload buffering, the runtime's scratch
+          # files) and its home directory, so those two are the only writable paths.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: home
+              mountPath: /home/app
           resources:
             requests:
               memory: "128Mi"
@@ -116,3 +136,10 @@ spec:
                   value: barakocms.example.com
             periodSeconds: 10
             failureThreshold: 3
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 512Mi
+        - name: home
+          emptyDir:
+            sizeLimit: 16Mi
