@@ -280,6 +280,39 @@ public class KubernetesManifestTests
         MissingHardening(File.ReadAllText(Deployment())).Should().BeEmpty();
     }
 
+    private static string[] MissingContainerHardening(string manifest)
+    {
+        var text = manifest.Replace("\r", "");
+        var required = new Dictionary<string, string>
+        {
+            ["pod seccompProfile RuntimeDefault"] = @"(?ms)^\s*seccompProfile:\s*\n\s*type:\s*RuntimeDefault\s*$",
+            ["readOnlyRootFilesystem"] = @"(?m)^\s*readOnlyRootFilesystem:\s*true\s*$",
+            ["allowPrivilegeEscalation false"] = @"(?m)^\s*allowPrivilegeEscalation:\s*false\s*$",
+            ["capabilities drop ALL"] = @"(?m)^\s*drop:\s*\[\s*""?ALL""?\s*\]\s*$",
+        };
+
+        return required.Where(r => !Regex.IsMatch(text, r.Value)).Select(r => r.Key).ToArray();
+    }
+
+    [Fact]
+    public void Postgres_and_the_backup_job_keep_their_hardening()
+    {
+        var postgres = File.ReadAllText(Path.Combine(ManifestDir(), "03-postgres.yaml"));
+        var backup = File.ReadAllText(Path.Combine(ManifestDir(), "07-backup-cronjob.yaml"));
+
+        MissingContainerHardening(postgres).Should().BeEmpty();
+        MissingContainerHardening(backup).Should().BeEmpty();
+
+        var addBlock = Regex.Match(postgres.Replace("\r", ""), @"(?ms)^\s*add:\s*\n(?<list>(?:\s*-\s*[A-Z_]+[^\n]*\n)+)");
+        addBlock.Success.Should().BeTrue("Postgres adds back the capabilities its entrypoint needs");
+        Regex.Matches(addBlock.Groups["list"].Value, @"-\s*([A-Z_]+)").Select(m => m.Groups[1].Value)
+            .Should().BeEquivalentTo(new[] { "CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID" },
+                "the entrypoint starts as root and drops to the postgres user, and needs exactly these");
+
+        Regex.IsMatch(backup, @"(?m)^\s*runAsNonRoot:\s*true\s*$").Should().BeTrue("the backup job has no reason to run as root");
+        Regex.IsMatch(backup, @"(?m)^\s*runAsUser:\s*70\s*$").Should().BeTrue("70 is the postgres user of postgres:16-alpine");
+    }
+
     [Fact]
     public void The_hardening_check_rejects_the_known_bad_manifest()
     {

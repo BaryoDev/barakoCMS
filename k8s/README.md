@@ -50,8 +50,13 @@ The root filesystem is read-only, so the only writable paths are two `emptyDir` 
 `emptyDir` or a PVC at that path. Do not turn off the read-only root.
 `The_app_Deployment_runs_non_root_read_only_with_no_capabilities` pins these settings.
 
-Only the app Deployment has this. `03-postgres.yaml` and `07-backup-cronjob.yaml` set no
-`securityContext`, so Postgres and the backup job run with the image defaults.
+Postgres (`03-postgres.yaml`) starts as root, because its entrypoint prepares the data directory and
+then drops to the postgres user. It keeps CHOWN, DAC_OVERRIDE, FOWNER, SETGID and SETUID, drops the
+rest, and has a read-only root with emptyDirs at `/tmp` (64Mi) and `/var/run/postgresql` (8Mi). The
+backup job (`07-backup-cronjob.yaml`) runs as the image's postgres user (70) with a read-only root,
+no capabilities and `fsGroup: 70` so it can write the backups PVC.
+`Postgres_and_the_backup_job_keep_their_hardening` pins both, and `scripts/check-k8s-start.sh`
+starts them on kind in CI.
 
 ## What this does not cover
 
@@ -82,6 +87,9 @@ bash scripts/check-k8s-manifests.sh k8s
 
 Server side, and not `--dry-run=client` or `kubeconform`, because neither parses a resource quantity:
 both accepted `memory: "128Mw"` when it was in this directory.
+
+`bash scripts/check-k8s-start.sh k8s` starts Postgres and the backup job for real, takes one backup and
+deletes the namespace afterwards. It does not apply the app Deployment, so it pulls no app image.
 
 ## Demo content
 
