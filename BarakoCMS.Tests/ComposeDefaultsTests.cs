@@ -234,23 +234,30 @@ public class ComposeDefaultsTests
     }
 
     /// <summary>
-    /// Production and the quickstart load pg_stat_statements and create it on an existing volume (#799).
+    /// Production and the quickstart load pg_stat_statements, and the one-shot job runs the role
+    /// script, which creates it on every start (#799).
     /// </summary>
     /// <remarks>
     /// docker-entrypoint-initdb.d only runs against an empty data directory, so an extension created
-    /// there never reaches a deployment that already has data. The one-shot service is what does.
+    /// there never reaches a deployment that already has data. The one-shot service is what does: it
+    /// mounts scripts/db-app-role.sql (the quickstart's copy for the quickstart) and runs it with
+    /// psql -f, and that script holds the CREATE EXTENSION.
     /// </remarks>
     [Theory]
-    [InlineData("docker-compose.prod.yml")]
-    [InlineData("quickstart/docker-compose.yml")]
-    public void Postgres_loads_pg_stat_statements_and_creates_it_on_every_start(string composeFile)
+    [InlineData("docker-compose.prod.yml", "scripts/db-app-role.sql")]
+    [InlineData("quickstart/docker-compose.yml", "quickstart/scripts/db-app-role.sql")]
+    public void Postgres_loads_pg_stat_statements_and_the_role_job_creates_it_on_every_start(string composeFile, string script)
     {
         var lines = Lines(composeFile).Select(l => l.Trim()).Where(l => !l.StartsWith('#')).ToArray();
 
         lines.Should().Contain("- shared_preload_libraries=pg_stat_statements",
             "{0} must preload the library or CREATE EXTENSION succeeds and the view errors", composeFile);
-        lines.Should().Contain(l => l.Contains("CREATE EXTENSION IF NOT EXISTS pg_stat_statements"),
-            "{0} must create the extension outside initdb so an existing volume gets it", composeFile);
+        lines.Should().Contain(l => l.StartsWith("- ./scripts/db-app-role.sql:/db-app-role.sql"),
+            "{0}: the postgres-extensions job must mount the role script", composeFile);
+        lines.Should().Contain(l => l.Contains("\"-f\"") && l.Contains("/db-app-role.sql"),
+            "{0}: the job must run the mounted script with psql -f", composeFile);
+        Lines(script).Should().Contain(l => l.Contains("CREATE EXTENSION IF NOT EXISTS pg_stat_statements"),
+            "{0} must create the extension outside initdb so an existing volume gets it", script);
     }
 
     /// <summary>

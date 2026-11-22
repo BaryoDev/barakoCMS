@@ -85,10 +85,21 @@ step "the API's sessions use the app role"
 api_ips="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$(dc ps -q app)")" \
   || fail "could not inspect the app container"
 [ -n "${api_ips// /}" ] || fail "could not find the API's address"
-roles="$(dc exec -T postgres psql -X -At -U postgres -d barako_cms -v ips="$api_ips" -c \
-  "select distinct usename from pg_stat_activity where client_addr = any(string_to_array(btrim(:'ips'), ' ')::inet[])")" \
-  || fail "could not read pg_stat_activity"
-[ "$roles" = "barako_app" ] || fail "the API's sessions use '$roles', not barako_app"
+# The query goes in on stdin, because psql does not substitute :'ips' inside a -c string.
+# Poll up to 30 seconds for at least one API session. A role other than barako_app fails at once.
+roles=""
+deadline=$((SECONDS + 30))
+while :; do
+  roles="$(printf '%s\n' "select distinct usename from pg_stat_activity where client_addr = any(string_to_array(btrim(:'ips'), ' ')::inet[]) order by 1;" \
+    | dc exec -T postgres psql -X -At -U postgres -d barako_cms -v ON_ERROR_STOP=1 -v ips="$api_ips")" \
+    || fail "could not read pg_stat_activity"
+  if [ -n "$roles" ]; then
+    [ "$roles" = "barako_app" ] || fail "the API's sessions use '$(printf '%s' "$roles" | tr '\n' ' ')', not only barako_app"
+    break
+  fi
+  [ "$SECONDS" -lt "$deadline" ] || fail "no API session showed up in pg_stat_activity within 30 seconds"
+  sleep 2
+done
 
 step "the backup writes an archive on a read-only root"
 ok=0
