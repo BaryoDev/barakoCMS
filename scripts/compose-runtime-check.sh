@@ -74,7 +74,11 @@ fi
 refused() { # name, expected phrase, env overrides...
   local name="$1" phrase="$2" out rc=0
   shift 2
-  out=$(dc run --rm --no-deps -T "$@" app 2>&1) || rc=$?
+  # A rule that stopped working would start the app and keep it running, so cap the wait.
+  local limit=""
+  ! command -v timeout > /dev/null || limit="timeout 60"
+  out=$($limit docker compose -p "$PROJECT" --env-file "$ENVFILE" -f docker-compose.prod.yml run --rm --no-deps -T "$@" app 2>&1) || rc=$?
+  [ "$rc" -ne 124 ] || fail "$name: the app was still running after 60 seconds, so the guard did not stop it"
   [ "$rc" -ne 0 ] || fail "$name: the app started with an example value"
   printf '%s' "$out" | grep -qF "$phrase" || fail "$name: the error does not name the setting ($phrase)"
   step "$name refused with exit $rc"
