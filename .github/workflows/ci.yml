@@ -609,8 +609,12 @@ jobs:
             printf 'gh_token = "%s"\n' "$GH_TOK"
           } > "$TMP/planted.txt"
 
-          if gitleaks dir "$TMP" --config "$TMP/.gitleaks.toml" --redact --no-banner; then
-            echo "::error::The secret scan did not catch a planted credential. The gate is not working."
+          # gitleaks exits 1 for a leak and for an error alike, so ask for 42 on a leak and accept
+          # nothing else.
+          code=0
+          gitleaks dir "$TMP" --config "$TMP/.gitleaks.toml" --redact --no-banner --exit-code 42 || code=$?
+          if [ "$code" -ne 42 ]; then
+            echo "::error::The planted credential scan exited $code, not 42. The gate is not working."
             exit 1
           fi
           echo "Planted secret was caught. The scan is live."
