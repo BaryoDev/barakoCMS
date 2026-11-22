@@ -183,5 +183,6 @@ public sealed class ManagedAdminRoleStepsTests(ManagedAdminRoleStepsTests.Postgr
             "-f", "/work/scripts/db-app-role.sql");
 
         run.ExitCode.Should().NotBe(0, "scripts/db-app-role.sql needs a superuser; if this starts passing, update the doc");
+        run.Stderr.Should().Contain("permission denied", "the script stops on a privilege a managed admin lacks, not on anything else");
     }
 }
