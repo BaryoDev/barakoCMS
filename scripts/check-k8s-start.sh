@@ -62,6 +62,6 @@ kubectl -n "$NS" wait --for=condition=complete job/db-backup-start-check --timeo
 
 LOG=$(kubectl -n "$NS" logs job/db-backup-start-check)
 echo "$LOG"
-echo "$LOG" | grep -q "Backup complete" || { echo "check-k8s-start: the backup log has no 'Backup complete'" >&2; false; }
+grep -q "Backup complete" <<<"$LOG" || { echo "check-k8s-start: the backup log has no 'Backup complete'" >&2; false; }
 
 echo "== Postgres and the backup job started and took a backup =="

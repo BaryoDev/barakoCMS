@@ -165,7 +165,8 @@ public class KubernetesManifestTests
     {
         var allowed = AllowedHosts();
         allowed.Should().NotBeEmpty("Production refuses an empty AllowedHosts");
-        allowed.Should().NotContain("*", "Production refuses a wildcard AllowedHosts");
+        barakoCMS.Infrastructure.Security.CanonicalHost.IsHostFilteringConstrained(string.Join(';', allowed))
+            .Should().BeTrue("Production refuses an AllowedHosts of *, 0.0.0.0 or [::], which turn host filtering off");
 
         var ingressHosts = IngressHosts();
         ingressHosts.Should().NotBeEmpty("an Ingress with no host routes nothing");
@@ -204,7 +205,7 @@ public class KubernetesManifestTests
             var line = raw.Trim();
             if (line.StartsWith('#')) continue;
 
-            if (line == "hosts:") { inTlsHosts = true; continue; }
+            if (line is "hosts:" or "- hosts:") { inTlsHosts = true; continue; }
 
             if (inTlsHosts && line.StartsWith("- ", StringComparison.Ordinal))
             {
@@ -303,14 +304,27 @@ public class KubernetesManifestTests
         MissingContainerHardening(postgres).Should().BeEmpty();
         MissingContainerHardening(backup).Should().BeEmpty();
 
-        var addBlock = Regex.Match(postgres.Replace("\r", ""), @"(?ms)^\s*add:\s*\n(?<list>(?:\s*-\s*[A-Z_]+[^\n]*\n)+)");
+        var postgresNoComments = string.Join('\n', postgres.Replace("\r", "").Split('\n').Select(l => l.Split('#')[0].TrimEnd()));
+        var addBlock = Regex.Match(postgresNoComments, @"(?ms)^\s*add:\s*\n(?<list>(?:\s*-\s*[A-Z_]+[^\n]*\n)+)");
         addBlock.Success.Should().BeTrue("Postgres adds back the capabilities its entrypoint needs");
         Regex.Matches(addBlock.Groups["list"].Value, @"-\s*([A-Z_]+)").Select(m => m.Groups[1].Value)
             .Should().BeEquivalentTo(new[] { "CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID" },
                 "the entrypoint starts as root and drops to the postgres user, and needs exactly these");
 
         Regex.IsMatch(backup, @"(?m)^\s*runAsNonRoot:\s*true\s*$").Should().BeTrue("the backup job has no reason to run as root");
+        Regex.IsMatch(backup, @"(?m)^\s*runAsGroup:\s*70\s*$").Should().BeTrue("the group is 70 too");
+        Regex.IsMatch(backup, @"(?m)^\s*fsGroup:\s*70\s*$").Should().BeTrue("fsGroup makes the barako-backups volume writable by uid 70");
         Regex.IsMatch(backup, @"(?m)^\s*runAsUser:\s*70\s*$").Should().BeTrue("70 is the postgres user of postgres:16-alpine");
+    }
+
+    [Fact]
+    public void The_Postgres_readiness_probe_asks_over_TCP()
+    {
+        var postgres = File.ReadAllText(Path.Combine(ManifestDir(), "03-postgres.yaml"));
+
+        postgres.Should().MatchRegex(@"command:\s*\[""pg_isready"",\s*""-h"",\s*""127\.0\.0\.1""",
+            "the image's temporary init server listens on the socket only, so a probe over the socket "
+          + "marks the pod ready while TCP still refuses and the Service sends the app to it");
     }
 
     [Fact]

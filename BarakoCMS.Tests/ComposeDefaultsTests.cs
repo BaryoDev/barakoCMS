@@ -57,6 +57,21 @@ public class ComposeDefaultsTests
 
     [Theory]
     [MemberData(nameof(ComposeFiles))]
+    public void Every_Postgres_healthcheck_asks_over_TCP(string composeFile)
+    {
+        var checks = Lines(composeFile)
+            .Select(l => l.Trim())
+            .Where(l => l.Contains("pg_isready", StringComparison.Ordinal))
+            .ToArray();
+
+        checks.Should().NotBeEmpty("{0} has a Postgres healthcheck", composeFile);
+        checks.Should().OnlyContain(l => l.Contains("pg_isready -h 127.0.0.1 ", StringComparison.Ordinal),
+            "the image's temporary init server listens on the socket only, so a healthcheck over the "
+          + "socket reports healthy while TCP still refuses and the API starts against it");
+    }
+
+    [Theory]
+    [MemberData(nameof(ComposeFiles))]
     public void No_compose_file_mounts_host_credentials_into_a_container(string composeFile)
     {
         var offenders = Lines(composeFile)
