@@ -406,6 +406,7 @@ jobs:
       # repository ships gets checked on every change to it.
       - name: The development and try-out files parse
         env:
+          BARAKO_TAG: ci
           DB_PASSWORD: ci-not-a-real-password
           JWT_SECRET: ci-not-a-real-key-at-least-32-characters
         run: |
@@ -420,6 +421,7 @@ jobs:
       # contain, which is why the values are supplied here rather than from a file.
       - name: The quickstart file parses
         env:
+          BARAKO_TAG: ci
           DB_PASSWORD: ci-not-a-real-password
           JWT_KEY: ci-not-a-real-key-at-least-32-characters
           ADMIN_PASSWORD: ci-not-a-real-password
@@ -451,6 +453,7 @@ jobs:
           set -euo pipefail
           cp .env.prod.example /tmp/ci.env
           cat >> /tmp/ci.env <<'ENV'
+          BARAKO_TAG=ci
           DB_PASSWORD=ci-not-a-real-password
           JWT_KEY=ci-not-a-real-key-at-least-32-characters
           ADMIN_PASSWORD=ci-not-a-real-password
@@ -469,6 +472,7 @@ jobs:
           set -euo pipefail
           cp .env.prod.example /tmp/ci-nojwt.env
           cat >> /tmp/ci-nojwt.env <<'ENV'
+          BARAKO_TAG=ci
           DB_PASSWORD=ci-not-a-real-password
           ADMIN_PASSWORD=ci-not-a-real-password
           ENV
@@ -477,6 +481,24 @@ jobs:
             exit 1
           fi
           echo "refused, as it should"
+
+      # Every service in the four shipped files keeps read_only, cap_drop ALL, no-new-privileges, a
+      # non-root user (or a stated reason), memory and process limits and a healthcheck. The script
+      # fails closed, and test-ci-gates.sh proves it fails on a file that loses each one.
+      - name: Every compose service stays hardened
+        run: |
+          bash scripts/check-compose-hardening.sh docker-compose.yml docker-compose.hub.yml \
+            docker-compose.prod.yml quickstart/docker-compose.yml
+
+      # Resolving and linting are not running. This builds the image from the branch and starts the
+      # production services on fresh volumes with the root file system read-only: postgres initdb,
+      # the app, the cron backup, the built-in health probe, no read-only or permission error in
+      # the logs, and the example JWT key and database password refused at start.
+      - name: The hardened production stack starts and works
+        run: |
+          set -euo pipefail
+          docker build -t ghcr.io/baryodev/barako-cms:ci .
+          bash scripts/compose-runtime-check.sh ghcr.io/baryodev/barako-cms:ci
 
   security:
     name: Security scan
