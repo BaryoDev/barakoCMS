@@ -40,7 +40,12 @@ public class OutboundClientRegistrationScanTests
     internal static readonly Dictionary<string, string> DirectHttpClients = new();
 
     private static readonly Regex Registration = new(@"\.AddHttpClient(?<generics><[^>]*>)?\(", RegexOptions.Compiled);
-    private static readonly Regex Direct = new(@"\bnew\s+HttpClient\s*\(", RegexOptions.Compiled);
+    // Also the qualified forms and a target-typed new on a field, local or property declared as
+    // HttpClient. It cannot see a target-typed new() returned from a method whose return type is HttpClient.
+    private static readonly Regex Direct = new(
+        @"\bnew\s+(?:global::)?(?:System\s*\.\s*Net\s*\.\s*Http\s*\.\s*)?HttpClient\s*\("
+        + @"|\bHttpClient\??\s+\w+\s*(?:\{[^{}]*\}\s*)?=\s*new\s*\(",
+        RegexOptions.Compiled);
 
     private sealed record Found(string Key, string Statement);
 
