@@ -1,7 +1,12 @@
 using System.Data.Common;
+using System.Security.Cryptography;
+using barakoCMS.Extensions;
 using barakoCMS.Infrastructure.Security;
+using FastEndpoints;
 using FluentAssertions;
 using Marten;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -248,6 +253,56 @@ public sealed class DatabaseRoleGuardTests(DatabaseRoleGuardTests.Postgres postg
 
         await host.StartAsync(Ct);
         await host.StopAsync(Ct);
+    }
+
+    /// <summary>
+    /// A Production host with all of core registered, connected as <paramref name="user"/> to
+    /// <paramref name="database"/>, which that role owns.
+    /// </summary>
+    private WebApplication ProductionAppAs(string user, string password, string database)
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = Environments.Production });
+        builder.WebHost.UseTestServer();
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:DefaultConnection"] =
+                new NpgsqlConnectionStringBuilder(postgres.ConnectionString(user, password)) { Database = database }.ConnectionString,
+            ["DATABASE_URL"] = string.Empty,
+            ["JWT:Key"] = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)),
+            ["JWT:Issuer"] = "BarakoTest",
+            ["JWT:Audience"] = "BarakoClient",
+            ["AllowedHosts"] = "localhost",
+            ["Seed:DemoContent"] = "false",
+        });
+        builder.Services.AddBarakoCMS(builder.Configuration, modules => modules.Discover = false);
+        builder.Services.AddFastEndpoints(o =>
+        {
+            o.DisableAutoDiscovery = true;
+            o.Assemblies = [typeof(barakoCMS.Data.DataSeeder).Assembly];
+        });
+        return builder.Build();
+    }
+
+    /// <summary>
+    /// <c>ApplyMartenSchemaAsync</c> checks the role with the host's own key, so the start that
+    /// follows does not check it again. The role gains BYPASSRLS between the two, so a second check
+    /// would refuse, and only a skipped one lets the host start.
+    /// </summary>
+    [Fact]
+    public async Task The_schema_apply_counts_as_the_check_for_the_start_that_follows()
+    {
+        var (role, password) = await NewLoginAsync("nosuperuser nobypassrls");
+        var database = "guard_db_" + Guid.NewGuid().ToString("N")[..12];
+        await postgres.ExecuteAsync($"create database {database} owner {role}");
+        using var resolver = FastEndpointsResolver.Keep();
+        await using var app = ProductionAppAs(role, password, database);
+        app.UseBarakoCMS();
+        await app.ApplyMartenSchemaAsync();
+
+        await postgres.ExecuteAsync($"alter role {role} bypassrls");
+
+        await app.StartAsync(Ct);
+        await app.StopAsync(Ct);
     }
 
     [Fact]
