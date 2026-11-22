@@ -44,13 +44,7 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         Action<BarakoModuleBuilder>? configureModules)
     {
-        // Before anything is registered: a host that must not start should not get as far as the
-        // database. See HostFilteringGuard and InitialAdminGuard.
-        var developmentHost = IsDevelopmentHost(configuration, Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"));
-        barakoCMS.Infrastructure.Security.HostFilteringGuard.Validate(
-            configuration, developmentHost, message => Log.Warning("{OpenHostFiltering}", message));
-        barakoCMS.Infrastructure.Security.InitialAdminGuard.Validate(
-            configuration["InitialAdmin:Username"], configuration["InitialAdmin:Password"], developmentHost);
+        ValidateStartupGuards(configuration);
 
         var (seen, enabled, modules, unloadable) = AddModules(services, configuration, configureModules);
 
@@ -76,9 +70,6 @@ public static class ServiceCollectionExtensions
         AddCaches(services);
 
         AddMartenStore(services, configuration, modules);
-
-        // services.AddHealthChecks()
-        //    .AddNpgSql(configuration.GetConnectionString("DefaultConnection")!, tags: new[] { "db", "ready" });
 
         AddOutboundHttp(services, configuration);
 
@@ -116,6 +107,20 @@ public static class ServiceCollectionExtensions
         LegacyEmailKeyCheck.WarnIfIgnored(services, configuration);
 
         return services;
+    }
+
+    /// <summary>
+    /// Runs before anything is registered, so a host that must not start never gets as far as the
+    /// database. See <see cref="barakoCMS.Infrastructure.Security.HostFilteringGuard"/> and
+    /// <see cref="barakoCMS.Infrastructure.Security.InitialAdminGuard"/>.
+    /// </summary>
+    private static void ValidateStartupGuards(IConfiguration configuration)
+    {
+        var developmentHost = IsDevelopmentHost(configuration, Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"));
+        barakoCMS.Infrastructure.Security.HostFilteringGuard.Validate(
+            configuration, developmentHost, message => Log.Warning("{OpenHostFiltering}", message));
+        barakoCMS.Infrastructure.Security.InitialAdminGuard.Validate(
+            configuration["InitialAdmin:Username"], configuration["InitialAdmin:Password"], developmentHost);
     }
 
     private static void AddCommitListeners(StoreOptions options, IServiceProvider sp)
