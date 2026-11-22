@@ -127,6 +127,10 @@ public class ImageSigningWorkflowTests
         latest.Should().BeGreaterThan(lastVerify);
         lines.Take(lastVerify).Should().NotContain(l => l.Contains(":latest") || l.StartsWith("LATEST_GHCR"),
             ":latest must not be pushed with the version tag before verification");
+        var suite = lines.Single(l => l.Contains("--tag ghcr.io/baryodev/barako-cms:latest"));
+        suite.Should().EndWith("\"ghcr.io/baryodev/barako-cms@$SUITE_DIGEST\"", ":latest must point at the verified digest");
+        var decaf = lines.Single(l => l.Contains("--tag ghcr.io/baryodev/barako-cms-decaf:latest"));
+        decaf.Should().EndWith("\"ghcr.io/baryodev/barako-cms-decaf@$DECAF_DIGEST\"", ":latest must point at the verified digest");
         lines.Should().Contain("case \"$VERSION\" in *-*) echo \"prerelease, :latest not moved\"; exit 0 ;; esac");
     }
 
@@ -139,10 +143,18 @@ public class ImageSigningWorkflowTests
 
         job.Should().Contain("id-token: write");
         job.Should().Contain("attestations: write");
-        lines.Should().Contain(l => l.StartsWith("cosign sign --yes"));
+        var signs = lines.Where(l => l.Contains("cosign sign")).ToArray();
+        signs.Should().NotBeEmpty();
+        foreach (var l in signs)
+        {
+            l.Should().Contain("@$DIGEST", "signing is by digest, never by tag: {0}", l);
+            l.Should().NotContain(":master");
+        }
+
         lines.Should().Contain(l => l.StartsWith("cosign verify \\"));
         lines.Should().Contain(l => l.StartsWith("cosign verify-attestation --type slsaprovenance1"));
-        lines.Should().Contain($"IDENTITY_REGEXP: '{MasterIdentity}'");
+        lines.Count(l => l == $"IDENTITY_REGEXP: '{MasterIdentity}'").Should().Be(2, "sign-verify and attestation-verify");
+        lines.Should().NotContain(l => l.StartsWith("IDENTITY_REGEXP:") && !l.EndsWith("@refs/heads/master$'"));
         lines.Should().Contain("subject-digest: ${{ steps.sign.outputs.digest }}");
         lines.Should().Contain("push-to-registry: true");
         lines.Should().Contain("create-storage-record: false");
