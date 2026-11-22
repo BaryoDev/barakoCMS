@@ -120,9 +120,9 @@ login() { # prints the access token
 
 create_item() { # <title>: prints the new item's id
   local resp id
-  resp="$(printf '{"contentType":"upgrade_proof","status":1,"sensitivity":0,"data":{"title":"%s"}}' "$1" \
+  resp="$(printf '{"contentType":"upgrade_proof","status":1,"sensitivity":0,"data":{"Title":"%s"}}' "$1" \
     | api_call POST /api/contents "$TOKEN")" || fail "could not reach the API to write an item"
-  case "$(api_status "$resp")" in 200|201) ;; *) fail "writing an item returned status $(api_status "$resp")" ;; esac
+  case "$(api_status "$resp")" in 200|201) ;; *) fail "writing an item returned status $(api_status "$resp"): $(api_body "$resp" | redact | head -c 600)" ;; esac
   id="$(api_body "$resp" | json_field id)"
   [ -n "$id" ] || fail "the new item's response holds no id"
   printf '%s' "$id"
@@ -167,9 +167,9 @@ wait_ready 240 || fail "the 5.9.0 API did not answer /health/ready within 240 se
 
 step "5.9.0 content goes in through the API"
 login
-resp="$(printf '%s' '{"name":"upgrade_proof","displayName":"Upgrade proof","fields":[{"name":"title","displayName":"Title","type":"text","isRequired":true,"validationRules":{}}]}' \
+resp="$(printf '%s' '{"name":"upgrade_proof","displayName":"Upgrade proof","fields":[{"name":"Title","displayName":"Title","type":"text","isRequired":true,"validationRules":{}}]}' \
   | api_call POST /api/content-types "$TOKEN")" || fail "could not reach the API to create a content type"
-case "$(api_status "$resp")" in 200|201) ;; *) fail "creating the content type returned status $(api_status "$resp")" ;; esac
+case "$(api_status "$resp")" in 200|201) ;; *) fail "creating the content type returned status $(api_status "$resp"): $(api_body "$resp" | redact | head -c 600)" ;; esac
 OLD_ITEM="$(create_item "written on 5.9.0")"
 
 step "5.9.0's job runs, and the API's sessions are the owner's"
