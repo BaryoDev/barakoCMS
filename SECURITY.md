@@ -21,13 +21,16 @@ If you discover a security vulnerability in BarakoCMS, please report it responsi
 
 | Version | Status | Supported until |
 | --- | --- | --- |
-| 4.x | Actively supported | 5.0 ships, plus 12 months |
+| 6.x | Actively supported once 6.0.0 ships | 7.0 ships, plus 12 months |
+| 5.x | Actively supported (current line until 6.0.0 ships) | 6.0 ships, plus 12 months |
+| 4.x | Security fixes only | 5.0 ships, plus 12 months |
 | 3.x | Security fixes only | 4.0 ships, plus 12 months |
 | 2.x | Not supported | ended |
 | < 2.0 | Not supported | ended |
 
-4.0 shipped on 7 September 2026. 3.x is therefore in its twelve-month window, which runs from that
-day and ends on 7 September 2027. The current release is the newest dated entry in `CHANGELOG.md`.
+5.0 shipped on 13 October 2026, so 4.x is in its twelve-month window until 13 October 2027. 4.0 shipped
+on 7 September 2026, so 3.x runs until 7 September 2027. The current release is the newest dated entry
+in `CHANGELOG.md`.
 
 ### What "supported" means
 
@@ -128,8 +131,11 @@ When deploying BarakoCMS:
 
 ## Known advisories we accept
 
-None, currently. `dotnet list package --vulnerable` reports zero, and CI fails the build on a Critical
-or High finding. The console's `npm audit` gate moved with it to
+None, currently. The accepted advisories live in `.github/vuln-allowlist.json`, one entry each with
+the advisory id, the package, the reason and an expiry date. CI and the nightly run read the same
+file for NuGet packages and container images. A Critical or High finding that has a fix fails the
+build unless it has an entry, and an entry stops accepting anything on its expiry date, so the
+gate goes red again and somebody looks. The console's `npm audit` gate moved with it to
 [BaryoDev/barakoBrew](https://github.com/BaryoDev/barakoBrew), which carries its own advisories.
 
 For a while this section listed three High advisories in `next`, `postcss` and `sharp` as unfixable,

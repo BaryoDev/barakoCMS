@@ -35,6 +35,11 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+# Read-only unless a job says otherwise. Each job below that writes (packages, id-token, contents,
+# issues, pull-requests) declares what it needs.
+permissions:
+  contents: read
+
 # Every project that ships as a NuGet package, written once. The pack loop iterates it and the two
 # count gates in verify-packages count it, so adding a module is one edit here and nothing else.
 # Adding BarakoCMS.Email.Smtp to the pack loop while two downstream gates still asserted a
@@ -57,6 +62,10 @@ jobs:
   gate:
     name: Version gate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The step that reads the nuget environment's reviewers goes through the API.
+      actions: read
     outputs:
       version: ${{ steps.check.outputs.version }}
       should_release: ${{ steps.check.outputs.should_release }}
@@ -558,6 +567,29 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Built once for the scan and kept out of the registry. A High or Critical finding with a fix
+      # fails the job here, so the push below never runs and no digest is recorded for the
+      # publish job to tag. The push build after it reuses these layers from the cache.
+      - name: Build for the scan
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.file }}
+          platforms: ${{ matrix.platform }}
+          load: true
+          push: false
+          tags: scan/${{ matrix.image.name }}:release
+          build-args: |
+            BARAKO_BUILD_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.arch }}
+
+      - name: Install Trivy
+        run: bash scripts/install-trivy.sh
+
+      - name: Scan the image before it is pushed
+        run: bash scripts/scan-image.sh "scan/${{ matrix.image.name }}:release" "${{ matrix.image.name }}-${{ matrix.arch }}" "${{ matrix.image.file }}"
 
       - name: Build and push by digest
         id: build
