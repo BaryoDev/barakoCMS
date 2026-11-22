@@ -80,6 +80,8 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
+          # The probes send a Host header because the pod address is not in AllowedHosts (01-configmap.yaml).
+          # Keep the value equal to the host listed there.
           # Boot does the Marten schema work before Kestrel binds, and then seeds roles and the
           # initial admin while readiness stays closed. The startup probe is what keeps liveness
           # from counting that against the pod: up to 150s here, then the probes below take over.
@@ -87,6 +89,9 @@ spec:
             httpGet:
               path: /health/live
               port: 8080
+              httpHeaders:
+                - name: Host
+                  value: barakocms.example.com
             periodSeconds: 5
             failureThreshold: 30
           # Process only. Nothing here fails because a dependency is down, so a failure means this
@@ -95,6 +100,9 @@ spec:
             httpGet:
               path: /health/live
               port: 8080
+              httpHeaders:
+                - name: Host
+                  value: barakocms.example.com
             periodSeconds: 30
             failureThreshold: 3
           # Database, disk and the startup seed. A failure takes this pod out of the Service and
@@ -103,5 +111,8 @@ spec:
             httpGet:
               path: /health/ready
               port: 8080
+              httpHeaders:
+                - name: Host
+                  value: barakocms.example.com
             periodSeconds: 10
             failureThreshold: 3

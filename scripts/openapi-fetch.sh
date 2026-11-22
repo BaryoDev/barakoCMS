@@ -60,6 +60,7 @@ step "starting the Suite with Swagger on"
 # content type would add delivery paths that come and go with the seed, not with the code.
 env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
     ASPNETCORE_ENVIRONMENT=Production \
+    AllowedHosts="localhost;127.0.0.1" \
     ASPNETCORE_URLS="http://127.0.0.1:0" \
     "$LISTEN_LOG_ENV" \
     ConnectionStrings__DefaultConnection="Host=127.0.0.1;Port=${PG_PORT};Database=${DB};Username=postgres;Password=postgres" \

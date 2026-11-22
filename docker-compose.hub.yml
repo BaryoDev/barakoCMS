@@ -50,6 +50,10 @@ services:
       # No default. Unset, the seeder generates a password and prints it once to the container log
       # (docker compose -f docker-compose.hub.yml logs app).
       - InitialAdmin__Password=${ADMIN_PASSWORD:-}
+      # The API refuses to start in Production when it accepts any host. The port above is bound to
+      # this machine, so localhost is what it is reached on. Behind a domain, set ALLOWED_HOSTS to it
+      # (semicolon separated). To accept any host on purpose, set Security__AllowAnyHost=true.
+      - AllowedHosts=${ALLOWED_HOSTS:-localhost;127.0.0.1}
       # Off by default here. This file runs the published images, so it is the one people copy
       # toward a host, and if the environment is set to Development, that would otherwise
       # turn the API explorer on for them without anyone choosing it. Set SWAGGER_ENABLED=true.

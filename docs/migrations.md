@@ -12,6 +12,8 @@ the ledger lacks.
 - Core and each module ship their files inside their own assembly. A module's files are considered
   only while that module is enabled.
 - `db-migrate` is an argument to the image, like `db-assert`.
+- A `db-migrate` or `db-assert` job needs the same `AllowedHosts` and `InitialAdmin` settings as the
+  service, because the host checks run before the command starts.
 
 ## Running it
 
