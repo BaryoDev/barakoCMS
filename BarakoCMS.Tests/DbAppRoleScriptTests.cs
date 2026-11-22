@@ -109,9 +109,13 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
 
         public Task<ExecResult> RunAsync(params string[] command) => _container.ExecAsync(command, Ct);
 
+        /// <summary>
+        /// Without timestamps. A timestamp starts every line, so it would land inside a wrapped tree
+        /// dump and split the bytes <see cref="Leaks"/> looks for.
+        /// </summary>
         public async Task<string> LogAsync()
         {
-            var (stdout, stderr) = await _container.GetLogsAsync(ct: Ct);
+            var (stdout, stderr) = await _container.GetLogsAsync(timestampsEnabled: false, ct: Ct);
             return stdout + stderr;
         }
 
