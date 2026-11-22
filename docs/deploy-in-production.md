@@ -527,6 +527,24 @@ seen. There is no fixed cap on that number.
 policy, a forged `X-Forwarded-For`, the delivery limit and the key quota. `RateLimitStartupCheckTests`
 covers a route naming a missing policy and the reserved names, on a real host.
 
+## Connection and header limits
+
+Kestrel runs with these limits on purpose. Each is a default in code, and `Kestrel:Limits:*`
+overrides it (`Kestrel__Limits__KeepAliveTimeout=00:03:00` in compose). A duration is `hh:mm:ss`.
+
+| Setting | Default | Why |
+| --- | --- | --- |
+| `Kestrel:Limits:RequestHeadersTimeout` | 15 seconds | a client that dribbles its headers holds a connection until this runs out |
+| `Kestrel:Limits:MaxRequestHeadersTotalSize` | 32768 bytes | the framework value, large enough for big cookies |
+| `Kestrel:Limits:MaxRequestHeaderCount` | 100 | the framework value |
+| `Kestrel:Limits:KeepAliveTimeout` | 130 seconds | longer than a proxy's usual 120 second idle timeout, so the proxy never reuses a connection Kestrel just closed |
+| `Kestrel:Limits:MaxConcurrentConnections` | 10000 | far above one node behind a proxy in normal use, and still stops a connection flood |
+| `Kestrel:Limits:MaxConcurrentUpgradedConnections` | 1000 | WebSockets stay open, so they are bounded lower |
+
+The request body limit is `RequestLimits:MaxBodyBytes` (10 MB), and the minimum body data rate is
+the framework's 240 bytes per second with a 5 second grace period. `KestrelLimitsTests` covers the
+defaults and that configuration wins.
+
 ## Content type field limit
 
 A content type may hold at most 200 fields. Creating one with more, or adding a field that would take

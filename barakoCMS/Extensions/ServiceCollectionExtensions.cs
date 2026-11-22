@@ -431,16 +431,50 @@ public static class ServiceCollectionExtensions
         // Request body size limit (defends against large-payload memory pressure / DoS on the
         // arbitrary-JSON content endpoints). Configurable via RequestLimits:MaxBodyBytes; default 10 MB.
         var maxBodyBytes = configuration.GetValue<long?>("RequestLimits:MaxBodyBytes") ?? 10L * 1024 * 1024;
-        services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(o =>
-        {
-            o.Limits.MaxRequestBodySize = maxBodyBytes;
-            // "Server: Kestrel" tells a scanner what it is talking to and tells a client nothing.
-            o.AddServerHeader = false;
-        });
+        // Read when the options are first built, not here, so a setting a test host or the
+        // environment adds after this method has run still counts.
+        services.AddOptions<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>()
+            .Configure<IConfiguration>((o, root) =>
+            {
+                o.Limits.MaxRequestBodySize = maxBodyBytes;
+                // "Server: Kestrel" tells a scanner what it is talking to and tells a client nothing.
+                o.AddServerHeader = false;
+                ApplyKestrelLimits(o.Limits, root.GetSection("Kestrel:Limits"));
+            });
         services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
         {
             o.MultipartBodyLengthLimit = maxBodyBytes;
         });
+    }
+
+    /// <summary>
+    /// The connection and header limits Kestrel runs with, set on purpose so a fresh production start
+    /// does not rely on framework defaults that can change. Each is a default in code and
+    /// <c>Kestrel:Limits:*</c> overrides it: the section is bound over these values, so the
+    /// configuration wins. See docs/configuration.md.
+    /// </summary>
+    internal static void ApplyKestrelLimits(
+        Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerLimits limits, IConfiguration section)
+    {
+        // A client that opens a connection and dribbles its headers holds a slot until this runs out.
+        limits.RequestHeadersTimeout = TimeSpan.FromSeconds(15);
+        // The framework values, now written down.
+        limits.MaxRequestHeadersTotalSize = 32 * 1024;
+        limits.MaxRequestHeaderCount = 100;
+        // Longer than the 120 second idle timeout a reverse proxy usually has, so the proxy closes an
+        // idle connection first and never reuses one Kestrel has just closed.
+        limits.KeepAliveTimeout = TimeSpan.FromSeconds(130);
+        // One node behind a proxy holds roughly one connection per proxy worker and active client, a
+        // few hundred in normal use. 10000 is far above that and still stops a connection flood from
+        // exhausting file descriptors. Upgraded connections (WebSockets) are held open for a long
+        // time, so their bound is lower.
+        limits.MaxConcurrentConnections = 10_000;
+        limits.MaxConcurrentUpgradedConnections = 1_000;
+        // The framework value (240 bytes per second, 5 second grace), now explicit.
+        limits.MinRequestBodyDataRate = new Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate(
+            bytesPerSecond: 240, gracePeriod: TimeSpan.FromSeconds(5));
+
+        section.Bind(limits);
     }
 
     private static void AddOpenApiDocument(IServiceCollection services, IConfiguration configuration)
