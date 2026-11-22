@@ -15,8 +15,8 @@ namespace BarakoCMS.Tests;
 /// The script uses psql meta-commands (<c>\if</c>, <c>\getenv</c>, <c>\ir</c>), which Npgsql does not
 /// run, so each test runs the real file with <c>psql</c> inside the Postgres container. The container
 /// is this class's own rather than the shared fixture's, because it needs server settings the other
-/// tests should not carry: <c>pg_stat_statements</c> and <c>passwordcheck</c> preloaded, and every
-/// statement logged, which is what makes "the password is not in the log" mean something. Every test
+/// tests should not carry: <c>pg_stat_statements</c>, <c>passwordcheck</c> and <c>auto_explain</c>
+/// preloaded, and every statement logged three ways (statement, duration and plan), which is what makes "the password is not in the log" mean something. Every test
 /// makes its own database and its own role names, since roles belong to the cluster.
 /// <para>
 /// Passwords are generated here and never written to the output of a failing assertion: the
@@ -61,9 +61,18 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
                 .WithUsername("postgres")
                 .WithPassword(_superuserPassword)
                 .WithCommand(
-                    "-c", "shared_preload_libraries=pg_stat_statements,passwordcheck",
+                    "-c", "shared_preload_libraries=pg_stat_statements,passwordcheck,auto_explain",
                     "-c", "log_statement=all",
-                    "-c", "log_min_error_statement=error")
+                    "-c", "log_min_error_statement=error",
+                    // Every statement is "slow", and auto_explain logs the text of every one, so a
+                    // path other than log_statement that the script left open shows up in the log.
+                    "-c", "log_min_duration_statement=0",
+                    // Sampling logs what log_min_duration_statement = -1 leaves out, so each of the
+                    // script's switches is the only thing standing between the password and the log.
+                    "-c", "log_min_duration_sample=0",
+                    "-c", "log_statement_sample_rate=1",
+                    "-c", "log_transaction_sample_rate=1",
+                    "-c", "auto_explain.log_min_duration=0")
                 .Build();
         }
 
@@ -261,10 +270,60 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
 
         (await RunScriptAsync(database, role, password)).ExitCode.Should().Be(0);
 
-        (await ScalarAsync(database,
-                "SELECT count(*) FROM pg_stat_statements WHERE query LIKE '%' || @p || '%'", ("p", password)))
-            .Should().Be(0L, "the script turns utility tracking off before it sets the password");
+        // Read back and searched here: a password sent to the server as a parameter or in SQL text
+        // would be logged by the server this test is checking (log_statement is all).
+        var tracked = (string)(await ScalarAsync(database,
+            "SELECT coalesce(string_agg(query, E'\n'), '') FROM pg_stat_statements"))!;
+        tracked.Should().NotBeEmpty("the view is being read");
+        tracked.Contains(password).Should().BeFalse(
+            "the password was looked for in the tracked statements; the script turns utility tracking off before it sets it");
         (await postgres.LogAsync()).Contains(password).Should().BeFalse("the password was looked for in the server log");
+    }
+
+    [Fact]
+    public async Task The_password_is_not_in_the_log_of_a_successful_run_on_a_server_that_logs_every_duration()
+    {
+        var (database, role, password) = (await NewDatabaseAsync(Objects, true), NewRole(), NewPassword());
+
+        var run = await RunScriptAsync(database, role, password);
+
+        run.ExitCode.Should().Be(0, run.Stderr);
+        var log = await LogContainingAsync("duration:");
+        log.Should().Contain("duration:", "this server logs every statement's duration, so its log is the one being checked");
+        log.Should().Contain("Query Text:", "auto_explain is logging the text of every statement");
+        log.Contains(password).Should().BeFalse("the password was looked for in the server log after a successful run");
+    }
+
+    [Fact]
+    public async Task A_function_the_app_role_planted_in_public_is_not_called_as_the_superuser()
+    {
+        var (database, role, password) = (await NewDatabaseAsync(Objects, true), NewRole(), NewPassword());
+        (await RunScriptAsync(database, role, password)).ExitCode.Should().Be(0);
+        await using (var app = await OpenAsync(database, role, password))
+        {
+            // Same name as the catalog function the script calls with an integer, and an exact match
+            // for it, so with public on the search_path this would win and run as the superuser.
+            await ExecuteAsync(app, """
+                CREATE TABLE public.hijack_log (called_as text, was_super boolean);
+                CREATE FUNCTION public.hashtextextended(t text, s integer) RETURNS bigint LANGUAGE plpgsql AS $f$
+                BEGIN
+                    INSERT INTO public.hijack_log
+                    VALUES (current_user, (SELECT rolsuper FROM pg_roles WHERE rolname = current_user));
+                    RETURN 0;
+                END
+                $f$
+                """);
+        }
+
+        var again = await RunScriptAsync(database, role, password);
+
+        again.ExitCode.Should().Be(0, again.Stderr);
+        (await ScalarAsync(database, "SELECT count(*) FROM public.hijack_log")).Should().Be(0L, "the planted function was never called");
+        (await ScalarAsync(database, "SELECT rolsuper FROM pg_roles WHERE rolname = @r", ("r", role))).Should().Be(false);
+        (await ScalarAsync(database,
+                "SELECT count(*) FROM pg_auth_members m JOIN pg_roles g ON g.oid = m.roleid "
+                + "WHERE g.rolsuper AND m.member = (SELECT oid FROM pg_roles WHERE rolname = @r)", ("r", role)))
+            .Should().Be(0L, "the role is in no superuser role");
     }
 
     [Fact]

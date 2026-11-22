@@ -29,8 +29,12 @@
 --   5. Grants CONNECT and makes the role owner of schema public and of every table, view,
 --      materialized view, sequence and function in it, except objects an extension owns.
 --
--- The password never reaches a log or a stats view. Statement logging, the statement printed beside
--- an error and utility tracking are off for this transaction, the password statement runs at top
+-- The search_path is pg_catalog only for the run, because public belongs to the app role after the
+-- first run and a function it planted there could otherwise be called as the superuser.
+--
+-- The password never reaches a log or a stats view. Statement logging, slow statement and sampled
+-- logging, auto_explain, the statement printed beside an error, activity tracking and utility
+-- tracking are off for this transaction, the password statement runs at top
 -- level with the psql variable (an error inside a DO block prints its dynamic SQL, password
 -- included), and psql prints no context or query text for an error.
 
@@ -45,10 +49,21 @@
 
 BEGIN;
 
+-- Public belongs to the app role after the first run, so nothing it can plant there may be found by
+-- a name this file uses. This runs as a superuser.
+SET LOCAL search_path = pg_catalog, pg_temp;
+
 -- Before any statement that carries the password. The owner is a superuser, so it may.
 SET LOCAL log_statement = 'none';
 SET LOCAL log_min_error_statement = panic;
 SET LOCAL pg_stat_statements.track_utility = off;
+SET LOCAL log_min_duration_statement = -1;
+SET LOCAL log_min_duration_sample = -1;
+SET LOCAL log_transaction_sample_rate = 0;
+SET LOCAL auto_explain.log_min_duration = -1;
+SET LOCAL track_activities = off;
+-- So the stored verifier is never md5.
+SET LOCAL password_encryption = 'scram-sha-256';
 
 SELECT coalesce(nullif(btrim(:'app_role'), ''), 'barako_app') AS app_role \gset
 
@@ -92,7 +107,7 @@ $guard$;
 -- same cluster naming the same role.
 SELECT pg_advisory_xact_lock(hashtextextended('barakoCMS.db-app-role', 0));
 
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements SCHEMA public;
 
 SELECT format('CREATE ROLE %I', :'app_role')
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_role') \gexec
