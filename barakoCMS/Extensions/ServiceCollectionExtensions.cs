@@ -543,7 +543,7 @@ public static class ServiceCollectionExtensions
 
                 o.TokenValidationParameters.IssuerSigningKeyResolver = null;
                 o.TokenValidationParameters.IssuerSigningKey =
-                    new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(System.Text.Encoding.ASCII.GetBytes(key));
+                    new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(barakoCMS.Infrastructure.Auth.JwtKeySource.Bytes(key));
             });
 
         // The one place this host's tokens are signed. See IJwtMinter.
@@ -563,6 +563,10 @@ public static class ServiceCollectionExtensions
         // Fail fast on a missing, too-short, or placeholder key. See JwtKeyGuard for why a length
         // check alone is not enough (the shipped k8s manifest carries a length-valid placeholder).
         jwtKey = barakoCMS.Infrastructure.Security.JwtKeyGuard.Validate(jwtKey, IsDevelopmentEnvironment());
+        if (barakoCMS.Infrastructure.Security.JwtKeyGuard.NonAsciiWarning(jwtKey) is { } nonAscii)
+        {
+            Log.Warning("{JwtKeyWarning}", nonAscii);
+        }
 
         services.AddAuthenticationJwtBearer(
             s => s.SigningKey = jwtKey,

@@ -14,6 +14,13 @@ namespace barakoCMS.Infrastructure.Auth;
 /// </remarks>
 internal static class JwtKeySource
 {
+    /// <summary>
+    /// The key as the bytes every token is signed and validated with. ASCII, because that is what
+    /// bearer validation and every token shipped so far used. A non-ASCII character becomes
+    /// <c>?</c>, so it must be read the same way everywhere or the two sides hold different keys.
+    /// </summary>
+    public static byte[] Bytes(string key) => System.Text.Encoding.ASCII.GetBytes(key);
+
     public static string Resolve(IConfiguration config)
     {
         var key = config["JWT:Key"];
