@@ -56,7 +56,7 @@ owner_sql() { printf '%s\n' "$1" | owner_psql "${@:2}"; }
 # owner script leaves them alone, with the same pg_depend deptype 'e' test. Covers relations of kind
 # r, p, S, v, m and f, routines, and the schema itself. Any row is a failure.
 read -r -d '' MISOWNED_SQL <<'SQL' || true
-select 'relation ' || c.relkind || ' ' || c.relname || ' owned by ' || pg_get_userbyid(c.relowner)
+select 'relation ' || c.relkind::text || ' ' || c.relname || ' owned by ' || pg_get_userbyid(c.relowner)
 from pg_class c
 where c.relnamespace = 'public'::regnamespace
   and c.relkind in ('r', 'p', 'S', 'v', 'm', 'f')
@@ -85,7 +85,7 @@ select 'role ' || r::text from pg_roles r where r.rolname = :'app_role'
 union all
 select 'schema public ' || pg_get_userbyid(nspowner) from pg_namespace where nspname = 'public'
 union all
-select 'relation ' || c.relkind || ' ' || c.relname || ' ' || pg_get_userbyid(c.relowner)
+select 'relation ' || c.relkind::text || ' ' || c.relname || ' ' || pg_get_userbyid(c.relowner)
 from pg_class c where c.relnamespace = 'public'::regnamespace
 union all
 select 'routine ' || p.oid::regprocedure::text || ' ' || pg_get_userbyid(p.proowner)
