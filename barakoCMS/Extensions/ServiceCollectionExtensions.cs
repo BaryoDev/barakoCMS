@@ -562,11 +562,7 @@ public static class ServiceCollectionExtensions
         }
         // Fail fast on a missing, too-short, or placeholder key. See JwtKeyGuard for why a length
         // check alone is not enough (the shipped k8s manifest carries a length-valid placeholder).
-        jwtKey = barakoCMS.Infrastructure.Security.JwtKeyGuard.Validate(jwtKey, IsDevelopmentEnvironment());
-        if (barakoCMS.Infrastructure.Security.JwtKeyGuard.NonAsciiWarning(jwtKey) is { } nonAscii)
-        {
-            Log.Warning("{JwtKeyWarning}", nonAscii);
-        }
+        jwtKey = barakoCMS.Infrastructure.Security.JwtKeyGuard.ValidateAtStartup(jwtKey, IsDevelopmentEnvironment());
 
         services.AddAuthenticationJwtBearer(
             s => s.SigningKey = jwtKey,
