@@ -323,6 +323,17 @@ public class ModuleDiscoveryTests
     [Fact]
     public void Every_first_party_module_assembly_carries_the_attribute()
     {
+        // The domain holds only what earlier tests in this process happened to load, so every
+        // first-party assembly next to the test is loaded first and the scan does not depend on order.
+        var loaded = AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetName().Name).ToHashSet();
+        foreach (var path in Directory.GetFiles(AppContext.BaseDirectory, "BarakoCMS.*.dll"))
+        {
+            if (!loaded.Contains(Path.GetFileNameWithoutExtension(path)))
+            {
+                System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromAssemblyPath(path);
+            }
+        }
+
         var modules = AppDomain.CurrentDomain.GetAssemblies()
             .Where(a => a.GetName().Name?.StartsWith("BarakoCMS.", StringComparison.Ordinal) == true)
             .Where(a => a.GetTypes().Any(t => t is { IsAbstract: false, IsInterface: false }
