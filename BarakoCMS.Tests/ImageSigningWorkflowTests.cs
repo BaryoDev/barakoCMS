@@ -225,9 +225,14 @@ public class ImageSigningWorkflowTests
     [Theory]
     [InlineData("v2.4.1", 1)]
     [InlineData("v3.1.4", 0)]
+    [InlineData("v3.0.0-rc.1", 0)]
     [InlineData("v10.0.0", 0)]
+    [InlineData("(devel)", 1)]
     [InlineData("not a version", 1)]
     [InlineData("<fail>", 1)]
+    [InlineData("<empty>", 1)]
+    [InlineData("<no key>", 1)]
+    [InlineData("<control>", 1)]
     public async Task The_verify_script_needs_cosign_3_or_later(string reported, int exitCode)
     {
         Assert.SkipWhen(OperatingSystem.IsWindows(), "the script needs bash");
@@ -238,9 +243,15 @@ public class ImageSigningWorkflowTests
         try
         {
             File.CreateSymbolicLink(Path.Combine(stubs.FullName, "jq"), jq!);
-            var versionCase = reported == "<fail>"
-                ? "exit 1"
-                : $"printf '%s\\n' '{{\"gitVersion\":\"{reported}\"}}'; exit 0";
+            var versionCase = reported switch
+            {
+                "<fail>" => "exit 1",
+                "<empty>" => "exit 0",
+                "<no key>" => "printf '%s\\n' '{}'; exit 0",
+                // jq turns the JSON escapes into ESC and BEL, so the script sees real control codes.
+                "<control>" => "printf '%s\\n' '{\"gitVersion\":\"v2.4.1\\u001b]0;x\\u0007\"}'; exit 0",
+                _ => $"printf '%s\\n' '{{\"gitVersion\":\"{reported}\"}}'; exit 0",
+            };
             var stub = Path.Combine(stubs.FullName, "cosign");
             File.WriteAllText(stub, $"#!/bin/sh\ncase \"$1\" in\n  version) {versionCase} ;;\n  *) exit 0 ;;\nesac\n");
             File.SetUnixFileMode(stub, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
@@ -263,9 +274,11 @@ public class ImageSigningWorkflowTests
             await process.WaitForExitAsync(ct);
             var text = await output + await error;
 
-            process.ExitCode.Should().Be(exitCode, text);
+            process.ExitCode.Should().Be(exitCode, "the script printed {0}", text);
+            if (exitCode == 0) text.Should().Contain("OK: ");
             if (exitCode == 1) text.Should().Contain("cosign 3 or later is needed");
-            if (reported == "v2.4.1") text.Should().Contain("v2.4.1");
+            if (reported == "v2.4.1") text.Should().Contain("cosign v2.4.1 is too old");
+            text.Should().NotContain("\u001b").And.NotContain("\u0007");
         }
         finally
         {
