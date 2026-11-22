@@ -86,24 +86,91 @@ public class OutboundClientRegistrationScanTests
 
     /// <summary>
     /// From <paramref name="open"/> (the index of the call's opening parenthesis), the first argument
-    /// as written and the end of the statement: the first semicolon at parenthesis, brace and bracket
-    /// depth zero, so a lambda with a block body does not cut it short.
+    /// as written, the call's code with comments removed, and the end of the statement: the first
+    /// semicolon at parenthesis, brace and bracket depth zero, so a lambda with a block body does
+    /// not cut it short. Comments, string literals, verbatim strings and char literals are skipped for
+    /// depth and for the semicolon. It does not handle raw (triple quote) strings or interpolation
+    /// holes that hold quotes.
     /// </summary>
-    private static (string FirstArgument, int End) Read(string text, int open)
+    private static (string FirstArgument, string Code, int End) Read(string text, int open)
     {
+        var code = new StringBuilder();
         var depth = 0;
         var firstEnd = -1;
         var i = open;
         for (; i < text.Length; i++)
         {
             var c = text[i];
-            if (c == '"')
+            if (c == '/' && i + 1 < text.Length && text[i + 1] == '/')
             {
-                for (i++; i < text.Length && text[i] != '"'; i++)
+                while (i < text.Length && text[i] != '\n')
                 {
-                    if (text[i] == '\\')
+                    i++;
+                }
+
+                code.Append('\n');
+                continue;
+            }
+
+            if (c == '/' && i + 1 < text.Length && text[i + 1] == '*')
+            {
+                var close = text.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                i = close < 0 ? text.Length : close + 1;
+                code.Append(' ');
+                continue;
+            }
+
+            var verbatim = c == '@' && i + 1 < text.Length && text[i + 1] == '"';
+            if (c == '"' || verbatim)
+            {
+                if (verbatim)
+                {
+                    code.Append(c);
+                    i++;
+                }
+
+                code.Append(text[i]);
+                for (i++; i < text.Length; i++)
+                {
+                    code.Append(text[i]);
+                    if (verbatim && text[i] == '"')
                     {
-                        i++;
+                        if (i + 1 < text.Length && text[i + 1] == '"')
+                        {
+                            code.Append('"');
+                            i++;
+                            continue;
+                        }
+
+                        break;
+                    }
+
+                    if (!verbatim && text[i] == '\\' && i + 1 < text.Length)
+                    {
+                        code.Append(text[++i]);
+                    }
+                    else if (!verbatim && text[i] == '"')
+                    {
+                        break;
+                    }
+                }
+
+                continue;
+            }
+
+            if (c == '\'')
+            {
+                code.Append(c);
+                for (i++; i < text.Length; i++)
+                {
+                    code.Append(text[i]);
+                    if (text[i] == '\\' && i + 1 < text.Length)
+                    {
+                        code.Append(text[++i]);
+                    }
+                    else if (text[i] == '\'')
+                    {
+                        break;
                     }
                 }
 
@@ -119,21 +186,24 @@ public class OutboundClientRegistrationScanTests
                 depth--;
                 if (depth == 0 && firstEnd < 0)
                 {
-                    firstEnd = i;
+                    firstEnd = code.Length;
                 }
             }
             else if (c == ',' && depth == 1 && firstEnd < 0)
             {
-                firstEnd = i;
+                firstEnd = code.Length;
             }
             else if (c == ';' && depth == 0)
             {
                 break;
             }
+
+            code.Append(c);
         }
 
-        var first = firstEnd < 0 ? "" : Regex.Replace(text[(open + 1)..firstEnd], @"\s+", " ").Trim();
-        return (first, i);
+        var all = code.ToString();
+        var first = firstEnd < 0 ? "" : Regex.Replace(all[1..firstEnd], @"\s+", " ").Trim();
+        return (first, all, i);
     }
 
     private static List<Found> Registrations()
@@ -149,8 +219,8 @@ public class OutboundClientRegistrationScanTests
                 }
 
                 var open = m.Index + m.Length - 1;
-                var (first, end) = Read(text, open);
-                var statement = text[m.Index..Math.Min(end, text.Length)];
+                var (first, code, _) = Read(text, open);
+                var statement = text[m.Index..open] + code;
                 found.Add(new Found($"{relative}|AddHttpClient{m.Groups["generics"].Value}({first})", statement));
             }
         }

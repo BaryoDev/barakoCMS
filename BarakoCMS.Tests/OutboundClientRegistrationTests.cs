@@ -22,7 +22,7 @@ public class OutboundClientRegistrationTests
     public async Task ExternalApiClient_RefusesMetadataTarget(string target)
     {
         var client = _factory.Services.GetRequiredService<IHttpClientFactory>().CreateClient(HttpClientNames.ExternalApi);
-        client.Timeout.Should().BeGreaterThan(TimeSpan.Zero).And.BeLessThan(Timeout.InfiniteTimeSpan);
+        client.Timeout.Should().BeGreaterThan(TimeSpan.Zero).And.NotBe(Timeout.InfiniteTimeSpan);
 
         var act = () => client.GetAsync(target, TestContext.Current.CancellationToken);
 
