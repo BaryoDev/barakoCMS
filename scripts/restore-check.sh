@@ -66,8 +66,10 @@ start_host() {
     # exec so the recorded PID is dotnet itself. Backgrounding the function without it makes $! the
     # wrapping subshell, and killing that leaves the host holding the port, which then answers the
     # health check for the next boot and every assertion after it describes the wrong process.
+    # Database__AllowSuperuser: a throwaway container in CI, which connects as postgres.
     exec env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
         ASPNETCORE_ENVIRONMENT=Production \
+        Database__AllowSuperuser=true \
         AllowedHosts="localhost;127.0.0.1" \
         ASPNETCORE_URLS="http://127.0.0.1:${APP_BIND}" \
         "$LISTEN_LOG_ENV" \

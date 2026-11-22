@@ -176,8 +176,11 @@ run_host() {
     #
     # HOST_EXEC=exec is for the backgrounded boot. `run_suite &` forks a subshell and $! names it,
     # not dotnet, so killing $! left the new host running through the rollback and after the script.
+    #
+    # Database__AllowSuperuser: a throwaway container in CI, which connects as postgres.
     ${HOST_EXEC:-} env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
         ASPNETCORE_ENVIRONMENT=Production \
+        Database__AllowSuperuser=true \
         ASPNETCORE_URLS="http://127.0.0.1:${NEW_BIND}" \
         AllowedHosts="localhost;127.0.0.1" \
         "$LISTEN_LOG_ENV" \
