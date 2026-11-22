@@ -17,7 +17,9 @@
 #   scripts/assert-schema-current.sh <compose-dir> <service>
 #
 # Runs the CURRENT image of <service>, so the answer is about the build being deployed rather than
-# the one already running.
+# the one already running. Where the compose file has a postgres-extensions job (6.0 and later) it
+# runs first, because the API connects as the role that job creates. That job can change table
+# ownership, so this script is not read-only.
 
 set -euo pipefail
 
@@ -31,7 +33,11 @@ echo "==> db-assert against the ${SERVICE} service's database"
 # From 6.0 the API connects as the app role, which the postgres-extensions job creates and hands the
 # tables to. On a 5.x volume the role does not exist yet, and until the job reruns, a migration's DDL
 # fails as a non-owner. So the job runs first, where the compose file has one. It starts postgres.
-if docker compose config --services | grep -qx postgres-extensions; then
+if ! SERVICES="$(docker compose config --services)"; then
+    echo "!! docker compose config failed, so the compose file does not resolve. Fix that first (for example DB_APP_PASSWORD unset in .env)." >&2
+    exit 1
+fi
+if grep -qx postgres-extensions <<< "${SERVICES}"; then
     echo "==> running the postgres-extensions job (creates or updates the app role)"
     if ! docker compose run --rm postgres-extensions; then
         echo "!! the postgres-extensions job did not exit 0, so the ${SERVICE} service cannot connect as the app role." >&2
@@ -53,7 +59,9 @@ cat >&2 <<'EOF'
 !! db-assert found outstanding schema changes.
 
 The deploy was stopped BEFORE the running container was replaced, so the site is still up on the
-previous build and the database is untouched.
+previous build. No migration ran and no schema was changed. Where the compose file has the
+postgres-extensions job, that job did run first: it may have created or updated the app role,
+changed table ownership and taken short locks.
 
 AutoCreate.CreateOnly will not apply these. Run the migrations for the version being deployed. From
 4.6.0 the image does it, in order, and records each one (docs/migrations.md). Stop the service
