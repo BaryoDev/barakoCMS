@@ -13,7 +13,7 @@
 #   2. one sign-in, a content type and an item go in through the API, and the 5.9.0 job
 #      (postgres-extensions, which only installs pg_stat_statements) runs
 #   3. this checkout's docker-compose.prod.yml replaces the file, as an operator would copy it, and
-#      the "Upgrading" blocks run exactly as written, with two substitutions below
+#      the "Upgrading" blocks run (the first one stops the API) exactly as written, with two substitutions below
 #   4. the volume is the same one, the job exited 0, the migrate branch that ran is the one this
 #      checkout's migrations imply, the API is healthy as the app role, owns everything in
 #      public, the old item reads back, and a new one is written
@@ -139,15 +139,22 @@ docker pull "$OLD_IMAGE" > /dev/null 2>&1 || fail "the image $OLD_IMAGE could no
 printf 'using %s and %s\n' "$OLD_REF" "$OLD_IMAGE"
 
 step "the migrate branch this checkout implies"
-# db-migrate --status exits 0 when the database has had every SQL file the build ships. A 5.9.0 volume
-# has had 5.9.0's files, so it exits 0 only if each file this checkout ships is byte-identical in
-# 5.9.0. The embedded set leaves out tenancy/, removed/ and rollback-*.sql.
+# What --status exits on a database only the 5.9.0 API has started, from the code:
+#  - The API's first start on an empty database runs MigrationLedger.BaselineIfFreshAsync
+#    (BarakoCommandExtensions.ReconcileMigrationLedgerAsync, before the schema exists). It writes a
+#    baselined row for every migration that build ships. 5.9.0 has the same call.
+#  - MigrationCommand.StatusAsync exits status.Current ? 0 : 1. Current needs a row for every shipped
+#    migration, keyed by owner/version/name. MigrationLedger.StateOf keeps a baselined row's state even
+#    when the file's checksum differs, so an edited file does not change the exit code.
+#  - So the exit is 1 exactly when this checkout ships a migration path that 5.9.0 did not.
+#    Byte identity is stricter than needed, so it is not used. The embedded set leaves out tenancy/,
+#    removed/ and rollback-*.sql (barakoCMS.csproj).
 EXPECT_STATUS=0
 while IFS= read -r f; do
   case "$f" in migrations/tenancy/*|migrations/removed/*|*/rollback-*) continue ;; esac
   case "$f" in *.sql) ;; *) continue ;; esac
-  if ! git show "$OLD_REF:$f" 2> /dev/null | cmp -s - "$f"; then
-    printf 'new or changed since %s: %s\n' "$OLD_REF" "$f"
+  if ! git cat-file -e "$OLD_REF:$f" 2> /dev/null; then
+    printf 'ships a migration %s did not: %s\n' "$OLD_REF" "$f"
     EXPECT_STATUS=1
   fi
 done < <(git ls-files migrations)
@@ -173,12 +180,14 @@ misowned="$(owner_sql "$MISOWNED_SQL")" || fail "could not read the owners in pu
 VOLUME="${PROJECT}_postgres_prod_data"
 volume_before="$(docker volume inspect -f '{{.Name}} {{.CreatedAt}}' "$VOLUME")" || fail "volume $VOLUME not found"
 
-step "stop the API, as an operator does, and bring in this checkout's files"
-$limit "${DC[@]}" stop app > /dev/null 2>&1 || fail "could not stop the 5.9.0 API"
+step "bring in this checkout's files, as an operator does; the docs' own first block stops the API"
 cp "$REPO/docker-compose.prod.yml" "$STACK/docker-compose.prod.yml"
 cp "$REPO/Caddyfile" "$STACK/Caddyfile"
 cp -R "$REPO/scripts" "$STACK/scripts"
 write_env "$TAG" yes
+printf 'copied into the stack folder: docker-compose.prod.yml, Caddyfile, scripts/\n'
+printf 'rewrote .env with BARAKO_TAG=%s and DB_APP_PASSWORD (an operator edit, not a docs step)\n' "$TAG"
+printf 'COMPOSE_PROJECT_NAME=%s (the docs commands take no -p)\n' "$PROJECT"
 
 step "the Upgrading blocks, from docs/deploy-in-production.md"
 python3 -I - "$REPO/docs/deploy-in-production.md" "$WORK" <<'PY' || fail "the Upgrading section does not have the shape this check expects"
