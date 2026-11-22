@@ -82,7 +82,8 @@ services:
     # defaults for 4 GB and 8 GB, and the stock values to go back to, are in
     # docs/deploy-in-production.md, "Postgres on a small server". max_connections stays at the stock
     # 100 so an existing deployment's connection pool keeps fitting. pg_stat_statements is loaded so
-    # slow queries can be found; the postgres-extensions service below creates the extension.
+    # slow queries can be found; the postgres-extensions job below installs it and creates the app
+    # role the API connects as.
     command:
       - postgres
       - -c
@@ -122,10 +123,15 @@ services:
     mem_limit: ${DB_MEM_LIMIT:-2g}
     pids_limit: ${DB_PIDS_LIMIT:-512}
 
-  # Creates pg_stat_statements once Postgres is up, then exits. A separate one-shot rather than a
-  # script in docker-entrypoint-initdb.d, because that only runs on an empty volume and an existing
-  # deployment would never get the extension. IF NOT EXISTS makes every later start a no-op. Nothing
-  # depends on it, so if it fails the API still starts; its log says why.
+  # Runs scripts/db-app-role.sql as the database owner once Postgres is up, then exits. It installs
+  # pg_stat_statements, creates the login role the API connects as (DB_APP_USER, no superuser),
+  # sets its password and makes it owner of what is in schema public. A separate one-shot rather
+  # than a script in docker-entrypoint-initdb.d, because that only runs on an empty volume and an
+  # existing deployment would never get the role. The script is safe to run on every start.
+  #
+  # The API waits for this job to finish, because its ALTERs take locks on the tables and the API
+  # connects as the role the job creates. If the job fails the API does not start; its log says why.
+  # It reads DB_APP_USER and DB_APP_PASSWORD from its environment, never from the command line.
   postgres-extensions:
     image: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d # postgres:16-alpine
     container_name: barako-postgres-extensions
@@ -138,7 +144,11 @@ services:
       PGDATABASE: ${DB_NAME:-barako_cms}
       PGUSER: ${DB_USER:-postgres}
       PGPASSWORD: ${DB_PASSWORD:-}
-    command: ["psql", "-v", "ON_ERROR_STOP=1", "-c", "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"]
+      DB_APP_USER: ${DB_APP_USER:-barako_app}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:-}
+    command: ["psql", "-X", "-v", "ON_ERROR_STOP=1", "-f", "/db-app-role.sql"]
+    volumes:
+      - ./scripts/db-app-role.sql:/db-app-role.sql:ro
     user: "70:70"
     read_only: true
     cap_drop: [ALL]
@@ -147,7 +157,7 @@ services:
     mem_limit: ${EXTENSIONS_MEM_LIMIT:-128m}
     pids_limit: ${EXTENSIONS_PIDS_LIMIT:-64}
     labels:
-      org.barakocms.hardening.one-shot: "creates the extension and exits, so it has nothing to check"
+      org.barakocms.hardening.one-shot: "runs the app role script and exits, so it has nothing to check"
 
   # 3. Backend API
   #
@@ -162,7 +172,7 @@ services:
     restart: always
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - ConnectionStrings__DefaultConnection=Host=postgres;Database=${DB_NAME:-barako_cms};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-${SECRETS_AS_FILES:?set DB_PASSWORD in .env, do not run production on the default}}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=${DB_NAME:-barako_cms};Username=${DB_APP_USER:-barako_app};Password=${DB_APP_PASSWORD:-${SECRETS_AS_FILES:?set DB_APP_PASSWORD in .env, the API connects as this role}}
       # Refuses to start below 32 characters, deliberately.
       - JWT__Key=${JWT_KEY:-${SECRETS_AS_FILES:?set JWT_KEY in .env to at least 32 random characters}}
       # The console's origin plus your own site. A browser request from an origin that is not
@@ -196,9 +206,12 @@ services:
     networks:
       - default
       - proxy
+    # The role job first: it creates the role this API connects as and takes locks on the tables.
     depends_on:
       postgres:
         condition: service_healthy
+      postgres-extensions:
+        condition: service_completed_successfully
     user: "1654:1654"
     read_only: true
     tmpfs:

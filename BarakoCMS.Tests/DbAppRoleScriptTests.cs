@@ -253,6 +253,8 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
     [InlineData("example-password-with-newline", "placeholder or example")]
     [InlineData("whitespace-password", "app_password is empty")]
     [InlineData("reserved-name", "which Postgres reserves")]
+    [InlineData("example-owner-password", "the owner password")]
+    [InlineData("owner-password-equals-app-password", "equals the app password")]
     public async Task A_refusal_changes_nothing_and_the_owner_stays_a_superuser(string scenario, string message)
     {
         var database = await NewDatabaseAsync(Objects, withExtension: false);
@@ -260,24 +262,27 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
         await ExecuteAdminAsync("postgres", $"CREATE ROLE {other} SUPERUSER");
         var bypass = NewRole();
         await ExecuteAdminAsync("postgres", $"CREATE ROLE {bypass} BYPASSRLS");
-        var (role, password) = scenario switch
+        (string Role, string Password, string? Owner) scenarioInputs = scenario switch
         {
-            "owner" => ("postgres", NewPassword()),
-            "other-superuser" => (other, NewPassword()),
-            "bypass-rls" => (bypass, NewPassword()),
-            "bad-name" => ("a;b", NewPassword()),
-            "upper-case-name" => ("Barako_App", NewPassword()),
-            "empty-password" => (NewRole(), ""),
-            "example-password" => (NewRole(), "CHANGE-ME"),
-            "docs-password" => (NewRole(), "change-me-to-a-strong-password"),
-            "example-password-with-newline" => (NewRole(), "CHANGE-ME\n"),
-            "whitespace-password" => (NewRole(), "  \n"),
-            "reserved-name" => ("pg_monitor", NewPassword()),
+            "owner" => ("postgres", NewPassword(), null),
+            "other-superuser" => (other, NewPassword(), null),
+            "bypass-rls" => (bypass, NewPassword(), null),
+            "bad-name" => ("a;b", NewPassword(), null),
+            "upper-case-name" => ("Barako_App", NewPassword(), null),
+            "empty-password" => (NewRole(), "", null),
+            "example-password" => (NewRole(), "CHANGE-ME", null),
+            "docs-password" => (NewRole(), "change-me-to-a-strong-password", null),
+            "example-password-with-newline" => (NewRole(), "CHANGE-ME\n", null),
+            "whitespace-password" => (NewRole(), "  \n", null),
+            "reserved-name" => ("pg_monitor", NewPassword(), null),
+            "example-owner-password" => (NewRole(), NewPassword(), "Change-Me"),
+            "owner-password-equals-app-password" => (NewRole(), "Same-0123456789abcdef", "Same-0123456789abcdef"),
             _ => throw new ArgumentOutOfRangeException(nameof(scenario)),
         };
+        var (role, password, ownerPassword) = scenarioInputs;
         var before = await SnapshotAsync(database);
 
-        var run = await RunScriptAsync(database, role, password);
+        var run = await RunScriptAsync(database, role, password, ownerPassword: ownerPassword);
 
         run.ExitCode.Should().NotBe(0);
         run.Stderr.Should().Contain(message);
@@ -287,14 +292,27 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
     }
 
     [Fact]
+    public async Task A_run_with_PGPASSWORD_unset_still_works_and_a_real_owner_password_is_accepted()
+    {
+        var (database, role, password) = (await NewDatabaseAsync(Objects, true), NewRole(), NewPassword());
+
+        var unset = await RunScriptAsync(database, role, password);
+        var set = await RunScriptAsync(database, role, password, ownerPassword: NewPassword());
+
+        unset.ExitCode.Should().Be(0, unset.Stderr);
+        set.ExitCode.Should().Be(0, set.Stderr);
+    }
+
+    [Fact]
     public async Task The_password_is_not_in_the_stats_view_after_a_run()
     {
         var (database, role, password) = (await NewDatabaseAsync(Objects, true), NewRole(), NewPassword());
 
         string tracked = "";
+        var owner = NewPassword();
         var log = await LogDuringAsync(async () =>
         {
-            (await RunScriptAsync(database, role, password)).ExitCode.Should().Be(0);
+            (await RunScriptAsync(database, role, password, ownerPassword: owner)).ExitCode.Should().Be(0);
 
             // Read back and searched here: a password sent to the server as a parameter or in SQL text
             // would be logged by the server this test is checking (log_statement is all).
@@ -305,8 +323,10 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
         tracked.Should().NotBeEmpty("the view is being read");
         Leaks(tracked, password).Should().BeFalse(
             "the password was looked for in the tracked statements; the script turns utility tracking off before it sets it");
+        Leaks(tracked, owner).Should().BeFalse("the owner password was looked for in the tracked statements");
         log.Should().Contain("duration:", "the window has to hold this server's log lines for the check to mean anything");
         Leaks(log, password).Should().BeFalse("the password was looked for in the server log during the run");
+        Leaks(log, owner).Should().BeFalse("the owner password was looked for in the server log during the run");
     }
 
     [Fact]
@@ -315,7 +335,8 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
         var (database, role, password) = (await NewDatabaseAsync(Objects, true), NewRole(), NewPassword());
 
         ExecResult run = default;
-        var log = await LogDuringAsync(async () => run = await RunScriptAsync(database, role, password));
+        var owner = NewPassword();
+        var log = await LogDuringAsync(async () => run = await RunScriptAsync(database, role, password, ownerPassword: owner));
 
         run.ExitCode.Should().Be(0, run.Stderr);
         // The statements outside the script's transaction and the end marker are what meet these two:
@@ -323,6 +344,7 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
         log.Should().Contain("duration:", "this server logs every statement's duration, so its log is the one being checked");
         log.Should().Contain("Query Text:", "auto_explain is logging the text of the statements it can see");
         Leaks(log, password).Should().BeFalse("the password was looked for in the server log, as text and as the bytes of a parse tree constant");
+        Leaks(log, owner).Should().BeFalse("the owner password was looked for in the server log, as text and as bytes");
     }
 
     [Fact]
@@ -366,13 +388,15 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
         var password = "Aa1-" + role + "-" + Guid.NewGuid().ToString("N");
 
         ExecResult run = default;
-        var log = await LogDuringAsync(async () => run = await RunScriptAsync(database, role, password));
+        var owner = NewPassword();
+        var log = await LogDuringAsync(async () => run = await RunScriptAsync(database, role, password, ownerPassword: owner));
 
         run.ExitCode.Should().NotBe(0);
         run.Stderr.Should().Contain(PasswordCheckError, "the run has to fail at the password step for this test to mean anything");
         run.Stderr.Contains(password).Should().BeFalse("the password was looked for in what psql printed");
         log.Should().Contain(PasswordCheckError, "the server logged the failure, so its log is the one being checked");
         Leaks(log, password).Should().BeFalse("the password was looked for in the server log, beside the error");
+        Leaks(log, owner).Should().BeFalse("the owner password was looked for in the server log, beside the error");
         (await ScalarAsync(database, "SELECT count(*) FROM pg_roles WHERE rolname = @r", ("r", role)))
             .Should().Be(0L, "the failed run rolled back");
     }
@@ -527,9 +551,14 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
     /// Runs the file as the superuser with psql. The role and password go in through the environment,
     /// the way the stack hands them over, unless the role is null, which leaves the variable unset.
     /// </summary>
-    private async Task<ExecResult> RunScriptAsync(string database, string? role, string password, string path = Script)
+    private async Task<ExecResult> RunScriptAsync(string database, string? role, string password, string path = Script, string? ownerPassword = null)
     {
         var command = new List<string> { "env", "DB_APP_PASSWORD=" + password };
+        if (ownerPassword is not null)
+        {
+            command.Add("PGPASSWORD=" + ownerPassword);
+        }
+
         if (role is not null)
         {
             command.Add("DB_APP_USER=" + role);

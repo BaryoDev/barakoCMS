@@ -134,11 +134,36 @@ last good copy.
 Stop the application first. A restore into a database the app is writing to will not be the database
 you backed up.
 
+The target must be empty. The dump creates every object, and the restore stops at the first statement
+that fails, so a populated database stops it at the first `CREATE`. Each block below drops the
+database and creates it again, owned by the same user, before it restores. That deletes what is in
+it now.
+
+Check the archive before the drop. Each block starts with a check that the file decompresses and
+starts with the `PostgreSQL database dump` header, because the drop cannot be undone and a restore
+of an empty or truncated archive would leave an empty database and still look like it worked. Run the
+restore pipe in a shell with `set -o pipefail` so a failing `gunzip` fails the command. If the
+restore fails after the drop, leave the application stopped and run the block again with the same
+file. Starting the application on an empty database makes new empty tables and a new admin.
+
+The dump is taken with `--no-owner --no-privileges`, so it names no role and a restore needs none of
+them. The restored tables belong to the role that ran the restore, which is the owner (a superuser),
+not the app role the API connects as. In the production and quickstart stacks, run
+`docker compose up -d` after the restore: it runs the app role job again, and the job makes the app
+role owner of the tables. Until then the API cannot read them. Use `up -d`, not `start`: `up` is the
+command that runs the job.
+
 **docker compose, development stack**
 
 ```bash
+F=./backups/barako_backup_2026-08-30_02-00-00.sql.gz
+# Before pipefail: grep -q exits early and would make gunzip report a broken pipe.
+gunzip -t "$F" && gunzip -c "$F" | head -c 4096 | grep -q "PostgreSQL database dump" || { echo "bad archive"; false; }
+set -o pipefail
 docker compose stop app
-gunzip -c ./backups/barako_backup_2026-08-30_02-00-00.sql.gz \
+docker compose exec -T postgres psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
+  -c 'drop database if exists barako_cms with (force)' -c 'create database barako_cms owner postgres'
+gunzip -c "$F" \
   | docker compose exec -T postgres psql -U postgres -d barako_cms -v ON_ERROR_STOP=1
 docker compose start app
 ```
@@ -149,17 +174,31 @@ Archives live in a named volume rather than a host directory, so read them from 
 container:
 
 ```bash
-docker compose -f docker-compose.prod.yml stop app
+F=/backups/barako_backup_2026-08-30_02-00-00.sql.gz
 
 # List what is there.
 docker compose -f docker-compose.prod.yml exec db-backup ls -1 /backups
 
+# Check the archive before anything is stopped or dropped.
+docker compose -f docker-compose.prod.yml exec -T db-backup sh -c \
+  "gunzip -t $F && gunzip -c $F | head -c 4096 | grep -q 'PostgreSQL database dump'" || { echo "bad archive"; false; }
+
+set -o pipefail
+docker compose -f docker-compose.prod.yml stop app
+
+# Drop and recreate the database, owned by the owner role.
+docker compose -f docker-compose.prod.yml exec -T postgres sh -c \
+  'psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 \
+     -c "drop database if exists ${POSTGRES_DB} with (force)" \
+     -c "create database ${POSTGRES_DB} owner ${POSTGRES_USER}"'
+
 docker compose -f docker-compose.prod.yml exec -T db-backup \
-    sh -c 'gunzip -c /backups/barako_backup_2026-08-30_02-00-00.sql.gz' \
+    sh -c "gunzip -c $F" \
   | docker compose -f docker-compose.prod.yml exec -T postgres \
       psql -U "${DB_USER:-postgres}" -d "${DB_NAME:-barako_cms}" -v ON_ERROR_STOP=1
 
-docker compose -f docker-compose.prod.yml start app
+# Not `start app`. Up runs the app role job again, which hands the restored tables back to the app role.
+docker compose -f docker-compose.prod.yml up -d
 ```
 
 **quickstart stack**
@@ -168,12 +207,25 @@ The service is `api`, not `app`, and the database defaults to `barakocms` rather
 
 ```bash
 cd quickstart
+F=/backups/barako_backup_2026-08-30_02-00-00.sql.gz
+
+# Check the archive before anything is stopped or dropped.
+docker compose exec -T db-backup sh -c \
+  "gunzip -t $F && gunzip -c $F | head -c 4096 | grep -q 'PostgreSQL database dump'" || { echo "bad archive"; false; }
+
+set -o pipefail
 docker compose stop api
 
-docker compose exec -T db-backup sh -c 'gunzip -c /backups/barako_backup_2026-08-30_02-00-00.sql.gz' \
+docker compose exec -T postgres sh -c \
+  'psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 \
+     -c "drop database if exists ${POSTGRES_DB} with (force)" \
+     -c "create database ${POSTGRES_DB} owner ${POSTGRES_USER}"'
+
+docker compose exec -T db-backup sh -c "gunzip -c $F" \
   | docker compose exec -T postgres psql -U "${DB_USER:-postgres}" -d "${DB_NAME:-barakocms}" -v ON_ERROR_STOP=1
 
-docker compose start api
+# Not `start api`. Up runs the app role job again, which hands the restored tables back to the app role.
+docker compose up -d
 ```
 
 **Kubernetes**

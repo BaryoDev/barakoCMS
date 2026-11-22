@@ -1,3 +1,4 @@
+# Development file: the API connects as the database owner and no app role job runs. Production is docker-compose.prod.yml.
 services:
   app:
     container_name: barako-cms

@@ -37,7 +37,8 @@ DB_APP_USER=barako_app DB_APP_PASSWORD='...' psql -d barako -f scripts/db-app-ro
 ```
 
 Run it as the database owner, a superuser. `scripts/db-app-role.sql` is the one file; it is meant to
-run on every start (the compose files call it from 6.0), and `migrations/tenancy/001-app-role.sql` is kept at its old path and includes
+run on every start (the production and quickstart compose files run it in a job before the API starts, see
+[Deploy in production](deploy-in-production.md#database-roles)), and `migrations/tenancy/001-app-role.sql` is kept at its old path and includes
 it, so `psql -v app_role=barako_app -v app_password='...' -f migrations/tenancy/001-app-role.sql`
 still works. `-v` wins over the environment when both are given, but it puts the password on the
 command line, so prefer the environment. `app_role` defaults to `barako_app`.

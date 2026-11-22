@@ -149,7 +149,7 @@ published images with no build step:
 ```bash
 cd quickstart
 cp .env.example .env
-# at minimum: DB_PASSWORD, JWT_KEY (32+ characters), ADMIN_USERNAME, ADMIN_PASSWORD
+# at minimum: DB_PASSWORD, DB_APP_PASSWORD, JWT_KEY (32+ characters), ADMIN_USERNAME, ADMIN_PASSWORD
 docker compose up -d
 ```
 
@@ -635,7 +635,7 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 The required variables are `DOMAIN_API`, `ACME_EMAIL`, `FRONTEND_ORIGINS`, `BARAKO_TAG`,
-`DB_PASSWORD`, `JWT_KEY` and `ADMIN_PASSWORD`. The `DOMAIN_API` record must resolve before you start
+`DB_PASSWORD`, `DB_APP_PASSWORD`, `JWT_KEY` and `ADMIN_PASSWORD`. The `DOMAIN_API` record must resolve before you start
 the stack, because Caddy requests a certificate on first boot. The console moved to its own
 repository, so there is no second domain to point here any more.
 

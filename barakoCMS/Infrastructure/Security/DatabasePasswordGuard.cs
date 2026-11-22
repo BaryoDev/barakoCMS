@@ -49,7 +49,8 @@ internal static class DatabasePasswordGuard
             throw new InvalidOperationException(
                 "The database password in ConnectionStrings:DefaultConnection (or DATABASE_URL) is refused: "
               + "it is an example or default value from the samples and docs. Set a random password "
-              + "(environment variable DB_PASSWORD in the compose files) before starting outside Development.");
+              + "before starting outside Development. In the compose files the API connects as the app role, so "
+              + "the variable is DB_APP_PASSWORD; DB_PASSWORD is the database owner's, which the API does not use, and the app role job refuses example values for it.");
         }
     }
 

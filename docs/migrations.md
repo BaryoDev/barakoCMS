@@ -18,11 +18,15 @@ the ledger lacks.
 ## Running it
 
 Stop the API first, then migrate, check, and start. With compose, from the directory holding your
-compose file and `.env`:
+compose file and `.env`. From 6.0, `postgres-extensions` (the app role job, which needs `DB_APP_PASSWORD`)
+runs before `db-migrate` and must exit 0: the API connects as the app role, which does not exist on a
+5.x volume, and a migration's DDL fails as a non-owner until the job has run. The quickstart file
+has the same job, so the same order applies there, with `api` in place of `app`.
 
 ```bash
 docker compose pull
 docker compose stop app
+docker compose run --rm postgres-extensions
 docker compose run --rm --no-deps app db-migrate
 docker compose run --rm --no-deps app db-assert
 docker compose up -d

@@ -45,6 +45,7 @@ for p in "${PROJECTS[@]}"; do
     cat > "$WORK/$p/.env" <<'ENV'
 BARAKO_TAG=ci
 DB_PASSWORD=quickstart-check-not-a-real-password
+DB_APP_PASSWORD=quickstart-app-check-not-a-real-password
 JWT_KEY=quickstart-check-not-a-real-key-at-least-32-characters
 ADMIN_PASSWORD=quickstart-check-not-a-real-password
 ENV

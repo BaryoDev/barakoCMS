@@ -33,7 +33,19 @@ public class DatabasePasswordGuardTests
 
         var message = act.Should().Throw<InvalidOperationException>().Which.Message;
         message.Should().Contain("ConnectionStrings:DefaultConnection").And.Contain("DATABASE_URL");
+        message.Should().Contain("DB_APP_PASSWORD").And.Contain("DB_PASSWORD");
         message.Should().NotContain(example, "the message names the setting and the rule, never the value");
+    }
+
+    [Fact]
+    public void The_app_role_example_password_is_refused_and_named()
+    {
+        // DB_APP_PASSWORD=change-me-to-a-strong-password, as the API sees it: the app role's user.
+        var act = () => DatabasePasswordGuard.Validate(
+            "Host=postgres;Database=barako_cms;Username=barako_app;Password=change-me-to-a-strong-password",
+            isDevelopment: false);
+
+        act.Should().Throw<InvalidOperationException>().Which.Message.Should().Contain("DB_APP_PASSWORD");
     }
 
     [Theory]
@@ -137,6 +149,7 @@ public class DatabasePasswordGuardTests
 
     [Theory]
     [InlineData("quickstart/.env.example", "DB_PASSWORD=")]
+    [InlineData("quickstart/.env.example", "DB_APP_PASSWORD=")]
     public void The_password_in_an_env_example_is_refused(string file, string prefix)
     {
         // The file people copy to .env and are told to edit. An unedited copy must not boot.

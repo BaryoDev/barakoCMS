@@ -41,7 +41,7 @@ no default, so the stack refuses to start rather than booting on a placeholder:
 - `DOMAIN_API`, `ACME_EMAIL`
 - `FRONTEND_ORIGINS`, the origins of the console and of the site you are about to build
 - `BARAKO_TAG`, a published version, not `latest`
-- `DB_PASSWORD`, `JWT_KEY` (32 characters or more), `ADMIN_PASSWORD`
+- `DB_PASSWORD`, `DB_APP_PASSWORD`, `JWT_KEY` (32 characters or more), `ADMIN_PASSWORD`
 
 The API refuses to start outside Development on any example secret this repository prints: the
 compose dev key, the keys in the quickstart and the docs, and the database passwords `postgres`,
@@ -304,7 +304,7 @@ Caddy's address has its `X-Forwarded-For` honoured and a request from another co
 
 ## Secrets as files
 
-The JWT key, the admin password and the database password can live in files instead of `.env`
+The JWT key, the admin password and the database passwords can live in files instead of `.env`
 (Docker secrets, or a Kubernetes secret volume). The API reads a directory of files as configuration:
 `BARAKO_SECRETS_DIR`, default `/run/secrets`, blank means the default. A file name is the
 configuration key with `__` for the section separator, so `/run/secrets/JWT__Key` is `JWT:Key`. A
@@ -322,7 +322,7 @@ adds a final newline both give the key you typed. A UTF-8 byte order mark is dro
 
 To use it with the production stack, add the override with a second `-f` and set
 `SECRETS_AS_FILES=true`, in `.env` or the shell. That variable only lets the required `JWT_KEY`,
-`ADMIN_PASSWORD` and `DB_PASSWORD` checks in `docker-compose.prod.yml` pass while those three are
+`ADMIN_PASSWORD` and `DB_APP_PASSWORD` checks in `docker-compose.prod.yml` pass while those are
 unset; the override blanks them in the containers. Without the override the variable gives the stack
 no secrets, so Postgres will not initialise and the API will refuse to start. Everything else in `.env` still applies.
 
@@ -331,21 +331,64 @@ mkdir secrets
 openssl rand -hex 24 | tr -d '\n' > secrets/jwt_key
 openssl rand -hex 24 | tr -d '\n' > secrets/admin_password
 openssl rand -hex 24 | tr -d '\n' > secrets/db_password
-printf 'Host=postgres;Database=barako_cms;Username=postgres;Password=%s' "$(cat secrets/db_password)" > secrets/db_connection_string
+openssl rand -hex 24 | tr -d '\n' > secrets/db_app_password
+printf 'Host=postgres;Database=barako_cms;Username=barako_app;Password=%s' "$(cat secrets/db_app_password)" > secrets/db_connection_string
 sudo chown 1654:1654 secrets/*
 sudo chmod 0440 secrets/*
 SECRETS_AS_FILES=true docker compose -f docker-compose.prod.yml -f docker-compose.secrets.yml up -d
 ```
 
 The API runs as uid 1654 in a read-only container, so the files are owned by `1654:1654` with mode
-`0440`. The same files are mounted into Postgres (as `POSTGRES_PASSWORD_FILE`), the extensions job
-and the backup job, which join group 1654 to read them. `secrets/` is in `.gitignore`.
+`0440`. The owner's password file is mounted into Postgres (as `POSTGRES_PASSWORD_FILE`), the role
+job and the backup job, and the app role's password file into the role job, which join group 1654
+to read them. `secrets/` is in `.gitignore`.
 
 The API takes its database password inside `ConnectionStrings:DefaultConnection` and has no separate
 password key, so the connection string is the secret (`db_connection_string`, mounted as
-`ConnectionStrings__DefaultConnection`). Keep its password the same as `db_password`, which is the
-one Postgres sets, and its database name and user the same as `DB_NAME` and `DB_USER` if you set those. Without the override nothing changes: `docker-compose.prod.yml` declares no
+`ConnectionStrings__DefaultConnection`). It names the app role and that role's password: keep the
+password the same as `db_app_password`, which is the one the role job sets, and the user the same as
+`DB_APP_USER` if you set that. The database name is the same as `DB_NAME` if you set it. Without the override nothing changes: `docker-compose.prod.yml` declares no
 secrets, because compose refuses to start when a declared secret file is missing.
+
+## Database roles
+
+Two roles are in play. The owner (`DB_USER`, default `postgres`, password `DB_PASSWORD`) is a
+superuser, because it is the one Postgres is initialised with. The app role (`DB_APP_USER`, default
+`barako_app`, password `DB_APP_PASSWORD`) is a login role with no superuser and no `BYPASSRLS`, and
+it owns what is in schema `public`. The API connects as the app role, so Postgres binds it to the
+row level security policies Marten creates, but only when `Tenancy:DatabaseEnforcement` is on. It is
+off by default, and without it the policies do not exist. A superuser is never bound by them. See
+[Tenancy at the database](tenancy-at-the-database.md).
+
+Before the API starts, the `postgres-extensions` job runs `scripts/db-app-role.sql` as the owner. It
+creates the app role or updates it, sets its password, installs `pg_stat_statements` and gives the
+role ownership of the tables. The API waits for the job to finish, and does not start if the job
+fails: `docker compose logs postgres-extensions` says why. The quickstart does the same with
+`quickstart/scripts/db-app-role.sql`. `docker-compose.yml` and `docker-compose.hub.yml` are for
+development and stay on the owner role with no job.
+
+- Set `DB_APP_PASSWORD` in `.env`. The stack refuses to start without it, and the API refuses an
+  example value. Keep it different from `DB_PASSWORD`.
+- If you set `DATABASE_URL`, it wins over the connection string the compose file builds, so point it
+  at the app role too. A `DATABASE_URL` that names the owner keeps the API on a superuser.
+- To rotate the app role's password, change `DB_APP_PASSWORD` (and `db_app_password` and
+  `db_connection_string` if you use secret files) and run `docker compose up -d`. The job sets the
+  new password on every run.
+- Changing `DB_APP_USER` creates a new role and leaves the old one with `LOGIN` and ownership of
+  nothing. Drop it as the owner once the API is running as the new role:
+  `DROP ROLE old_name;`. If Postgres says the role still owns objects or privileges, run
+  `REASSIGN OWNED BY old_name TO new_name; DROP OWNED BY old_name; DROP ROLE old_name;` in each
+  database that uses it.
+- Several databases in one cluster that use the same app role name run their jobs one at a time. The
+  script takes a lock per database, and that does not cover a second database.
+- Run these hand-run migrations as the owner, not the app role, because each one checks for a role
+  that can bypass row level security and stops otherwise: `migrations/4.6.0/sensitivity-by-capability.sql`,
+  `migrations/4.6.0/rollback-sensitivity-by-capability.sql`, `migrations/5.0.0/role-tenancy.sql` and
+  `migrations/5.0.0/rollback-role-tenancy.sql`.
+
+Backups are taken with `pg_dump --no-owner --no-privileges`, so a restore leaves the tables owned by
+whoever restores. After a restore, run `docker compose up -d`: it runs the job again, which hands
+the tables back to the app role. See [Backup and restore](backup-and-restore.md).
 
 ## Postgres image
 
@@ -422,8 +465,9 @@ These are starting values. The measured numbers for them are recorded in #798.
 
 ### Finding slow queries
 
-Both files load `pg_stat_statements`, and a one-shot `postgres-extensions` service creates the
-extension each time the stack starts (a no-op after the first). It runs on an existing volume too,
+Both files load `pg_stat_statements`, and the one-shot `postgres-extensions` service (see
+[Database roles](#database-roles)) installs the extension each time the stack starts (a no-op after
+the first). It runs on an existing volume too,
 which a script in `docker-entrypoint-initdb.d` would not. It exits once done, so `docker compose ps`
 shows it only with `-a`. To see the slowest queries:
 
@@ -647,24 +691,35 @@ more fields than the limit keeps working, and only adding fields to it is refuse
 
 ## Upgrading
 
+Change `BARAKO_TAG` first, then pull and stop the API. From 6.0 the API connects as the app role,
+which the `postgres-extensions` job creates and hands the tables to, so the job runs before any
+`db-migrate` or `db-assert`. On a 5.x volume the role does not exist yet and those commands cannot
+sign in. Where the role exists but the job has not run, a migration's DDL fails as a non-owner.
+
 ```bash
 docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml stop app
+docker compose -f docker-compose.prod.yml run --rm postgres-extensions
+echo "job exit code: $?"
+```
+
+Carry on only when the exit code is 0. Then check what the new build would do:
+
+```bash
 docker compose -f docker-compose.prod.yml run --rm --no-deps app db-migrate --status
 ```
 
-Change `BARAKO_TAG` first. `--status` only reads, so it is safe while the old container serves. It
-exits 0 when this database has had every SQL file the new build ships, and then the upgrade is:
+`--status` only reads. It exits 0 when this database has had every SQL file the new build ships, and
+then the upgrade is:
 
 ```bash
 docker compose -f docker-compose.prod.yml run --rm --no-deps app db-assert
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-When `--status` lists a migration as `pending` or `not-needed` and exits 1, stop the API before
-migrating:
+When `--status` lists a migration as `pending` or `not-needed` and exits 1, migrate first:
 
 ```bash
-docker compose -f docker-compose.prod.yml stop app
 docker compose -f docker-compose.prod.yml run --rm --no-deps app db-migrate
 docker compose -f docker-compose.prod.yml run --rm --no-deps app db-assert
 docker compose -f docker-compose.prod.yml up -d

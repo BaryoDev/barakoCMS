@@ -424,12 +424,27 @@ jobs:
         env:
           BARAKO_TAG: ci
           DB_PASSWORD: ci-not-a-real-password
+          DB_APP_PASSWORD: ci-not-a-real-app-password
           JWT_KEY: ci-not-a-real-key-at-least-32-characters
           ADMIN_PASSWORD: ci-not-a-real-password
         run: |
           set -euo pipefail
           docker compose -f quickstart/docker-compose.yml config >/dev/null
           echo "quickstart/docker-compose.yml resolves"
+
+      - name: The quickstart file refuses to resolve without an app role password
+        env:
+          BARAKO_TAG: ci
+          DB_PASSWORD: ci-not-a-real-password
+          JWT_KEY: ci-not-a-real-key-at-least-32-characters
+          ADMIN_PASSWORD: ci-not-a-real-password
+        run: |
+          set -euo pipefail
+          if docker compose -f quickstart/docker-compose.yml config >/dev/null 2>&1; then
+            echo "::error::quickstart/docker-compose.yml resolved with no DB_APP_PASSWORD set"
+            exit 1
+          fi
+          echo "refused, as it should"
 
       # The quickstart carries its own copy of the backup script so the folder works once copied out
       # of a checkout (#712). The copy is only safe while it is identical to the original.
@@ -456,6 +471,7 @@ jobs:
           cat >> /tmp/ci.env <<'ENV'
           BARAKO_TAG=ci
           DB_PASSWORD=ci-not-a-real-password
+          DB_APP_PASSWORD=ci-not-a-real-app-password
           JWT_KEY=ci-not-a-real-key-at-least-32-characters
           ADMIN_PASSWORD=ci-not-a-real-password
           ENV
@@ -475,10 +491,27 @@ jobs:
           cat >> /tmp/ci-nojwt.env <<'ENV'
           BARAKO_TAG=ci
           DB_PASSWORD=ci-not-a-real-password
+          DB_APP_PASSWORD=ci-not-a-real-app-password
           ADMIN_PASSWORD=ci-not-a-real-password
           ENV
           if docker compose --env-file /tmp/ci-nojwt.env -f docker-compose.prod.yml config >/dev/null 2>&1; then
             echo "::error::docker-compose.prod.yml resolved with no JWT_KEY set"
+            exit 1
+          fi
+          echo "refused, as it should"
+
+      - name: The production file refuses to resolve without an app role password
+        run: |
+          set -euo pipefail
+          cp .env.prod.example /tmp/ci-noapp.env
+          cat >> /tmp/ci-noapp.env <<'ENV'
+          BARAKO_TAG=ci
+          DB_PASSWORD=ci-not-a-real-password
+          JWT_KEY=ci-not-a-real-key-at-least-32-characters
+          ADMIN_PASSWORD=ci-not-a-real-password
+          ENV
+          if docker compose --env-file /tmp/ci-noapp.env -f docker-compose.prod.yml config >/dev/null 2>&1; then
+            echo "::error::docker-compose.prod.yml resolved with no DB_APP_PASSWORD set"
             exit 1
           fi
           echo "refused, as it should"
