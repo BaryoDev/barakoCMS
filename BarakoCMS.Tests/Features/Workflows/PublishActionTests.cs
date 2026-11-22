@@ -392,7 +392,8 @@ public class PublishActionTests
             var runner = new WorkflowRunner(
                 _fixture.Services,
                 _fixture.Services.GetRequiredService<ILogger<WorkflowRunner>>(),
-                _fixture.Services.GetRequiredService<IConfiguration>());
+                _fixture.Services.GetRequiredService<IConfiguration>(),
+            _fixture.Services.GetRequiredService<barakoCMS.Features.Workflows.WorkflowMetrics>());
             var polls = 0;
             while (await runner.RunOnceAsync(TestContext.Current.CancellationToken))
             {

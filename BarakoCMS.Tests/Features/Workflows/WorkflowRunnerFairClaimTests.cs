@@ -375,7 +375,8 @@ public class WorkflowRunnerFairClaimTests
     private WorkflowRunner NewRunner() => new(
         _factory.Services,
         _factory.Services.GetRequiredService<ILogger<WorkflowRunner>>(),
-        _factory.Services.GetRequiredService<IConfiguration>());
+        _factory.Services.GetRequiredService<IConfiguration>(),
+        _factory.Services.GetRequiredService<barakoCMS.Features.Workflows.WorkflowMetrics>());
 
     private static async Task DrainAsync(WorkflowRunner runner)
     {

@@ -28,7 +28,8 @@ internal class Endpoint(
     IContentEraser eraser,
     IDocumentSession session,
     barakoCMS.Features.Workflows.IWorkflowRunQueue workflowRuns,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request>
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    barakoCMS.Features.Workflows.WorkflowMetrics metrics) : Endpoint<Request>
 {
     public override void Configure()
     {
@@ -90,7 +91,7 @@ internal class Endpoint(
             return;
         }
 
-        barakoCMS.Features.Workflows.WorkflowMetrics.Default.Queued(barakoCMS.Models.WorkflowEvents.Deleted, queued, tenant.Slug);
+        metrics.Queued(barakoCMS.Models.WorkflowEvents.Deleted, queued, tenant.Slug);
 
         await Send.NoContentAsync(ct);
     }

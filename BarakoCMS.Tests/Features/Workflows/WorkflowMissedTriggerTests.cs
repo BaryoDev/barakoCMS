@@ -293,7 +293,7 @@ public class WorkflowMissedTriggerTests
     }
 
     private ScheduledContentService ServiceWith(Func<IDocumentSession, CancellationToken, Task>? hook) =>
-        new(Store, _fixture.Services.GetRequiredService<ILogger<ScheduledContentService>>())
+        new(Store, _fixture.Services.GetRequiredService<ILogger<ScheduledContentService>>(), null, TestMetricFactory.New())
         {
             BeforeMissedTriggers = hook,
         };
@@ -359,7 +359,7 @@ public class WorkflowMissedTriggerTests
     }
 
     private static Task<int> SweepAsync(IDocumentSession session) =>
-        MissedTriggerSweep.RunAsync(session, new WorkflowRunQueue(session, NullLogger<WorkflowRunQueue>.Instance), null, Ct);
+        MissedTriggerSweep.RunAsync(session, new WorkflowRunQueue(session, NullLogger<WorkflowRunQueue>.Instance, new WorkflowMetrics(Prometheus.Metrics.NewCustomRegistry())), null, Ct);
 
     private static async Task<IReadOnlyList<WorkflowRun>> RunsAsync(IQuerySession session, Guid contentId) =>
         await session.Query<WorkflowRun>().Where(r => r.ContentId == contentId).ToListAsync(Ct);

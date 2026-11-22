@@ -119,7 +119,8 @@ internal interface IWorkflowRunQueue
     Task<bool> ListensAsync(string contentType, string eventType, CancellationToken ct);
 }
 
-internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<WorkflowRunQueue> logger) : IWorkflowRunQueue
+internal sealed class WorkflowRunQueue(
+    IDocumentSession session, ILogger<WorkflowRunQueue> logger, WorkflowMetrics metrics) : IWorkflowRunQueue
 {
     public async Task<int> EnqueueAsync(barakoCMS.Models.Content content, string eventType, long eventSequence, CancellationToken ct)
     {
@@ -159,7 +160,7 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
 
         var queued = await InsertRunsAsync(runs, ct);
 
-        WorkflowMetrics.Default.Queued(eventType, queued, session.TenantId);
+        metrics.Queued(eventType, queued, session.TenantId);
 
         return queued;
     }
@@ -279,7 +280,7 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
             await session.SaveChangesAsync(ct);
         }
 
-        WorkflowMetrics.Default.Queued(trigger, queued, session.TenantId);
+        metrics.Queued(trigger, queued, session.TenantId);
 
         return queued;
     }
@@ -322,7 +323,7 @@ internal sealed class WorkflowRunQueue(IDocumentSession session, ILogger<Workflo
             return false;
         }
 
-        WorkflowMetrics.Default.Queued(trigger, 1, session.TenantId);
+        metrics.Queued(trigger, 1, session.TenantId);
         return true;
     }
 

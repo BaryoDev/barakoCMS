@@ -21,6 +21,7 @@ public class ScheduledContentService : BackgroundService
     private readonly IDocumentStore _store;
     private readonly ILogger<ScheduledContentService> _logger;
     private readonly IConfiguration? _configuration;
+    private readonly barakoCMS.Features.Workflows.WorkflowMetrics _metrics;
 
     // A minute is fine granularity for editorial scheduling and keeps the query load trivial (a couple
     // of indexed lookups per tenant per minute).
@@ -32,20 +33,18 @@ public class ScheduledContentService : BackgroundService
     // The sweep's writer reads no settings, so it keeps the defaults the old two-argument constructor gave.
     private static readonly IConfiguration NoSettings = new ConfigurationBuilder().Build();
 
-    public ScheduledContentService(IDocumentStore store, ILogger<ScheduledContentService> logger)
-        : this(store, logger, null)
-    {
-    }
-
     /// <param name="store">The document store.</param>
     /// <param name="logger">The logger.</param>
     /// <param name="configuration">Where <c>Tenancy:Mode</c> is read. Null is Single.</param>
+    /// <param name="metrics">The host's metric factory, which the workflow run counts are built from.</param>
     public ScheduledContentService(
-        IDocumentStore store, ILogger<ScheduledContentService> logger, IConfiguration? configuration)
+        IDocumentStore store, ILogger<ScheduledContentService> logger, IConfiguration? configuration,
+        Prometheus.IMetricFactory metrics)
     {
         _store = store;
         _logger = logger;
         _configuration = configuration;
+        _metrics = new barakoCMS.Features.Workflows.WorkflowMetrics(metrics);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -201,7 +200,7 @@ public class ScheduledContentService : BackgroundService
             // A failing schedule must not stop the sweep of the tenants after this one.
             try
             {
-                var fired = await barakoCMS.Features.Workflows.WorkflowSchedule.FireDueAsync(session, nowUtc, _logger, ct);
+                var fired = await barakoCMS.Features.Workflows.WorkflowSchedule.FireDueAsync(session, _metrics, nowUtc, _logger, ct);
                 if (fired > 0)
                     _logger.LogInformation("Scheduled workflows queued {Count} run(s) for tenant {Tenant}",
                         fired, slug ?? "(default)");
@@ -329,13 +328,13 @@ public class ScheduledContentService : BackgroundService
     /// A failure here is logged and not thrown: it must not stop the content transitions of the
     /// tenants after this one, and the next sweep a minute later reads the same state again.
     /// </remarks>
-    private static async Task SweepScheduleWorkflowsAsync(
+    private async Task SweepScheduleWorkflowsAsync(
         IDocumentSession session, DateTime nowUtc, ILogger? logger, IConfiguration? configuration, CancellationToken ct)
     {
         try
         {
             var queue = new barakoCMS.Features.Workflows.WorkflowRunQueue(
-                session, Microsoft.Extensions.Logging.Abstractions.NullLogger<barakoCMS.Features.Workflows.WorkflowRunQueue>.Instance);
+                session, Microsoft.Extensions.Logging.Abstractions.NullLogger<barakoCMS.Features.Workflows.WorkflowRunQueue>.Instance, _metrics);
             await barakoCMS.Features.Workflows.ScheduleSweep.RunAsync(session, queue, nowUtc, ct, configuration);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -401,14 +400,14 @@ public class ScheduledContentService : BackgroundService
     /// A failure here is logged and not thrown, so the partitions after this one are still replayed.
     /// The rows stay, and the next sweep a minute later reads them again.
     /// </remarks>
-    private static async Task SweepMissedTriggersAsync(
+    private async Task SweepMissedTriggersAsync(
         IDocumentSession session, Func<IDocumentSession, CancellationToken, Task>? before, ILogger? logger, CancellationToken ct)
     {
         try
         {
             if (before is not null) await before(session, ct);
             var queue = new barakoCMS.Features.Workflows.WorkflowRunQueue(
-                session, Microsoft.Extensions.Logging.Abstractions.NullLogger<barakoCMS.Features.Workflows.WorkflowRunQueue>.Instance);
+                session, Microsoft.Extensions.Logging.Abstractions.NullLogger<barakoCMS.Features.Workflows.WorkflowRunQueue>.Instance, _metrics);
             await barakoCMS.Features.Workflows.MissedTriggerSweep.RunAsync(session, queue, logger, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

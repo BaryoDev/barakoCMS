@@ -135,7 +135,8 @@ public class TenantPartitionsTests
         }
 
         var runner = new WorkflowRunner(
-            host.Services, NullLogger<WorkflowRunner>.Instance, host.Services.GetRequiredService<IConfiguration>());
+            host.Services, NullLogger<WorkflowRunner>.Instance, host.Services.GetRequiredService<IConfiguration>(),
+            host.Services.GetRequiredService<barakoCMS.Features.Workflows.WorkflowMetrics>());
 
         var polls = 0;
         while (await runner.RunOnceAsync(ct))
@@ -580,7 +581,8 @@ public class TenantPartitionsTests
             new JobOptions(),
             NullLogger<MartenJobStorageProvider>.Instance,
             gate,
-            host.Services.GetRequiredService<IConfiguration>());
+            host.Services.GetRequiredService<IConfiguration>(),
+            new JobMetrics(Prometheus.Metrics.NewCustomRegistry()));
     }
 
     private static async Task<Guid> QueueJobAsync(

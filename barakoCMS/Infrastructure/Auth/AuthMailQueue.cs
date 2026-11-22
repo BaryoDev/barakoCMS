@@ -17,14 +17,16 @@ namespace barakoCMS.Infrastructure.Auth;
 /// </remarks>
 public sealed class AuthMailQueue(
     IServiceScopeFactory scopes,
-    ILogger<AuthMailQueue> logger) : BackgroundService
+    ILogger<AuthMailQueue> logger,
+    IMetricFactory metrics) : BackgroundService
 {
+
     internal const int Capacity = 1000;
     internal const int Readers = 4;
 
     internal static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(10);
 
-    internal static readonly Counter DroppedCounter = Metrics.CreateCounter(
+    internal Counter DroppedCounter { get; } = metrics.CreateCounter(
         "barakocms_auth_mail_dropped_total",
         "Sign-in mail not sent because the queue was full.");
 

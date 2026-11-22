@@ -15,6 +15,7 @@ namespace barakoCMS.Infrastructure.Health;
 /// </remarks>
 internal sealed class WorkflowProjectionHealthCheck(
     IDocumentStore store,
+    IMetricFactory metrics,
     long tolerance = ProjectionLag.DefaultTolerance) : IHealthCheck
 {
     public const string Name = "Workflow Projection";
@@ -28,7 +29,7 @@ internal sealed class WorkflowProjectionHealthCheck(
     // reads exactly like the stalled shard the check exists to find.
     private static readonly string ShardPrefix = typeof(Features.Workflows.WorkflowProjection).FullName!;
 
-    private static readonly Gauge LagGauge = Metrics.CreateGauge(
+    private readonly Gauge _lagGauge = metrics.CreateGauge(
         "barakocms_projection_lag_events",
         "Events appended but not yet processed by an async projection shard.",
         new GaugeConfiguration { LabelNames = ["projection"] });
@@ -48,7 +49,7 @@ internal sealed class WorkflowProjectionHealthCheck(
         // Nothing else polls it, so a deployment with no health probe gets a stale gauge.
         if (reading.Lag is { } lag)
         {
-            LagGauge.WithLabels(ProjectionName).Set(lag);
+            _lagGauge.WithLabels(ProjectionName).Set(lag);
         }
 
         return new HealthCheckResult(reading.Status, reading.Description, data: new Dictionary<string, object>

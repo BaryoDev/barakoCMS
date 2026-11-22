@@ -9,7 +9,7 @@ namespace barakoCMS.Infrastructure.Jobs;
 /// Never a queue, a command or an error, for the reason <c>WorkflowMetrics</c> gives: <c>/metrics</c>
 /// is read for the whole deployment.
 ///
-/// One instance per registry. The host uses <see cref="Default"/>. A test builds its own on a
+/// One instance per host, built from the host's metric factory and handed out by DI. A test builds its own on a
 /// registry nothing else writes to.
 /// </remarks>
 internal sealed class JobMetrics
@@ -18,12 +18,12 @@ internal sealed class JobMetrics
     public const string Retried = "retried";
     public const string DeadLettered = "dead_lettered";
 
-    public static readonly JobMetrics Default = new(Prometheus.Metrics.DefaultRegistry);
-
-    public JobMetrics(CollectorRegistry registry)
+    public JobMetrics(CollectorRegistry registry) : this(Prometheus.Metrics.WithCustomRegistry(registry))
     {
-        var factory = Prometheus.Metrics.WithCustomRegistry(registry);
+    }
 
+    public JobMetrics(IMetricFactory factory)
+    {
         Attempts = factory.CreateCounter(
             "barakocms_jobs_attempts_total",
             "Job attempts whose outcome this node recorded: succeeded, retried, or dead_lettered when it was the last allowed.",
