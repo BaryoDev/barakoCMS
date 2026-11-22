@@ -490,10 +490,66 @@ public static class ServiceCollectionExtensions
         limits.MinRequestBodyDataRate = new Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate(
             bytesPerSecond: 240, gracePeriod: TimeSpan.FromSeconds(5));
 
-        section.Bind(limits);
+        BindKestrelLimits(limits, section);
 
         limits.MinRequestBodyDataRate = DataRateFrom(section.GetSection("MinRequestBodyDataRate"), limits.MinRequestBodyDataRate);
         limits.MinResponseDataRate = DataRateFrom(section.GetSection("MinResponseDataRate"), limits.MinResponseDataRate);
+    }
+
+    /// <summary>
+    /// Binds <c>Kestrel:Limits:*</c> over the defaults and keeps a blank or non-positive value from
+    /// removing a limit. A blank connection cap goes back to the default (the binder reads it as no
+    /// cap), and a cap or timeout of zero or less is refused with a message naming the key. There is
+    /// no way to ask for no cap other than a very large number such as 9223372036854775807.
+    /// </summary>
+    private static void BindKestrelLimits(
+        Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerLimits limits, IConfiguration section)
+    {
+        var maxConnections = limits.MaxConcurrentConnections;
+        var maxUpgraded = limits.MaxConcurrentUpgradedConnections;
+
+        // Bind each plain key alone on a scratch copy, so a bad value names its key. The value itself
+        // is left out of the message.
+        foreach (var child in section.GetChildren())
+        {
+            if (child.Value is null || child.Key.EndsWith("DataRate", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            try
+            {
+                new ConfigurationBuilder()
+                    .AddInMemoryCollection(new Dictionary<string, string?> { [child.Key] = child.Value })
+                    .Build()
+                    .Bind(new Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerLimits());
+            }
+            catch (Exception)
+            {
+                throw new InvalidOperationException(
+                    $"Kestrel:Limits:{child.Key} is not valid. It must be a positive number or a positive time span (hh:mm:ss).");
+            }
+        }
+
+        section.Bind(limits);
+
+        limits.MaxConcurrentConnections ??= maxConnections;
+        limits.MaxConcurrentUpgradedConnections ??= maxUpgraded;
+        RefuseNonPositive(limits.MaxConcurrentConnections, "MaxConcurrentConnections", "number");
+        RefuseNonPositive(limits.MaxConcurrentUpgradedConnections, "MaxConcurrentUpgradedConnections", "number");
+        RefuseNonPositive(limits.RequestHeadersTimeout > TimeSpan.Zero, "RequestHeadersTimeout", "time span");
+        RefuseNonPositive(limits.KeepAliveTimeout > TimeSpan.Zero, "KeepAliveTimeout", "time span");
+    }
+
+    private static void RefuseNonPositive(long? value, string key, string kind) =>
+        RefuseNonPositive(value is null or > 0, key, kind);
+
+    private static void RefuseNonPositive(bool positive, string key, string kind)
+    {
+        if (!positive)
+        {
+            throw new InvalidOperationException($"Kestrel:Limits:{key} must be a positive {kind}.");
+        }
     }
 
     /// <summary>

@@ -529,8 +529,11 @@ covers a route naming a missing policy and the reserved names, on a real host.
 
 ## Connection and header limits
 
-Kestrel runs with these limits on purpose. Each is a default in code, and `Kestrel:Limits:*`
-overrides it (the host does not read that section by itself, the application does) (`Kestrel__Limits__KeepAliveTimeout=00:03:00` in compose). A duration is `hh:mm:ss`.
+Kestrel runs with these limits on purpose. Each is a default in code, and the application reads
+`Kestrel:Limits:*` to override it (the host does not read that section by itself). For example,
+set `Kestrel__Limits__KeepAliveTimeout=00:03:00` in compose. A duration is `hh:mm:ss`. A blank value
+keeps the default, and a zero or negative value stops the host at startup with a message naming the
+key. To lift a connection cap on purpose, set it to a very large number.
 
 | Setting | Default | Why |
 | --- | --- | --- |

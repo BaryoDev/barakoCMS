@@ -113,6 +113,64 @@ public class KestrelLimitsTests
         act.Should().Throw<Exception>().Where(e => e.ToString().Contains("RequestLimits:MaxBodyBytes"));
     }
 
+    private Func<KestrelServerLimits> Limits(params (string Key, string Value)[] settings) => () =>
+    {
+        using var host = _factory.WithWebHostBuilder(builder =>
+        {
+            foreach (var (key, value) in settings)
+            {
+                builder.UseSetting(key, value);
+            }
+        });
+        return LimitsOf(host.Services);
+    };
+
+    [Theory]
+    [InlineData("Kestrel:Limits:MaxConcurrentConnections")]
+    [InlineData("Kestrel:Limits:MaxConcurrentUpgradedConnections")]
+    public void Kestrel_ABlankConnectionCapKeepsTheDefault(string key)
+    {
+        var limits = Limits((key, ""))();
+
+        limits.MaxConcurrentConnections.Should().Be(10_000);
+        limits.MaxConcurrentUpgradedConnections.Should().Be(1_000);
+    }
+
+    [Theory]
+    [InlineData("Kestrel:Limits:MaxConcurrentConnections", "0")]
+    [InlineData("Kestrel:Limits:MaxConcurrentConnections", "-5")]
+    [InlineData("Kestrel:Limits:MaxConcurrentUpgradedConnections", "0")]
+    [InlineData("Kestrel:Limits:MaxConcurrentUpgradedConnections", "-1")]
+    public void Kestrel_AZeroOrNegativeConnectionCapIsRefusedAndNamesTheKey(string key, string value)
+    {
+        Limits((key, value)).Should().Throw<Exception>().Where(e => e.ToString().Contains(key));
+    }
+
+    [Theory]
+    [InlineData("Kestrel:Limits:RequestHeadersTimeout", "-00:00:00.001")]
+    [InlineData("Kestrel:Limits:RequestHeadersTimeout", "00:00:00")]
+    [InlineData("Kestrel:Limits:KeepAliveTimeout", "-00:00:00.001")]
+    [InlineData("Kestrel:Limits:KeepAliveTimeout", "00:00:00")]
+    public void Kestrel_AZeroOrNegativeTimeoutIsRefusedAndNamesTheKey(string key, string value)
+    {
+        Limits((key, value)).Should().Throw<Exception>().Where(e => e.ToString().Contains(key));
+    }
+
+    [Fact]
+    public void Kestrel_ANonNumericLimitIsRefusedAndNamesTheKey()
+    {
+        Limits(("Kestrel:Limits:MaxRequestHeaderCount", "many")).Should().Throw<Exception>()
+            .Where(e => e.ToString().Contains("Kestrel:Limits:MaxRequestHeaderCount")
+                && !e.ToString().Contains("TargetInvocationException"));
+    }
+
+    [Fact]
+    public void Kestrel_ABlankRequestBodySizeUnderKestrelLimitsIsRefused()
+    {
+        Limits(("Kestrel:Limits:MaxRequestBodySize", "")).Should().Throw<Exception>()
+            .Where(e => e.ToString().Contains("RequestLimits:MaxBodyBytes"));
+    }
+
     [Fact]
     public void Kestrel_LimitsComeFromConfigurationWhenSet()
     {
