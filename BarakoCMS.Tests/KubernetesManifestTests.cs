@@ -160,6 +160,102 @@ public class KubernetesManifestTests
         return probes;
     }
 
+    [Fact]
+    public void The_Ingress_hosts_and_every_probe_Host_header_are_in_AllowedHosts()
+    {
+        var allowed = AllowedHosts();
+        allowed.Should().NotBeEmpty("Production refuses an empty AllowedHosts");
+        allowed.Should().NotContain("*", "Production refuses a wildcard AllowedHosts");
+
+        var ingressHosts = IngressHosts();
+        ingressHosts.Should().NotBeEmpty("an Ingress with no host routes nothing");
+        ingressHosts.Where(h => !allowed.Contains(h, StringComparer.OrdinalIgnoreCase))
+            .Should().BeEmpty("a request for an Ingress host that is not in AllowedHosts gets a 400");
+
+        var probes = ProbeHostHeaders(Deployment());
+        probes.Keys.Should().BeEquivalentTo(new[] { "startupProbe", "livenessProbe", "readinessProbe" });
+
+        foreach (var (probe, host) in probes)
+        {
+            host.Should().NotBeNull($"{probe} must send a Host header, the pod address is not in AllowedHosts");
+            allowed.Should().Contain(host!, $"the {probe} Host header has to be one AllowedHosts accepts");
+        }
+    }
+
+    private static string[] AllowedHosts()
+    {
+        var line = Lines(Path.Combine(ManifestDir(), "01-configmap.yaml"))
+            .Select(l => l.Trim())
+            .FirstOrDefault(l => l.StartsWith("AllowedHosts:", StringComparison.Ordinal));
+
+        line.Should().NotBeNull("01-configmap.yaml sets AllowedHosts");
+
+        return line!["AllowedHosts:".Length..].Trim().Trim('"', '\'')
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    private static string[] IngressHosts()
+    {
+        var hosts = new List<string>();
+        var inTlsHosts = false;
+
+        foreach (var raw in Lines(Path.Combine(ManifestDir(), "08-ingress.yaml")))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith('#')) continue;
+
+            if (line == "hosts:") { inTlsHosts = true; continue; }
+
+            if (inTlsHosts && line.StartsWith("- ", StringComparison.Ordinal))
+            {
+                hosts.Add(line[2..].Trim());
+                continue;
+            }
+
+            inTlsHosts = false;
+
+            var rule = line.StartsWith("- host:", StringComparison.Ordinal) ? line[2..] : line;
+            if (rule.StartsWith("host:", StringComparison.Ordinal))
+                hosts.Add(rule["host:".Length..].Trim());
+        }
+
+        return hosts.ToArray();
+    }
+
+    /// <summary>The Host header value each probe sends, or null for a probe with none.</summary>
+    private static Dictionary<string, string?> ProbeHostHeaders(string file)
+    {
+        var probes = new Dictionary<string, string?>(StringComparer.Ordinal);
+        string? current = null;
+        var sawHostName = false;
+
+        foreach (var raw in Lines(file))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith('#')) continue;
+
+            if (line is "livenessProbe:" or "readinessProbe:" or "startupProbe:")
+            {
+                current = line.TrimEnd(':');
+                probes[current] = null;
+                sawHostName = false;
+                continue;
+            }
+
+            if (current is null) continue;
+
+            if (line.EndsWith("name: Host", StringComparison.Ordinal))
+                sawHostName = true;
+            else if (sawHostName && line.StartsWith("value:", StringComparison.Ordinal))
+            {
+                probes[current] = line["value:".Length..].Trim().Trim('"', '\'');
+                sawHostName = false;
+            }
+        }
+
+        return probes;
+    }
+
     /// <summary>The hardening fields the app Deployment must carry, as text a plain check can find.</summary>
     private static string[] MissingHardening(string manifest)
     {
