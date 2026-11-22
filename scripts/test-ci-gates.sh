@@ -283,10 +283,35 @@ eq "$rc" 1;                                                          check "a se
 for want in "no-read-only: missing read_only" "no-cap-drop: missing cap_drop ALL" \
             "no-new-privileges: missing no-new-privileges" "root-user: missing a non-root user" \
             "no-mem-limit: missing mem_limit" "no-pids-limit: missing pids_limit" \
-            "no-healthcheck: missing a healthcheck" "one-shot-still-needs-read-only: missing read_only"; do
+            "no-healthcheck: missing a healthcheck" "one-shot-still-needs-read-only: missing read_only" \
+            "restart-no-without-label: missing a healthcheck" \
+            "tmpfs-no-size: missing a tmpfs size" "tmpfs-size-zero: missing a tmpfs size" \
+            "tmpfs-size-negative: missing a tmpfs size" \
+            "privileged: undoes hardening with privileged" "host-network: undoes hardening with network_mode" \
+            "host-pid: undoes hardening with pid" "cap-add-all: undoes hardening with cap_add ALL" \
+            "cap-add-sys-admin: undoes hardening with cap_add SYS_ADMIN" \
+            "seccomp-unconfined: undoes hardening with security_opt" \
+            "apparmor-unconfined: undoes hardening with security_opt" "docker-socket: mounts the Docker socket"; do
   printf '%s' "$err" | grep -qF "bad.yml, service $want";           check "names the file, service and option: ${want%%:*}" pass $?
 done
-! printf '%s' "$err" | grep -q 'one-shot-exempt';                    check "a restart: no one-shot skips only the healthcheck" pass $?
+! printf '%s' "$err" | grep -q 'service one-shot-still-needs-read-only: missing a healthcheck'; check "the one-shot label exempts the healthcheck only" pass $?
+! printf '%s' "$err" | grep -qE 'service (with-tmpfs|plain|one-shot):'; check "good services are not reported" pass $?
+# The operator's own env file: a limit at 0 or -1 removes the limit, and compose cannot refuse it.
+base_env="$d/ch-base.env"
+cp "$here/../.env.prod.example" "$base_env"
+printf 'BARAKO_TAG=check\nDB_PASSWORD=x-check-value\nJWT_KEY=x-check-value-0123456789-0123456789\nADMIN_PASSWORD=x-check-value\n' >> "$base_env"
+prod="$here/../docker-compose.prod.yml"
+bash "$chk" --env-file "$base_env" "$prod" > /dev/null 2>&1;         check "the operator env as shipped passes"    pass $?
+for var in API_MEM_LIMIT API_PIDS_LIMIT DB_MEM_LIMIT DB_PIDS_LIMIT EXTENSIONS_MEM_LIMIT EXTENSIONS_PIDS_LIMIT \
+           BACKUP_MEM_LIMIT BACKUP_PIDS_LIMIT PROXY_MEM_LIMIT PROXY_PIDS_LIMIT API_TMP_SIZE; do
+  for bad in 0 -1; do
+    { cat "$base_env"; printf '%s=%s\n' "$var" "$bad"; } > "$d/ch-limit.env"
+    bash "$chk" --env-file "$d/ch-limit.env" "$prod" > /dev/null 2>&1; check "$var=$bad removes a limit" fail $?
+  done
+  { cat "$base_env"; printf '%s=\n' "$var"; } > "$d/ch-limit.env"
+  bash "$chk" --env-file "$d/ch-limit.env" "$prod" > /dev/null 2>&1;  check "$var left blank keeps the default" pass $?
+done
+bash "$chk" --env-file "$d/ch-missing.env" "$prod" > /dev/null 2>&1; check "an env file that does not exist"       fail $?
 printf 'services:\n  a:\n    image: x:${NOT_SET_ANYWHERE:?must be set}\n' > "$d/ch-unresolved.yml"
 bash "$chk" "$d/ch-unresolved.yml" > /dev/null 2>&1;                  check "a file compose cannot resolve"         fail $?
 printf 'services: {}\n' > "$d/ch-empty.yml"

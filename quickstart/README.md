@@ -66,6 +66,10 @@ process cap. The caps are generous. Before a large import or big uploads, raise 
 example `2g`) in `.env`. The full list of limit variables is at the end of `.env.example`. The backup
 container's off-host S3 copy installs `curl` at start, which needs `BACKUP_READ_ONLY=false`.
 
+A limit set to `0` or `-1` removes the cap, and compose does not refuse it. From a checkout of the
+repository, check your `.env` before `docker compose up`:
+`bash scripts/check-compose-hardening.sh --env-file quickstart/.env quickstart/docker-compose.yml`.
+
 ### Swagger
 
 Swagger is on automatically in Development and off in Production, which is what this compose

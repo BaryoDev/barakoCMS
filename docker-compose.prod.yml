@@ -141,6 +141,8 @@ services:
       - no-new-privileges:true
     mem_limit: ${EXTENSIONS_MEM_LIMIT:-128m}
     pids_limit: ${EXTENSIONS_PIDS_LIMIT:-64}
+    labels:
+      org.barakocms.hardening.one-shot: "creates the extension and exits, so it has nothing to check"
 
   # 3. Backend API
   #
