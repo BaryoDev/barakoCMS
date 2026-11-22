@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using FluentAssertions;
 using Xunit;
@@ -218,4 +219,63 @@ public class ImageSigningWorkflowTests
             }
         }
     }
+
+    private const string Digest = "ghcr.io/baryodev/barako-cms@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    [Theory]
+    [InlineData("v2.4.1", 1)]
+    [InlineData("v3.1.4", 0)]
+    [InlineData("v10.0.0", 0)]
+    [InlineData("not a version", 1)]
+    [InlineData("<fail>", 1)]
+    public async Task The_verify_script_needs_cosign_3_or_later(string reported, int exitCode)
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "the script needs bash");
+        var jq = FindOnPath("jq");
+        Assert.SkipWhen(FindOnPath("bash") is null || jq is null, "bash and jq are needed");
+
+        var stubs = Directory.CreateTempSubdirectory("cosign-stub-");
+        try
+        {
+            File.CreateSymbolicLink(Path.Combine(stubs.FullName, "jq"), jq!);
+            var versionCase = reported == "<fail>"
+                ? "exit 1"
+                : $"printf '%s\\n' '{{\"gitVersion\":\"{reported}\"}}'; exit 0";
+            var stub = Path.Combine(stubs.FullName, "cosign");
+            File.WriteAllText(stub, $"#!/bin/sh\ncase \"$1\" in\n  version) {versionCase} ;;\n  *) exit 0 ;;\nesac\n");
+            File.SetUnixFileMode(stub, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+            var start = new ProcessStartInfo("bash")
+            {
+                WorkingDirectory = RepoPaths.Root,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            start.ArgumentList.Add("scripts/verify-image-signature.sh");
+            start.ArgumentList.Add(Digest);
+            start.Environment["PATH"] = stubs.FullName + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
+
+            using var process = Process.Start(start)!;
+            var ct = TestContext.Current.CancellationToken;
+            var output = process.StandardOutput.ReadToEndAsync(ct);
+            var error = process.StandardError.ReadToEndAsync(ct);
+            await process.WaitForExitAsync(ct);
+            var text = await output + await error;
+
+            process.ExitCode.Should().Be(exitCode, text);
+            if (exitCode == 1) text.Should().Contain("cosign 3 or later is needed");
+            if (reported == "v2.4.1") text.Should().Contain("v2.4.1");
+        }
+        finally
+        {
+            stubs.Delete(recursive: true);
+        }
+    }
+
+    private static string? FindOnPath(string name) =>
+        (Environment.GetEnvironmentVariable("PATH") ?? "")
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Select(d => Path.Combine(d, name))
+            .FirstOrDefault(File.Exists);
 }

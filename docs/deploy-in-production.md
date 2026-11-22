@@ -83,7 +83,7 @@ non-zero on the first one you have not set.
 ## Verify the image
 
 Release images are signed with cosign (keyless, from this repository's workflow) and carry a build
-provenance attestation. Verify the image before you run it. You need `cosign`, `docker` and `jq`.
+provenance attestation. Verify the image before you run it. You need `cosign` 3 or later (the images are signed with cosign 3, whose bundle format cosign 2 cannot read), `docker` and `jq`.
 
 ```bash
 bash scripts/verify-image-signature.sh ghcr.io/baryodev/barako-cms:$BARAKO_TAG
