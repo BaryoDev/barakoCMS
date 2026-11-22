@@ -22,7 +22,8 @@
 --
 --   1. Refuses a role name that is not a plain lower case identifier (it ends up in a connection
 --      string) or starts with pg_ (Postgres reserves those), an empty or example password (leading
---      and trailing whitespace is ignored for the check only), the role running this file, and any
+--      and trailing whitespace is ignored for the check only), an example owner password or one equal to
+--      the app password (only when PGPASSWORD is set and not empty), the role running this file, and any
 --      role that is a superuser or bypasses row level security. The owner never loses superuser through this file.
 --   2. Takes an advisory lock for the database, so two runs at once take turns.
 --   3. Installs pg_stat_statements.
@@ -56,6 +57,10 @@
 \if :{?app_role} \else \set app_role '' \endif
 \if :{?app_password} \else \getenv app_password DB_APP_PASSWORD \endif
 \if :{?app_password} \else \set app_password '' \endif
+-- The owner's own password, when the connection used one. Read only to refuse an example value or
+-- the app password. Unset or empty (.pgpass, peer auth) skips those checks.
+\getenv owner_password PGPASSWORD
+\if :{?owner_password} \else \set owner_password '' \endif
 
 -- Whether a transaction is sampled for logging is decided when it starts, so this cannot wait for
 -- a SET LOCAL inside it.
@@ -89,12 +94,14 @@ SELECT coalesce(nullif(btrim(:'app_role'), ''), 'barako_app') AS app_role \gset
 -- The result is stored rather than printed, because it is the value.
 SELECT set_config('barako.app_role', :'app_role', true) IS NOT NULL AS role_stored \gset
 SELECT set_config('barako.app_password', :'app_password', true) IS NOT NULL AS password_stored \gset
+SELECT set_config('barako.owner_password', :'owner_password', true) IS NOT NULL AS owner_password_stored \gset
 
 DO $guard$
 DECLARE
     role_name text := current_setting('barako.app_role');
     -- Whitespace of any kind around the value, as DatabasePasswordGuard trims it. For the checks only.
     checked_password text := regexp_replace(current_setting('barako.app_password'), '^[[:space:]]+|[[:space:]]+$', '', 'g');
+    checked_owner_password text := regexp_replace(current_setting('barako.owner_password'), '^[[:space:]]+|[[:space:]]+$', '', 'g');
 BEGIN
     IF role_name !~ '^[a-z_][a-z0-9_]{0,62}$' THEN
         RAISE EXCEPTION 'db-app-role: app_role must match ^[a-z_][a-z0-9_]{0,62}$ because it goes into a connection string. Refused, nothing changed.';
@@ -112,6 +119,18 @@ BEGIN
                                        'local-only-password', 'password', 'postgres')
        OR upper(checked_password) LIKE 'REPLACE\_THIS%' THEN
         RAISE EXCEPTION 'db-app-role: app_password is a placeholder or example value, not a password. Refused, nothing changed.';
+    END IF;
+
+    -- The owner's password, only when one was given. The API's credentials must never open the owner.
+    IF checked_owner_password <> '' THEN
+        IF lower(checked_owner_password) IN ('change-me', 'change-me-to-a-strong-password', 'changeme-in-production',
+                                             'local-only-password', 'password', 'postgres')
+           OR upper(checked_owner_password) LIKE 'REPLACE\_THIS%' THEN
+            RAISE EXCEPTION 'db-app-role: the owner password (PGPASSWORD, DB_PASSWORD) is a placeholder or example value. Set a real one. Refused, nothing changed.';
+        END IF;
+        IF checked_owner_password = checked_password THEN
+            RAISE EXCEPTION 'db-app-role: the owner password equals the app password. The API credentials must never open the owner. Refused, nothing changed.';
+        END IF;
     END IF;
 
     IF role_name IN (current_user::text, session_user::text) THEN
