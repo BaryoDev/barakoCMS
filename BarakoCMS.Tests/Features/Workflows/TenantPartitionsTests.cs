@@ -632,10 +632,10 @@ public class TenantPartitionsTests
         var database = "barako_rls_" + id;
         var password = Guid.NewGuid().ToString("N");
 
-        // The shape scripts/db-app-role.sql leaves (migrations/tenancy/001-app-role.sql includes it,
-        // and DbAppRoleScriptTests runs it): a NOSUPERUSER login that owns what
-        // the application uses. Owning the database is the shortcut to owning every table Marten
-        // then creates in it. Identifiers are generated here, and DDL takes no parameters.
+        // The same powers scripts/db-app-role.sql leaves (migrations/tenancy/001-app-role.sql includes
+        // it, and DbAppRoleScriptTests runs it): a NOSUPERUSER login that owns what the application
+        // uses. This test gets there by making the role own the whole database, which is the shortcut
+        // to owning every table Marten then creates in it. Identifiers are generated here, and DDL takes no parameters.
         await using (var admin = new NpgsqlConnection(_fixture.ConnectionString))
         {
             await admin.OpenAsync(ct);

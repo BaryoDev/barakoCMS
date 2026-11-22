@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Text;
 using DotNet.Testcontainers.Containers;
 using FluentAssertions;
 using Npgsql;
@@ -45,6 +47,8 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
         CREATE VIEW public.note_bodies AS SELECT body FROM public.notes;
         CREATE MATERIALIZED VIEW public.note_count AS SELECT count(*) AS n FROM public.notes;
         CREATE FUNCTION public.shout(t text) RETURNS text LANGUAGE sql AS $$ SELECT upper(t) $$;
+        CREATE PROCEDURE public.do_nothing() LANGUAGE sql AS $$ SELECT 1 $$;
+        CREATE AGGREGATE public.count_rows(*) (sfunc = int8inc, stype = int8, initcond = '0');
         """;
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -124,7 +128,7 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
         var run = await RunScriptAsync(database, role, password);
 
         run.ExitCode.Should().Be(0, run.Stderr);
-        run.Stdout.Should().Contain($"db-app-role: role {role}, rolsuper false, 7 objects changed owner");
+        run.Stdout.Should().Contain($"db-app-role: role {role}, rolsuper false, 9 objects changed owner");
 
         (await ScalarAsync(database, "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = @r", ("r", role)))
             .Should().Be(false);
@@ -166,7 +170,8 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
     public async Task An_existing_login_role_loses_the_extra_powers_it_had()
     {
         var (database, role, password) = (await NewDatabaseAsync(Objects, true), NewRole(), NewPassword());
-        await ExecuteAdminAsync("postgres", $"CREATE ROLE {role} LOGIN CREATEDB CREATEROLE REPLICATION");
+        await ExecuteAdminAsync("postgres", $"CREATE ROLE {role} LOGIN CREATEDB CREATEROLE REPLICATION "
+            + "VALID UNTIL '2000-01-01' CONNECTION LIMIT 0");
 
         var run = await RunScriptAsync(database, role, password);
 
@@ -175,6 +180,10 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
                 "SELECT rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls "
                 + "FROM pg_roles WHERE rolname = @r", ("r", role)))
             .Should().Be(false, "the script re-asserts every attribute, not only on a role it made");
+        (await ScalarAsync(database,
+                "SELECT rolconnlimit = -1 AND (rolvaliduntil IS NULL OR rolvaliduntil = 'infinity') "
+                + "FROM pg_roles WHERE rolname = @r", ("r", role)))
+            .Should().Be(true, "an expired or capped login would still not be able to connect");
         await using var app = await OpenAsync(database, role, password);
         (await ScalarAsync(app, "SELECT 1")).Should().Be(1);
     }
@@ -225,7 +234,7 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
         var run = await RunScriptAsync(database, role, password, path: Wrapper);
 
         run.ExitCode.Should().Be(0, run.Stderr);
-        run.Stdout.Should().Contain($"db-app-role: role {role}, rolsuper false, 7 objects changed owner");
+        run.Stdout.Should().Contain($"db-app-role: role {role}, rolsuper false, 9 objects changed owner");
     }
 
     [Theory]
@@ -237,6 +246,9 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
     [InlineData("empty-password", "app_password is empty")]
     [InlineData("example-password", "placeholder or example")]
     [InlineData("docs-password", "placeholder or example")]
+    [InlineData("example-password-with-newline", "placeholder or example")]
+    [InlineData("whitespace-password", "app_password is empty")]
+    [InlineData("reserved-name", "which Postgres reserves")]
     public async Task A_refusal_changes_nothing_and_the_owner_stays_a_superuser(string scenario, string message)
     {
         var database = await NewDatabaseAsync(Objects, withExtension: false);
@@ -254,6 +266,9 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
             "empty-password" => (NewRole(), ""),
             "example-password" => (NewRole(), "CHANGE-ME"),
             "docs-password" => (NewRole(), "change-me-to-a-strong-password"),
+            "example-password-with-newline" => (NewRole(), "CHANGE-ME\n"),
+            "whitespace-password" => (NewRole(), "  \n"),
+            "reserved-name" => ("pg_monitor", NewPassword()),
             _ => throw new ArgumentOutOfRangeException(nameof(scenario)),
         };
         var before = await SnapshotAsync(database);
@@ -272,16 +287,22 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
     {
         var (database, role, password) = (await NewDatabaseAsync(Objects, true), NewRole(), NewPassword());
 
-        (await RunScriptAsync(database, role, password)).ExitCode.Should().Be(0);
+        string tracked = "";
+        var log = await LogDuringAsync(async () =>
+        {
+            (await RunScriptAsync(database, role, password)).ExitCode.Should().Be(0);
 
-        // Read back and searched here: a password sent to the server as a parameter or in SQL text
-        // would be logged by the server this test is checking (log_statement is all).
-        var tracked = (string)(await ScalarAsync(database,
-            "SELECT coalesce(string_agg(query, E'\n'), '') FROM pg_stat_statements"))!;
+            // Read back and searched here: a password sent to the server as a parameter or in SQL text
+            // would be logged by the server this test is checking (log_statement is all).
+            tracked = (string)(await ScalarAsync(database,
+                "SELECT coalesce(string_agg(query, E'\n'), '') FROM pg_stat_statements"))!;
+        });
+
         tracked.Should().NotBeEmpty("the view is being read");
-        tracked.Contains(password).Should().BeFalse(
+        Leaks(tracked, password).Should().BeFalse(
             "the password was looked for in the tracked statements; the script turns utility tracking off before it sets it");
-        (await postgres.LogAsync()).Contains(password).Should().BeFalse("the password was looked for in the server log");
+        log.Should().Contain("duration:", "the window has to hold this server's log lines for the check to mean anything");
+        Leaks(log, password).Should().BeFalse("the password was looked for in the server log during the run");
     }
 
     [Fact]
@@ -289,13 +310,15 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
     {
         var (database, role, password) = (await NewDatabaseAsync(Objects, true), NewRole(), NewPassword());
 
-        var run = await RunScriptAsync(database, role, password);
+        ExecResult run = default;
+        var log = await LogDuringAsync(async () => run = await RunScriptAsync(database, role, password));
 
         run.ExitCode.Should().Be(0, run.Stderr);
-        var log = await LogContainingAsync("duration:");
+        // The statements outside the script's transaction and the end marker are what meet these two:
+        // everything inside the transaction has logging turned off, which is what is being proved.
         log.Should().Contain("duration:", "this server logs every statement's duration, so its log is the one being checked");
-        log.Should().Contain("Query Text:", "auto_explain is logging the text of every statement");
-        log.Contains(password).Should().BeFalse("the password was looked for in the server log after a successful run");
+        log.Should().Contain("Query Text:", "auto_explain is logging the text of the statements it can see");
+        Leaks(log, password).Should().BeFalse("the password was looked for in the server log, as text and as the bytes of a parse tree constant");
     }
 
     [Fact]
@@ -338,14 +361,14 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
         // is set, which is the step that has to fail. Everything before it is accepted.
         var password = "Aa1-" + role + "-" + Guid.NewGuid().ToString("N");
 
-        var run = await RunScriptAsync(database, role, password);
+        ExecResult run = default;
+        var log = await LogDuringAsync(async () => run = await RunScriptAsync(database, role, password));
 
         run.ExitCode.Should().NotBe(0);
         run.Stderr.Should().Contain(PasswordCheckError, "the run has to fail at the password step for this test to mean anything");
         run.Stderr.Contains(password).Should().BeFalse("the password was looked for in what psql printed");
-        var log = await LogContainingAsync(PasswordCheckError);
         log.Should().Contain(PasswordCheckError, "the server logged the failure, so its log is the one being checked");
-        log.Contains(password).Should().BeFalse("the password was looked for in the server log, beside the error");
+        Leaks(log, password).Should().BeFalse("the password was looked for in the server log, beside the error");
         (await ScalarAsync(database, "SELECT count(*) FROM pg_roles WHERE rolname = @r", ("r", role)))
             .Should().Be(0L, "the failed run rolled back");
     }
@@ -387,7 +410,7 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
             RunScriptAsync(database, role, password), RunScriptAsync(database, role, password));
 
         runs.Should().OnlyContain(r => r.ExitCode == 0, string.Join(" | ", runs.Select(r => r.Stderr)));
-        runs.Count(r => r.Stdout.Contains("7 objects changed owner")).Should().Be(1, "one run moved them");
+        runs.Count(r => r.Stdout.Contains("9 objects changed owner")).Should().Be(1, "one run moved them");
         runs.Count(r => r.Stdout.Contains(", 0 objects changed owner")).Should().Be(1, "the other found nothing to move");
         await using var app = await OpenAsync(database, role, password);
         (await ScalarAsync(app, "SELECT 1")).Should().Be(1);
@@ -601,18 +624,58 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
         return await command.ExecuteScalarAsync(Ct);
     }
 
-    /// <summary>The server writes its log a moment after the client sees the error, so look for it for a few seconds.</summary>
-    private async Task<string> LogContainingAsync(string text)
+    /// <summary>
+    /// Runs <paramref name="act"/> between two marker statements and returns the server log between
+    /// them. The container's log is shared by the whole class, so only this slice says anything about
+    /// this run. A backend writes its log line before the client gets the result, so once the end
+    /// marker shows, the lines of the run are in.
+    /// </summary>
+    private async Task<string> LogDuringAsync(Func<Task> act)
     {
-        var log = await postgres.LogAsync();
-        var deadline = DateTime.UtcNow.AddSeconds(15);
-        while (!log.Contains(text) && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(250, Ct);
-            log = await postgres.LogAsync();
-        }
+        var start = await MarkAsync("start");
+        await act();
+        var end = await MarkAsync("end");
 
-        return log;
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (true)
+        {
+            var log = await postgres.LogAsync();
+            var from = log.IndexOf(start, StringComparison.Ordinal);
+            var to = from < 0 ? -1 : log.IndexOf(end, from, StringComparison.Ordinal);
+            if (to >= 0)
+            {
+                return log[from..to];
+            }
+
+            if (DateTime.UtcNow > deadline)
+            {
+                throw new TimeoutException("The end marker never showed in the server log.");
+            }
+
+            await Task.Delay(250, Ct);
+        }
+    }
+
+    /// <summary>A marker is not secret, so it goes in as SQL text.</summary>
+    private async Task<string> MarkAsync(string name)
+    {
+        var marker = $"db-app-role-{name}-{Guid.NewGuid():N}";
+        var result = await postgres.RunAsync("psql", "-X", "-q", "-U", "postgres", "-d", "postgres", "-c", $"SELECT '{marker}'");
+        result.ExitCode.Should().Be(0, result.Stderr);
+        return marker;
+    }
+
+    /// <summary>
+    /// Whether the password is in the text, as itself or as the bytes of a text constant (the server
+    /// prints a parse tree constant as signed decimals) with all whitespace removed, because the
+    /// server wraps those dumps at 78 characters, even in the middle of a number or a string.
+    /// </summary>
+    private static bool Leaks(string text, string password)
+    {
+        var squeezed = new string(text.Where(c => !char.IsWhiteSpace(c)).ToArray());
+        var bytes = string.Concat(Encoding.UTF8.GetBytes(password)
+            .Select(b => ((sbyte)b).ToString(CultureInfo.InvariantCulture)));
+        return squeezed.Contains(password, StringComparison.Ordinal) || squeezed.Contains(bytes, StringComparison.Ordinal);
     }
 
     private static async Task WaitUntilAsync(Func<Task<bool>> condition)

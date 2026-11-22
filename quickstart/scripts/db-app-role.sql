@@ -1,6 +1,7 @@
 -- The login role the barakoCMS API connects as: no superuser, owner of everything in schema public.
 --
--- Run by the database owner (a superuser) on every start, or by hand:
+-- Run by the database owner (a superuser). It is meant to run on every start; the compose files call
+-- it from 6.0. Until then, run it by hand:
 --
 --   DB_APP_USER=barako_app DB_APP_PASSWORD=... psql -d barako -f scripts/db-app-role.sql
 --   psql -d barako -v app_role=barako_app -v app_password='...' -f scripts/db-app-role.sql
@@ -20,25 +21,31 @@
 -- WHAT IT DOES, in one transaction so a refusal changes nothing
 --
 --   1. Refuses a role name that is not a plain lower case identifier (it ends up in a connection
---      string), an empty or example password, the role running this file, and any role that is a
---      superuser or bypasses row level security. The owner never loses superuser through this file.
+--      string) or starts with pg_ (Postgres reserves those), an empty or example password (leading
+--      and trailing whitespace is ignored for the check only), the role running this file, and any
+--      role that is a superuser or bypasses row level security. The owner never loses superuser through this file.
 --   2. Takes an advisory lock for the database, so two runs at once take turns.
 --   3. Installs pg_stat_statements.
---   4. Creates the role with LOGIN and none of the powers, or re-asserts that on an existing role,
---      and sets its password. The password is set on every run, so rotation is a rerun.
+--   4. Creates the role with LOGIN and none of the powers, or re-asserts that on an existing role
+--      (including no expiry and no connection limit), and sets its password. The password is set on every run, so rotation is a rerun.
 --   5. Grants CONNECT and makes the role owner of schema public and of every table, view,
---      materialized view, sequence and function in it, except objects an extension owns.
+--      materialized view, sequence, function, procedure and aggregate in it, except objects an extension
+--      owns. Standalone types, domains, enums, ranges, operators, collations and text search objects
+--      in public are not moved: the app role can use them but cannot alter or drop them, and Marten
+--      creates none.
 --
 -- The search_path is pg_catalog only for the run, because public belongs to the app role after the
 -- first run and a function it planted there could otherwise be called as the superuser.
+--
+-- Stop the API while this runs by hand: the ALTERs take ACCESS EXCLUSIVE locks on the tables.
 --
 -- Do not run it under psql --single-transaction (-1): that starts the transaction before the file
 -- can turn transaction sampling off.
 --
 -- The password never reaches a log or a stats view. Statement logging, slow statement and sampled
--- logging, auto_explain, the parse and plan trees, the statement printed beside an error, activity tracking and utility
--- tracking are off for this transaction, the password statement runs at top
--- level with the psql variable (an error inside a DO block prints its dynamic SQL, password
+-- logging, auto_explain, pgaudit, the parse and plan trees, the statement printed beside an error,
+-- activity tracking and utility tracking are off for this transaction. The password statement runs
+-- at top level with the psql variable (an error inside a DO block prints its dynamic SQL, password
 -- included), and psql prints no context or query text for an error.
 
 \set ON_ERROR_STOP on
@@ -70,6 +77,7 @@ SET LOCAL debug_print_parse = off;
 SET LOCAL debug_print_rewritten = off;
 SET LOCAL debug_print_plan = off;
 SET LOCAL auto_explain.log_min_duration = -1;
+SET LOCAL pgaudit.log = 'none';
 SET LOCAL track_activities = off;
 -- So the stored verifier is never md5.
 SET LOCAL password_encryption = 'scram-sha-256';
@@ -85,19 +93,24 @@ SELECT set_config('barako.app_password', :'app_password', true) IS NOT NULL AS p
 DO $guard$
 DECLARE
     role_name text := current_setting('barako.app_role');
-    role_password text := current_setting('barako.app_password');
+    -- Whitespace of any kind around the value, as DatabasePasswordGuard trims it. For the checks only.
+    checked_password text := regexp_replace(current_setting('barako.app_password'), '^[[:space:]]+|[[:space:]]+$', '', 'g');
 BEGIN
     IF role_name !~ '^[a-z_][a-z0-9_]{0,62}$' THEN
         RAISE EXCEPTION 'db-app-role: app_role must match ^[a-z_][a-z0-9_]{0,62}$ because it goes into a connection string. Refused, nothing changed.';
     END IF;
 
+    IF role_name ~ '^pg_' THEN
+        RAISE EXCEPTION 'db-app-role: app_role starts with pg_, which Postgres reserves for its own roles. Refused, nothing changed.';
+    END IF;
+
     -- The placeholders the docs and compose files show, and what DatabasePasswordGuard refuses.
-    IF btrim(role_password) = '' THEN
+    IF checked_password = '' THEN
         RAISE EXCEPTION 'db-app-role: app_password is empty. Set DB_APP_PASSWORD or pass -v app_password. Refused, nothing changed.';
     END IF;
-    IF lower(btrim(role_password)) IN ('change-me', 'change-me-to-a-strong-password', 'changeme-in-production',
+    IF lower(checked_password) IN ('change-me', 'change-me-to-a-strong-password', 'changeme-in-production',
                                        'local-only-password', 'password', 'postgres')
-       OR upper(btrim(role_password)) LIKE 'REPLACE\_THIS%' THEN
+       OR upper(checked_password) LIKE 'REPLACE\_THIS%' THEN
         RAISE EXCEPTION 'db-app-role: app_password is a placeholder or example value, not a password. Refused, nothing changed.';
     END IF;
 
@@ -121,7 +134,8 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements SCHEMA public;
 SELECT format('CREATE ROLE %I', :'app_role')
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_role') \gexec
 
-ALTER ROLE :"app_role" WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE :"app_role" WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS
+    VALID UNTIL 'infinity' CONNECTION LIMIT -1;
 
 -- Top level, with the psql variable. See the note at the top.
 ALTER ROLE :"app_role" WITH PASSWORD :'app_password';
@@ -173,16 +187,14 @@ BEGIN
     END LOOP;
 
     FOR r IN
-        SELECT p.oid::regprocedure AS signature, p.prokind
+        SELECT p.oid::regprocedure AS signature
         FROM pg_proc p
         WHERE p.pronamespace = 'public'::regnamespace
           AND pg_get_userbyid(p.proowner) <> role_name
           AND NOT EXISTS (SELECT 1 FROM pg_depend d
                           WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')
     LOOP
-        EXECUTE format('ALTER %s %s OWNER TO %I',
-                       CASE r.prokind WHEN 'p' THEN 'PROCEDURE' WHEN 'a' THEN 'AGGREGATE' ELSE 'FUNCTION' END,
-                       r.signature, role_name);
+        EXECUTE format('ALTER ROUTINE %s OWNER TO %I', r.signature, role_name);
         changed := changed + 1;
     END LOOP;
 
