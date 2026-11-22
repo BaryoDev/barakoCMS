@@ -80,6 +80,38 @@ $ echo $?
 `config` is worth running before `up` for exactly this: it resolves every variable and exits
 non-zero on the first one you have not set.
 
+## Verify the image
+
+Release images are signed with cosign (keyless, from this repository's workflow) and carry a build
+provenance attestation. Verify the image before you run it. You need `cosign`, `docker` and `jq`.
+
+```bash
+bash scripts/verify-image-signature.sh ghcr.io/baryodev/barako-cms:$BARAKO_TAG
+bash scripts/verify-image-signature.sh ghcr.io/baryodev/barako-cms-decaf:$BARAKO_TAG
+```
+
+It resolves the tag to a digest, checks the signature and the provenance against the `release.yml`
+workflow on `master` in `BaryoDev/barakoCMS`, and exits non-zero if either fails. Do not run an
+image that fails. To run exactly what was verified, pin the digest it prints in the compose file.
+
+The same check by hand:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github\.com/BaryoDev/barakoCMS/\.github/workflows/release\.yml@refs/heads/master$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/baryodev/barako-cms@sha256:<digest>
+```
+
+What is signed, all with provenance: the release `:VERSION` and `:latest` tags of `barako-cms` and
+`barako-cms-decaf`, and the `:master` and `:master-<sha>` tags of `barako-cms`. The `:master` tags are
+signed by `publish-master-image.yml`, so verify them with
+`VERIFY_WORKFLOW=publish-master-image.yml bash scripts/verify-image-signature.sh ghcr.io/baryodev/barako-cms:master`.
+
+What is not signed: the playground and dev images, the per-architecture tags, the Docker Hub mirror
+(`arnelirobles/*`), and any image published before signing was added. For a mirror image, get its
+digest and verify that same digest against `ghcr.io/baryodev/<image>@<digest>`.
+
 ## Check it came up
 
 ```bash
