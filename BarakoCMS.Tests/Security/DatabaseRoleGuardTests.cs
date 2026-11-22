@@ -152,7 +152,7 @@ public sealed class DatabaseRoleGuardTests(DatabaseRoleGuardTests.Postgres postg
 
         thrown.Message.Should().Contain($"'{role}'").And.Contain($"member of '{group}'")
             .And.Contain("superuser or has BYPASSRLS");
-        thrown.Message.Should().NotContain("is a superuser");
+        thrown.Message.Should().NotContain("which is a superuser", "the role itself is not one, only its group bypasses");
     }
 
     [Fact]

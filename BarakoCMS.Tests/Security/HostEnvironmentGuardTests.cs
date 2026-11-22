@@ -41,8 +41,8 @@ public class HostEnvironmentGuardTests
     private static IConfiguration ConfigSaysDevelopment(params (string Key, string? Value)[] values) =>
         Config(
             [
+                // Configuration keys ignore case, so this one entry is also ENVIRONMENT.
                 ("environment", "Development"),
-                ("ENVIRONMENT", "Development"),
                 ("ASPNETCORE_ENVIRONMENT", "Development"),
                 ("DOTNET_ENVIRONMENT", "Development"),
                 .. values,
