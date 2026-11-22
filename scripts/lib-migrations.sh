@@ -59,6 +59,12 @@ migration_is_transactional() { # $1 = path; false when the file says it cannot r
     ! grep -q '^-- barako:no-transaction[[:space:]]*$' "$1"
 }
 
+# True for a file that runs as a superuser or an owner: it checks rolsuper or rolbypassrls, or its
+# header says to run it as a superuser. Those run with search_path pinned to pg_catalog, pg_temp.
+migration_needs_owner() { # $1 = path
+    grep -qiE 'rolsuper|rolbypassrls|as a superuser|or a superuser' "$1"
+}
+
 # Prints the plan as "core <path>", "module <path>" and "rollback <path>" lines, in run order.
 # $1 = the version the database started on. Returns 1, after saying why on stderr, when a pinned
 # folder and the files on disk disagree.
@@ -148,7 +154,7 @@ migration_plan() {
 
 # The plan as the psql lines an operator runs, under one heading for each part.
 migration_plan_psql() { # $1 = the version the database started on
-    local plan kind path flags heading=""
+    local plan kind path flags pin heading=""
     plan=$(migration_plan "$1") || return 1
     while read -r kind path; do
         [ -n "$kind" ] || continue
@@ -163,6 +169,9 @@ migration_plan_psql() { # $1 = the version the database started on
         fi
         flags="--single-transaction "
         migration_is_transactional "$path" || flags=""
-        echo "psql \"\$DATABASE_URL\" -v ON_ERROR_STOP=1 ${flags}-f $path"
+        pin=""
+        # an owner file runs with the search path pinned to the built in schema (docs/deploy-in-production.md, Database roles)
+        migration_needs_owner "$path" && pin="PGOPTIONS='-c search_path=pg_catalog,pg_temp' "
+        echo "${pin}psql \"\$DATABASE_URL\" -v ON_ERROR_STOP=1 ${flags}-f $path"
     done <<< "$plan"
 }

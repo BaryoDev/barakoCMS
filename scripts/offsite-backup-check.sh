@@ -121,8 +121,19 @@ step "restoring from the uploaded copy"
 s3 "-o /tmp/offsite.sql.gz http://$S3:8333/$BUCKET/$key" || fail "could not download the uploaded copy"
 docker exec "$BACKUP" sh -c "gzip -t /tmp/offsite.sql.gz" || fail "the downloaded copy is not a valid gzip"
 docker exec "$DB" psql -U postgres -v ON_ERROR_STOP=1 -q -c "create database restored" || fail "could not create the restore target"
-docker exec "$BACKUP" sh -c "gunzip -c /tmp/offsite.sql.gz | PGPASSWORD=offsite-check psql -h $DB -U postgres -d restored -v ON_ERROR_STOP=1 -q" \
+# The restore runs as the app role, the way docs/backup-and-restore.md says: the owner job creates
+# the role and the extensions in the empty database, the stream drops the CREATE EXTENSION and
+# COMMENT ON EXTENSION lines, and the dump is loaded with PGOPTIONS='-c role=barako_app'.
+APP_ROLE=barako_app
+docker exec -i -e DB_APP_USER="$APP_ROLE" -e DB_APP_PASSWORD=offsite-check-app -e PGPASSWORD=offsite-check "$DB" \
+    psql -U postgres -d restored -X -v ON_ERROR_STOP=1 -q < scripts/db-app-role.sql >/dev/null \
+    || fail "the owner job did not run on the restore target"
+docker exec "$BACKUP" sh -c "gunzip -c /tmp/offsite.sql.gz \
+    | awk 'c { print; if (\$0 == \"\\\\.\") c = 0; next } /^COPY .* FROM stdin;\$/ { c = 1 } /^(CREATE|COMMENT ON) EXTENSION / { next } { print }' \
+    | PGOPTIONS='-c role=$APP_ROLE' PGPASSWORD=offsite-check psql -h $DB -U postgres -d restored -v ON_ERROR_STOP=1 -q" \
     >/dev/null || fail "the uploaded copy did not restore"
+owned=$(docker exec "$DB" psql -U postgres -d restored -tAc "select pg_get_userbyid(relowner) from pg_class where oid = 'public.mt_doc_users'::regclass")
+[ "$owned" = "$APP_ROLE" ] || fail "the restored table is owned by '$owned', expected $APP_ROLE"
 original=$(docker exec "$DB" psql -U postgres -d barakocms -tAc "select count(*) from public.mt_doc_users")
 restored=$(docker exec "$DB" psql -U postgres -d restored -tAc "select count(*) from public.mt_doc_users")
 echo "rows: original $original, restored $restored"

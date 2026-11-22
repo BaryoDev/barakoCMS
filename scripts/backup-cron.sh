@@ -69,8 +69,9 @@ fail() {
 echo "Starting backup [$(date)] -> $FINAL"
 
 # 1. Dump to a plain file, so pg_dump's own exit code is the one we check. No owners and no grants
-# in the dump: a restore then makes the restoring role the owner, and scripts/db-app-role.sql hands
-# ownership to the app role again when the stack starts.
+# in the dump: a restore makes the restoring role the owner, so restores run as the app role (after
+# the owner job has created the role and the extensions), and the restore stream drops the CREATE
+# EXTENSION and COMMENT ON EXTENSION lines. docs/backup-and-restore.md has the commands.
 PGPASSWORD="$POSTGRES_PASSWORD" pg_dump --no-owner --no-privileges \
     -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
     > "$TMP" || fail "pg_dump exited non-zero"

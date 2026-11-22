@@ -243,6 +243,9 @@ access (Cloud Shell, a bastion, a one-off task):
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/<version>/<file>.sql
 ```
 
+A few files need a superuser and take a pinned search path. See
+[Database roles](deploy-in-production.md#database-roles) for which.
+
 To check the schema without starting the server, run the image with `db-assert` as a one-off job
 (an App Service WebJob, a one-off ECS task, a Cloud Run job) with the same connection string and JWT
 key the service uses:

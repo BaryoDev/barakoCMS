@@ -152,7 +152,9 @@ apply_file() { # $1 = path under migrations/
     step "applying $1"
     before_file "$1"
     docker cp "$1" "$PG:/tmp/migration.sql"
-    docker exec "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 ${single[@]+"${single[@]}"} -f /tmp/migration.sql >/dev/null
+    local pin=()
+    migration_needs_owner "$1" && pin=(-e PGOPTIONS='-c search_path=pg_catalog,pg_temp')
+    docker exec ${pin[@]+"${pin[@]}"} "$PG" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 ${single[@]+"${single[@]}"} -f /tmp/migration.sql >/dev/null
     after_file "$1"
 }
 
