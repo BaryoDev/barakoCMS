@@ -166,9 +166,9 @@ public class ComposeDefaultsTests
     /// </summary>
     /// <remarks>
     /// Swagger follows the environment when Swagger:Enabled is unset, and docker-compose.hub.yml
-    /// defaults the environment to Development, so the file people copy toward a host exposed the
-    /// whole API surface without anyone choosing it. Saying it explicitly means changing the
-    /// environment no longer changes what is published as a side effect.
+    /// reads the environment from ASPNETCORE_ENVIRONMENT, so setting it to Development would turn
+    /// the explorer on for the file people copy toward a host without anyone choosing it. Saying it
+    /// explicitly means changing the environment no longer changes what is published as a side effect.
     ///
     /// docker-compose.yml is not in this list on purpose. It builds from source, says LOCAL
     /// DEVELOPMENT ONLY at the top, and the explorer is the point there; it still sets the flag
@@ -183,7 +183,7 @@ public class ComposeDefaultsTests
             .SingleOrDefault(l => l.Contains("Swagger__Enabled"));
 
         setting.Should().NotBeNull(
-            "docker-compose.hub.yml defaults ASPNETCORE_ENVIRONMENT to Development, and Swagger "
+            "docker-compose.hub.yml takes ASPNETCORE_ENVIRONMENT from the operator, and Swagger "
           + "follows the environment when the flag is unset");
 
         setting.Should().NotContain(":-true",

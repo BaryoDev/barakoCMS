@@ -59,6 +59,7 @@ special characters in the password. If both are set, `DATABASE_URL` wins.
 
 | Variable | Why |
 | --- | --- |
+| `Database__AllowSuperuser` | The API refuses to start when its database role is a superuser, has `BYPASSRLS`, or is a member of `rds_superuser` (Amazon RDS), `azure_pg_admin` (Azure Database for PostgreSQL) or `cloudsqlsuperuser` (Cloud SQL), the roles the admin user of those services holds. Connect as a role without superuser: run `scripts/db-app-role.sql` once as the admin user and put that role in `DATABASE_URL`. Set this to `true` to run as the admin on purpose; the API logs one warning at each start. Blank or `false` keeps the refusal, and any other value is refused as not recognised. See [Tenancy at the database](tenancy-at-the-database.md). |
 | `CORS__AllowedOrigins` | Comma-separated origins of the console and your site. The default is localhost only, so a browser on any real origin fails CORS. |
 | `InitialAdmin__Username` | Defaults to `admin`. |
 | `App__BaseUrl` | The public origin the API puts in links it hands out. |
