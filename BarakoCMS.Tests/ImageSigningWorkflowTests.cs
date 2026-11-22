@@ -160,4 +160,40 @@ public class ImageSigningWorkflowTests
         script.Should().Contain("cosign verify-attestation --type slsaprovenance1");
         script.Should().NotContain("eval ");
     }
+
+    // GitHub refuses to load a workflow with two steps of the same id in one job, so no run starts.
+    // A bad merge of two edits to the same block produced exactly that once.
+    [Fact]
+    public void Step_ids_are_unique_within_each_job_in_every_workflow()
+    {
+        var dir = Path.Combine(RepoPaths.Root, ".github", "workflows");
+        var files = Directory.GetFiles(dir, "*.yml").Concat(Directory.GetFiles(dir, "*.yaml")).ToArray();
+        files.Should().NotBeEmpty();
+
+        foreach (var file in files)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var inSteps = false;
+            foreach (var raw in File.ReadAllLines(file))
+            {
+                if (Regex.IsMatch(raw, @"^  [A-Za-z0-9_-]+:\s*$"))
+                {
+                    seen.Clear();
+                    inSteps = false;
+                }
+                else if (Regex.IsMatch(raw, @"^    steps:\s*$"))
+                {
+                    inSteps = true;
+                }
+
+                // A step id sits at the step's key indent: "- id: x" or "  id: x" under "      - name".
+                var m = Regex.Match(raw, @"^      (?:- )?id:\s*['""]?([A-Za-z0-9_-]+)['""]?\s*(#.*)?$");
+                if (inSteps && m.Success)
+                {
+                    seen.Add(m.Groups[1].Value).Should().BeTrue(
+                        "{0} defines step id '{1}' twice in one job", Path.GetFileName(file), m.Groups[1].Value);
+                }
+            }
+        }
+    }
 }
