@@ -44,6 +44,8 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         Action<BarakoModuleBuilder>? configureModules)
     {
+        ValidateStartupGuards(configuration);
+
         var (seen, enabled, modules, unloadable) = AddModules(services, configuration, configureModules);
 
         AddModuleEndpoints(services, seen, enabled, modules, unloadable);
@@ -68,9 +70,6 @@ public static class ServiceCollectionExtensions
         AddCaches(services);
 
         AddMartenStore(services, configuration, modules);
-
-        // services.AddHealthChecks()
-        //    .AddNpgSql(configuration.GetConnectionString("DefaultConnection")!, tags: new[] { "db", "ready" });
 
         AddOutboundHttp(services, configuration);
 
@@ -108,6 +107,39 @@ public static class ServiceCollectionExtensions
         LegacyEmailKeyCheck.WarnIfIgnored(services, configuration);
 
         return services;
+    }
+
+    /// <summary>
+    /// Runs before anything is registered, so a host that must not start never gets as far as the
+    /// database. See <see cref="barakoCMS.Infrastructure.Security.HostFilteringGuard"/> and
+    /// <see cref="barakoCMS.Infrastructure.Security.InitialAdminGuard"/> and
+    /// <see cref="barakoCMS.Infrastructure.Security.DatabasePasswordGuard"/>.
+    /// </summary>
+    private static void ValidateStartupGuards(IConfiguration configuration)
+    {
+        var developmentHost = IsDevelopmentHost(configuration, Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"));
+        barakoCMS.Infrastructure.Security.HostFilteringGuard.Validate(
+            configuration, developmentHost, message => Log.Warning("{OpenHostFiltering}", message));
+        barakoCMS.Infrastructure.Security.InitialAdminGuard.Validate(
+            configuration["InitialAdmin:Username"], configuration["InitialAdmin:Password"], developmentHost);
+        barakoCMS.Infrastructure.Security.DatabasePasswordGuard.Validate(
+            ResolvedConnectionStringOrNull(configuration, developmentHost), developmentHost);
+    }
+
+    /// <summary>
+    /// The connection string the app will use, or null when there is none or it cannot be read. The
+    /// real resolve runs later and reports those cases itself, so the guard stays out of their way.
+    /// </summary>
+    private static string? ResolvedConnectionStringOrNull(IConfiguration configuration, bool isDevelopment)
+    {
+        try
+        {
+            return ResolveConnectionString(configuration, isDevelopment);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            return null;
+        }
     }
 
     private static void AddCommitListeners(StoreOptions options, IServiceProvider sp)
@@ -2064,6 +2096,20 @@ public static class ServiceCollectionExtensions
     private static bool IsDevelopmentEnvironment() =>
         IsDevelopment(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"));
 
+    /// <summary>
+    /// Whether the host being built is Development, from the environment the host itself was given
+    /// (<c>WebApplicationOptions.EnvironmentName</c>, <c>DOTNET_ENVIRONMENT</c> or
+    /// <c>ASPNETCORE_ENVIRONMENT</c>, all of which the host writes to its configuration), and the
+    /// process variable only when the configuration has none.
+    /// </summary>
+    /// <remarks>
+    /// The startup guards use this. A process can hold hosts in more than one environment, as a test
+    /// process does, and a guard that read only the process variable would let a Production host in
+    /// it start with settings a Production process refuses.
+    /// </remarks>
+    internal static bool IsDevelopmentHost(IConfiguration configuration, string? processEnvironment) =>
+        IsDevelopment(configuration[Microsoft.Extensions.Hosting.HostDefaults.EnvironmentKey] ?? processEnvironment);
+
     /// <summary>The ports the quickstart and <c>dotnet run</c> serve a frontend on.</summary>
     private static readonly string[] DevelopmentOrigins =
         ["http://localhost:3000", "http://localhost:3001", "https://localhost:7049"];
@@ -2362,6 +2408,9 @@ public static class ServiceCollectionExtensions
                 headers.TryAdd("X-Content-Type-Options", "nosniff");
                 headers.TryAdd("X-Frame-Options", "DENY");
                 headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
+                headers.TryAdd("Permissions-Policy", barakoCMS.Infrastructure.Security.SecurityHeaders.PermissionsPolicy);
+                headers.TryAdd("Cross-Origin-Opener-Policy", barakoCMS.Infrastructure.Security.SecurityHeaders.CrossOriginOpenerPolicy);
+                headers.TryAdd("Cross-Origin-Resource-Policy", barakoCMS.Infrastructure.Security.SecurityHeaders.CrossOriginResourcePolicy);
 
                 // X-XSS-Protection is deliberately not written. Every current browser ignores it, and
                 // the auditor it was there to satisfy is not a threat model. While it was honoured its

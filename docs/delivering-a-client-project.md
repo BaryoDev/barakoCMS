@@ -647,7 +647,8 @@ Delivery-specific things to get right at this point:
   `AllowedHosts`; both compose files pass them through). They are the pair that stops a caller
   choosing the origin of the links the API hands out, because the `Host` header is written by whoever
   sent the request. With neither set, the RSS feed, the sitemap and the OAuth start and callback
-  endpoints answer 503, and the API log names the setting. A Kubernetes `httpGet` probe sends the pod IP as `Host`, so a real hostname
+  endpoints answer 503, and the API log names the setting. From 6.0.0 the API also refuses to
+  start in Production when `AllowedHosts` is `*` or empty. A Kubernetes `httpGet` probe sends the pod IP as `Host`, so a real hostname
   list makes probes 400 unless you add a `Host` header to the probe.
 - **Set `FEEDS_SITE_URL` to the client's site**, not to the API. The feed prefers `Feeds:SiteUrl`
   over `App:BaseUrl` for the links in each item, and a reader following one should land on the

@@ -31,7 +31,9 @@ public sealed class BarakoTestHostOptions
 
     /// <summary>
     /// The host environment. Development keeps Swagger on and lets Marten update an existing
-    /// schema, which is what a throwaway database wants.
+    /// schema, which is what a throwaway database wants. Production is allowed: the host's
+    /// <c>AllowedHosts</c> defaults to <c>localhost;127.0.0.1</c> here, because the shipped
+    /// <c>"*"</c> would stop a Production host. Set <c>Settings["AllowedHosts"]</c> to override it.
     /// </summary>
     public string EnvironmentName { get; set; } = "Development";
 }

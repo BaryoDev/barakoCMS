@@ -1,8 +1,17 @@
 using barakoCMS.Extensions;
+using barakoCMS.Infrastructure.Health;
 using JasperFx;
 using Serilog;
 using Serilog.Events;
 using Prometheus;
+
+// `--health-probe [path]` is the container healthcheck: the runtime image has no shell or curl to
+// run one. It answers before anything below is built, so it never opens the database, runs the
+// seeder or applies a migration, and a probe every few seconds stays cheap.
+if (HealthProbe.IsProbe(args))
+{
+    Environment.Exit(await HealthProbe.RunAsync(args, Environment.GetEnvironmentVariable, Console.Out));
+}
 
 // The codebase stores UTC DateTime values throughout. Npgsql 6+ refuses to bind a Kind=UTC
 // DateTime to a 'timestamp without time zone' column, which made every LINQ query that compares

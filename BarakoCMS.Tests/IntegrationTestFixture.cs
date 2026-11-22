@@ -19,8 +19,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         .WithImage("pgvector/pgvector:pg16")
         .WithDatabase("barako_test_db")
         .WithUsername("postgres")
-        .WithPassword("postgres")
-        .WithPassword("postgres")
+        // Not "postgres": DatabasePasswordGuard refuses that outside Development, and several tests start
+        // a Production host against this container.
+        .WithPassword("barako-test-db-not-an-example")
         // Every class in one integration collection shares this container, and every host a test
         // derives with WithWebHostBuilder stays alive until another class derives one (see
         // ReleaseDerivedHostsExcept).

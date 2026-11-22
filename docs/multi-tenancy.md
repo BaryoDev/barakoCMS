@@ -172,6 +172,11 @@ The same map can drive CORS and TLS, so adding a client's domain needs no config
 and `GET /api/tenants/tls-ask?domain={host}` answers a reverse proxy's on-demand TLS check. Both are
 in [deploy-in-production.md](deploy-in-production.md#a-clients-own-domain-with-no-config-edit).
 
+Host filtering runs before any of this. A tenant's custom domain that reaches the API directly
+sends its own `Host`, so list it in `AllowedHosts` or set `Security:AllowAnyHost` to `true`.
+Subdomain tenants are covered by `*.example.com`. A caller inside the compose network that uses
+the service name (such as `app` for the TLS ask) needs that name listed too.
+
 `RefuseUnknownHosts` turns a host that looks like a custom domain but matches nothing into a 404,
 rather than quietly serving the default tenant. It is opt-in, because on a single-tenant deployment
 every host is legitimately unrecognised.

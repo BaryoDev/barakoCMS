@@ -16,7 +16,7 @@
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a # pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:484e838076e04939d27d3e176e91c86eea96236126023be8d3059761122e579f # pgvector/pgvector:pg16
     container_name: barako-postgres
     restart: unless-stopped
     environment:
@@ -30,11 +30,30 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+      - /var/run/postgresql:mode=1777,size=8m
+    cap_drop: [ALL]
+    cap_add:
+      - CHOWN # the entrypoint fixes the data directory's owner on a fresh volume
+      - DAC_OVERRIDE # initdb and the entrypoint write into directories they do not own
+      - FOWNER # initdb sets modes on files it created as root
+      - SETGID # gosu drops to the postgres group
+      - SETUID # gosu drops to the postgres user
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      org.barakocms.hardening.root: "the image entrypoint starts as root to prepare the data directory, then drops to the postgres user"
+    mem_limit: ${DB_MEM_LIMIT:-2g}
+    pids_limit: ${DB_PIDS_LIMIT:-512}
 
   app:
     # Barako — the full suite (engine + all modules). For the lean core, swap in
     # ghcr.io/baryodev/barako-cms-decaf:latest and add only the modules you want in your own host.
-    image: ghcr.io/baryodev/barako-cms:latest
+    # Required rather than defaulting to latest, because with a default the next pull is an
+    # unplanned major upgrade.
+    image: ghcr.io/baryodev/barako-cms:${BARAKO_TAG:?pin a version in .env or your shell, for example 5.9.0}
     container_name: barako-cms
     restart: unless-stopped
     ports:
@@ -50,6 +69,10 @@ services:
       # No default. Unset, the seeder generates a password and prints it once to the container log
       # (docker compose -f docker-compose.hub.yml logs app).
       - InitialAdmin__Password=${ADMIN_PASSWORD:-}
+      # The API refuses to start in Production when it accepts any host. The port above is bound to
+      # this machine, so localhost is what it is reached on. Behind a domain, set ALLOWED_HOSTS to it
+      # (semicolon separated). To accept any host on purpose, set Security__AllowAnyHost=true.
+      - AllowedHosts=${ALLOWED_HOSTS:-localhost;127.0.0.1}
       # Off by default here. This file runs the published images, so it is the one people copy
       # toward a host, and if the environment is set to Development, that would otherwise
       # turn the API explorer on for them without anyone choosing it. Set SWAGGER_ENABLED=true.
@@ -57,6 +80,26 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    user: "1654:1654"
+    read_only: true
+    tmpfs:
+      # Upload buffering and the runtime's scratch files. The image root is read-only, so this and
+      # the home directory are the only places the API can write.
+      - /tmp:mode=1777,size=${API_TMP_SIZE:-512m}
+      - /home/app:uid=1654,gid=1654,mode=0700,size=16m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${API_MEM_LIMIT:-1g}
+    pids_limit: ${API_PIDS_LIMIT:-512}
+    # The image has no shell or curl, so the probe is built into the app. It asks this container's own
+    # listener, so no host or database is involved.
+    healthcheck:
+      test: ["CMD", "dotnet", "barakoCMS.dll", "--health-probe"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
 volumes:
   postgres_data:

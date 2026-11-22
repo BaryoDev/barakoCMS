@@ -250,6 +250,61 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
     }
 
     [Fact]
+    public async Task A_host_run_as_Production_starts_and_answers_a_request()
+    {
+        // appsettings.json ships AllowedHosts "*", which a Production host refuses to start with.
+        // The test host defaults it to the hosts its client sends.
+        await using var production = new BarakoTestHost(o =>
+        {
+            o.EnvironmentName = "Production";
+            o.Modules.Add(new PortabilityModule());
+            o.Settings["JWT:Key"] = SharedJwtKey;
+        });
+        await production.InitializeAsync();
+
+        var response = await production.CreateClient().GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "the host started and routed the request");
+    }
+
+    [Fact]
+    public async Task A_host_run_as_Production_with_open_AllowedHosts_does_not_start()
+    {
+        // The test process says Development (see DiscoveryDefault), so this only holds when the
+        // startup guard reads the environment the host was given rather than the process variable.
+        await using var production = new BarakoTestHost(o =>
+        {
+            o.EnvironmentName = "Production";
+            o.Modules.Add(new PortabilityModule());
+            o.Settings["JWT:Key"] = SharedJwtKey;
+            o.Settings["AllowedHosts"] = "*";
+        });
+
+        var act = () => production.InitializeAsync().AsTask();
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).WithMessage("*AllowedHosts*");
+    }
+
+    [Fact]
+    public async Task A_host_run_as_Production_on_the_example_database_password_does_not_start()
+    {
+        // The guard reads the connection string the host resolves, so this fails before any
+        // connection is tried. The same string starts a Development host.
+        await using var production = new BarakoTestHost(o =>
+        {
+            o.EnvironmentName = "Production";
+            o.Modules.Add(new PortabilityModule());
+            o.Settings["JWT:Key"] = SharedJwtKey;
+            o.Settings["ConnectionStrings:DefaultConnection"] =
+                "Host=127.0.0.1;Database=barako;Username=postgres;Password=postgres";
+        });
+
+        var act = () => production.InitializeAsync().AsTask();
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).WithMessage("*database password*");
+    }
+
+    [Fact]
     public async Task A_host_running_no_modules_does_not_serve_the_module_endpoint()
     {
         // Registration is what puts a module's endpoints in the host, so the same request on a host

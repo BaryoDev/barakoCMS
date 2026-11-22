@@ -43,6 +43,7 @@ for p in "${PROJECTS[@]}"; do
     step "copying quickstart/ to $WORK/$p"
     cp -R "$REPO/quickstart" "$WORK/$p"
     cat > "$WORK/$p/.env" <<'ENV'
+BARAKO_TAG=ci
 DB_PASSWORD=quickstart-check-not-a-real-password
 JWT_KEY=quickstart-check-not-a-real-key-at-least-32-characters
 ADMIN_PASSWORD=quickstart-check-not-a-real-password

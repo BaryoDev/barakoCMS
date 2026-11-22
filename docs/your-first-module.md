@@ -548,7 +548,7 @@ ASPNETCORE_ENVIRONMENT=Development \
 ConnectionStrings__DefaultConnection="Host=127.0.0.1;Port=55432;Database=barako;Username=postgres;Password=postgres" \
 JWT__Key=local-only-signing-key-at-least-32-characters \
 InitialAdmin__Username=admin \
-InitialAdmin__Password=local-only-password \
+InitialAdmin__Password=local-only-admin-pass \
 dotnet run --project BarakoCMS.Suite/BarakoCMS.Suite.csproj --urls http://127.0.0.1:5080
 ```
 
@@ -565,7 +565,7 @@ Back in the first terminal, sign in and keep the token:
 ```sh
 TOKEN=$(curl -s -X POST http://127.0.0.1:5080/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"local-only-password"}' | sed -E 's/.*"token":"([^"]+)".*/\1/')
+  -d '{"username":"admin","password":"local-only-admin-pass"}' | sed -E 's/.*"token":"([^"]+)".*/\1/')
 ```
 
 The module loaded:

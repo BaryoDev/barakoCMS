@@ -114,6 +114,8 @@ bash "$gate" trivy "$d/img-clean.json" "$d/allow-none.json" $today > /dev/null; 
 bash "$gate" trivy "$d/img-objshape.json" "$d/allow-none.json" $today > /dev/null;        check "Results is an object"               fail $?
 bash "$gate" trivy "$d/img-garbage.json" "$d/allow-none.json" $today > /dev/null;         check "unparseable output"                 fail $?
 bash "$gate" trivy "$d/img-empty.json" "$d/allow-none.json" $today > /dev/null;           check "empty report"                       fail $?
+echo '{"SchemaVersion":2,"Results":[{"Target":"image","Vulnerabilities":["CVE-2099-0001"]}]}' > "$d/img-oddfinding.json"
+bash "$gate" trivy "$d/img-oddfinding.json" "$d/allow-none.json" $today > /dev/null 2>&1; check "a finding jq cannot read"           fail $?
 
 # Expiry is inclusive: an entry dated today still accepts, the day after it does not. Dates that fit
 # the pattern but are not real fail the gate, and the error names the entry.
@@ -126,6 +128,42 @@ bash "$gate" trivy "$d/img-clean.json" "$d/allow-baddate2.json" $today > /dev/nu
 err=$(bash "$gate" trivy "$d/img-clean.json" "$d/allow-baddate.json" $today 2>&1)
 printf '%s\n' "$err" | grep -q 'CVE-2099-0001 (libfake) has the impossible expiry date 2026-13-45'
 check "impossible date names the entry" pass $?
+
+# A High with a fix whose id or package is empty, or holds a newline or tab, must fail the gate
+# and not shift columns into the "unfixed, reported only" branch.
+printf '%s\n' '{"SchemaVersion":2,"Results":[{"Vulnerabilities":[{"VulnerabilityID":"CVE-2099-0009","PkgName":"","Severity":"HIGH","FixedVersion":"1.0"}]}]}' > "$d/img-nopkg.json"
+printf '%s\n' '{"SchemaVersion":2,"Results":[{"Vulnerabilities":[{"VulnerabilityID":"","PkgName":"libfake","Severity":"HIGH","FixedVersion":"1.0"}]}]}' > "$d/img-noid.json"
+printf '%s\n' '{"SchemaVersion":2,"Results":[{"Vulnerabilities":[{"VulnerabilityID":"CVE-2099-0009\nlibfake","PkgName":"libfake","Severity":"HIGH","FixedVersion":"1.0"}]}]}' > "$d/img-nlid.json"
+printf '%s\n' '{"SchemaVersion":2,"Results":[{"Vulnerabilities":[{"VulnerabilityID":"CVE-2099-0009","PkgName":"lib\tfake","Severity":"HIGH","FixedVersion":"1.0"}]}]}' > "$d/img-tabpkg.json"
+printf '%s\n' '{"SchemaVersion":2,"Results":[{"Vulnerabilities":[{"VulnerabilityID":null,"PkgName":"libfake","Severity":"CRITICAL","FixedVersion":"1.0"}]}]}' > "$d/img-nullid.json"
+bash "$gate" trivy "$d/img-nopkg.json" "$d/allow-none.json" $today > /dev/null 2>&1;      check "High with an empty package name"    fail $?
+bash "$gate" trivy "$d/img-noid.json" "$d/allow-none.json" $today > /dev/null 2>&1;       check "High with an empty id"              fail $?
+bash "$gate" trivy "$d/img-nlid.json" "$d/allow-none.json" $today > /dev/null 2>&1;       check "High with a newline in its id"      fail $?
+bash "$gate" trivy "$d/img-tabpkg.json" "$d/allow-none.json" $today > /dev/null 2>&1;     check "High with a tab in its package"     fail $?
+bash "$gate" trivy "$d/img-nullid.json" "$d/allow-none.json" $today > /dev/null 2>&1;     check "Critical with a null id"            fail $?
+# A Low with an empty id is not gated, so it must not fail.
+printf '%s\n' '{"SchemaVersion":2,"Results":[{"Vulnerabilities":[{"VulnerabilityID":"","PkgName":"","Severity":"LOW","FixedVersion":"1.0"}]}]}' > "$d/img-lowempty.json"
+bash "$gate" trivy "$d/img-lowempty.json" "$d/allow-none.json" $today > /dev/null 2>&1;   check "Low with empty fields is ignored"   pass $?
+# An entry with "images" accepts only in a listed repository (tag and digest removed).
+echo '[{"id":"CVE-2099-0001","package":"libfake","reason":"gosu in postgres","expires":"2026-12-31","images":["postgres"]}]' > "$d/allow-scoped.json"
+img_gate() { VULN_GATE_IMAGE=$1 bash "$gate" trivy "$d/img-high.json" "$2" $today > /dev/null 2>&1; }
+img_gate "postgres:16-alpine@sha256:aaaa" "$d/allow-scoped.json"; check "scoped entry, tag and digest"       pass $?
+img_gate "postgres@sha256:aaaa" "$d/allow-scoped.json";           check "scoped entry, digest only"          pass $?
+img_gate "postgres:16-alpine" "$d/allow-scoped.json";             check "scoped entry, tag only"             pass $?
+img_gate "postgres" "$d/allow-scoped.json";                       check "scoped entry, bare repository"      pass $?
+img_gate "caddy@sha256:aaaa" "$d/allow-scoped.json";              check "scoped entry, other image"          fail $?
+img_gate "docker.io/postgres:16" "$d/allow-scoped.json";          check "scoped entry, registry host differs" fail $?
+img_gate "" "$d/allow-scoped.json";                               check "scoped entry, no image name"        fail $?
+img_gate "caddy@sha256:aaaa" "$d/allow-ok.json";                  check "unscoped entry, any image"          pass $?
+echo '[{"id":"CVE-2099-0001","package":"libfake","reason":"x","expires":"2026-12-31","images":[]}]' > "$d/allow-img-empty.json"
+echo '[{"id":"CVE-2099-0001","package":"libfake","reason":"x","expires":"2026-12-31","images":"postgres"}]' > "$d/allow-img-string.json"
+echo '[{"id":"CVE-2099-0001","package":"libfake","reason":"x","expires":"2026-12-31","images":[""]}]' > "$d/allow-img-blank.json"
+img_gate "postgres:16" "$d/allow-img-empty.json";                 check "images is an empty array"           fail $?
+img_gate "postgres:16" "$d/allow-img-string.json";                check "images is a string"                 fail $?
+img_gate "postgres:16" "$d/allow-img-blank.json";                 check "images holds an empty string"       fail $?
+echo '{"projects":[{"frameworks":[{"topLevelPackages":[{"id":"Some.Pkg","vulnerabilities":[{"severity":"High","advisoryurl":"https://github.com/advisories/GHSA-aaaa"}]}]}]}]}' > "$d/net-pkg.json"
+echo '[{"id":"GHSA-aaaa","package":"Some.Pkg","reason":"x","expires":"2026-12-31","images":["postgres"]}]' > "$d/allow-net-scoped.json"
+bash "$gate" dotnet "$d/net-pkg.json" "$d/allow-net-scoped.json" $today > /dev/null 2>&1; check "scoped entry, dotnet report" fail $?
 
 # Writes SARIF for the findings that failed, and only those.
 VULN_GATE_SARIF="$d/out.sarif" bash "$gate" trivy "$d/img-high.json" "$d/allow-none.json" $today > /dev/null
@@ -151,6 +189,12 @@ bash "$gate" dotnet "$d/net-ghsa.json" "$d/allow-net.json" $today > /dev/null;  
 bash "$gate" dotnet "$d/net-ghsa.json" "$d/allow-net.json" 2027-01-15 > /dev/null; check "same entry after its expiry"    fail $?
 bash "$gate" dotnet "$d/net-moderate.json" "$d/allow-none.json" $today > /dev/null; check "Moderate only"                 pass $?
 bash "$gate" dotnet "$d/net-garbage.json" "$d/allow-none.json" $today > /dev/null;  check "unparseable output"            fail $?
+echo '{"projects":[{"frameworks":[{"topLevelPackages":[{"id":"Fake.Package","vulnerabilities":[{"severity":"High","advisoryurl":7}]}]}]}]}' > "$d/net-oddurl.json"
+bash "$gate" dotnet "$d/net-oddurl.json" "$d/allow-none.json" $today > /dev/null 2>&1; check "an advisory url jq cannot read" fail $?
+printf '%s\n' '{"projects":[{"frameworks":[{"topLevelPackages":[{"id":"","vulnerabilities":[{"severity":"High","advisoryurl":"https://github.com/advisories/GHSA-fake-fake-fake"}]}]}]}]}' > "$d/net-nopkg.json"
+printf '%s\n' '{"projects":[{"frameworks":[{"topLevelPackages":[{"id":"Fake.Package","vulnerabilities":[{"severity":"High","advisoryurl":"https://github.com/advisories/"}]}]}]}]}' > "$d/net-noid.json"
+bash "$gate" dotnet "$d/net-nopkg.json" "$d/allow-none.json" $today > /dev/null 2>&1;   check "advisory on an empty package id"   fail $?
+bash "$gate" dotnet "$d/net-noid.json" "$d/allow-none.json" $today > /dev/null 2>&1;    check "advisory url with an empty id"     fail $?
 bash "$gate" nonsense "$d/net-ghsa.json" "$d/allow-none.json" $today > /dev/null 2>&1; check "unknown report kind"        fail $?
 
 echo
@@ -251,6 +295,80 @@ printf 'runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@%s # v
 printf 'runs:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v4\n' > "$d/gh2/actions/mine/action.yaml"
 bash "$here/check-action-pins.sh" "$d/gh1/workflows" > /dev/null; check "composite action pinned by SHA"     pass $?
 bash "$here/check-action-pins.sh" "$d/gh2/workflows" > /dev/null; check "composite action pinned by a tag"   fail $?
+
+echo
+echo "Compose hardening (check-compose-hardening.sh):"
+chk="$here/check-compose-hardening.sh"
+fx="$here/testdata/compose-hardening"
+bash "$chk" "$fx/good.yml" > /dev/null 2>&1;                         check "every option present"                  pass $?
+err=$(bash "$chk" "$fx/bad.yml" 2>&1 > /dev/null); rc=$?
+eq "$rc" 1;                                                          check "a service missing options fails"       pass $?
+for want in "no-read-only: missing read_only" "no-cap-drop: missing cap_drop ALL" \
+            "no-new-privileges: missing no-new-privileges" "root-user: missing a non-root user" \
+            "no-mem-limit: missing mem_limit" "no-pids-limit: missing pids_limit" \
+            "no-healthcheck: missing a healthcheck" "one-shot-still-needs-read-only: missing read_only" \
+            "restart-no-without-label: missing a healthcheck" \
+            "tmpfs-no-size: missing a tmpfs size" "tmpfs-size-zero: missing a tmpfs size" \
+            "tmpfs-size-negative: missing a tmpfs size" \
+            "privileged: undoes hardening with privileged" "host-network: undoes hardening with network_mode" \
+            "host-pid: undoes hardening with pid" "cap-add-all: undoes hardening with cap_add ALL" \
+            "cap-add-sys-admin: undoes hardening with cap_add SYS_ADMIN" \
+            "seccomp-unconfined: undoes hardening with security_opt" \
+            "apparmor-unconfined: undoes hardening with security_opt" "docker-socket: mounts the Docker socket"; do
+  printf '%s' "$err" | grep -qF "bad.yml, service $want";           check "names the file, service and option: ${want%%:*}" pass $?
+done
+! printf '%s' "$err" | grep -q 'service one-shot-still-needs-read-only: missing a healthcheck'; check "the one-shot label exempts the healthcheck only" pass $?
+! printf '%s' "$err" | grep -qE 'service (with-tmpfs|plain|one-shot):'; check "good services are not reported" pass $?
+# The operator's own env file: a limit at 0 or -1 removes the limit, and compose cannot refuse it.
+base_env="$d/ch-base.env"
+cp "$here/../.env.prod.example" "$base_env"
+printf 'BARAKO_TAG=check\nDB_PASSWORD=x-check-value\nJWT_KEY=x-check-value-0123456789-0123456789\nADMIN_PASSWORD=x-check-value\n' >> "$base_env"
+prod="$here/../docker-compose.prod.yml"
+bash "$chk" --env-file "$base_env" "$prod" > /dev/null 2>&1;         check "the operator env as shipped passes"    pass $?
+for var in API_MEM_LIMIT API_PIDS_LIMIT DB_MEM_LIMIT DB_PIDS_LIMIT EXTENSIONS_MEM_LIMIT EXTENSIONS_PIDS_LIMIT \
+           BACKUP_MEM_LIMIT BACKUP_PIDS_LIMIT PROXY_MEM_LIMIT PROXY_PIDS_LIMIT API_TMP_SIZE; do
+  for bad in 0 -1; do
+    { cat "$base_env"; printf '%s=%s\n' "$var" "$bad"; } > "$d/ch-limit.env"
+    bash "$chk" --env-file "$d/ch-limit.env" "$prod" > /dev/null 2>&1; check "$var=$bad removes a limit" fail $?
+  done
+  { cat "$base_env"; printf '%s=\n' "$var"; } > "$d/ch-limit.env"
+  bash "$chk" --env-file "$d/ch-limit.env" "$prod" > /dev/null 2>&1;  check "$var left blank keeps the default" pass $?
+done
+bash "$chk" --env-file "$d/ch-missing.env" "$prod" > /dev/null 2>&1; check "an env file that does not exist"       fail $?
+printf 'services:\n  a:\n    image: x:${NOT_SET_ANYWHERE:?must be set}\n' > "$d/ch-unresolved.yml"
+bash "$chk" "$d/ch-unresolved.yml" > /dev/null 2>&1;                  check "a file compose cannot resolve"         fail $?
+printf 'services: {}\n' > "$d/ch-empty.yml"
+bash "$chk" "$d/ch-empty.yml" > /dev/null 2>&1;                       check "a file with no services"               fail $?
+bash "$chk" "$d/ch-missing.yml" > /dev/null 2>&1;                     check "a file that does not exist"            fail $?
+bash "$chk" > /dev/null 2>&1;                                        check "no file given"                         fail $?
+bash "$chk" "$here/../docker-compose.yml" "$here/../docker-compose.hub.yml" \
+  "$here/../docker-compose.prod.yml" "$here/../quickstart/docker-compose.yml" > /dev/null 2>&1; check "the four shipped compose files" pass $?
+bash "$chk" "$fx/good.yml" "$fx/bad.yml" > /dev/null 2>&1;            check "one bad file among good ones"          fail $?
+
+echo
+echo "Action pins, other YAML forms and nested actions:"
+mkdir -p "$d/gf/workflows" "$d/gq/workflows" "$d/gn/workflows" "$d/gn/actions/a/b" "$d/gm/workflows" "$d/gm/actions/a/b" "$d/gc/workflows"
+printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@%s # v7\n      - {uses: actions/checkout@v4}\n' "$sha" > "$d/gf/workflows/a.yml"
+printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@%s # v7\n      - "uses": actions/checkout@v4\n' "$sha" > "$d/gq/workflows/a.yml"
+printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@%s # v7\n' "$sha" > "$d/gn/workflows/a.yml"
+cp "$d/gn/workflows/a.yml" "$d/gm/workflows/a.yml"
+printf 'runs:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v4\n' > "$d/gn/actions/a/b/action.yml"
+printf 'runs:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v4\n' > "$d/gm/actions/a/b/action.yaml"
+printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@%s # v7\n      # uses: actions/setup-node@v4\n      - run: echo "- uses: x/y@v1"\n' "$sha" > "$d/gc/workflows/a.yml"
+bash "$here/check-action-pins.sh" "$d/gf/workflows" > /dev/null; check "flow-style step with a tag"          fail $?
+bash "$here/check-action-pins.sh" "$d/gq/workflows" > /dev/null; check "quoted uses key with a tag"           fail $?
+bash "$here/check-action-pins.sh" "$d/gn/workflows" > /dev/null; check "nested action.yml with a tag"         fail $?
+bash "$here/check-action-pins.sh" "$d/gm/workflows" > /dev/null; check "nested action.yaml with a tag"        fail $?
+bash "$here/check-action-pins.sh" "$d/gc/workflows" > /dev/null; check "comments and run text are not steps"  pass $?
+
+# Every uses key on a line is checked, not only the first.
+mkdir -p "$d/gx/workflows" "$d/gy/workflows"
+printf 'jobs:\n  a:\n    steps: [{uses: actions/checkout@%s}, {uses: actions/setup-node@v7}]\n' "$sha" > "$d/gx/workflows/a.yml"
+printf 'jobs:\n  a:\n    steps: [{uses: actions/checkout@%s}, {uses: actions/setup-node@%s}]\n' "$sha" "$sha" > "$d/gy/workflows/a.yml"
+out=$(bash "$here/check-action-pins.sh" "$d/gx/workflows"); check "later tag on a flow line fails"            fail $?
+case "$out" in *actions/setup-node@v7*) check "the later tag is named" pass 0 ;; *) check "the later tag is named" pass 1 ;; esac
+out=$(bash "$here/check-action-pins.sh" "$d/gy/workflows"); check "two SHA-pinned flow maps pass"             pass $?
+case "$out" in *"2 checked, 0 not pinned"*) check "two flow maps count 2 checked" pass 0 ;; *) check "two flow maps count 2 checked" pass 1 ;; esac
 
 echo
 echo "$pass passed, $fail failed"

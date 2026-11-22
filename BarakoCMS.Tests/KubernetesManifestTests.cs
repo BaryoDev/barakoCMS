@@ -159,4 +159,36 @@ public class KubernetesManifestTests
 
         return probes;
     }
+
+    /// <summary>The hardening fields the app Deployment must carry, as text a plain check can find.</summary>
+    private static string[] MissingHardening(string manifest)
+    {
+        var text = manifest.Replace("\r", "");
+        var required = new Dictionary<string, string>
+        {
+            ["pod runAsNonRoot"] = @"(?m)^\s*runAsNonRoot:\s*true\s*$",
+            ["a numeric runAsUser"] = @"(?m)^\s*runAsUser:\s*[1-9][0-9]*\s*$",
+            ["pod seccompProfile RuntimeDefault"] = @"(?ms)^\s*seccompProfile:\s*\n\s*type:\s*RuntimeDefault\s*$",
+            ["readOnlyRootFilesystem"] = @"(?m)^\s*readOnlyRootFilesystem:\s*true\s*$",
+            ["allowPrivilegeEscalation false"] = @"(?m)^\s*allowPrivilegeEscalation:\s*false\s*$",
+            ["capabilities drop ALL"] = @"(?ms)^\s*capabilities:\s*\n\s*drop:\s*\[\s*""?ALL""?\s*\]\s*$",
+            ["an emptyDir for /tmp"] = @"(?ms)mountPath:\s*/tmp\b",
+        };
+
+        return required.Where(r => !Regex.IsMatch(text, r.Value)).Select(r => r.Key).ToArray();
+    }
+
+    [Fact]
+    public void The_app_Deployment_runs_non_root_read_only_with_no_capabilities()
+    {
+        MissingHardening(File.ReadAllText(Deployment())).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void The_hardening_check_rejects_the_known_bad_manifest()
+    {
+        var bad = File.ReadAllText(Path.Combine(RepoPaths.Root, "scripts", "testdata", "k8s-known-bad", "05-deployment.yaml"));
+
+        MissingHardening(bad).Should().HaveCount(7, "the manifest has none of the fields, so a check that finds fewer is not looking");
+    }
 }

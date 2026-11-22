@@ -26,3 +26,26 @@ internal static class DiscoveryDefault
     internal static void Off() =>
         Environment.SetEnvironmentVariable("BarakoCMS__Modules__Discover", "false");
 }
+
+/// <summary>
+/// The test process runs as Development, whichever test or fixture is scheduled first.
+/// </summary>
+/// <remarks>
+/// <c>AddBarakoCMS</c> refuses an open <c>AllowedHosts</c> and a weak admin password outside
+/// Development, reading <c>ASPNETCORE_ENVIRONMENT</c> from the process. About two dozen test
+/// classes call it without <c>IntegrationTestFixture</c>, which is the only thing that set the
+/// variable, so a filtered run saw it unset. Once any fixture starts, the process is Development
+/// anyway, so this only removes the order dependence. A value set by the caller is left alone, and
+/// the tests that need Production start a child process or pass the flag to the guard directly.
+/// </remarks>
+internal static class DevelopmentEnvironmentDefault
+{
+    [ModuleInitializer]
+    internal static void Set()
+    {
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")))
+        {
+            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Development");
+        }
+    }
+}

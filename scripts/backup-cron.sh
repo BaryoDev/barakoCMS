@@ -16,6 +16,12 @@ set -eu
 BACKUP_DIR=/backups
 mkdir -p "$BACKUP_DIR"
 
+# Everything this script writes besides the backups lives under /tmp, so the container can run with
+# a read-only root file system and /tmp as a tmpfs. The job is started as `sh <file>` because a
+# tmpfs may be mounted noexec.
+JOB_FILE=/tmp/backup_job.sh
+CRON_DIR=/tmp/crontabs
+
 echo "Starting backup daemon"
 echo "  schedule:  $BACKUP_CRON_SCHEDULE"
 echo "  retention: $BACKUP_KEEP_DAYS days"
@@ -34,13 +40,15 @@ if [ -n "${BACKUP_S3_BUCKET:-}" ]; then
     # never reaches a package mirror.
     if ! command -v curl >/dev/null 2>&1; then
         apk add --no-cache curl >/dev/null 2>&1 || {
-            echo "BACKUP FAILED [$(date)]: could not install curl for the offsite copy (apk add curl)" >&2
+            echo "BACKUP FAILED [$(date)]: could not install curl for the offsite copy (apk add curl)." >&2
+            echo "  The compose files run this container with a read-only root file system, which apk cannot write to." >&2
+            echo "  Set BACKUP_READ_ONLY=false in .env to allow the install, or mount a curl binary at /usr/local/bin/curl." >&2
             exit 1
         }
     fi
 fi
 
-cat <<'JOB' > /backup_job.sh
+cat <<'JOB' > /tmp/backup_job.sh
 #!/bin/sh
 set -eu
 
@@ -122,7 +130,7 @@ find "$BACKUP_DIR" -name ".in-progress_*" -mtime +1 -exec rm {} \;
 echo "Rotation done, keeping $BACKUP_KEEP_DAYS days"
 JOB
 
-chmod +x /backup_job.sh
+chmod +x "$JOB_FILE"
 
 # Run once at startup so a broken backup surfaces at deploy time rather than in
 # six months, which is how the last one stayed broken.
@@ -164,7 +172,7 @@ done
 if [ "$schema_ready" = 1 ]; then
     echo "Application schema present after ${waited}s"
     echo "Running an initial backup to prove the configuration works"
-    /backup_job.sh || echo "WARNING: the initial backup failed, see the error above"
+    sh "$JOB_FILE" || echo "WARNING: the initial backup failed, see the error above"
 else
     # Not fatal, and deliberately not attempted. Dumping now produces the tiny archive this wait
     # exists to avoid, so it would fail loudly for a reason already reported and teach an operator
@@ -174,6 +182,8 @@ else
     echo "         Check that the API started." >&2
 fi
 
-echo "$BACKUP_CRON_SCHEDULE /backup_job.sh >> /var/log/cron.log 2>&1" > /etc/crontabs/root
+# The job's output goes to this container's own stdout, so docker logs shows it.
+mkdir -p "$CRON_DIR"
+echo "$BACKUP_CRON_SCHEDULE sh $JOB_FILE >> /proc/1/fd/1 2>&1" > "$CRON_DIR/root"
 
-crond -f -l 2
+exec crond -f -l 2 -c "$CRON_DIR"

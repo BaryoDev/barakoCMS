@@ -43,7 +43,8 @@ ASP.NET Core reads `__` in an environment variable name as a section separator, 
 | --- | --- |
 | `DATABASE_URL` or `ConnectionStrings__DefaultConnection` | Startup throws `No database connection string. Set ConnectionStrings:DefaultConnection or the DATABASE_URL environment variable.` |
 | `JWT__Key` | Startup throws `JWT:Key must be configured and at least 32 characters (256 bits) for security.` A value starting `REPLACE_THIS` is also refused. |
-| `InitialAdmin__Password` | The first boot generates a password and prints it once to the log. Set it so the first sign-in does not depend on reading a log line. |
+| `AllowedHosts` | Startup throws when it is `*` or empty, unless `Security__AllowAnyHost=true`. Set it to the host names the API answers to, semicolon separated. |
+| `InitialAdmin__Password` | The first boot generates a password and prints it once to the log. Set it so the first sign-in does not depend on reading a log line. A value shorter than 12 characters, equal to the user name or an example from the docs stops startup. |
 
 Both errors above were produced by the `4.1.0` image. In those runs the exception was logged but the
 process had not exited 60 seconds later, so do not count on a crash loop to tell you. Kestrel never
@@ -61,7 +62,6 @@ special characters in the password. If both are set, `DATABASE_URL` wins.
 | `CORS__AllowedOrigins` | Comma-separated origins of the console and your site. The default is localhost only, so a browser on any real origin fails CORS. |
 | `InitialAdmin__Username` | Defaults to `admin`. |
 | `App__BaseUrl` | The public origin the API puts in links it hands out. |
-| `AllowedHosts` | The host names the API answers to. Defaults to `*`. |
 | `Secrets__Key` | Protects stored webhook and connector secrets. Falls back to `JWT__Key` when unset, which couples the two, see [SECURITY.md](../SECURITY.md). |
 | `BarakoCMS__Modules__Enabled` | Which modules run, comma-separated. Unset, every module in the image runs and the log says so. |
 
@@ -219,7 +219,8 @@ by the module schema preflight.
 When a release needs a SQL step, it ships under `migrations/<version>/` and inside the image. From
 4.6.0 the image applies it: `db-migrate`, run as a one-off job in the same form as `db-assert`
 below, runs the files this database has not had and records each in a ledger table.
-[migrations.md](migrations.md) describes it. The job form on each platform is not tested here.
+[migrations.md](migrations.md) describes it. The job form on each platform is not tested here. The job runs with the same `AllowedHosts` and
+`InitialAdmin` settings as the service, because the host checks run before the command starts.
 
 The order is the same as on a VM. Run `db-migrate --status` as a job first; it only reads, so the
 service can stay up. If it exits 0 there is nothing to apply. If it exits 1, stop the service (stop

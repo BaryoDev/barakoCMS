@@ -61,6 +61,7 @@ run_suite() {
     # appsettings.json in it. See lib-ports.sh.
     env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
         ASPNETCORE_ENVIRONMENT=Production \
+        AllowedHosts="localhost;127.0.0.1" \
         ASPNETCORE_URLS="http://127.0.0.1:${APP_PORT}" \
         "$LISTEN_LOG_ENV" \
         ConnectionStrings__DefaultConnection="$CONN" \
@@ -79,11 +80,11 @@ dotnet publish BarakoCMS.Suite/BarakoCMS.Suite.csproj -c Release -o "$WORK/publi
     -clp:ErrorsOnly -p:RestoreLockedMode=true -nodeReuse:false
 
 step "starting postgres"
-PG_ID=$(docker run -d --cidfile "$WORK/pg.cid" --name "$PG" -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+PG_ID=$(docker run -d --cidfile "$WORK/pg.cid" --name "$PG" -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=barako-ci-not-an-example \
     -p "$(publish_spec "$PG_PORT" 5432)" postgres:16-alpine 2>"$WORK/docker-run.err") \
     || fail "$(publish_failure "$WORK/docker-run.err" "$PG_PORT" postgres)"
 PG_PORT=$(published_port "$PG_ID" 5432) || fail "cannot tell which host port postgres was published on"
-CONN="Host=127.0.0.1;Port=${PG_PORT};Database=${DB};Username=postgres;Password=postgres"
+CONN="Host=127.0.0.1;Port=${PG_PORT};Database=${DB};Username=postgres;Password=barako-ci-not-an-example"
 # Over TCP: the image's bootstrap server answers on the socket before the real one is up.
 for _ in $(seq 1 60); do docker exec "$PG" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && break; sleep 2; done
 docker exec "$PG" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 || fail "postgres never became ready"

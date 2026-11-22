@@ -1,0 +1,230 @@
+# Each service below misses or undoes exactly one thing.
+# check-compose-hardening.sh must report every service here.
+services:
+  no-read-only:
+    image: alpine:3
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+  no-cap-drop:
+    image: alpine:3
+    read_only: true
+    cap_drop: [NET_RAW]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+  no-new-privileges:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+  root-user:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: root
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+  no-mem-limit:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+  no-pids-limit:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    healthcheck:
+      test: ["CMD", "true"]
+  no-healthcheck:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+  restart-no-without-label:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    restart: "no"
+  one-shot-still-needs-read-only:
+    image: alpine:3
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    restart: "no"
+    labels:
+      org.barakocms.hardening.one-shot: "runs once and exits"
+  tmpfs-no-size:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+    tmpfs:
+      - /tmp:mode=1777
+  tmpfs-size-zero:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+    tmpfs:
+      - /tmp:mode=1777,size=0
+  tmpfs-size-negative:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+    tmpfs:
+      - /tmp:mode=1777,size=-1
+  privileged:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+    privileged: true
+  host-network:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+    network_mode: host
+  host-pid:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+    pid: host
+  cap-add-all:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+    cap_add: [ALL]
+  cap-add-sys-admin:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+    cap_add: [SYS_ADMIN]
+  seccomp-unconfined:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=unconfined
+  apparmor-unconfined:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+    security_opt:
+      - no-new-privileges:true
+      - apparmor=unconfined
+  docker-socket:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

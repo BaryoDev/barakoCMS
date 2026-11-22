@@ -20,7 +20,7 @@
 services:
   # 1. Reverse Proxy (Caddy) - Handles HTTPS & Routing
   caddy:
-    image: caddy:alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f # caddy:alpine
+    image: caddy:alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 # caddy:alpine
     container_name: barako-caddy
     restart: always
     ports:
@@ -41,10 +41,30 @@ services:
     networks:
       proxy:
         ipv4_address: ${PROXY_ADDRESS:-10.87.51.2}
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+    cap_drop: [ALL]
+    cap_add:
+      - NET_BIND_SERVICE # binds ports 80 and 443
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      org.barakocms.hardening.root: "the certificate and config volumes already exist owned by root on a running deployment, and a non-root user could not read them"
+    mem_limit: ${PROXY_MEM_LIMIT:-512m}
+    pids_limit: ${PROXY_PIDS_LIMIT:-256}
+    # The image has wget and no curl. The admin endpoint listens on loopback inside the container
+    # and answers as soon as Caddy is up, before any certificate is issued.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:2019/config/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   # 2. Database (PostgreSQL)
   postgres:
-    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a # pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:484e838076e04939d27d3e176e91c86eea96236126023be8d3059761122e579f # pgvector/pgvector:pg16
     container_name: barako-postgres
     restart: always
     environment:
@@ -79,13 +99,30 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+      - /var/run/postgresql:mode=1777,size=8m
+    cap_drop: [ALL]
+    cap_add:
+      - CHOWN # the entrypoint fixes the data directory's owner on a fresh volume
+      - DAC_OVERRIDE # initdb and the entrypoint write into directories they do not own
+      - FOWNER # initdb sets modes on files it created as root
+      - SETGID # gosu drops to the postgres group
+      - SETUID # gosu drops to the postgres user
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      org.barakocms.hardening.root: "the image entrypoint starts as root to prepare the data directory, then drops to the postgres user"
+    mem_limit: ${DB_MEM_LIMIT:-2g}
+    pids_limit: ${DB_PIDS_LIMIT:-512}
 
   # Creates pg_stat_statements once Postgres is up, then exits. A separate one-shot rather than a
   # script in docker-entrypoint-initdb.d, because that only runs on an empty volume and an existing
   # deployment would never get the extension. IF NOT EXISTS makes every later start a no-op. Nothing
   # depends on it, so if it fails the API still starts; its log says why.
   postgres-extensions:
-    image: postgres:16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36 # postgres:16-alpine
+    image: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d # postgres:16-alpine
     container_name: barako-postgres-extensions
     restart: "no"
     depends_on:
@@ -97,6 +134,15 @@ services:
       PGUSER: ${DB_USER:-postgres}
       PGPASSWORD: ${DB_PASSWORD}
     command: ["psql", "-v", "ON_ERROR_STOP=1", "-c", "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"]
+    user: "70:70"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${EXTENSIONS_MEM_LIMIT:-128m}
+    pids_limit: ${EXTENSIONS_PIDS_LIMIT:-64}
+    labels:
+      org.barakocms.hardening.one-shot: "creates the extension and exits, so it has nothing to check"
 
   # 3. Backend API
   #
@@ -132,10 +178,13 @@ services:
       # Host header is written by whoever sent the request, so without these a caller chooses both.
       # Passed through rather than assumed: quickstart has had them and this file did not, so the
       # runbook told operators to set variables that reached nothing. Defaults are today's behaviour
-      # exactly, an unset base URL (the feed and the OAuth start endpoints say which key to set) and
-      # any host, so an existing deployment is unchanged until somebody fills them in.
+      # exactly, an unset base URL (the feed and the OAuth start endpoints say which key to set).
+      # AllowedHosts defaults to DOMAIN_API, the host Caddy serves, plus the service name app, which
+      # callers inside the compose network use (the on-demand TLS ask in docs/deploy-in-production.md).
+      # The API refuses to start in Production when it accepts any host. Set ALLOWED_HOSTS
+      # (semicolon separated) to replace the list, keeping app in it if something calls it by name, or Security__AllowAnyHost=true to accept any host on purpose.
       - App__BaseUrl=${APP_BASE_URL:-}
-      - AllowedHosts=${ALLOWED_HOSTS:-*}
+      - AllowedHosts=${ALLOWED_HOSTS:-${DOMAIN_API};app}
       # The site the feed points at, which is the client's front end rather than this API. Preferred
       # over App__BaseUrl when set.
       - Feeds__SiteUrl=${FEEDS_SITE_URL:-}
@@ -145,6 +194,26 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    user: "1654:1654"
+    read_only: true
+    tmpfs:
+      # Upload buffering and the runtime's scratch files. The image root is read-only, so this and
+      # the home directory are the only places the API can write.
+      - /tmp:mode=1777,size=${API_TMP_SIZE:-512m}
+      - /home/app:uid=1654,gid=1654,mode=0700,size=16m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${API_MEM_LIMIT:-1g}
+    pids_limit: ${API_PIDS_LIMIT:-512}
+    # The image has no shell or curl, so the probe is built into the app. It asks this container's own
+    # listener, so no host or database is involved.
+    healthcheck:
+      test: ["CMD", "dotnet", "barakoCMS.dll", "--health-probe"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # 4. Nightly backup
   #
@@ -159,7 +228,7 @@ services:
   # The volume is its own, not Postgres's. A backup that dies with the thing it backs up is not a
   # backup, which is what the k8s CronJob used to do before it got the barako-backups PVC.
   db-backup:
-    image: postgres:16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36 # postgres:16-alpine
+    image: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d # postgres:16-alpine
     container_name: barako-db-backup
     restart: always
     # Postgres accepting connections is not the same as there being anything to back up, so
@@ -191,6 +260,27 @@ services:
       BACKUP_S3_ACCESS_KEY: ${BACKUP_S3_ACCESS_KEY:-}
       BACKUP_S3_SECRET_KEY: ${BACKUP_S3_SECRET_KEY:-}
     entrypoint: ["/bin/sh", "/scripts/backup-cron.sh"]
+    read_only: ${BACKUP_READ_ONLY:-true}
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    cap_drop: [ALL]
+    cap_add:
+      - SETUID # crond switches to the crontab's user before it runs the job
+      - SETGID # crond sets the group list the same way
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      org.barakocms.hardening.root: "busybox crond has to start as root to run a job"
+    mem_limit: ${BACKUP_MEM_LIMIT:-512m}
+    pids_limit: ${BACKUP_PIDS_LIMIT:-128}
+    # The job is a shell script, so the check is that crond is running. A failed backup is reported in
+    # the log, which the health of the process cannot show.
+    healthcheck:
+      test: ["CMD-SHELL", "pidof crond >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 networks:
   default: {}

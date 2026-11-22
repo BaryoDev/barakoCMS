@@ -40,6 +40,14 @@ spec:
       labels:
         app: barako-cms
     spec:
+      # The image runs as the user "app", which is uid 1654. runAsNonRoot needs the number, because
+      # the kubelet cannot tell a name from root.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654
+        runAsGroup: 1654
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: barako-cms
           # Pinned. With :latest plus IfNotPresent a node keeps whatever it cached, so two replicas
@@ -73,6 +81,18 @@ spec:
                 secretKeyRef:
                   name: barako-secrets
                   key: InitialAdmin__Password
+          # Read-only root. The API writes only to /tmp (upload buffering, the runtime's scratch
+          # files) and its home directory, so those two are the only writable paths.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: home
+              mountPath: /home/app
           resources:
             requests:
               memory: "128Mi"
@@ -80,6 +100,8 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
+          # The probes send a Host header because the pod address is not in AllowedHosts (01-configmap.yaml).
+          # Keep the value equal to the host listed there.
           # Boot does the Marten schema work before Kestrel binds, and then seeds roles and the
           # initial admin while readiness stays closed. The startup probe is what keeps liveness
           # from counting that against the pod: up to 150s here, then the probes below take over.
@@ -87,6 +109,9 @@ spec:
             httpGet:
               path: /health/live
               port: 8080
+              httpHeaders:
+                - name: Host
+                  value: barakocms.example.com
             periodSeconds: 5
             failureThreshold: 30
           # Process only. Nothing here fails because a dependency is down, so a failure means this
@@ -95,6 +120,9 @@ spec:
             httpGet:
               path: /health/live
               port: 8080
+              httpHeaders:
+                - name: Host
+                  value: barakocms.example.com
             periodSeconds: 30
             failureThreshold: 3
           # Database, disk and the startup seed. A failure takes this pod out of the Service and
@@ -103,5 +131,15 @@ spec:
             httpGet:
               path: /health/ready
               port: 8080
+              httpHeaders:
+                - name: Host
+                  value: barakocms.example.com
             periodSeconds: 10
             failureThreshold: 3
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 512Mi
+        - name: home
+          emptyDir:
+            sizeLimit: 16Mi

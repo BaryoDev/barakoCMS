@@ -13,7 +13,7 @@
 
 services:
   postgres:
-    image: postgres:16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36 # postgres:16-alpine
+    image: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d # postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-barakocms}
@@ -47,13 +47,30 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+      - /var/run/postgresql:mode=1777,size=8m
+    cap_drop: [ALL]
+    cap_add:
+      - CHOWN # the entrypoint fixes the data directory's owner on a fresh volume
+      - DAC_OVERRIDE # initdb and the entrypoint write into directories they do not own
+      - FOWNER # initdb sets modes on files it created as root
+      - SETGID # gosu drops to the postgres group
+      - SETUID # gosu drops to the postgres user
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      org.barakocms.hardening.root: "the image entrypoint starts as root to prepare the data directory, then drops to the postgres user"
+    mem_limit: ${DB_MEM_LIMIT:-2g}
+    pids_limit: ${DB_PIDS_LIMIT:-512}
 
   # Creates pg_stat_statements once Postgres is up, then exits. A separate one-shot rather than a
   # script in docker-entrypoint-initdb.d, because that only runs on an empty volume and an existing
   # deployment would never get the extension. IF NOT EXISTS makes every later start a no-op. Nothing
   # depends on it, so if it fails the API still starts; its log says why.
   postgres-extensions:
-    image: postgres:16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36 # postgres:16-alpine
+    image: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d # postgres:16-alpine
     restart: "no"
     depends_on:
       postgres:
@@ -64,16 +81,28 @@ services:
       PGUSER: ${DB_USER:-postgres}
       PGPASSWORD: ${DB_PASSWORD}
     command: ["psql", "-v", "ON_ERROR_STOP=1", "-c", "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"]
+    user: "70:70"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${EXTENSIONS_MEM_LIMIT:-128m}
+    pids_limit: ${EXTENSIONS_PIDS_LIMIT:-64}
+    labels:
+      org.barakocms.hardening.one-shot: "creates the extension and exits, so it has nothing to check"
 
   api:
-    # Barako = core + all modules. For the lean core swap in ghcr.io/baryodev/barako-cms-decaf:latest.
-    image: ghcr.io/baryodev/barako-cms:${BARAKO_TAG:-latest}
+    # Barako = core + all modules. For the lean core swap in ghcr.io/baryodev/barako-cms-decaf.
+    # BARAKO_TAG is required rather than defaulting to latest, because with a default the next
+    # `docker compose pull` is an unplanned major upgrade.
+    image: ghcr.io/baryodev/barako-cms:${BARAKO_TAG:?pin a version in .env, for example 5.9.0}
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     ports:
-      - "${API_PORT:-5005}:8080"
+      # Loopback unless API_BIND says otherwise. Set API_BIND=0.0.0.0 only with TLS in front.
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-5005}:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__DefaultConnection: "Host=postgres;Database=${DB_NAME:-barakocms};Username=${DB_USER:-postgres};Password=${DB_PASSWORD}"
@@ -102,9 +131,11 @@ services:
       # because the alternative is the caller's own Host header. See README, "Behind a domain".
       App__BaseUrl: ${APP_BASE_URL:-}
 
-      # Which Host headers this API answers to. "*" accepts any, which is fine on localhost and is
-      # the reason App__BaseUrl has to be set once there is a real domain in front of it.
-      AllowedHosts: ${ALLOWED_HOSTS:-*}
+      # Which Host headers this API answers to, semicolon separated. The API refuses to start in
+      # Production with "*", so the default is the host the quickstart is reached on. Put your
+      # domain here once there is one in front of it. To accept any host on purpose, set
+      # Security__AllowAnyHost=true.
+      AllowedHosts: ${ALLOWED_HOSTS:-localhost;127.0.0.1}
 
       # Behind a reverse proxy, name it here or every client shares one rate-limit bucket and the
       # audit log records the proxy. Left unset the app ignores X-Forwarded-For, which is the safe
@@ -139,6 +170,26 @@ services:
 
       # ── Device trust — require new devices to be approved via an emailed code. ──
       DeviceTrust__Enforce: ${DEVICETRUST_ENFORCE:-false}
+    user: "1654:1654"
+    read_only: true
+    tmpfs:
+      # Upload buffering and the runtime's scratch files. The image root is read-only, so this and
+      # the home directory are the only places the API can write.
+      - /tmp:mode=1777,size=${API_TMP_SIZE:-512m}
+      - /home/app:uid=1654,gid=1654,mode=0700,size=16m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${API_MEM_LIMIT:-1g}
+    pids_limit: ${API_PIDS_LIMIT:-512}
+    # The image has no shell or curl, so the probe is built into the app. It asks this container's own
+    # listener, so no host or database is involved.
+    healthcheck:
+      test: ["CMD", "dotnet", "barakoCMS.dll", "--health-probe"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # Nightly backup, using the same hardened script the production stack runs.
   #
@@ -150,7 +201,7 @@ services:
   # No container_name: compose derives one from the project, so two copies of this folder can run
   # on one host without their containers colliding.
   db-backup:
-    image: postgres:16-alpine@sha256:f4610795587492cd4fb887c2dc3de301b813278bb6f616992061141b5f15ac36 # postgres:16-alpine
+    image: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d # postgres:16-alpine
     restart: unless-stopped
     depends_on:
       postgres:
@@ -177,6 +228,27 @@ services:
       BACKUP_S3_ACCESS_KEY: ${BACKUP_S3_ACCESS_KEY:-}
       BACKUP_S3_SECRET_KEY: ${BACKUP_S3_SECRET_KEY:-}
     entrypoint: ["/bin/sh", "/scripts/backup-cron.sh"]
+    read_only: ${BACKUP_READ_ONLY:-true}
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    cap_drop: [ALL]
+    cap_add:
+      - SETUID # crond switches to the crontab's user before it runs the job
+      - SETGID # crond sets the group list the same way
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      org.barakocms.hardening.root: "busybox crond has to start as root to run a job"
+    mem_limit: ${BACKUP_MEM_LIMIT:-512m}
+    pids_limit: ${BACKUP_PIDS_LIMIT:-128}
+    # The job is a shell script, so the check is that crond is running. A failed backup is reported in
+    # the log, which the health of the process cannot show.
+    healthcheck:
+      test: ["CMD-SHELL", "pidof crond >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 volumes:
   pgdata:

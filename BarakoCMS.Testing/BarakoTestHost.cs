@@ -114,7 +114,8 @@ public class BarakoTestHost : IAsyncLifetime
         .WithImage(_options.PostgresImage)
         .WithDatabase("barako_module_tests")
         .WithUsername("postgres")
-        .WithPassword("postgres")
+        // Not "postgres": a host run outside Development refuses that password (DatabasePasswordGuard).
+        .WithPassword("barako-test-db-not-an-example")
         .Build();
 
     private static bool IsHostPortBindFailure(Exception e) =>
@@ -417,6 +418,9 @@ public class BarakoTestHost : IAsyncLifetime
             // environment, and the demo attendance content is not something any module needs.
             ["Swagger:Enabled"] = "true",
             ["Seed:DemoContent"] = "false",
+            // appsettings.json ships "*", which a Production host refuses. The test client sends
+            // localhost, and a Kestrel listener on the loopback address sends 127.0.0.1.
+            ["AllowedHosts"] = "localhost;127.0.0.1",
         };
 
         foreach (var (key, value) in _options.Settings)

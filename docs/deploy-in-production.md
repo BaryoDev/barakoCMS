@@ -43,6 +43,31 @@ no default, so the stack refuses to start rather than booting on a placeholder:
 - `BARAKO_TAG`, a published version, not `latest`
 - `DB_PASSWORD`, `JWT_KEY` (32 characters or more), `ADMIN_PASSWORD`
 
+The API refuses to start outside Development on any example secret this repository prints: the
+compose dev key, the keys in the quickstart and the docs, and the database passwords `postgres`,
+`change-me-to-a-strong-password` and the like. The message names the setting, never the value.
+
+Every service in `docker-compose.prod.yml` runs with a read-only root file system, all Linux
+capabilities dropped (Caddy adds back the one that binds ports 80 and 443, Postgres the five its
+entrypoint needs) and `no-new-privileges`. The API runs as a non-root user. Each service has a memory
+and a process cap, set from `.env` with generous defaults, listed at the end of `.env.prod.example`.
+Raise `API_MEM_LIMIT` before a large import. `scripts/check-compose-hardening.sh` fails CI when a
+service in any shipped compose file loses one of these.
+
+Compose cannot refuse a limit set to `0` or `-1`, and either one removes the cap. Check your own
+values before `docker compose up`:
+
+```bash
+bash scripts/check-compose-hardening.sh --env-file .env docker-compose.prod.yml
+```
+
+It resolves the file with your `.env` and fails on a missing or non-positive memory, process or
+tmpfs limit.
+
+The API container has no shell or curl, so its health check is the binary itself:
+`docker compose exec app dotnet barakoCMS.dll --health-probe /health/ready` exits 0 on a 2xx and 1
+otherwise, and without a path it asks `/health/live`.
+
 A missing one fails immediately and names itself:
 
 ```console
@@ -164,6 +189,9 @@ bucket, holds that name's answers at 429 (which Caddy reads as no) while it last
 
 A site proxy that issues certificates on demand, for barakoPress serving the client domains (the
 shipped `Caddyfile` here serves only `{$DOMAIN_API}` and stays as it is):
+
+The ask URL uses the service name, so `app` must be in `AllowedHosts` (the shipped
+`docker-compose.prod.yml` default lists it beside `DOMAIN_API`).
 
 ```caddyfile
 {

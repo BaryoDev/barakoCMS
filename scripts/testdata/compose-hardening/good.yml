@@ -1,0 +1,53 @@
+# Every service keeps every option. check-compose-hardening.sh must pass this file.
+services:
+  plain:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+  rooted-with-reason:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: root
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+    labels:
+      org.barakocms.hardening.root: "the entrypoint starts as root, then drops"
+  one-shot:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    restart: "no"
+    labels:
+      org.barakocms.hardening.one-shot: "runs once and exits"
+  with-tmpfs:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+    cap_add:
+      - NET_BIND_SERVICE
