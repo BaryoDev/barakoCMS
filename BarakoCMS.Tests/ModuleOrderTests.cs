@@ -171,7 +171,7 @@ public class ModuleOrderTests
         }).Build();
 
         // Declared dependency-last on purpose: registration order alone would run S3 first.
-        Host.AddBarakoCMS(new ServiceCollection(), config, m =>
+        Host.AddBarakoCMS(new ServiceCollection().AsDevelopmentHost(), config, m =>
         {
             // Discovery off, or the real Files and Files.S3 modules join the list and the fakes'
             // names collide with theirs.

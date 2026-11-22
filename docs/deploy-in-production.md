@@ -13,7 +13,7 @@ repository are for other jobs and say so in their headers:
 | --- | --- |
 | `docker-compose.prod.yml` | Production. Published images, Caddy and TLS, required secrets, nightly backup. |
 | `docker-compose.yml` | Local development. Builds from source, dev defaults. |
-| `docker-compose.hub.yml` | Local try-out of the published images. No TLS, localhost only. Needs `JWT_SECRET` and `DB_PASSWORD` set (`openssl rand -base64 48`). |
+| `docker-compose.hub.yml` | Local try-out of the published images. No TLS, localhost only. Runs the role job and connects as the app role. Needs `JWT_SECRET`, `DB_PASSWORD` and `DB_APP_PASSWORD` set (`openssl rand -base64 48`). |
 | `quickstart/docker-compose.yml` | Quickstart, and the worked example of every module's settings. Bring your own proxy. |
 
 ## What you need
@@ -364,8 +364,14 @@ Before the API starts, the `postgres-extensions` job runs `scripts/db-app-role.s
 creates the app role or updates it, sets its password, installs `pg_stat_statements` and gives the
 role ownership of the tables. The API waits for the job to finish, and does not start if the job
 fails: `docker compose logs postgres-extensions` says why. The quickstart does the same with
-`quickstart/scripts/db-app-role.sql`. `docker-compose.yml` and `docker-compose.hub.yml` are for
-development and stay on the owner role with no job.
+`quickstart/scripts/db-app-role.sql`, and so does `docker-compose.hub.yml`. `docker-compose.yml` is
+for development and stays on the owner role with no job.
+
+The API checks its own role at startup, before it touches the schema. Outside Development it refuses
+to start as a superuser, a role with `BYPASSRLS`, or a member of `rds_superuser`, `azure_pg_admin` or
+`cloudsqlsuperuser`. The error names the role and the reason. To run as a superuser on purpose, set
+`Database__AllowSuperuser=true`; the API logs one warning at each start. A blank or `false` value
+keeps the refusal, and so does any other value, such as `yes`.
 
 - Set `DB_APP_PASSWORD` in `.env`. The stack refuses to start without it, and the API refuses an
   example value. Keep it different from `DB_PASSWORD`.

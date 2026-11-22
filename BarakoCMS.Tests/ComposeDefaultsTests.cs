@@ -166,9 +166,9 @@ public class ComposeDefaultsTests
     /// </summary>
     /// <remarks>
     /// Swagger follows the environment when Swagger:Enabled is unset, and docker-compose.hub.yml
-    /// defaults the environment to Development, so the file people copy toward a host exposed the
-    /// whole API surface without anyone choosing it. Saying it explicitly means changing the
-    /// environment no longer changes what is published as a side effect.
+    /// reads the environment from ASPNETCORE_ENVIRONMENT, so setting it to Development would turn
+    /// the explorer on for the file people copy toward a host without anyone choosing it. Saying it
+    /// explicitly means changing the environment no longer changes what is published as a side effect.
     ///
     /// docker-compose.yml is not in this list on purpose. It builds from source, says LOCAL
     /// DEVELOPMENT ONLY at the top, and the explorer is the point there; it still sets the flag
@@ -183,7 +183,7 @@ public class ComposeDefaultsTests
             .SingleOrDefault(l => l.Contains("Swagger__Enabled"));
 
         setting.Should().NotBeNull(
-            "docker-compose.hub.yml defaults ASPNETCORE_ENVIRONMENT to Development, and Swagger "
+            "docker-compose.hub.yml takes ASPNETCORE_ENVIRONMENT from the operator, and Swagger "
           + "follows the environment when the flag is unset");
 
         setting.Should().NotContain(":-true",
@@ -245,6 +245,7 @@ public class ComposeDefaultsTests
     /// </remarks>
     [Theory]
     [InlineData("docker-compose.prod.yml", "scripts/db-app-role.sql")]
+    [InlineData("docker-compose.hub.yml", "scripts/db-app-role.sql")]
     [InlineData("quickstart/docker-compose.yml", "quickstart/scripts/db-app-role.sql")]
     public void Postgres_loads_pg_stat_statements_and_the_role_job_creates_it_on_every_start(string composeFile, string script)
     {
@@ -301,6 +302,36 @@ public class ComposeDefaultsTests
         production.Should().Contain("max_connections PG_MAX_CONNECTIONS", "100");
         production.Should().Contain("shared_buffers PG_SHARED_BUFFERS", "512MB");
         production.Should().Contain("jit PG_JIT", "off");
+    }
+
+    /// <summary>
+    /// The API waits for the role job to finish, and a stack without secret files requires the role's
+    /// password. The production file leaves the requirement to its SECRETS_AS_FILES switch, so it is
+    /// left out of the second check. The hub has no TLS or proxy, so the proxy checks do not apply to it.
+    /// </summary>
+    [Theory]
+    [InlineData("docker-compose.prod.yml")]
+    [InlineData("docker-compose.hub.yml")]
+    [InlineData("quickstart/docker-compose.yml")]
+    public void The_API_starts_after_the_role_job_has_completed(string composeFile)
+    {
+        var lines = Lines(composeFile).Select(l => l.Trim()).Where(l => !l.StartsWith('#')).ToArray();
+
+        lines.Should().Contain("condition: service_completed_successfully",
+            "{0}: the API must wait for the role job to finish", composeFile);
+    }
+
+    [Theory]
+    [InlineData("docker-compose.hub.yml")]
+    [InlineData("quickstart/docker-compose.yml")]
+    public void The_role_password_is_required(string composeFile)
+    {
+        var lines = Lines(composeFile).Select(l => l.Trim()).Where(l => !l.StartsWith('#')).ToArray();
+
+        lines.Should().Contain(l => l.StartsWith("DB_APP_PASSWORD: ${DB_APP_PASSWORD:?"),
+            "{0}: the role job must refuse to run without a password", composeFile);
+        lines.Should().Contain(l => l.Contains("Password=${DB_APP_PASSWORD:?"),
+            "{0}: the API connection must refuse to start without it", composeFile);
     }
 
     private static string Text(string composeFile) => string.Join('\n', Lines(composeFile));

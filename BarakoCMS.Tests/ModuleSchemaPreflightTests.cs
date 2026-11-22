@@ -114,7 +114,7 @@ public class ModuleSchemaPreflightTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IConfiguration>(config);
-        Host.AddBarakoCMS(services, config, modules);
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), config, modules);
 
         // The fixture sets ASPNETCORE_ENVIRONMENT=Development for the process, which picks
         // CreateOrUpdate inside AddBarakoCMS; IConfigureMarten runs after that and wins.

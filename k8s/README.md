@@ -5,8 +5,29 @@ app, an Ingress and a nightly backup CronJob.
 
 ```bash
 # edit 02-secret.yaml, 01-configmap.yaml, 05-deployment.yaml and 08-ingress.yaml first
-kubectl apply -f k8s/
+kubectl apply -f k8s/00-namespace.yaml -f k8s/01-configmap.yaml -f k8s/02-secret.yaml
+
+# the role script, from the repository file, so there is no second copy to keep in step
+kubectl create configmap barako-db-app-role -n barako-cms \
+  --from-file=db-app-role.sql=scripts/db-app-role.sql --dry-run=client -o yaml | kubectl apply -f -
+
+# Postgres, then the role Job (04), which waits for Postgres to answer
+kubectl apply -f k8s/03-postgres.yaml -f k8s/04-postgres-service.yaml -f k8s/04-role-job.yaml -f k8s/07-backup-cronjob.yaml
+kubectl wait -n barako-cms --for=condition=complete job/barako-db-app-role --timeout=10m
+
+# the app, once the role exists
+kubectl apply -f k8s/05-deployment.yaml -f k8s/06-service.yaml -f k8s/08-ingress.yaml
 ```
+
+The API connects as a database role without superuser, and refuses to start as a superuser outside
+Development. `04-role-job.yaml` creates that role, so the Deployment is applied only after the Job
+completes. If the Job fails, `kubectl logs -n barako-cms job/barako-db-app-role` says why. The
+Job and the files above also apply together with `kubectl apply -f k8s/` on a cluster you can
+afford to let the pods restart until the role exists.
+
+A finished Job is not run again until it is deleted. After changing `DB_APP_PASSWORD`, delete the
+Job (`kubectl delete job -n barako-cms barako-db-app-role`) and apply it again. Its logs go when
+the Job is removed, an hour after it finishes (`ttlSecondsAfterFinished`).
 
 `k8s/observability/` holds a Grafana dashboard and is deliberately outside that apply. It is not a
 Kubernetes manifest, and while it sat in this directory `kubectl apply -f k8s/` failed on it.
@@ -16,8 +37,9 @@ Kubernetes manifest, and while it sat in this directory `kubectl apply -f k8s/` 
 1. `01-configmap.yaml`. Set `AllowedHosts` to your public hostname. In Production the API refuses to
    start when it is `*` or empty. It takes a semicolon list if you serve more than one host.
    `Security__AllowAnyHost: "true"` accepts any host on purpose, if you really want that.
-2. `02-secret.yaml`. Replace every placeholder. The database password appears twice
-   (`POSTGRES_PASSWORD`, and inside `ConnectionStrings__DefaultConnection`) and both have to match.
+2. `02-secret.yaml`. Replace every placeholder. There are two database passwords and they differ.
+   `POSTGRES_PASSWORD` is the owner's. `DB_APP_PASSWORD` is the API's role, and it appears twice
+   (`DB_APP_PASSWORD`, and inside `ConnectionStrings__DefaultConnection`) and both have to match.
    Use sealed-secrets or external-secrets for anything real.
 3. `05-deployment.yaml`. The image tag is pinned. Bump it to the version you mean to run. Set the
    `Host` header on the startup, liveness and readiness probes to the same hostname as

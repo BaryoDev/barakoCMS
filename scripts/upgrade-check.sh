@@ -178,8 +178,11 @@ run_host() {
     #
     # HOST_EXEC=exec is for the backgrounded boot. `run_suite &` forks a subshell and $! names it,
     # not dotnet, so killing $! left the new host running through the rollback and after the script.
+    #
+    # Database__AllowSuperuser: a throwaway container in CI, which connects as postgres.
     ${HOST_EXEC:-} env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
         ASPNETCORE_ENVIRONMENT=Production \
+        Database__AllowSuperuser=true \
         ASPNETCORE_URLS="http://127.0.0.1:${NEW_BIND}" \
         AllowedHosts="localhost;127.0.0.1" \
         "$LISTEN_LOG_ENV" \
@@ -265,7 +268,11 @@ if ! docker exec "$PG" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
 fi
 
 step "creating a ${FROM_VERSION} database with data in it"
+# Database__AllowSuperuser: a throwaway container in CI, which connects as postgres. A from-version
+# that holds the superuser guard needs it; an older one ignores it. The later restart of this
+# container (docker start) keeps the same environment.
 OLD_ID=$(docker run -d --cidfile "$WORK/old.cid" --name "$OLD" --network "$NETWORK" \
+    -e Database__AllowSuperuser=true \
     -e ConnectionStrings__DefaultConnection="Host=${PG};Database=barako_cms;Username=postgres;Password=barako-ci-not-an-example" \
     -e JWT__Key="$JWT_KEY" \
     -e InitialAdmin__Username=admin -e InitialAdmin__Password="$ADMIN_PASSWORD" \

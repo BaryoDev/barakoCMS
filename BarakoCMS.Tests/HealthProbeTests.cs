@@ -181,7 +181,7 @@ public class HealthProbeTests
             ["HealthChecks:MaxPrivateMemoryMegabytes"] = ceilingMegabytes,
         }).Build();
         var services = new ServiceCollection();
-        Host.AddBarakoCMS(services, config, m => m.Discover = false);
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), config, m => m.Discover = false);
         await using var provider = services.BuildServiceProvider();
 
         var memory = provider.GetRequiredService<IOptions<HealthCheckServiceOptions>>()

@@ -89,9 +89,11 @@ docker exec "$PG_ID" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 || fail
 
 step "starting the API"
 start=$(now)
+# Database__AllowSuperuser: a throwaway container in CI, which connects as postgres.
 docker run -d --cidfile "$WORK/api.cid" --network "$NET" --cpus 2 --memory 1g \
     -p "$(publish_spec "" 8080)" \
     -e ASPNETCORE_ENVIRONMENT=Production \
+    -e Database__AllowSuperuser=true \
     -e AllowedHosts="localhost;127.0.0.1" \
     -e ConnectionStrings__DefaultConnection="Host=postgres;Database=barakocms;Username=postgres;Password=$DB_PASSWORD" \
     -e JWT__Key='perf-not-a-real-key-at-least-32-characters' \

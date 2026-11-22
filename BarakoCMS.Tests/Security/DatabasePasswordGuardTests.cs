@@ -19,7 +19,8 @@ public class DatabasePasswordGuardTests
         "change-me-to-a-strong-password",     // quickstart/.env.example
         "changeme-in-production",
         "local-only-password",
-        "REPLACE_THIS_WITH_REAL_PASSWORD",    // k8s/02-secret.yaml
+        "REPLACE_THIS_WITH_REAL_PASSWORD",    // k8s/02-secret.yaml, the owner
+        "REPLACE_THIS_WITH_A_DIFFERENT_APP_ROLE_PASSWORD", // k8s/02-secret.yaml, the API's role
     };
 
     private static string Connection(string password) =>

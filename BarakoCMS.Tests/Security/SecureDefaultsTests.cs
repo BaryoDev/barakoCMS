@@ -1,6 +1,12 @@
+using barakoCMS.Data;
+using barakoCMS.Extensions;
 using barakoCMS.Infrastructure.Security;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting.Internal;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace BarakoCMS.Tests.Security;
@@ -107,20 +113,6 @@ public class SecureDefaultsTests
         var act = () => HostFilteringGuard.Validate(Config(("AllowedHosts", "*")), isDevelopment: true);
 
         act.Should().NotThrow();
-    }
-
-    [Theory]
-    [InlineData("Production", "Development", false)]
-    [InlineData("Development", "Production", true)]
-    [InlineData(null, "Development", true)]
-    [InlineData(null, null, false)]
-    public void StartupGuards_TakeTheHostEnvironmentOverTheProcessVariable(
-        string? hostEnvironment, string? processEnvironment, bool development)
-    {
-        var configuration = Config(("environment", hostEnvironment));
-
-        barakoCMS.Extensions.ServiceCollectionExtensions.IsDevelopmentHost(configuration, processEnvironment)
-            .Should().Be(development);
     }
 
     [Theory]

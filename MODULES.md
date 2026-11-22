@@ -27,6 +27,7 @@ builder.Services.AddBarakoCMS(builder.Configuration);
 
 var app = builder.Build();
 app.UseBarakoCMS();
+await app.ApplyMartenSchemaAsync();       // creates the schema, after checking the database role
 await app.RunBarakoModuleSeedersAsync();  // runs each module's SeedAsync
 ```
 

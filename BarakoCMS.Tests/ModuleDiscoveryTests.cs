@@ -323,6 +323,17 @@ public class ModuleDiscoveryTests
     [Fact]
     public void Every_first_party_module_assembly_carries_the_attribute()
     {
+        // The domain holds only what earlier tests in this process happened to load, so every
+        // first-party assembly next to the test is loaded first and the scan does not depend on order.
+        var loaded = AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetName().Name).ToHashSet();
+        foreach (var path in Directory.GetFiles(AppContext.BaseDirectory, "BarakoCMS.*.dll"))
+        {
+            if (!loaded.Contains(Path.GetFileNameWithoutExtension(path)))
+            {
+                System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromAssemblyPath(path);
+            }
+        }
+
         var modules = AppDomain.CurrentDomain.GetAssemblies()
             .Where(a => a.GetName().Name?.StartsWith("BarakoCMS.", StringComparison.Ordinal) == true)
             .Where(a => a.GetTypes().Any(t => t is { IsAbstract: false, IsInterface: false }
@@ -381,7 +392,7 @@ public class ModuleDiscoveryTests
     {
         var services = new ServiceCollection();
 
-        Host.AddBarakoCMS(services, Config(), configureModules: null);
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), Config(), configureModules: null);
 
         RegisteredTypes(services).Should().Contain(typeof(DiscoverableProbeModule));
     }
@@ -391,7 +402,7 @@ public class ModuleDiscoveryTests
     {
         var services = new ServiceCollection();
 
-        Host.AddBarakoCMS(services, Config(), m =>
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), Config(), m =>
         {
             m.Discover = false;
             m.Add(new Explicit());
@@ -408,7 +419,7 @@ public class ModuleDiscoveryTests
         // the environment variable form of the same key.
         var services = new ServiceCollection();
 
-        Host.AddBarakoCMS(services, Config(("BarakoCMS:Modules:Discover", "false")), configureModules: null);
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), Config(("BarakoCMS:Modules:Discover", "false")), configureModules: null);
 
         RegisteredTypes(services).Should().BeEmpty();
     }
@@ -418,7 +429,7 @@ public class ModuleDiscoveryTests
     {
         var services = new ServiceCollection();
 
-        Host.AddBarakoCMS(services, Config(("BarakoCMS:Modules:Discover", "false")), m => m.Discover = true);
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), Config(("BarakoCMS:Modules:Discover", "false")), m => m.Discover = true);
 
         RegisteredTypes(services).Should().Contain(typeof(DiscoverableProbeModule));
     }
@@ -432,7 +443,7 @@ public class ModuleDiscoveryTests
     {
         var services = new ServiceCollection();
 
-        Host.AddBarakoCMS(services, Config(("BarakoCMS:Modules:Enabled", "Files")), configureModules: null);
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), Config(("BarakoCMS:Modules:Enabled", "Files")), configureModules: null);
 
         RegisteredTypes(services).Should().Equal(typeof(FilesModule));
         var catalogue = (ModuleCatalogue)services.Single(d => d.ServiceType == typeof(ModuleCatalogue)).ImplementationInstance!;

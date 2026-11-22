@@ -31,11 +31,12 @@ public interface IJwtMinter
 }
 
 /// <inheritdoc cref="IJwtMinter"/>
-public sealed class JwtMinter(IConfiguration config, TimeProvider clock) : IJwtMinter
+public sealed class JwtMinter(IConfiguration config, TimeProvider clock, Microsoft.Extensions.Hosting.IHostEnvironment? environment = null)
+    : IJwtMinter
 {
     public string Mint(string? audience, DateTime expiresAt, IEnumerable<Claim> claims)
     {
-        var key = JwtKeySource.Resolve(config);
+        var key = JwtKeySource.Resolve(config, Security.DevelopmentHost.Of(environment));
 
         // The same descriptor JwtBearer.CreateToken builds in FastEndpoints.Security 8.3.0: the key
         // as ASCII bytes (the encoding bearer validation uses), HS256, the claims in the order

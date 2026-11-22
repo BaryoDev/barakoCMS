@@ -159,7 +159,7 @@ public class DescribeDocumentTests
         }).Build();
         var services = new ServiceCollection();
 
-        Host.AddBarakoCMS(services, config, m =>
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), config, m =>
         {
             m.Discover = false;
             m.Add(new Alpha());

@@ -93,7 +93,7 @@ public class OnDemandDocumentRegistrationTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IConfiguration>(config);
-        Host.AddBarakoCMS(services, config, m => m.Discover = false);
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), config, m => m.Discover = false);
 
         // The fixture sets Development for the process, which picks CreateOrUpdate. A live site runs
         // CreateOnly, and IConfigureMarten runs after AddBarakoCMS, so this wins.

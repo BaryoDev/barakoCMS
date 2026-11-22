@@ -58,8 +58,10 @@ docker exec "$PG_ID" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 || fail
 step "starting the Suite with Swagger on"
 # The seeder stays off so the document describes the API rather than the demo data: a seeded
 # content type would add delivery paths that come and go with the seed, not with the code.
+# Database__AllowSuperuser: a throwaway container in CI, which connects as postgres.
 env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
     ASPNETCORE_ENVIRONMENT=Production \
+    Database__AllowSuperuser=true \
     AllowedHosts="localhost;127.0.0.1" \
     ASPNETCORE_URLS="http://127.0.0.1:0" \
     "$LISTEN_LOG_ENV" \

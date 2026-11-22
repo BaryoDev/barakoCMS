@@ -739,8 +739,13 @@ dotnet add package BarakoCMS.Email.Smtp
 builder.Services.AddBarakoCMS(builder.Configuration);
 var app = builder.Build();
 app.UseBarakoCMS();
+await app.ApplyMartenSchemaAsync();
 await app.RunBarakoModuleSeedersAsync();
 ```
+
+`ApplyMartenSchemaAsync` creates the schema, and before that it checks the database role: outside
+Development the host refuses to start as a superuser, unless `Database__AllowSuperuser=true`. A host
+that leaves the call out has the same check run as it starts.
 
 `AddBarakoCMS` finds every module in the application's dependency context, and
 `BarakoCMS:Modules:Enabled` decides which of them run (`BarakoCMS__Modules__Enabled=Files,Email.Smtp`).

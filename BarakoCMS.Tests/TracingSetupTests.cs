@@ -24,7 +24,7 @@ public class TracingSetupTests
     {
         var services = new ServiceCollection();
 
-        Host.AddBarakoCMS(services, HostSettings(), modules => modules.Discover = false);
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), HostSettings(), modules => modules.Discover = false);
 
         services.Should().NotBeEmpty("AddBarakoCMS registered the rest of the host");
         services.Should().NotContain(d => d.ServiceType == typeof(TracerProvider),
@@ -40,7 +40,7 @@ public class TracingSetupTests
         var services = new ServiceCollection();
 
         Host.AddBarakoCMS(
-            services, HostSettings((TracingOptions.EndpointKey, Endpoint)), modules => modules.Discover = false);
+            services.AsDevelopmentHost(), HostSettings((TracingOptions.EndpointKey, Endpoint)), modules => modules.Discover = false);
 
         services.Where(d => d.ServiceType == typeof(TracerProvider)).Should().HaveCount(1);
         services.Should().Contain(

@@ -411,6 +411,7 @@ jobs:
         env:
           BARAKO_TAG: ci
           DB_PASSWORD: ci-not-a-real-password
+          DB_APP_PASSWORD: ci-not-a-real-app-password
           JWT_SECRET: ci-not-a-real-key-at-least-32-characters
         run: |
           set -euo pipefail

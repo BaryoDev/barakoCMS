@@ -38,7 +38,7 @@ public class SuiteCompositionTests
         foreach (var (key, value) in settings) pairs[key] = value;
 
         var services = new ServiceCollection();
-        Host.AddBarakoCMS(services, new ConfigurationBuilder().AddInMemoryCollection(pairs).Build(), configureModules: null);
+        Host.AddBarakoCMS(services.AsDevelopmentHost(), new ConfigurationBuilder().AddInMemoryCollection(pairs).Build(), configureModules: null);
         return services;
     }
 

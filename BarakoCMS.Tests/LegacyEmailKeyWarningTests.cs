@@ -37,7 +37,7 @@ public class LegacyEmailKeyWarningTests
         var sink = new CollectingSink();
         using (sink.Installed())
         {
-            Host.AddBarakoCMS(services, new ConfigurationBuilder().AddInMemoryCollection(pairs).Build(),
+            Host.AddBarakoCMS(services.AsDevelopmentHost(), new ConfigurationBuilder().AddInMemoryCollection(pairs).Build(),
                 m => m.Discover = false);
         }
         return sink.Events.ToList();

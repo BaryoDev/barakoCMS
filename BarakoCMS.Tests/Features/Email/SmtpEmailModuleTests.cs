@@ -38,7 +38,7 @@ public class SmtpEmailModuleTests
         var services = new ServiceCollection();
         // Discovery off: with it on, the single-registration claim below would also count whatever
         // other provider module this project references.
-        services.AddBarakoCMS(config, m => { m.Discover = false; m.Add(new SmtpEmailModule()); });
+        services.AsDevelopmentHost().AddBarakoCMS(config, m => { m.Discover = false; m.Add(new SmtpEmailModule()); });
 
         var registrations = services.Where(d => d.ServiceType == typeof(IEmailService)).ToList();
 
