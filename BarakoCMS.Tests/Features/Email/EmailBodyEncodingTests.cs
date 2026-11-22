@@ -207,7 +207,8 @@ public class EmailBodyEncodingTests
         var runner = new WorkflowRunner(
             _factory.Services,
             _factory.Services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<WorkflowRunner>>(),
-            _factory.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>());
+            _factory.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>(),
+            _factory.Services.GetRequiredService<barakoCMS.Features.Workflows.WorkflowMetrics>());
 
         List<RecordingEmailService.Sent> sent = [];
         for (var i = 0; i < 100 && sent.Count == 0; i++)

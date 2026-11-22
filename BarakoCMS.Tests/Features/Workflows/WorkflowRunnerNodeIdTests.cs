@@ -46,8 +46,10 @@ public class WorkflowRunnerNodeIdTests
     public void One_runner_reads_the_same_id_every_time_and_another_runner_does_not()
     {
         var config = new ConfigurationBuilder().Build();
-        var one = new WorkflowRunner(null!, NullLogger<WorkflowRunner>.Instance, config);
-        var other = new WorkflowRunner(null!, NullLogger<WorkflowRunner>.Instance, config);
+        var one = new WorkflowRunner(null!, NullLogger<WorkflowRunner>.Instance, config,
+            new barakoCMS.Features.Workflows.WorkflowMetrics(Prometheus.Metrics.NewCustomRegistry()));
+        var other = new WorkflowRunner(null!, NullLogger<WorkflowRunner>.Instance, config,
+            new barakoCMS.Features.Workflows.WorkflowMetrics(Prometheus.Metrics.NewCustomRegistry()));
 
         one.Node.Should().NotBeNullOrEmpty();
         one.Node.Should().Be(one.Node);

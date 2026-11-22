@@ -239,7 +239,8 @@ public class TemplateReferenceAndLinkTests
         var workflowRunner = new WorkflowRunner(
             _fixture.Services,
             _fixture.Services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<WorkflowRunner>>(),
-            _fixture.Services.GetRequiredService<IConfiguration>());
+            _fixture.Services.GetRequiredService<IConfiguration>(),
+            _fixture.Services.GetRequiredService<barakoCMS.Features.Workflows.WorkflowMetrics>());
 
         List<RecordingEmailService.Sent> sent = [];
         for (var i = 0; i < 100 && sent.Count == 0; i++)

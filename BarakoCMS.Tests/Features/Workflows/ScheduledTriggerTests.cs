@@ -328,7 +328,7 @@ public class ScheduledTriggerTests
     private async Task<int> SweepAsync(DateTime now, Microsoft.Extensions.Configuration.IConfiguration? config = null)
     {
         await using var session = _harness.Store.LightweightSession();
-        var queue = new WorkflowRunQueue(session, NullLogger<WorkflowRunQueue>.Instance);
+        var queue = new WorkflowRunQueue(session, NullLogger<WorkflowRunQueue>.Instance, new WorkflowMetrics(Prometheus.Metrics.NewCustomRegistry()));
         return await ScheduleSweep.RunAsync(session, queue, now, Ct, config);
     }
 

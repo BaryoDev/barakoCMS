@@ -163,7 +163,8 @@ public class WorkflowMetricsTests
     public void A_failing_backlog_count_writes_one_warning_with_the_reason_and_no_exception()
     {
         var logger = new CapturingLogger();
-        var runner = new WorkflowRunner(new ServiceCollection().BuildServiceProvider(), logger, Config(null));
+        var runner = new WorkflowRunner(new ServiceCollection().BuildServiceProvider(), logger, Config(null),
+            new barakoCMS.Features.Workflows.WorkflowMetrics(Prometheus.Metrics.NewCustomRegistry()));
 
         runner.NoteBacklogFailure("NpgsqlException").Should().BeTrue();
         runner.NoteBacklogFailure("NpgsqlException").Should().BeFalse();

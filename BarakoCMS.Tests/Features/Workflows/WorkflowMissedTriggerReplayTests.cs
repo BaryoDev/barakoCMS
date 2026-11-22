@@ -204,7 +204,7 @@ public class WorkflowMissedTriggerReplayTests
             var gate = new BarrierListener(barrier, () => Interlocked.Increment(ref reached));
             await using var session = Store.LightweightSession(tenant);
             session.Listeners.Add(gate);
-            return await new WorkflowRunQueue(session, NullLogger<WorkflowRunQueue>.Instance)
+            return await new WorkflowRunQueue(session, NullLogger<WorkflowRunQueue>.Instance, new WorkflowMetrics(Prometheus.Metrics.NewCustomRegistry()))
                 .EnqueueAsync(content, WorkflowEvents.Created, events[0].Sequence, Ct);
         }
 
@@ -235,7 +235,7 @@ public class WorkflowMissedTriggerReplayTests
         }
 
         await using var session = Store.LightweightSession(tenant);
-        var queued = await new WorkflowRunQueue(session, NullLogger<WorkflowRunQueue>.Instance)
+        var queued = await new WorkflowRunQueue(session, NullLogger<WorkflowRunQueue>.Instance, new WorkflowMetrics(Prometheus.Metrics.NewCustomRegistry()))
             .EnqueueAsync(content, WorkflowEvents.Created, events[0].Sequence, Ct);
 
         queued.Should().Be(1, "only the second workflow's run was new");
@@ -309,7 +309,7 @@ public class WorkflowMissedTriggerReplayTests
     {
         await using var session = Store.LightweightSession(tenant);
         return await MissedTriggerSweep.RunAsync(
-            session, new WorkflowRunQueue(session, NullLogger<WorkflowRunQueue>.Instance), null, Ct);
+            session, new WorkflowRunQueue(session, NullLogger<WorkflowRunQueue>.Instance, new WorkflowMetrics(Prometheus.Metrics.NewCustomRegistry())), null, Ct);
     }
 
     private async Task<Content> LoadAsync(string tenant, Guid id)

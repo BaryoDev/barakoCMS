@@ -158,10 +158,8 @@ public class JobRunSpanTests
             new JobOptions(),
             NullLogger<MartenJobStorageProvider>.Instance,
             gate,
-            _fixture.Services.GetRequiredService<IConfiguration>())
-        {
-            Metrics = new JobMetrics(Prometheus.Metrics.NewCustomRegistry()),
-        };
+            _fixture.Services.GetRequiredService<IConfiguration>(),
+            new JobMetrics(Prometheus.Metrics.NewCustomRegistry()));
     }
 
     private async Task<JobRecord> StoreAsync(string queue, string? tenant)
