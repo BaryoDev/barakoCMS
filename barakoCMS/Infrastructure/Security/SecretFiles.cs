@@ -10,7 +10,7 @@ namespace barakoCMS.Infrastructure.Security;
 /// <remarks>
 /// One file per key, named with <c>__</c> as the section separator: <c>/run/secrets/JWT__Key</c> is
 /// <c>JWT:Key</c>. The values are added after every other source, so a secret file wins over an
-/// environment variable or an appsettings value for the same key. The startup guards read
+/// environment variable, a command-line argument and an appsettings value for the same key. The startup guards read
 /// configuration, so they apply to a file value the same as to any other.
 ///
 /// The framework's key-per-file provider removes one trailing newline. <c>echo key &gt; file</c>

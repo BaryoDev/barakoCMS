@@ -311,8 +311,8 @@ configuration key with `__` for the section separator, so `/run/secrets/JWT__Key
 missing directory is fine. A file the API cannot read stops startup with a message that names the
 file and never its content.
 
-Secret files are read after every other source, so a file wins over an environment variable or an
-`appsettings` value for the same key. The startup guards read the same configuration, so an example
+Secret files are read after every other source, so a file wins over an environment variable, a
+command-line argument and an `appsettings` value for the same key. The startup guards read the same configuration, so an example
 key or password in a file is refused outside Development exactly as it is in `.env`. Trailing
 carriage returns and line feeds are removed from the value, so `echo key > file` and an editor that
 adds a final newline both give the key you typed. Nothing else is trimmed.
@@ -320,14 +320,15 @@ adds a final newline both give the key you typed. Nothing else is trimmed.
 To use it with the production stack, add the override with a second `-f` and set
 `SECRETS_AS_FILES=true`, in `.env` or the shell. That variable only lets the required `JWT_KEY`,
 `ADMIN_PASSWORD` and `DB_PASSWORD` checks in `docker-compose.prod.yml` pass while those three are
-unset; the override blanks them in the containers. Everything else in `.env` still applies.
+unset; the override blanks them in the containers. Without the override the variable gives the stack
+no secrets, so Postgres will not initialise and the API will refuse to start. Everything else in `.env` still applies.
 
 ```bash
 mkdir secrets
-openssl rand -base64 48 | tr -d '\n' > secrets/jwt_key
-printf '%s' 'a-long-admin-password' > secrets/admin_password
-printf '%s' 'a-long-database-password' > secrets/db_password
-printf '%s' 'Host=postgres;Database=barako_cms;Username=postgres;Password=a-long-database-password' > secrets/db_connection_string
+openssl rand -hex 24 | tr -d '\n' > secrets/jwt_key
+openssl rand -hex 24 | tr -d '\n' > secrets/admin_password
+openssl rand -hex 24 | tr -d '\n' > secrets/db_password
+printf 'Host=postgres;Database=barako_cms;Username=postgres;Password=%s' "$(cat secrets/db_password)" > secrets/db_connection_string
 sudo chown 1654:1654 secrets/*
 sudo chmod 0440 secrets/*
 SECRETS_AS_FILES=true docker compose -f docker-compose.prod.yml -f docker-compose.secrets.yml up -d
@@ -340,7 +341,7 @@ and the backup job, which join group 1654 to read them. `secrets/` is in `.gitig
 The API takes its database password inside `ConnectionStrings:DefaultConnection` and has no separate
 password key, so the connection string is the secret (`db_connection_string`, mounted as
 `ConnectionStrings__DefaultConnection`). Keep its password the same as `db_password`, which is the
-one Postgres sets. Without the override nothing changes: `docker-compose.prod.yml` declares no
+one Postgres sets, and its database name and user the same as `DB_NAME` and `DB_USER` if you set those. Without the override nothing changes: `docker-compose.prod.yml` declares no
 secrets, because compose refuses to start when a declared secret file is missing.
 
 ## Postgres image

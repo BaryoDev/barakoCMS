@@ -75,7 +75,7 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-barako_cms}
       POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-${SECRETS_AS_FILES:?set DB_PASSWORD in .env, do not run production on the default}}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-}
     volumes:
       - postgres_prod_data:/var/lib/postgresql/data
     # Sized for a 2 GB VM that also runs the API, and each value can be changed from .env. The
@@ -162,7 +162,7 @@ services:
     restart: always
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - ConnectionStrings__DefaultConnection=Host=postgres;Database=${DB_NAME:-barako_cms};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=${DB_NAME:-barako_cms};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-${SECRETS_AS_FILES:?set DB_PASSWORD in .env, do not run production on the default}}
       # Refuses to start below 32 characters, deliberately.
       - JWT__Key=${JWT_KEY:-${SECRETS_AS_FILES:?set JWT_KEY in .env to at least 32 random characters}}
       # The console's origin plus your own site. A browser request from an origin that is not

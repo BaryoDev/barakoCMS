@@ -243,6 +243,22 @@ public class SecretFilesShippedFilesTests
     }
 
     [Fact]
+    public void The_switch_appears_only_in_the_apps_three_secret_lines_and_every_other_password_is_the_plain_variable()
+    {
+        var lines = Read("docker-compose.prod.yml").Split('\n').Select(l => l.Trim()).Where(l => !l.StartsWith('#')).ToList();
+
+        var withSwitch = lines.Where(l => l.Contains("SECRETS_AS_FILES")).ToList();
+        withSwitch.Should().HaveCount(3);
+        withSwitch.Should().OnlyContain(l => l.Contains("JWT__Key=") || l.Contains("InitialAdmin__Password=")
+                                          || l.Contains("ConnectionStrings__DefaultConnection="),
+            "a database password that can resolve to the switch's own value initialises Postgres with it");
+
+        var passwords = lines.Where(l => l.StartsWith("POSTGRES_PASSWORD:") || l.StartsWith("PGPASSWORD:")).ToList();
+        passwords.Should().HaveCount(3, "postgres, postgres-extensions and db-backup");
+        passwords.Should().OnlyContain(l => l.EndsWith("${DB_PASSWORD:-}"));
+    }
+
+    [Fact]
     public void The_secrets_folder_is_ignored_by_git()
     {
         Read(".gitignore").Split('\n').Select(l => l.Trim()).Should().Contain("/secrets/");
