@@ -451,7 +451,7 @@ public static class ServiceCollectionExtensions
     /// The connection and header limits Kestrel runs with, set on purpose so a fresh production start
     /// does not rely on framework defaults that can change. Each is a default in code and
     /// <c>Kestrel:Limits:*</c> overrides it: the section is bound over these values, so the
-    /// configuration wins. See docs/configuration.md.
+    /// configuration wins. See docs/deploy-in-production.md.
     /// </summary>
     internal static void ApplyKestrelLimits(
         Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerLimits limits, IConfiguration section)

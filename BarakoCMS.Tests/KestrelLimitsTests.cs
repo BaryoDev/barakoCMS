@@ -29,6 +29,7 @@ public class KestrelLimitsTests
     [Fact]
     public void Kestrel_SetsHeaderSizeAndCount()
     {
+        // These match the framework values, so this pins them rather than failing on master.
         var limits = LimitsOf(_factory.Services);
         limits.MaxRequestHeadersTotalSize.Should().Be(32 * 1024);
         limits.MaxRequestHeaderCount.Should().Be(100);
@@ -37,6 +38,7 @@ public class KestrelLimitsTests
     [Fact]
     public void Kestrel_SetsKeepAliveTimeout()
     {
+        // This matches the framework value, so this pins it rather than failing on master.
         LimitsOf(_factory.Services).KeepAliveTimeout.Should().Be(TimeSpan.FromSeconds(130),
             "longer than a proxy's 120 second idle timeout");
     }
@@ -54,7 +56,7 @@ public class KestrelLimitsTests
     [Fact]
     public void Kestrel_LimitsComeFromConfigurationWhenSet()
     {
-        var host = _factory.WithWebHostBuilder(builder =>
+        using var host = _factory.WithWebHostBuilder(builder =>
         {
             builder.UseSetting("Kestrel:Limits:RequestHeadersTimeout", "00:00:07");
             builder.UseSetting("Kestrel:Limits:MaxRequestHeaderCount", "55");
