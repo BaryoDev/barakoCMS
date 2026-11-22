@@ -28,7 +28,7 @@ public class ViewerTokenAuthoringRoutesTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private string Viewer() =>
-        ViewerToken.Create(_factory.Services.GetRequiredService<IConfiguration>(), Tenant.DefaultSlug, "member-1").Token;
+        ViewerToken.Create(_factory.Services.GetRequiredService<barakoCMS.Infrastructure.Auth.IJwtMinter>(), _factory.Services.GetRequiredService<IConfiguration>(), Tenant.DefaultSlug, "member-1").Token;
 
     private async Task SeedMembersEntryAsync()
     {

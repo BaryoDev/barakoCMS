@@ -235,7 +235,7 @@ public class DeliveryCacheClassTests(IntegrationTestFixture fixture)
         mint.StatusCode.Should().Be(HttpStatusCode.OK, await mint.Content.ReadAsStringAsync(Ct));
         var shareKey = (await mint.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("token").GetString()!;
         var config = fixture.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
-        var jwt = barakoCMS.Infrastructure.Preview.PreviewToken.Create(config, tenant, type, "wip", draftId).Token;
+        var jwt = barakoCMS.Infrastructure.Preview.PreviewToken.Create(fixture.Services.GetRequiredService<barakoCMS.Infrastructure.Auth.IJwtMinter>(), config, tenant, type, "wip", draftId).Token;
 
         foreach (var token in new[] { shareKey, jwt })
         {

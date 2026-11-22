@@ -1,4 +1,3 @@
-#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using FastEndpoints;
 using static BarakoCMS.Tests.ModuleSchemaTestHelper;
 using barakoCMS.Modules;
@@ -33,9 +32,8 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         .Build();
 
     /// <summary>
-    /// The key this host signs and validates with. FastEndpoints validates through one process-wide
-    /// key, overwritten by whichever host starts last, so any other host started in this test
-    /// process (a <c>BarakoTestHost</c>, say) has to use the same one.
+    /// The key this host signs and validates with. Each host now validates with the key from its own
+    /// configuration (#1408), so a host that sets another is only reached with a token signed for it.
     /// </summary>
     public const string JwtKey = "test-super-secret-key-that-is-at-least-32-chars-long";
 
@@ -230,7 +228,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     /// <remarks>
     /// <c>MapFastEndpoints</c> sets a static <c>ServiceResolver.Instance</c> to the provider of each
     /// host that maps endpoints, so the last host started owns it. Disposing that host leaves the
-    /// static on a disposed provider, and <c>JwtBearer.CreateToken</c> and every other lookup made
+    /// static on a disposed provider, and every lookup through it made
     /// outside a request then throws <see cref="ObjectDisposedException"/>. That is the reason these
     /// hosts were never disposed. <see cref="FastEndpointsResolver.RepairIfDisposed"/> moves the
     /// static to the newest host still up (this fixture's own at the latest), which is what it
@@ -561,17 +559,6 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             services.RemoveAll<BarakoCMS.AI.IEmbeddingClient>();
             services.AddSingleton<BarakoCMS.AI.IEmbeddingClient, FakeEmbeddingClient>();
 
-            // Accounting: registers its content lifecycle hooks (the balance invariant and the
-            // chart-of-accounts rules), so the generic /api/contents endpoint can be tested with
-            // real domain rules attached — the whole point of modelling accounting as content.
-            new BarakoCMS.Accounting.AccountingModule().ConfigureServices(services, ctx.Configuration);
-            // The host registers a module's workflow actions right after its services; do the same so
-            // the workflow validator and the runner know Accounting.PostJournal and Accounting.Reverse.
-            var accountingModule = new BarakoCMS.Accounting.AccountingModule();
-            accountingModule.ConfigureWorkflowActions(
-                new barakoCMS.Features.Workflows.ModuleWorkflowActionRegistry().For(services, accountingModule));
-            services.ConfigureMarten(opts => ConfigureVia(new BarakoCMS.Accounting.AccountingModule(), opts));
-
             // The fixture module: a capability, a content hook and a gated endpoint for the tests
             // of core mechanisms that need a module and not a domain.
             new BarakoCMS.Testing.Fixture.FixtureModule().ConfigureServices(services, ctx.Configuration);
@@ -670,7 +657,6 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     [
         typeof(BarakoCMS.Files.FilesModule).Assembly,
         typeof(BarakoCMS.AI.AiModule).Assembly,
-        typeof(BarakoCMS.Accounting.AccountingModule).Assembly,
         typeof(BarakoCMS.Testing.Fixture.FixtureModule).Assembly,
         typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
         typeof(BarakoCMS.Pages.PagesModule).Assembly,

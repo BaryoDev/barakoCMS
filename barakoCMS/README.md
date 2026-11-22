@@ -39,7 +39,6 @@ Optional packages, each installable on its own:
 
 | Package | Adds |
 |---|---|
-| `BarakoCMS.Accounting` | Double-entry ledger. Deprecated, removed in a later release |
 | `BarakoCMS.AI` | Semantic search, self-hosted embeddings |
 | `BarakoCMS.Diagnostics` | Browser error capture |
 | `BarakoCMS.Email.Smtp` | Transactional email over any SMTP relay |

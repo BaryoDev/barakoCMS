@@ -12,8 +12,8 @@ namespace barakoCMS.Infrastructure.Serialization;
 /// Two problems this fixes, both verified against a real Marten round-trip:
 ///
 /// 1. <b>Money silently became <c>double</c>.</b> Storing <c>1234.56m</c> read back as
-///    <see cref="double"/>. Survivable for a single value, but summing thousands of them — exactly
-///    what a ledger balance does — accumulates binary floating-point drift. An accounting total that
+///    <see cref="double"/>. Survivable for a single value, but summing thousands of them (exactly
+///    what a ledger balance does) accumulates binary floating-point drift. A money total that
 ///    is plausible but wrong is the worst failure mode in this codebase.
 ///
 /// 2. <b>Depth-inconsistent types.</b> Only the top level was unwrapped into CLR primitives; anything

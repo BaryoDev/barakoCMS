@@ -6,7 +6,7 @@ namespace barakoCMS.Modules;
 /// <remarks>
 /// <c>GET /api/modules</c> used to read the <see cref="IBarakoModule"/> singletons, which only ever
 /// held the modules that ran. A module switched off by <c>BarakoCMS:Modules:Enabled</c> is still
-/// present in the build, and an operator asking "is Accounting off, or not installed" needs the two
+/// present in the build, and an operator asking "is Files off, or not installed" needs the two
 /// cases told apart. This records both.
 ///
 /// Internal: it is how core answers one endpoint, not part of the module contract.

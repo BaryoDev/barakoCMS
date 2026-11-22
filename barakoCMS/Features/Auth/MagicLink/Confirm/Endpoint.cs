@@ -21,7 +21,8 @@ internal class Endpoint(
     IDeviceGate deviceGate,
     TenantContext tenant,
     ITokenIssuer tokenIssuer,
-    IMfaService mfa) : Endpoint<MagicLinkConfirmRequest, MagicLinkConfirmResponse>
+    IMfaService mfa,
+    IJwtMinter minter) : Endpoint<MagicLinkConfirmRequest, MagicLinkConfirmResponse>
 {
     private const string Refused = "Invalid or expired link.";
 
@@ -65,7 +66,7 @@ internal class Endpoint(
         if (await mfa.IsEnabledAsync(user.Id, ct))
         {
             if (!await TrySaveAsync(ct)) { ThrowError(Refused); return; }
-            var (challenge, _) = MfaChallengeToken.Create(config, user.Id, null, "link");
+            var (challenge, _) = MfaChallengeToken.Create(minter, config, user.Id, null, "link");
             await Send.ResponseAsync(new MagicLinkConfirmResponse { RequiresMfa = true, MfaChallengeToken = challenge });
             return;
         }

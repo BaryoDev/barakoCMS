@@ -72,9 +72,8 @@ public class RoleGrantTests
 
     /// <summary>Roles something constructs, wherever it lives.</summary>
     /// <remarks>
-    /// Deliberately not just <c>DataSeeder</c>. "Accountant" is granted by the Accounting module and
-    /// seeded by the Accounting module, which is correct and would look like a violation to a check
-    /// that only knew about the core seeder. A module that grants a role it also creates is exactly
+    /// Deliberately not just <c>DataSeeder</c>. A role a module grants and also seeds
+    /// is correct and would look like a violation to a check that only knew about the core seeder. A module that grants a role it also creates is exactly
     /// the pattern this should permit.
     /// </remarks>
     private static readonly Regex Seeded = new(@"Name\s*=\s*""([A-Za-z][A-Za-z0-9_]*)""", RegexOptions.Compiled);

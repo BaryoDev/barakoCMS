@@ -73,7 +73,7 @@ try
         // because of something optional.
         try
         {
-            await app.RunBarakoModuleSeedersAsync(); // module baseline data (accounting accounts, etc.)
+            await app.RunBarakoModuleSeedersAsync(); // module baseline data
         }
         catch (AggregateException ex)
         {

@@ -1,7 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using FastEndpoints.Security;
 using Microsoft.IdentityModel.Tokens;
 
 namespace barakoCMS.Infrastructure.Auth.Mfa;
@@ -29,45 +28,41 @@ public static class MfaChallengeToken
 
     private static string Audience(IConfiguration config) => (config["JWT:Audience"] ?? string.Empty) + ":mfa";
 
-    public static (string Token, DateTime ExpiresAt) Create(IConfiguration config, Guid userId) =>
-        Create(config, userId, null);
+    public static (string Token, DateTime ExpiresAt) Create(IJwtMinter minter, IConfiguration config, Guid userId) =>
+        Create(minter, config, userId, null);
 
     /// <summary>
-    /// As <see cref="Create(IConfiguration, Guid)"/>, carrying the roles an external sign-in's claims
+    /// As <see cref="Create(IJwtMinter, IConfiguration, Guid)"/>, carrying the roles an external sign-in's claims
     /// earned, to be granted once the second factor passes. The token is signed, so the client
     /// cannot add to the list, and it expires with the challenge. Roles are checked again at
     /// verify, not trusted from here. The grant is given a fresh <see cref="PendingExternalGrant.Id"/>
     /// here, which verify records as spent with the grant, so one challenge grants at most once.
     /// </summary>
-    public static (string Token, DateTime ExpiresAt) Create(IConfiguration config, Guid userId, PendingExternalGrant? grant) =>
-        Create(config, userId, grant, null);
+    public static (string Token, DateTime ExpiresAt) Create(IJwtMinter minter, IConfiguration config, Guid userId, PendingExternalGrant? grant) =>
+        Create(minter, config, userId, grant, null);
 
     /// <summary>
     /// As above, naming the first factor (<c>password</c>, <c>code</c>, <c>link</c> or
     /// <c>social:&lt;provider&gt;</c>) so the session that verify starts records how it began.
     /// </summary>
     public static (string Token, DateTime ExpiresAt) Create(
-        IConfiguration config, Guid userId, PendingExternalGrant? grant, string? firstFactor)
+        IJwtMinter minter, IConfiguration config, Guid userId, PendingExternalGrant? grant, string? firstFactor)
     {
         var expiresAt = DateTime.UtcNow.Add(Lifetime);
-        var token = JwtBearer.CreateToken(o =>
+        var claims = new List<Claim>
         {
-            o.SigningKey = config["JWT:Key"]!;
-            o.ExpireAt = expiresAt;
-            o.Issuer = config["JWT:Issuer"];
-            o.Audience = Audience(config);
-            var u = o.User;
-                u.Claims.Add(new(PurposeClaim, PurposeValue));
-                u.Claims.Add(new(UserClaim, userId.ToString()));
-                if (!string.IsNullOrEmpty(firstFactor))
-                {
-                    u.Claims.Add(new(FactorClaim, firstFactor.Length > MaxFactorLength ? firstFactor[..MaxFactorLength] : firstFactor));
-                }
-                if (grant is { RoleIds.Count: > 0 and <= MaxGrantRoles })
-                {
-                    u.Claims.Add(new(GrantClaim, (grant with { Id = Guid.NewGuid() }).Encode()));
-                }
-            });
+            new(PurposeClaim, PurposeValue),
+            new(UserClaim, userId.ToString()),
+        };
+        if (!string.IsNullOrEmpty(firstFactor))
+        {
+            claims.Add(new(FactorClaim, firstFactor.Length > MaxFactorLength ? firstFactor[..MaxFactorLength] : firstFactor));
+        }
+        if (grant is { RoleIds.Count: > 0 and <= MaxGrantRoles })
+        {
+            claims.Add(new(GrantClaim, (grant with { Id = Guid.NewGuid() }).Encode()));
+        }
+        var token = minter.Mint(Audience(config), expiresAt, claims);
         return (token, expiresAt);
     }
 
@@ -128,7 +123,7 @@ public sealed record PendingExternalGrant(string TenantSlug, string Source, IRea
 {
     /// <summary>
     /// Names this grant once it is in a challenge, so verify can spend it. Empty until
-    /// <see cref="MfaChallengeToken.Create(IConfiguration, Guid, PendingExternalGrant?)"/> sets it.
+    /// <see cref="MfaChallengeToken.Create(IJwtMinter, IConfiguration, Guid, PendingExternalGrant?)"/> sets it.
     /// </summary>
     public Guid Id { get; init; }
 

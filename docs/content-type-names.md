@@ -6,7 +6,7 @@ with `contentType: "Article"` against a type stored as `article` writes an entry
 `contentType` is `Article`.
 
 This is deliberate. The stored name reaches modules through the `Content` document, and some match
-it exactly (the accounting module reads `journalEntry`). Rewriting it to the type's own spelling
+it exactly (a module that queries `ContentType == "journalEntry"` finds nothing under another spelling). Rewriting it to the type's own spelling
 would change what those readers see and leave old entries in the old spelling next to new ones.
 
 What that means for you:

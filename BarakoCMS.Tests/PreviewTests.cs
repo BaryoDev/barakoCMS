@@ -66,7 +66,7 @@ public class PreviewTests
     }
 
     private string Token(string type, string slug, Guid entryId, string? tenant = null) =>
-        PreviewToken.Create(Config, tenant ?? Tenant, type, slug, entryId).Token;
+        PreviewToken.Create(_factory.Services.GetRequiredService<barakoCMS.Infrastructure.Auth.IJwtMinter>(), Config, tenant ?? Tenant, type, slug, entryId).Token;
 
     // ---- delivery ----
 

@@ -30,7 +30,7 @@ public class PagesViewerTokenTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private string Viewer(string tenant) =>
-        ViewerToken.Create(_factory.Services.GetRequiredService<IConfiguration>(), tenant, "member-1").Token;
+        ViewerToken.Create(_factory.Services.GetRequiredService<barakoCMS.Infrastructure.Auth.IJwtMinter>(), _factory.Services.GetRequiredService<IConfiguration>(), tenant, "member-1").Token;
 
     private WebApplicationFactory<Program> Host()
     {

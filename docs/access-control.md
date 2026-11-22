@@ -871,7 +871,7 @@ the same as reading roles, and it answers with the usual list envelope:
 { "items": [
   { "name": "*", "source": "core", "note": "Satisfies every capability, including ones added after the role was written. A role holding it reaches every gated endpoint on this instance." },
   { "name": "manage_roles", "source": "core", "note": null },
-  { "name": "view_ledger", "source": "Accounting", "note": null }
+  { "name": "manage_feature_flags", "source": "FeatureFlags", "note": null }
 ], "page": 1, "pageSize": 100, "totalItems": 38 }
 ```
 
@@ -1131,8 +1131,6 @@ it on the routing table, which is where `GET /api/capabilities` and the role wri
 
 | Module | Capability | Routes |
 | --- | --- | --- |
-| Accounting | `view_ledger` | `GET /api/accounting/accounts`, `/balances`, `/accounts/{code}/ledger` |
-| Accounting | `post_journal_entries` | `POST /api/accounting/accounts`, `/journal-entries` |
 | AI | `manage_search_index` | `POST /api/ai/index/{type}` |
 | Diagnostics | `manage_client_errors` | `GET /api/client-errors`, `POST /api/client-errors/{id}/resolve` |
 | Feature flags | `manage_feature_flags` | everything under `/api/feature-flags/admin` |
@@ -1142,9 +1140,7 @@ it on the routing table, which is where `GET /api/capabilities` and the role wri
 | Portability | `export_content` | `GET /api/portability/export` |
 | Portability | `import_content` | `POST /api/portability/import` |
 
-Two of those are splits of a gate that used to be one role list. Accounting splits reading the
-books from writing to them, which is the separation every accounting system makes and which lets an
-auditor read a ledger without being able to post to it. Portability
+One of those is a split of a gate that used to be one role list. Portability
 splits export from import because the risks are opposite: export reads a whole tenant out in one
 request, import writes a whole tenant in.
 
@@ -1365,7 +1361,7 @@ as it did before these rows existed.
   default capabilities it is missing, and, with demo content on, creating the HR role and giving it
   `view_sensitive`.
 - A module's seeder: `ModuleCapabilities.GrantAsync` adding the module's capabilities to seeded
-  roles, and `AccountingModule.SeedAsync` creating the `Accountant` role.
+  roles, and a module's `SeedAsync` creating a role of its own.
 - Self-registration giving a new account the `User` role.
 - A content type created with Sensitive or Hidden fields, by `POST /api/content-types` or by applying
   a blueprint. The blueprint row names the types only.
