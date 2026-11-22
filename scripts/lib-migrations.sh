@@ -59,6 +59,12 @@ migration_is_transactional() { # $1 = path; false when the file says it cannot r
     ! grep -q '^-- barako:no-transaction[[:space:]]*$' "$1"
 }
 
+# True for a file that runs as a superuser or an owner: it checks rolsuper or rolbypassrls, or its
+# header says to run it as a superuser. Those run with search_path pinned to pg_catalog, pg_temp.
+migration_needs_owner() { # $1 = path
+    grep -qiE 'rolsuper|rolbypassrls|as a superuser|or a superuser' "$1"
+}
+
 # Prints the plan as "core <path>", "module <path>" and "rollback <path>" lines, in run order.
 # $1 = the version the database started on. Returns 1, after saying why on stderr, when a pinned
 # folder and the files on disk disagree.
