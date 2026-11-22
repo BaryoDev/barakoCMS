@@ -28,6 +28,8 @@ public static class CanonicalHost
     /// <summary>The deployment's own public URL, and the answer whenever it is set.</summary>
     public const string BaseUrlKey = "App:BaseUrl";
 
+    private static readonly string[] TopLevelWildcards = ["*", "0.0.0.0", "[::]"];
+
     /// <summary>
     /// True when <c>AllowedHosts</c> restricts the <c>Host</c> header to a known set, so a request
     /// that reached the application carries a host somebody chose.
@@ -46,7 +48,9 @@ public static class CanonicalHost
 
         var entries = allowedHosts.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        return entries.Length > 0 && !entries.Contains("*");
+        // ASP.NET Core host filtering turns itself off for "*", "0.0.0.0" and "[::]", so any one of
+        // them in the list opens it, whatever else is listed.
+        return entries.Length > 0 && !entries.Any(entry => TopLevelWildcards.Contains(entry, StringComparer.Ordinal));
     }
 
     /// <summary>

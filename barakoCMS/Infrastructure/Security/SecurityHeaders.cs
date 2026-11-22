@@ -27,7 +27,36 @@ public static class SecurityHeaders
     /// </summary>
     public static string ContentSecurityPolicy(string? env) => env == "Development"
         ? "default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:;"
-        : "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:;";
+        : "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:;" + LockedDownDirectives;
+
+    /// <summary>
+    /// Directives that do not fall back to default-src and that this API never needs relaxed: no
+    /// page may frame it (the same answer as X-Frame-Options DENY), a relative URL cannot be
+    /// re-based, a form posts only to this origin, and no plugin content loads. Added outside
+    /// Development only, so Swagger UI keeps the policy it has today.
+    /// </summary>
+    public const string LockedDownDirectives = " frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none';";
+
+    /// <summary>
+    /// Features this API never uses, switched off for it and for anything it frames or is framed by.
+    /// </summary>
+    public const string PermissionsPolicy =
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), "
+      + "payment=(), usb=()";
+
+    /// <summary>Opener isolation: a page that opens this API in a window gets no reference back to it.</summary>
+    public const string CrossOriginOpenerPolicy = "same-origin";
+
+    /// <summary>
+    /// The default for a response. Stored files are the exception: a site on another origin loads
+    /// them with <c>&lt;img&gt;</c> or <c>&lt;video&gt;</c>, which a same-origin policy would block, so
+    /// the file routes set <see cref="CrossOriginResourcePolicyForFiles"/> themselves and the
+    /// middleware leaves a value already set alone.
+    /// </summary>
+    public const string CrossOriginResourcePolicy = "same-origin";
+
+    /// <summary>What the file download routes send, so media loads from a front end on another origin.</summary>
+    public const string CrossOriginResourcePolicyForFiles = "cross-origin";
 
     /// <summary>
     /// The dashboard's shipped bundle renders three dozen React <c>style</c> props, so every one of
@@ -37,7 +66,7 @@ public static class SecurityHeaders
     /// </summary>
     public static string HealthDashboardContentSecurityPolicy(string? env) => env == "Development"
         ? ContentSecurityPolicy(env)
-        : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:;";
+        : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:;" + LockedDownDirectives;
 
     public static bool IsHealthDashboardPath(string? path) =>
         path is not null && path.StartsWith(HealthDashboardPrefix, StringComparison.OrdinalIgnoreCase);

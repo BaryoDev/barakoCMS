@@ -116,6 +116,44 @@ public class UploadTypeTests
     }
 
     [Fact]
+    public async Task A_file_download_can_be_loaded_from_another_origin()
+    {
+        var (client, _) = await AdminAsync();
+        var created = await UploadAsync(client, "image/png", "cross.png", FileSamples.Image("image/png"));
+        created.StatusCode.Should().Be(HttpStatusCode.Created);
+        var id = (await created.Content.ReadFromJsonAsync<Uploaded>(TestContext.Current.CancellationToken))!.Id;
+
+        var served = await client.GetAsync($"/api/files/{id}", TestContext.Current.CancellationToken);
+
+        served.StatusCode.Should().Be(HttpStatusCode.OK);
+        served.Headers.GetValues("Cross-Origin-Resource-Policy").Should().ContainSingle().Which.Should().Be("cross-origin",
+            "a front end on another origin loads stored files as images and media");
+        served.Headers.GetValues("Cross-Origin-Opener-Policy").Should().ContainSingle().Which.Should().Be("same-origin");
+    }
+
+    [Fact]
+    public async Task A_not_modified_public_download_is_still_loadable_from_another_origin()
+    {
+        // A browser merges a 304's headers into the response it cached, so a 304 that said
+        // same-origin would turn the cached file same-origin.
+        var (client, _) = await AdminAsync();
+        var created = await UploadAsync(client, "image/png", "cross304.png", FileSamples.Image("image/png"), isPublic: true);
+        created.StatusCode.Should().Be(HttpStatusCode.Created);
+        var id = (await created.Content.ReadFromJsonAsync<Uploaded>(TestContext.Current.CancellationToken))!.Id;
+        var first = await client.GetAsync($"/api/public/files/{id}", TestContext.Current.CancellationToken);
+        first.StatusCode.Should().Be(HttpStatusCode.OK);
+        var etag = first.Headers.ETag;
+        etag.Should().NotBeNull();
+
+        using var conditional = new HttpRequestMessage(HttpMethod.Get, $"/api/public/files/{id}");
+        conditional.Headers.IfNoneMatch.Add(etag!);
+        var revalidated = await client.SendAsync(conditional, TestContext.Current.CancellationToken);
+
+        revalidated.StatusCode.Should().Be(HttpStatusCode.NotModified);
+        revalidated.Headers.GetValues("Cross-Origin-Resource-Policy").Should().ContainSingle().Which.Should().Be("cross-origin");
+    }
+
+    [Fact]
     public async Task A_type_with_parameters_is_stored_bare_and_lower_case()
     {
         var (client, _) = await AdminAsync();

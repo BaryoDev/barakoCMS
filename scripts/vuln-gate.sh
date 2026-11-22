@@ -14,6 +14,13 @@
 # the day after. An expired entry fails the
 # gate even when nothing matches it, so a stale exception cannot sit there unread.
 #
+# An entry may also carry "images", a non-empty array of repository names (the reference without
+# its :tag or @digest, a registry host and path kept as they are: "postgres", "pgvector/pgvector",
+# "ghcr.io/org/app"). The entry then accepts a finding only in an image whose repository is listed,
+# taken from VULN_GATE_IMAGE. With no "images" the entry applies everywhere. A scoped entry never
+# applies when VULN_GATE_IMAGE is empty, as in the dotnet kind. Any other shape of "images" fails
+# the gate closed.
+#
 # A report or allowlist it cannot read fails, the same as before: a gate that cannot see must not
 # wave things through.
 #
@@ -69,9 +76,11 @@ if ! jq -e 'type == "array" and all(.[];
         (.id | type == "string" and length > 0)
         and (.package | type == "string" and length > 0)
         and (.reason | type == "string" and length > 0)
-        and (.expires | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")))' \
+        and (.expires | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"))
+        and ((has("images") | not) or (.images | type == "array" and length > 0
+             and all(.[]; type == "string" and length > 0))))' \
         "$allowlist" >/dev/null 2>&1; then
-    echo "::error::$allowlist is missing or malformed (each entry needs id, package, reason and a YYYY-MM-DD expires), failing closed"
+    echo "::error::$allowlist is missing or malformed (each entry needs id, package, reason and a YYYY-MM-DD expires; images, when given, is a non-empty array of names), failing closed"
     exit 1
 fi
 
@@ -95,9 +104,13 @@ while IFS=$'\t' read -r id package expires; do
     failing=$((failing + 1))
 done <<<"$expired"
 
-live=$(jq -c --arg today "$today" '[.[] | select(.expires >= $today)]' "$allowlist")
+# The scanned image's repository: any @digest and any :tag after the last slash removed.
+repo=$(jq -rn --arg i "$image" '$i | sub("@.*$"; "") | sub("(?<=[^/]):[^:/]*$"; "")')
 
-# Every finding once, as "severity<TAB>id<TAB>package<TAB>fixed<TAB>accepted". The shape check above
+live=$(jq -c --arg today "$today" --arg repo "$repo" '[.[] | select(.expires >= $today)
+    | select((has("images") | not) or ($repo != "" and (.images | index($repo) != null)))]' "$allowlist")
+
+# Every finding once, as severity, id, package, fixed and accepted split by the unit separator. The shape check above
 # does not look inside each finding, so a finding jq cannot read fails here instead of vanishing.
 # A High or Critical finding whose id or package is empty, not a string, or holds a tab, newline or
 # the row separator is an error, so it fails the gate instead of shifting columns in the rows below.

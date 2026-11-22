@@ -8,6 +8,10 @@ metadata:
   namespace: barako-cms
 data:
   ASPNETCORE_ENVIRONMENT: "Production"
+  # The host names the API answers to. It refuses to start in Production when this is "*" or empty.
+  # Set it to the Ingress host (08-ingress.yaml) and use the same host in the probe headers in
+  # 05-deployment.yaml. To accept any host on purpose, set Security__AllowAnyHost: "true".
+  AllowedHosts: "barakocms.example.com"
   POSTGRES_HOST: "postgres-service"
   POSTGRES_DB: "barako_cms"
   POSTGRES_USER: "postgres"

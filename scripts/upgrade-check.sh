@@ -179,6 +179,7 @@ run_host() {
     ${HOST_EXEC:-} env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
         ASPNETCORE_ENVIRONMENT=Production \
         ASPNETCORE_URLS="http://127.0.0.1:${NEW_BIND}" \
+        AllowedHosts="localhost;127.0.0.1" \
         "$LISTEN_LOG_ENV" \
         ConnectionStrings__DefaultConnection="$CONN" \
         JWT__Key="$JWT_KEY" \

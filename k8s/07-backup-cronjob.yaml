@@ -52,7 +52,7 @@ spec:
         spec:
           containers:
             - name: backup
-              image: postgres:16-alpine
+              image: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d # postgres:16-alpine
               command:
                 - /bin/sh
                 - -c

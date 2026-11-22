@@ -220,6 +220,19 @@ public class ComposeDefaultsTests
             "{0} must create the extension outside initdb so an existing volume gets it", composeFile);
     }
 
+    /// <summary>
+    /// The production default lists the service name beside the public host, because a caller inside
+    /// the compose network (Caddy's on-demand TLS ask at app:8080) sends it as Host and host
+    /// filtering compares the Host without the port.
+    /// </summary>
+    [Fact]
+    public void Production_AllowedHosts_defaults_to_the_public_host_and_the_service_name()
+    {
+        var lines = Lines("docker-compose.prod.yml").Select(l => l.Trim()).Where(l => !l.StartsWith('#')).ToArray();
+
+        lines.Should().Contain("- AllowedHosts=${ALLOWED_HOSTS:-${DOMAIN_API};app}");
+    }
+
     private static readonly Regex TunedSetting =
         new(@"^-\s*(?<setting>[a-z_]+)=\$\{(?<variable>PG_[A-Z_]+):-(?<value>[^}]+)\}$", RegexOptions.Compiled);
 

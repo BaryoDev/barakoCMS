@@ -36,6 +36,10 @@ public class CanonicalHostTests
     [InlineData("   ")]
     [InlineData("*")]
     [InlineData("cms.example.com;*")]
+    [InlineData("0.0.0.0")]
+    [InlineData("[::]")]
+    [InlineData("cms.example.com;0.0.0.0")]
+    [InlineData("cms.example.com; [::] ")]
     public void An_allowed_hosts_value_that_accepts_everything_does_not_constrain_the_host(string? allowedHosts)
     {
         CanonicalHost.IsHostFilteringConstrained(allowedHosts).Should().BeFalse();
