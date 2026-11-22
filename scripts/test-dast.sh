@@ -147,6 +147,13 @@ state=$(dast_token_state 401); trc=$?
 if [ "$state" = expired ] && [ "$trc" != 0 ]; then ok "token state: 401 is expired and not ok"; else bad "token state: 401 is expired and not ok"; fi
 state=$(dast_token_state 500); trc=$?
 if [ "$state" = failed ] && [ "$trc" != 0 ]; then ok "token state: 500 is failed and not ok"; else bad "token state: 500 is failed and not ok"; fi
+state=$(dast_token_state 429); trc=$?
+if [ "$state" = limited ] && [ "$trc" != 0 ]; then ok "token state: 429 is limited and not ok"; else bad "token state: 429 is limited and not ok"; fi
+if [ "$(printf 'HTTP/1.1 429 Too Many Requests\r\nRetry-After: 12\r\n\r\n' | dast_retry_after)" = 12 ]; then ok "retry after: reads the seconds from the header"; else bad "retry after: reads the seconds from the header"; fi
+if [ "$(printf 'retry-after: 900\r\n' | dast_retry_after)" = 60 ]; then ok "retry after: caps at 60"; else bad "retry after: caps at 60"; fi
+if [ "$(printf 'HTTP/1.1 429 Too Many Requests\r\n\r\n' | dast_retry_after)" = 5 ]; then ok "retry after: a missing header is 5"; else bad "retry after: a missing header is 5"; fi
+if [ "$(printf 'Retry-After: Wed, 21 Oct 2026 07:28:00 GMT\r\n' | dast_retry_after)" = 5 ]; then ok "retry after: a date instead of seconds is 5"; else bad "retry after: a date instead of seconds is 5"; fi
+if [ "$(printf 'Retry-After: 0\r\n' | dast_retry_after)" = 1 ]; then ok "retry after: 0 is raised to 1"; else bad "retry after: 0 is raised to 1"; fi
 state=$(dast_token_state ""); trc=$?
 if [ "$state" = failed ] && [ "$trc" != 0 ]; then ok "token state: no status is failed"; else bad "token state: no status is failed"; fi
 work="$tmp/work"; mkdir -p "$work"
@@ -168,6 +175,97 @@ if [ "$(dast_smoke_failures "$tmp/smoke.log")" = 2 ]; then ok "smoke failures: c
 : > "$tmp/clean.log"
 if [ "$(dast_smoke_failures "$tmp/clean.log")" = 0 ]; then ok "smoke failures: none is zero"; else bad "smoke failures: none is zero"; fi
 rm -rf "${tmp:?}"
+
+echo "== the signed-in spec filter"
+FILTER=scripts/dast-spec-filter.py
+ftmp=$(mktemp -d)
+filter_run() { # filter_run <spec> <skip> <out>: sets out, rc
+  local o
+  o=$(mktemp)
+  python3 -I "$FILTER" "$1" "$2" "$3" > "$o" 2>&1
+  rc=$?
+  out=$(cat "$o") err=""
+  rm -f "$o"
+}
+# spec_has <file> <path> [method]: 0 when the spec has the path (and the method on it).
+spec_has() {
+  python3 -I -c '
+import json, sys
+paths = json.load(open(sys.argv[1]))["paths"]
+sys.exit(0 if sys.argv[2] in paths and (len(sys.argv) < 4 or sys.argv[3] in paths[sys.argv[2]]) else 1)
+' "$@"
+}
+filter_run "$D/filter-spec.json" "$D/filter-skip.tsv" "$ftmp/out.json"
+expect_rc "filter: a good skip file exits 0" 0
+if spec_has "$ftmp/out.json" /api/zq-a post; then bad "filter: an entry removed"; else ok "filter: an entry removed"; fi
+if spec_has "$ftmp/out.json" "/api/zq-b/{id}"; then bad "filter: a path with no operation left is removed"; else ok "filter: a path with no operation left is removed"; fi
+if spec_has "$ftmp/out.json" /api/zq-a get; then ok "filter: the other methods on the same path are kept"; else bad "filter: the other methods on the same path are kept"; fi
+if spec_has "$ftmp/out.json" /api/zq-c get; then ok "filter: a path that is not named is kept"; else bad "filter: a path that is not named is kept"; fi
+expect_has "filter: prints a count" "2 operations left out"
+expect_lacks "filter: prints no route" "zq-"
+filter_run "$D/filter-spec.json" "$D/filter-skip-stale.tsv" "$ftmp/stale.json"
+expect_rc "filter: a stale entry exits 2" 2
+expect_has "filter: a stale entry says which line is not in the spec" "is not an operation in the spec"
+expect_lacks "filter: a stale entry prints no route" "zq-renamed"
+if [ -e "$ftmp/stale.json" ]; then bad "filter: a failed run writes no copy"; else ok "filter: a failed run writes no copy"; fi
+filter_run "$D/filter-spec.json" "$D/filter-skip-wrong-method.tsv" "$ftmp/wrong.json"
+expect_rc "filter: a method the path does not have exits 2" 2
+filter_run "$D/filter-garbage.json" "$D/filter-skip.tsv" "$ftmp/garbage.json"
+expect_rc "filter: a spec that is not JSON exits 2" 2
+filter_run "$D/filter-spec-not-utf8.json" "$D/filter-skip.tsv" "$ftmp/utf.json"
+expect_rc "filter: a non-UTF-8 spec exits 2" 2
+expect_lacks "filter: a non-UTF-8 spec gives no traceback" "Traceback"
+filter_run "$D/filter-no-paths.json" "$D/filter-skip.tsv" "$ftmp/nopaths.json"
+expect_rc "filter: a spec with no paths exits 2" 2
+filter_run "$D/does-not-exist.json" "$D/filter-skip.tsv" "$ftmp/missing.json"
+expect_rc "filter: a missing spec exits 2" 2
+filter_run "$D/filter-spec.json" "$D/does-not-exist.tsv" "$ftmp/missing.json"
+expect_rc "filter: a missing skip file exits 2" 2
+filter_run "$D/filter-spec.json" "$D/filter-skip-bad.tsv" "$ftmp/bad.json"
+expect_rc "filter: a malformed skip line exits 2" 2
+filter_run openapi/baseline.json security/zap/signed-in-skip.tsv "$ftmp/shipped.json"
+expect_rc "filter: the shipped skip file applies to openapi/baseline.json" 0
+if spec_has "$ftmp/shipped.json" /api/auth/logout; then bad "filter: the shipped copy has no logout"; else ok "filter: the shipped copy has no logout"; fi
+if spec_has "$ftmp/shipped.json" /api/auth/login post; then ok "filter: the shipped copy keeps login"; else bad "filter: the shipped copy keeps login"; fi
+rm -rf "${ftmp:?}"
+
+echo "== every route that ends a token, a session or a user is skipped or listed"
+SKIP=security/zap/signed-in-skip.tsv
+# Routes that call a revocation function and are not in the skip file, with why they stay in the
+# signed-in pass. METHOD path|reason.
+NOT_SKIPPED=(
+  "POST /api/auth/refresh|anonymous route: reads the refresh cookie, which ZAP does not send, and ignores the bearer"
+  "POST /api/me/sessions/revoke-others|ends the user's other sessions and keeps the one the bearer belongs to"
+  "POST /api/users/{userId}/block|admin only: needs ManageUsers or SuperAdmin, a User-role token is refused"
+  "POST /api/users/{userId}/unblock|admin only: needs ManageUsers or SuperAdmin"
+  "POST /api/users/{userId}/mfa/reset|admin only: needs ManageUsers or SuperAdmin"
+  "POST /api/users/{userId}/password|admin only: needs ManageUsers or SuperAdmin"
+  "DELETE /api/users/{id}/sessions|admin only: needs ManageUsers or SuperAdmin"
+  "DELETE /api/users/{id}/sessions/{sessionId}|admin only: needs ManageUsers or SuperAdmin"
+)
+revocation_pattern='RevokeTokenAsync|RevokeAllUserTokensAsync|SessionRevocation\.EndAsync|RevokeRefreshTokens\.ForUserAsync|SessionRoutes\.(EndAsync|EndAllAsync)'
+# declared_routes: METHOD path for every route a file that calls a revocation function declares.
+declared_routes() {
+  grep -rlE "$revocation_pattern" barakoCMS --include='*.cs' | while read -r f; do
+    grep -oE '^[[:space:]]*(Get|Post|Put|Delete|Patch)\("/[^"]*"' "$f" | sed -E 's/^[[:space:]]*//; s/\("/ /; s/"$//'
+  done | awk '{print toupper($1) " " $2}' | sort -u
+}
+skipped_routes() { grep -vE '^[[:space:]]*(#|$)' "$SKIP" | awk -F'\t' '{print $1 " " $2}' | sort -u; }
+listed_routes() { for entry in "${NOT_SKIPPED[@]}"; do printf '%s\n' "${entry%%|*}"; done | sort -u; }
+declared=$(declared_routes)
+if [ -n "$declared" ] && [ "$(printf '%s\n' "$declared" | wc -l)" -ge 10 ]; then
+  ok "guard: the search finds the routes that call a revocation function"
+else bad "guard: the search finds the routes that call a revocation function"; fi
+missing=$(comm -23 <(printf '%s\n' "$declared") <(sort -u <(skipped_routes) <(listed_routes)))
+if [ -z "$missing" ]; then
+  ok "guard: every route that calls a revocation function is skipped or listed with a reason"
+else
+  bad "guard: every route that calls a revocation function is skipped or listed with a reason ($(printf '%s\n' "$missing" | wc -l) not)"
+fi
+stale=$(comm -13 <(printf '%s\n' "$declared") <(listed_routes))
+if [ -z "$stale" ]; then ok "guard: every listed route still calls a revocation function"; else bad "guard: every listed route still calls a revocation function"; fi
+both=$(comm -12 <(skipped_routes) <(listed_routes))
+if [ -z "$both" ]; then ok "guard: no route is both skipped and listed as kept"; else bad "guard: no route is both skipped and listed as kept"; fi
 
 echo "== workflow rules"
 # workflow_problems <file>: prints one line per broken rule.
@@ -240,9 +338,29 @@ else bad "dast-scan.sh installs the cleanup trap before the tag and the env file
 if grep -q 'dast_zap_finished "\$rc"' scripts/dast-scan.sh && grep -q '|| rc=\$?' scripts/dast-scan.sh; then
   ok "dast-scan.sh keeps ZAP's exit code and judges it"
 else bad "dast-scan.sh keeps ZAP's exit code and judges it"; fi
-if grep -q '"after the signed-in pass"' scripts/dast-scan.sh && grep -q 'api_call GET /api/auth/mfa/status' scripts/dast-scan.sh; then
-  ok "dast-scan.sh checks the token on /api/auth/mfa/status after the pass"
-else bad "dast-scan.sh checks the token on /api/auth/mfa/status after the pass"; fi
+if grep -q '"after the signed-in pass"' scripts/dast-scan.sh && grep -qF ':8080/api/me"' scripts/dast-scan.sh; then
+  ok "dast-scan.sh checks the token on /api/me after the pass"
+else bad "dast-scan.sh checks the token on /api/me after the pass"; fi
+# shellcheck disable=SC2016 # the patterns are literal text
+if grep -q 'dast_retry_after' scripts/dast-scan.sh && grep -qF 'sleep "$wait"' scripts/dast-scan.sh; then
+  ok "dast-scan.sh retries a limited token check once"
+else bad "dast-scan.sh retries a limited token check once"; fi
+# shellcheck disable=SC2016 # the patterns are literal text
+if grep -qF 'run_zap authenticated "$AUTH_MAX" openapi-signed-in.json' scripts/dast-scan.sh \
+  && grep -qF 'run_zap anonymous "$MAX" openapi.json' scripts/dast-scan.sh; then
+  ok "dast-scan.sh runs the signed-in pass on the filtered spec and the anonymous pass on the whole one"
+else bad "dast-scan.sh runs the signed-in pass on the filtered spec and the anonymous pass on the whole one"; fi
+filter_line=$(grep -nE '^python3 -I scripts/dast-spec-filter.py' scripts/dast-scan.sh | head -n 1 | cut -d: -f1)
+auth_line=$(grep -nE '^run_zap authenticated' scripts/dast-scan.sh | head -n 1 | cut -d: -f1)
+if [ -n "$filter_line" ] && [ -n "$auth_line" ] && [ "$filter_line" -lt "$auth_line" ]; then
+  ok "dast-scan.sh builds the signed-in spec before the signed-in pass"
+else bad "dast-scan.sh builds the signed-in spec before the signed-in pass"; fi
+if grep -qF 'the ZAP work folder could not be made' scripts/dast-scan.sh; then
+  ok "dast-scan.sh stops when the ZAP work folder cannot be made"
+else bad "dast-scan.sh stops when the ZAP work folder cannot be made"; fi
+if grep -qF 'RateLimiting__Global__PermitLimit=' scripts/dast-scan.sh; then
+  ok "dast-scan.sh raises the global rate limit for the scan stack"
+else bad "dast-scan.sh raises the global rate limit for the scan stack"; fi
 
 echo
 echo "$pass passed, $fail failed"

@@ -1,0 +1,11 @@
+# Operations the signed-in ZAP pass leaves out, because running them ends the token, the session or the user.
+# The anonymous pass still sends them without a token. Each line: method, tab, path exactly as in
+# openapi/baseline.json, tab, reason. scripts/dast-spec-filter.py exits 2 for a line the spec does not
+# have, and scripts/test-dast.sh fails when a route that calls a revocation function is in neither this
+# file nor its list of routes a User-role token cannot reach.
+POST	/api/auth/logout	RevokeTokenAsync and RevokeAllUserTokensAsync: revokes the presented token and every token of the user
+DELETE	/api/me/sessions/{id}	SessionRoutes.EndAsync ends the session named in the path, which is the current one when the id is its sid
+POST	/api/me/password	RevokeRefreshTokens.ForUserAsync ends every session of the user when the password changes
+POST	/api/me/switch	RevokeTokenAsync revokes the presented token once the switch succeeds
+POST	/api/auth/mfa/enable	RevokeRefreshTokens.ForUserAsync ends the sessions when MFA is enabled
+POST	/api/auth/mfa/disable	RevokeRefreshTokens.ForUserAsync ends the sessions when MFA is disabled

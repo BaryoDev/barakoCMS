@@ -1,0 +1,1 @@
+{"openapi": "3.0.0", "paths": {"/api/zq-a": {"get": {"summary": "x"}, "post": {"summary": "y"}, "parameters": []}, "/api/zq-b/{id}": {"delete": {"summary": "z"}}, "/api/zq-c": {"get": {"summary": "k"}}}}

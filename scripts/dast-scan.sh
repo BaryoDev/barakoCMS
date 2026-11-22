@@ -14,9 +14,12 @@
 #      the global User role, the least the API hands out)
 #   4. runs the ZAP API scan against openapi/baseline.json with the target set to the stack: once
 #      anonymous, then once with that user's bearer token. The user signs in right before the second
-#      pass, and the token is tried on GET /api/auth/mfa/status (any signed-in user may read it)
+#      pass, and the token is tried on GET /api/me (any signed-in user may read it)
 #      before and after the pass. Access tokens last 15 minutes, so a 401 after the pass means the
-#      token expired during it and the pass proved nothing: exit 2.
+#      token expired during it and the pass proved nothing: exit 2. The signed-in pass scans a copy of
+#      the spec without the operations listed in security/zap/signed-in-skip.tsv (logout, password
+#      change and the like), because the token is sent to every operation and those would end it. The
+#      anonymous pass still covers them.
 #   5. prints counts per risk level and a result line (scripts/dast-summary.py), then tears the
 #      stack down with its volumes
 #
@@ -133,7 +136,7 @@ dast_choose_report_dir "${DAST_REPORT_DIR:-}" "$WORK" || die "the report folder 
 # The ZAP user inside the container is not this user, so the folder it writes to is open. It sits
 # inside the report folder, which keeps the access of the folder around it.
 ZAP_WRK="$REPORT_DIR/zap-wrk"
-mkdir -p "$ZAP_WRK" && chmod 777 "$ZAP_WRK"
+{ mkdir -p "$ZAP_WRK" && chmod 777 "$ZAP_WRK"; } || die "the ZAP work folder could not be made"
 STACK_LOG="$REPORT_DIR/stack.log"
 : > "$STACK_LOG"
 
@@ -163,6 +166,8 @@ PROXY_ADDRESS=10.87.53.2
 ENV
 # Registration asks for an emailed link by default, and there is no mailbox here. The scan stack
 # turns that off, with the acknowledgement the API demands, so the low-privilege user can exist.
+# The global rate limit (100 requests a minute per client address by default) would answer most of
+# ZAP's requests with 429, so the scan stack raises it. The other limits stay as shipped.
 # The container names carry the project name, because the production file fixes them and a second
 # stack on the machine would collide. Nothing else about the production file changes.
 cat > "$OVERRIDE" <<YML
@@ -172,6 +177,7 @@ services:
     environment:
       - Auth__RequireEmailVerification=false
       - Auth__AcknowledgeUnverifiedRegistration=true
+      - RateLimiting__Global__PermitLimit=100000
   postgres:
     container_name: $PROJECT-postgres
   postgres-extensions:
@@ -229,15 +235,37 @@ token_for() {
   api_body "$resp" | json_field token
 }
 
-# token_state <token> <phase>: tries the token on a route any signed-in user may read, prints only
-# the status class, and returns 0 for a 2xx. The status is kept in TOKEN_STATE (ok, expired, failed).
+# token_probe <token>: one GET /api/me with the token, from a throwaway curl container on the project
+# network. Sets PROBE_CODE (the status code) and PROBE_HEADERS (the response headers). The route is
+# open to any signed-in user, and it is not one that a token which has to enrol in MFA may use, so a
+# token that every other route would refuse with 403 does not pass it. The body is thrown away.
+PROBE_CODE=""
+PROBE_HEADERS=""
+token_probe() {
+  local out
+  out="$(docker run --rm --network "${PROJECT}_default" "$CURL_IMAGE" -s --max-time 30 -o /dev/null \
+    -D - -w 'STATUS:%{http_code}' -H "Authorization: Bearer $1" "http://${CHECK_API}:8080/api/me" 2> /dev/null || true)"
+  PROBE_CODE="${out##*STATUS:}"
+  PROBE_HEADERS="${out%STATUS:*}"
+}
+
+# token_state <token> <phase>: tries the token, prints only the status class, and returns 0 for a
+# 2xx. The result is kept in TOKEN_STATE (ok, expired, limited or failed). A 429 is tried once more
+# after the Retry-After the API gave (1 to 60 seconds): the limit is per client address, and the
+# probe's container can be handed the address ZAP just used.
 TOKEN_STATE=""
 token_state() {
-  local resp code
-  resp="$(api_call GET /api/auth/mfa/status "$1")"
-  code="$(api_status "$resp")"
-  TOKEN_STATE="$(dast_token_state "$code")"
-  say "token check ($2): status $(dast_status_class "$code")"
+  local wait
+  token_probe "$1"
+  TOKEN_STATE="$(dast_token_state "$PROBE_CODE")"
+  if [ "$TOKEN_STATE" = limited ]; then
+    wait="$(printf '%s' "$PROBE_HEADERS" | dast_retry_after)"
+    say "token check ($2): status $(dast_status_class "$PROBE_CODE"), trying once more after ${wait}s"
+    sleep "$wait"
+    token_probe "$1"
+    TOKEN_STATE="$(dast_token_state "$PROBE_CODE")"
+  fi
+  say "token check ($2): status $(dast_status_class "$PROBE_CODE")"
   [ "$TOKEN_STATE" = ok ]
 }
 
@@ -254,17 +282,21 @@ resp="$(printf '{"username":"%s","password":"%s","email":"%s@example.test"}' \
 say "signed in as the seeded admin and registered a low-privilege user"
 
 cp openapi/baseline.json "$ZAP_WRK/openapi.json" || die "openapi/baseline.json is missing"
-chmod 644 "$ZAP_WRK/openapi.json"
+# The signed-in pass scans a copy without the operations that end the token, the session or the user
+# (security/zap/signed-in-skip.tsv). The anonymous pass keeps the whole spec.
+python3 -I scripts/dast-spec-filter.py openapi/baseline.json security/zap/signed-in-skip.tsv \
+  "$ZAP_WRK/openapi-signed-in.json" > /dev/null || die "the signed-in spec could not be made from the skip file"
+chmod 644 "$ZAP_WRK/openapi.json" "$ZAP_WRK/openapi-signed-in.json"
 MAX="${DAST_MAX_MINUTES:-15}"
 AUTH_MAX="${DAST_AUTH_MAX_MINUTES:-8}"
 MIN_URLS="${DAST_MIN_URLS:-100}"
 
-# run_zap <pass name> <minutes> [bearer token]. ZAP prints alert names and URLs, so its stdout and
+# run_zap <pass name> <minutes> <spec file in the ZAP folder> [bearer token]. ZAP prints alert names and URLs, so its stdout and
 # stderr go to a file. The bearer token reaches ZAP through its replacer rule, the documented way to
 # add a header to every request. After the pass the URL count ZAP printed is read back: no count, or
 # one under the floor, is a scan that reached nothing.
 run_zap() {
-  local name="$1" minutes="$2" token="${3:-}" rc=0 opts urls
+  local name="$1" minutes="$2" spec="$3" token="${4:-}" rc=0 opts urls
   opts="-config scanner.maxScanDurationInMins=$minutes"
   if [ -n "$token" ]; then
     opts="$opts -config replacer.full_list(0).description=dast-auth"
@@ -277,7 +309,7 @@ run_zap() {
   say "=== ZAP API scan ($name)"
   docker run --rm --name "$ZAP_NAME" --network "${PROJECT}_default" \
     -v "$ZAP_WRK:/zap/wrk:rw" "$ZAP_IMAGE" \
-    zap-api-scan.py -t openapi.json -f openapi -O "http://$CHECK_API:8080" \
+    zap-api-scan.py -t "$spec" -f openapi -O "http://$CHECK_API:8080" \
     -J "$name.json" -T "$minutes" -I -z "$opts" > "$REPORT_DIR/zap-$name.log" 2>&1 || rc=$?
   dast_zap_finished "$rc" || die "ZAP exited with an error on the $name pass"
   urls="$(dast_url_count "$REPORT_DIR/zap-$name.log")" || die "ZAP printed no URL count on the $name pass, so it reached nothing"
@@ -285,14 +317,14 @@ run_zap() {
   say "ZAP finished the $name pass with $urls URLs"
 }
 
-run_zap anonymous "$MAX"
+run_zap anonymous "$MAX" openapi.json
 
 # Signed in right before the pass: the token lasts 15 minutes and the pass has to fit inside them.
 USER_TOKEN="$(token_for "$USER_NAME" "$USER_PASSWORD")"
 [ -n "$USER_TOKEN" ] || die "the low-privilege user could not sign in"
 mask_all "$USER_TOKEN"
 token_state "$USER_TOKEN" "before the signed-in pass" || die "the user token was not accepted before the pass"
-run_zap authenticated "$AUTH_MAX" "$USER_TOKEN"
+run_zap authenticated "$AUTH_MAX" openapi-signed-in.json "$USER_TOKEN"
 if ! token_state "$USER_TOKEN" "after the signed-in pass"; then
   if [ "$TOKEN_STATE" = expired ]; then
     die "the token expired during the signed-in pass, so the pass proved nothing"

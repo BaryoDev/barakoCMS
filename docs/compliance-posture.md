@@ -152,9 +152,20 @@ file, the OpenAPI baseline or `security/zap/` change.
 What is capped: the active scan of each pass (15 minutes for the anonymous pass, 8 for the signed-in
 one) and ZAP's waits for start and for the passive scan. A whole pass can therefore run longer than
 its cap. The signed-in user signs in right before its pass, because an access token lasts 15 minutes.
-The token is tried on `GET /api/auth/mfa/status` before the pass and again after it. A rejected token
+The token is tried on `GET /api/me` before the pass and again after it. That route is open to any
+signed-in user and is refused for a token that still has to enrol in MFA, so such a token fails the
+check too. A 429 is tried once more after the `Retry-After` the API gives (1 to 60 seconds). A rejected token
 before the pass, or a 401 after it (the token expired during the pass, so the pass proved nothing),
 is a scan that could not run. `DAST_MAX_MINUTES` and `DAST_AUTH_MAX_MINUTES` set the two caps.
+
+ZAP sends the user's token to every operation in the spec, and a few operations end the token, the
+session or the user. The signed-in pass therefore scans a copy of `openapi/baseline.json` without the
+operations in `security/zap/signed-in-skip.tsv`: logout, deleting one of your own sessions, changing
+your password, switching tenant and turning MFA on or off. The anonymous pass keeps the whole spec, so
+these routes are still scanned, just without a token. `scripts/dast-spec-filter.py` makes the copy and
+exits 2 when a line in the file is not an operation in the spec, so a renamed route cannot drop out
+unnoticed. `scripts/test-dast.sh` fails when a route that calls a token or session revocation function
+is neither in the file nor listed there as unreachable by a User-role token.
 
 After each pass the script reads the URL count ZAP prints (`Total of N URLs`). No such line, or a count
 under `DAST_MIN_URLS` (default 100; the spec lists 253 paths), is a scan that reached nothing and
@@ -181,6 +192,9 @@ always deleted. Run one scan per machine at a time: the stack uses a fixed subne
 To accept an alert, add a line to `security/zap/accepted.tsv`: the plugin id from the full report, a
 tab, the reason, a tab, and the date. The file says how. An accepted plugin id is dropped from the
 counts for every alert that rule raises, so write the reason down and review the file now and then.
+
+The scan stack raises the global rate limit (100 requests a minute per client address by default),
+because ZAP would otherwise get 429 for most of its requests. The other limits stay as shipped.
 
 The scan stack turns off email verification for registration, because there is no mailbox to confirm
 from, so one low-privilege user can be created. The scan does not run the active attacks that need

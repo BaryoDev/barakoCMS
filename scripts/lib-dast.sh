@@ -38,14 +38,28 @@ dast_status_class() {
   esac
 }
 
-# dast_token_state <http status>: prints ok for a 2xx, expired for 401, failed for anything else. It
-# returns 0 only for ok. The caller decides what each means before and after a pass.
+# dast_token_state <http status>: prints ok for a 2xx, expired for 401, limited for 429, failed for
+# anything else. It returns 0 only for ok. The caller decides what each means before and after a pass.
 dast_token_state() {
   case "${1:-}" in
     2[0-9][0-9]) printf 'ok' ;;
     401) printf 'expired'; return 1 ;;
+    429) printf 'limited'; return 1 ;;
     *) printf 'failed'; return 1 ;;
   esac
+}
+
+# dast_retry_after: reads response headers on stdin and prints the seconds to wait before one retry
+# of a request the API answered with 429. It is the Retry-After the response gives, at least 1 and
+# at most 60. A response without one (or with a date instead of seconds) gets 5.
+dast_retry_after() {
+  local n
+  n="$(tr -d '\r' | sed -n 's/^[Rr]etry-[Aa]fter:[[:space:]]*\([0-9][0-9]*\)[[:space:]]*$/\1/p' | head -n 1)"
+  case "$n" in '' | *[!0-9]*) printf '5'; return 0 ;; esac
+  n=$((10#$n))
+  [ "$n" -ge 1 ] || n=1
+  [ "$n" -le 60 ] || n=60
+  printf '%s' "$n"
 }
 
 # shellcheck disable=SC2034 # REPORT_DIR and REPORT_CREATED are read by the caller
