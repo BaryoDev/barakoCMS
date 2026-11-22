@@ -393,7 +393,9 @@ jobs:
   compose:
     name: Compose files resolve
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 45 minutes before the quickstart and upgrade checks. They add the 5.9.0 image pull, two stack
+    # starts, a migrate and a wrong-password window, about 12 minutes, so the total is 60.
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -554,6 +556,12 @@ jobs:
 
       - name: The production stack starts with its secrets in files
         run: bash scripts/compose-secrets-runtime-check.sh ghcr.io/baryodev/barako-cms:ci
+
+      - name: The quickstart's API comes up as the app role
+        run: bash scripts/quickstart-runtime-check.sh ghcr.io/baryodev/barako-cms:ci
+
+      - name: A 5.9.0 volume upgrades by the documented steps
+        run: bash scripts/compose-upgrade-check.sh ghcr.io/baryodev/barako-cms:ci
 
   security:
     name: Security scan
