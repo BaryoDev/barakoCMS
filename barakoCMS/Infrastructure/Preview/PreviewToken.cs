@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Text;
 using System.Text.Json;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Auth;
