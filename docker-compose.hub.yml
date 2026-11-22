@@ -1,12 +1,15 @@
 # BarakoCMS — run everything from prebuilt Docker Hub images (no build step).
-# The API connects as the database owner here and no app role job runs. Production is docker-compose.prod.yml.
+# A one-shot job creates the database role the API connects as (DB_APP_USER, no superuser), the same
+# as docker-compose.prod.yml, and the API starts after it. Production is docker-compose.prod.yml.
 #
 #   docker compose -f docker-compose.hub.yml up -d
 #
-# Set JWT_SECRET and DB_PASSWORD first, in your shell or a .env file (cp .env.example .env):
+# Set JWT_SECRET, DB_PASSWORD and DB_APP_PASSWORD first, in your shell or a .env file
+# (cp .env.example .env). DB_PASSWORD is the database owner's, DB_APP_PASSWORD is the API's role:
 #
 #   export JWT_SECRET=$(openssl rand -base64 48)
 #   export DB_PASSWORD=$(openssl rand -base64 24)
+#   export DB_APP_PASSWORD=$(openssl rand -base64 24)
 #
 # The API is on http://localhost:5005. For the console, run BaryoDev/barakoBrew's quickstart
 # against it.
@@ -49,6 +52,38 @@ services:
     mem_limit: ${DB_MEM_LIMIT:-2g}
     pids_limit: ${DB_PIDS_LIMIT:-512}
 
+  # Runs scripts/db-app-role.sql as the database owner once Postgres is up, then exits. It creates
+  # the login role the API connects as (DB_APP_USER, no superuser), sets its password and makes it
+  # owner of what is in schema public. The script is safe to run on every start. The API waits for
+  # this job to finish, and if it fails the API does not start; its log says why. It reads
+  # DB_APP_USER and DB_APP_PASSWORD from its environment, never from the command line.
+  postgres-extensions:
+    image: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d # postgres:16-alpine
+    container_name: barako-postgres-extensions
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${DB_NAME:-barako_cms}
+      PGUSER: ${DB_USER:-postgres}
+      PGPASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+      DB_APP_USER: ${DB_APP_USER:-barako_app}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?set DB_APP_PASSWORD, the API connects as this role}
+    command: ["psql", "-X", "-v", "ON_ERROR_STOP=1", "-f", "/db-app-role.sql"]
+    volumes:
+      - ./scripts/db-app-role.sql:/db-app-role.sql:ro
+    user: "70:70"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${EXTENSIONS_MEM_LIMIT:-128m}
+    pids_limit: ${EXTENSIONS_PIDS_LIMIT:-64}
+    labels:
+      org.barakocms.hardening.one-shot: "runs the app role script and exits, so it has nothing to check"
+
   app:
     # Barako — the full suite (engine + all modules). For the lean core, swap in
     # ghcr.io/baryodev/barako-cms-decaf:latest and add only the modules you want in your own host.
@@ -63,7 +98,7 @@ services:
       - "127.0.0.1:5005:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
-      - ConnectionStrings__DefaultConnection=Host=postgres;Database=${DB_NAME:-barako_cms};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:?set DB_PASSWORD}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=${DB_NAME:-barako_cms};Username=${DB_APP_USER:-barako_app};Password=${DB_APP_PASSWORD:?set DB_APP_PASSWORD, the API connects as this role}
       # JWT key must be at least 32 characters or the API refuses to start.
       - JWT__Key=${JWT_SECRET:?set JWT_SECRET to a random value of 32+ characters}
       - InitialAdmin__Username=${ADMIN_USER:-admin}
@@ -78,9 +113,12 @@ services:
       # toward a host, and if the environment is set to Development, that would otherwise
       # turn the API explorer on for them without anyone choosing it. Set SWAGGER_ENABLED=true.
       - Swagger__Enabled=${SWAGGER_ENABLED:-false}
+    # The role job first: it creates the role this API connects as.
     depends_on:
       postgres:
         condition: service_healthy
+      postgres-extensions:
+        condition: service_completed_successfully
     user: "1654:1654"
     read_only: true
     tmpfs:
