@@ -72,3 +72,29 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+
+  # The base images are pinned by digest in Dockerfile and Dockerfile.suite, and a digest never
+  # moves by itself. "/" covers both files. The k8s manifests carry image references too.
+  - package-ecosystem: "docker"
+    directories:
+      - "/"
+      - "/k8s"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      docker:
+        patterns: ["*"]
+
+  # The postgres, pgvector and caddy pins in the compose files (docker-compose*.yml at the root
+  # and the quickstart folder).
+  - package-ecosystem: "docker-compose"
+    directories:
+      - "/"
+      - "/quickstart"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      compose:
+        patterns: ["*"]

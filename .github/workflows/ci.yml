@@ -16,6 +16,11 @@ on:
   # pull_request run, on the same head commit.
   workflow_dispatch:
 
+# Read-only unless a job says otherwise. ci-branch.yml calls this file with contents: read and
+# packages: read, which is also the most any job here can ask for.
+permissions:
+  contents: read
+
 jobs:
   # The backend tests run as shards (backend-shard) and the job named "Backend (.NET)" below is the
   # one required check. This job holds everything else the old single job did: the script gates, the
@@ -493,6 +498,11 @@ jobs:
       - name: Test the vulnerability gates
         run: bash scripts/test-ci-gates.sh
 
+      # A tag can be moved after review, a commit SHA cannot. Every third-party action in every
+      # workflow has to name a full 40-character SHA.
+      - name: Actions are pinned by SHA
+        run: bash scripts/check-action-pins.sh
+
       # The hosted Action refuses to run for a GitHub organization without a paid licence, and this
       # step carried continue-on-error, so it reported success and had never scanned anything:
       #   [BaryoDev] is an organization. License key is required.
@@ -569,45 +579,131 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # Vulnerable-dependency gate. The backlog was burned down to zero (roadmap 0.3), so this now
-      # actually fails the build on Critical/High findings instead of only reporting them — Moderate/Low
-      # still surface in the summary but don't block. Uses --format json rather than grepping the
-      # console table, since the JSON schema is stable and the console layout isn't a contract.
+      # Vulnerable-dependency gate. The backlog was burned down to zero (roadmap 0.3), so this
+      # fails the build on Critical/High findings instead of only reporting them. Moderate/Low
+      # still surface in the summary but don't block. The check lives in a script so the nightly
+      # run uses the same one. An advisory with a dated entry in .github/vuln-allowlist.json is
+      # accepted until that date; the fail-closed handling of an unreadable report moved into
+      # scripts/vuln-gate.sh and is tested by scripts/test-ci-gates.sh.
       - name: Vulnerable dependencies
+        run: bash scripts/nuget-vuln-check.sh
+
+  # The images CI never built before this job. A base image or a package in the image with a known
+  # High or Critical vulnerability that has a fix fails here, not after release. Findings with no
+  # fix yet are listed and do not fail. Same Dockerfiles, build args and cache scopes as the
+  # release; amd64 only, since the findings do not differ by architecture. Nothing is pushed.
+  image-scan:
+    name: Image scan (${{ matrix.image.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: barako-cms
+            file: Dockerfile.suite
+          - name: barako-cms-decaf
+            file: Dockerfile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Build the image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: ${{ matrix.image.file }}
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: scan/${{ matrix.image.name }}:ci
+          build-args: |
+            BARAKO_BUILD_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.image.name }}-amd64
+
+      - name: Install Trivy
+        run: bash scripts/install-trivy.sh
+
+      - name: Scan the image
+        run: bash scripts/scan-image.sh "scan/${{ matrix.image.name }}:ci" "${{ matrix.image.name }}" "${{ matrix.image.file }}"
+
+  # The postgres, pgvector and caddy images the compose files and manifests pin are not ours, and
+  # a digest pin keeps a vulnerable image in place until somebody moves it. Dependabot moves the
+  # pins; this says when one needs moving.
+  #
+  # A new CVE in one of those images is not something a pull request caused. On pull_request and
+  # merge_group the job fails only when the change touches a file scripts/list-compose-images.sh
+  # reads; otherwise it still scans and writes the findings to the job summary, and passes. Any
+  # other event (workflow_dispatch, a push) fails on findings. The nightly run fails on them too.
+  compose-image-scan:
+    name: Image scan (compose and manifest images)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Does the change touch a pinned image?
+        id: touch
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          QUEUE_BASE: ${{ github.event.merge_group.base_sha }}
         run: |
-          dotnet restore --locked-mode
-
-          echo '## Vulnerable dependencies' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          dotnet list package --vulnerable --include-transitive 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-
-          dotnet list package --vulnerable --include-transitive --format json --output-version 1 > vuln-report.json
-
-          # Fail closed. Previously an unreadable report made `jq -e` exit non-zero, which the `if`
-          # read as "no findings" and the build passed as though clean — the one outcome a security
-          # gate must never produce by accident.
-          # Check the shape, not merely that a key exists. `has("projects")` is satisfied by an
-          # object-valued `projects`, which then counts zero findings and passes — a differently
-          # shaped report would sail through as clean.
-          if ! jq -e '(.projects | type) == "array"
-                      and all(.projects[]; (.frameworks // []) | type == "array")' \
-                 vuln-report.json > /dev/null 2>&1; then
-            echo "::error::vulnerability report missing, unreadable or not the expected shape — failing closed"
-            head -c 500 vuln-report.json || true
-            exit 1
+          set -uo pipefail
+          block=true
+          case "$EVENT" in
+            pull_request) base=$PR_BASE ;;
+            merge_group) base=$QUEUE_BASE ;;
+            *) base="" ;;
+          esac
+          if [ -n "$base" ]; then
+            # Cannot compare means block: the safe answer is the strict one.
+            if git fetch --no-tags --depth=1 origin "$base" 2>/dev/null \
+               && changed=$(git diff --name-only "$base" HEAD); then
+              if printf '%s\n' "$changed" | grep -qE '^(docker-compose[^/]*\.ya?ml|quickstart/docker-compose[^/]*\.ya?ml|k8s/.*\.ya?ml)$'; then
+                echo "the change touches a compose file or manifest"
+              else
+                block=false
+                echo "the change touches no compose file or manifest, so findings are reported and do not fail this job"
+              fi
+            else
+              echo "::warning::could not compare against $base, findings will fail this job"
+            fi
           fi
+          echo "block=$block" >> "$GITHUB_OUTPUT"
 
-          FOUND=$(jq '[.projects[].frameworks[]? // empty
-                       | (.topLevelPackages // []) + (.transitivePackages // [])
-                       | .[] | .vulnerabilities[]?
-                       | select(.severity == "Critical" or .severity == "High")] | length' \
-                    vuln-report.json)
-          case "$FOUND" in ''|*[!0-9]*) echo "::error::could not count findings — failing closed"; exit 1 ;; esac
+      - name: Install Trivy
+        run: bash scripts/install-trivy.sh
 
-          if [ "$FOUND" -gt 0 ]; then
-            echo "::error::$FOUND Critical or High severity vulnerable dependencies found — see the summary above."
-            exit 1
+      - name: Scan every pinned third-party image
+        env:
+          BLOCK: ${{ steps.touch.outputs.block }}
+        run: |
+          set -uo pipefail
+          images=$(bash scripts/list-compose-images.sh) || exit 1
+          [ -n "$images" ] || { echo "::error::no third-party images found, the list script is broken"; exit 1; }
+          failed=0
+          while IFS= read -r image; do
+            label="$(printf '%s' "$image" | tr -c 'A-Za-z0-9.' '_' | cut -c1-80)-$(printf '%s' "$image" | cksum | cut -d' ' -f1)"
+            echo "::group::$image"
+            bash scripts/scan-image.sh "$image" "$label" docker-compose.yml || failed=$((failed + 1))
+            echo "::endgroup::"
+          done <<< "$images"
+          if [ "$failed" -ne 0 ]; then
+            if [ "$BLOCK" = "true" ]; then
+              echo "::error::$failed image(s) failed the scan"
+              exit 1
+            fi
+            echo "::warning::$failed pinned image(s) have a High or Critical finding with a fix. This change does not touch them, so it does not fail here. The nightly run fails on it."
+            echo "$failed pinned image(s) have findings, listed above. Not blocking: this change touches no compose file or manifest." >> "$GITHUB_STEP_SUMMARY"
           fi
 
   # The template and the test harness are what a third party starts from, and the solution build

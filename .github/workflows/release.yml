@@ -35,6 +35,11 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+# Read-only unless a job says otherwise. Each job below that writes (packages, id-token, contents,
+# issues, pull-requests) declares what it needs.
+permissions:
+  contents: read
+
 # Every project that ships as a NuGet package, written once. The pack loop iterates it and the two
 # count gates in verify-packages count it, so adding a module is one edit here and nothing else.
 # Adding BarakoCMS.Email.Smtp to the pack loop while two downstream gates still asserted a
@@ -57,6 +62,10 @@ jobs:
   gate:
     name: Version gate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The step that reads the nuget environment's reviewers goes through the API.
+      actions: read
     outputs:
       version: ${{ steps.check.outputs.version }}
       should_release: ${{ steps.check.outputs.should_release }}
@@ -574,6 +583,20 @@ jobs:
           outputs: type=image,name=ghcr.io/baryodev/${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.arch }}
+
+      - name: Install Trivy
+        run: bash scripts/install-trivy.sh
+
+      # The scan reads the exact digest that was just pushed, from the registry, so what is scanned
+      # is what would be published. A High or Critical finding with a fix fails the job here, the
+      # digest is never recorded below, and publish-images never tags it. The digest stays in the
+      # registry untagged. Trivy reads the credentials docker/login-action wrote; the variables
+      # pass the same token explicitly in case it does not.
+      - name: Scan the pushed image
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/scan-image.sh "ghcr.io/baryodev/${{ matrix.image.name }}@${{ steps.build.outputs.digest }}" "${{ matrix.image.name }}-${{ matrix.arch }}" "${{ matrix.image.file }}"
 
       # An empty digest here would make the merge step below build a manifest out of nothing, so it
       # fails now rather than producing an image that resolves to no architectures.

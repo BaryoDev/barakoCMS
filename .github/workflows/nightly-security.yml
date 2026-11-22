@@ -1,0 +1,141 @@
+name: Nightly security
+
+# A vulnerability can be published against code that has not changed. This runs the same gates as
+# CI against what is on master and what is already released, once a day, so a new High or Critical
+# advisory shows up as a red run instead of waiting for the next pull request.
+#
+#   - the NuGet vulnerability check on master
+#   - the latest released barako-cms and barako-cms-decaf images, pulled from ghcr.io
+#   - the third-party images the compose files and manifests pin
+#
+# A failing run is the alert. Findings also go to code scanning as SARIF. This workflow does not
+# open or comment on an issue: security findings are not posted as issues in this repository.
+# It reads public registries only and touches no deployed host.
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nuget:
+    name: NuGet vulnerabilities on master
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: master
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Vulnerable dependencies
+        env:
+          VULN_GATE_SARIF: nuget.sarif
+        run: bash scripts/nuget-vuln-check.sh
+
+      - name: Upload to code scanning
+        if: always() && hashFiles('nuget.sarif') != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          sarif_file: nuget.sarif
+          category: nightly-nuget
+
+  released-images:
+    name: Released image (${{ matrix.image.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: barako-cms
+            file: Dockerfile.suite
+          - name: barako-cms-decaf
+            file: Dockerfile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: master
+          persist-credentials: false
+
+      - name: Install Trivy
+        run: bash scripts/install-trivy.sh
+
+      # The published :latest, anonymous pull. Trivy reads it from the registry; nothing is run.
+      - name: Scan the latest released image
+        env:
+          SARIF: "1"
+        run: bash scripts/scan-image.sh "ghcr.io/baryodev/${{ matrix.image.name }}:latest" "${{ matrix.image.name }}" "${{ matrix.image.file }}"
+
+      - name: Upload to code scanning
+        if: always() && hashFiles(format('trivy-reports/{0}.sarif', matrix.image.name)) != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          sarif_file: trivy-reports/${{ matrix.image.name }}.sarif
+          category: nightly-image-${{ matrix.image.name }}
+
+  pinned-images:
+    name: Third-party images the repository pins
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: master
+          persist-credentials: false
+
+      - name: Install Trivy
+        run: bash scripts/install-trivy.sh
+
+      - name: Scan every pinned third-party image
+        env:
+          SARIF: "1"
+        run: |
+          set -uo pipefail
+          images=$(bash scripts/list-compose-images.sh) || exit 1
+          [ -n "$images" ] || { echo "::error::no third-party images found, the list script is broken"; exit 1; }
+          failed=0
+          while IFS= read -r image; do
+            label="$(printf '%s' "$image" | tr -c 'A-Za-z0-9.' '_' | cut -c1-80)-$(printf '%s' "$image" | cksum | cut -d' ' -f1)"
+            echo "::group::$image"
+            bash scripts/scan-image.sh "$image" "$label" docker-compose.yml || failed=$((failed + 1))
+            echo "::endgroup::"
+          done <<< "$images"
+          [ "$failed" -eq 0 ] || { echo "::error::$failed image(s) failed the scan"; exit 1; }
+
+      # One run per category in an upload, so the per-image files are joined into one.
+      - name: Join the reports
+        if: always()
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(trivy-reports/*.sarif)
+          [ "${#files[@]}" -gt 0 ] || exit 0
+          jq -s '{version: "2.1.0",
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  runs: [{tool: {driver: {name: "vuln-gate",
+                                          rules: ([.[].runs[0].results[] | {id: .ruleId}] | unique_by(.id))}},
+                          results: [.[].runs[0].results[]]}]}' "${files[@]}" > pinned-images.sarif
+
+      - name: Upload to code scanning
+        if: always() && hashFiles('pinned-images.sarif') != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          sarif_file: pinned-images.sarif
+          category: nightly-pinned-images

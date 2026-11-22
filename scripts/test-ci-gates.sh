@@ -11,6 +11,8 @@
 #
 #   bash scripts/test-ci-gates.sh
 
+# shellcheck disable=SC2016
+# (literal ${VAR} strings are the point of the compose list cases)
 set -uo pipefail
 
 pass=0
@@ -63,6 +65,192 @@ dotnet_gate "$d/net-objshape.json"; check "projects is an object"      fail $?
 dotnet_gate "$d/net-objframeworks.json"; check "frameworks is an object" fail $?
 dotnet_gate "$d/net-garbage.json";  check "unparseable output" fail $?
 dotnet_gate "$d/net-empty.json";    check "empty report"       fail $?
+
+# The shared gate, scripts/vuln-gate.sh, is run as it is. Reports are planted, and "today" is passed
+# in so an expiry case does not depend on the date the suite runs.
+here=$(cd "$(dirname "$0")" && pwd)
+gate="$here/vuln-gate.sh"
+today=2026-11-22
+
+# One High with a fix, one Critical with none, one Low with a fix.
+cat > "$d/img-high.json" <<'JSON'
+{"SchemaVersion":2,"Results":[{"Target":"image","Vulnerabilities":[
+  {"VulnerabilityID":"CVE-2099-0001","PkgName":"libfake","Severity":"HIGH","FixedVersion":"1.2.4"},
+  {"VulnerabilityID":"CVE-2099-0002","PkgName":"libnofix","Severity":"CRITICAL"},
+  {"VulnerabilityID":"CVE-2099-0003","PkgName":"libminor","Severity":"LOW","FixedVersion":"2.0"}]}]}
+JSON
+# Only the unfixed Critical and the Low.
+cat > "$d/img-unfixed.json" <<'JSON'
+{"SchemaVersion":2,"Results":[{"Target":"image","Vulnerabilities":[
+  {"VulnerabilityID":"CVE-2099-0002","PkgName":"libnofix","Severity":"CRITICAL"},
+  {"VulnerabilityID":"CVE-2099-0003","PkgName":"libminor","Severity":"LOW","FixedVersion":"2.0"}]}]}
+JSON
+echo '{"SchemaVersion":2}'                      > "$d/img-clean.json"
+echo '{"SchemaVersion":2,"Results":{"a":1}}'    > "$d/img-objshape.json"
+echo 'trivy crashed, no json here'              > "$d/img-garbage.json"
+: > "$d/img-empty.json"
+
+echo '[]' > "$d/allow-none.json"
+echo '[{"id":"CVE-2099-0001","package":"libfake","reason":"no path to it at run time","expires":"2026-12-31"}]' > "$d/allow-ok.json"
+echo '[{"id":"CVE-2099-0001","package":"libfake","reason":"no path to it at run time","expires":"2026-11-01"}]' > "$d/allow-expired.json"
+# Expired, and nothing in the report matches it.
+echo '[{"id":"CVE-2099-7777","package":"libgone","reason":"was accepted once","expires":"2026-11-01"}]' > "$d/allow-expired-unmatched.json"
+echo '[{"id":"CVE-2099-0001","package":"otherpkg","reason":"wrong package","expires":"2026-12-31"}]' > "$d/allow-wrong-pkg.json"
+echo '[{"id":"CVE-2099-0001","package":"libfake","expires":"2026-12-31"}]' > "$d/allow-no-reason.json"
+echo 'not json'                                > "$d/allow-garbage.json"
+
+echo
+echo "Image gate (vuln-gate.sh trivy):"
+bash "$gate" trivy "$d/img-high.json" "$d/allow-none.json" $today > /dev/null;            check "High with a fix"                    fail $?
+bash "$gate" trivy "$d/img-high.json" "$d/allow-ok.json" $today > /dev/null;              check "same finding allowlisted"           pass $?
+bash "$gate" trivy "$d/img-high.json" "$d/allow-expired.json" $today > /dev/null;         check "allowlist entry expired"            fail $?
+bash "$gate" trivy "$d/img-clean.json" "$d/allow-expired-unmatched.json" $today > /dev/null; check "expired entry, nothing matches it" fail $?
+bash "$gate" trivy "$d/img-high.json" "$d/allow-wrong-pkg.json" $today > /dev/null;       check "allowlisted for another package"    fail $?
+bash "$gate" trivy "$d/img-high.json" "$d/allow-no-reason.json" $today > /dev/null;       check "entry with no reason"               fail $?
+bash "$gate" trivy "$d/img-high.json" "$d/allow-garbage.json" $today > /dev/null;         check "allowlist is not JSON"              fail $?
+bash "$gate" trivy "$d/img-high.json" "$d/missing.json" $today > /dev/null;               check "allowlist file missing"             fail $?
+bash "$gate" trivy "$d/img-unfixed.json" "$d/allow-none.json" $today > /dev/null;         check "unfixed Critical and a Low"         pass $?
+bash "$gate" trivy "$d/img-clean.json" "$d/allow-none.json" $today > /dev/null;           check "clean report"                       pass $?
+bash "$gate" trivy "$d/img-objshape.json" "$d/allow-none.json" $today > /dev/null;        check "Results is an object"               fail $?
+bash "$gate" trivy "$d/img-garbage.json" "$d/allow-none.json" $today > /dev/null;         check "unparseable output"                 fail $?
+bash "$gate" trivy "$d/img-empty.json" "$d/allow-none.json" $today > /dev/null;           check "empty report"                       fail $?
+
+# Expiry is inclusive: an entry dated today still accepts, the day after it does not. Dates that fit
+# the pattern but are not real fail the gate, and the error names the entry.
+bash "$gate" trivy "$d/img-high.json" "$d/allow-ok.json" 2026-12-31 > /dev/null;          check "entry accepts on its expiry date"   pass $?
+bash "$gate" trivy "$d/img-high.json" "$d/allow-ok.json" 2027-01-01 > /dev/null;          check "entry stops the day after"          fail $?
+echo '[{"id":"CVE-2099-0001","package":"libfake","reason":"typo","expires":"2026-13-45"}]' > "$d/allow-baddate.json"
+echo '[{"id":"CVE-2099-0001","package":"libfake","reason":"no such day","expires":"2026-02-30"}]' > "$d/allow-baddate2.json"
+bash "$gate" trivy "$d/img-high.json" "$d/allow-baddate.json" $today > /dev/null 2>&1;    check "expiry 2026-13-45"                  fail $?
+bash "$gate" trivy "$d/img-clean.json" "$d/allow-baddate2.json" $today > /dev/null 2>&1;  check "expiry 2026-02-30, nothing matches" fail $?
+err=$(bash "$gate" trivy "$d/img-clean.json" "$d/allow-baddate.json" $today 2>&1)
+printf '%s\n' "$err" | grep -q 'CVE-2099-0001 (libfake) has the impossible expiry date 2026-13-45'
+check "impossible date names the entry" pass $?
+
+# Writes SARIF for the findings that failed, and only those.
+VULN_GATE_SARIF="$d/out.sarif" bash "$gate" trivy "$d/img-high.json" "$d/allow-none.json" $today > /dev/null
+jq -e '(.runs[0].results | length) == 1 and .runs[0].results[0].ruleId == "CVE-2099-0001"' "$d/out.sarif" > /dev/null 2>&1
+check "SARIF holds the failing finding only" pass $?
+
+# The same CVE in two images stays two alerts: the image is in the message and the fingerprint.
+VULN_GATE_IMAGE=postgres:16 VULN_GATE_SARIF="$d/pg.sarif" bash "$gate" trivy "$d/img-high.json" "$d/allow-none.json" $today > /dev/null
+VULN_GATE_IMAGE=caddy:2 VULN_GATE_SARIF="$d/caddy.sarif" bash "$gate" trivy "$d/img-high.json" "$d/allow-none.json" $today > /dev/null
+jq -s -e '.[0].runs[0].results[0].partialFingerprints != .[1].runs[0].results[0].partialFingerprints
+          and (.[0].runs[0].results[0].message.text | contains("postgres:16"))' "$d/pg.sarif" "$d/caddy.sarif" > /dev/null 2>&1
+check "SARIF tells two images apart" pass $?
+
+echo
+echo "NuGet findings through the shared gate and allowlist:"
+cat > "$d/net-ghsa.json" <<'JSON'
+{"projects":[{"frameworks":[{"topLevelPackages":[{"id":"Fake.Package","vulnerabilities":[
+  {"severity":"High","advisoryurl":"https://github.com/advisories/GHSA-fake-fake-fake"}]}]}]}]}
+JSON
+echo '[{"id":"GHSA-fake-fake-fake","package":"Fake.Package","reason":"not reachable","expires":"2026-12-31"}]' > "$d/allow-net.json"
+bash "$gate" dotnet "$d/net-ghsa.json" "$d/allow-none.json" $today > /dev/null;  check "High advisory"                    fail $?
+bash "$gate" dotnet "$d/net-ghsa.json" "$d/allow-net.json" $today > /dev/null;   check "same advisory allowlisted"        pass $?
+bash "$gate" dotnet "$d/net-ghsa.json" "$d/allow-net.json" 2027-01-15 > /dev/null; check "same entry after its expiry"    fail $?
+bash "$gate" dotnet "$d/net-moderate.json" "$d/allow-none.json" $today > /dev/null; check "Moderate only"                 pass $?
+bash "$gate" dotnet "$d/net-garbage.json" "$d/allow-none.json" $today > /dev/null;  check "unparseable output"            fail $?
+bash "$gate" nonsense "$d/net-ghsa.json" "$d/allow-none.json" $today > /dev/null 2>&1; check "unknown report kind"        fail $?
+
+echo
+echo "The committed allowlist:"
+bash "$gate" trivy "$d/img-clean.json" "$here/../.github/vuln-allowlist.json" $today > /dev/null
+check "parses, and holds no expired entry" pass $?
+
+echo
+echo "Action pins (check-action-pins.sh):"
+sha=3d3c42e5aac5ba805825da76410c181273ba90b1
+mkdir -p "$d/wf-good" "$d/wf-tag" "$d/wf-branch" "$d/wf-short" "$d/wf-docker" "$d/wf-none"
+printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@%s # v7\n      - uses: ./.github/actions/local\n' "$sha" > "$d/wf-good/a.yml"
+printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@%s # v7\n      - uses: actions/setup-dotnet@v6\n' "$sha" > "$d/wf-tag/a.yml"
+printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@main\n' > "$d/wf-branch/a.yml"
+printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@3d3c42e\n' > "$d/wf-short/a.yml"
+printf 'jobs:\n  a:\n    steps:\n      - uses: docker://alpine:3.20\n' > "$d/wf-docker/a.yml"
+printf 'name: nothing\n' > "$d/wf-none/a.yml"
+bash "$here/check-action-pins.sh" "$d/wf-good" > /dev/null;   check "every action pinned by SHA"      pass $?
+bash "$here/check-action-pins.sh" "$d/wf-tag" > /dev/null;    check "one action pinned by a tag"      fail $?
+bash "$here/check-action-pins.sh" "$d/wf-branch" > /dev/null; check "action pinned by a branch"       fail $?
+bash "$here/check-action-pins.sh" "$d/wf-short" > /dev/null;  check "abbreviated SHA"                 fail $?
+bash "$here/check-action-pins.sh" "$d/wf-docker" > /dev/null; check "docker:// without a digest"      fail $?
+bash "$here/check-action-pins.sh" "$d/wf-none" > /dev/null;   check "no uses lines at all"            fail $?
+bash "$here/check-action-pins.sh" "$here/../.github/workflows" > /dev/null; check "this repository's workflows" pass $?
+
+echo
+echo "Image scan wrapper (scan-image.sh, with a stand-in trivy):"
+mkdir -p "$d/fakebin"
+# Fails while the counter file says so, then writes the report named by --output. Records its arguments.
+cat > "$d/fakebin/trivy" <<'FAKE'
+#!/usr/bin/env bash
+n=$(cat "$FAKE_COUNT" 2>/dev/null || echo 0)
+echo $((n + 1)) > "$FAKE_COUNT"
+echo "$@" > "$FAKE_ARGS"
+if [ "$n" -lt "${FAKE_FAILS:-0}" ]; then echo "registry: 429 too many requests" >&2; exit 1; fi
+while [ $# -gt 0 ]; do [ "$1" = "--output" ] && { cp "$FAKE_REPORT" "$2"; break; }; shift; done
+FAKE
+chmod +x "$d/fakebin/trivy"
+eq() { [ "$1" = "$2" ]; }
+scan() { # $1 = report to produce, $2 = failures before success, $3 = image
+  rm -f "$d/count"
+  FAKE_REPORT="$1" FAKE_FAILS="$2" FAKE_COUNT="$d/count" FAKE_ARGS="$d/args" SCAN_RETRY_PAUSE=0 \
+    PATH="$d/fakebin:$PATH" REPORT_DIR="$d/reports" \
+    bash -c 'cd "$1" && bash scripts/scan-image.sh "$2" t' _ "$here/.." "$3" > /dev/null 2>&1
+}
+# scan-image.sh runs the gate on the committed allowlist, which holds nothing that matches these reports.
+scan "$d/img-clean.json" 0 postgres:16;  check "clean image"                                    pass $?
+scan "$d/img-clean.json" 1 postgres:16;  check "trivy fails once, then runs (retried)"          pass $?
+eq "$(cat "$d/count")" 2;                check "retry ran trivy exactly twice" pass $?
+scan "$d/img-clean.json" 2 postgres:16;  check "trivy fails twice"                              fail $?
+eq "$(cat "$d/count")" 2;                check "no third attempt" pass $?
+scan "$d/img-high.json" 0 postgres:16;   check "findings with a fix are not retried and fail"   fail $?
+eq "$(cat "$d/count")" 1;                check "findings ran trivy once" pass $?
+scan "$d/img-clean.json" 0 -oops;        check "image starting with a dash"                     pass $?
+grep -q -- '-- -oops$' "$d/args";        check "image is passed after --" pass $?
+
+echo
+echo "Compose image list (list-compose-images.sh):"
+lst="$here/list-compose-images.sh"
+mkdir -p "$d/lc1/k8s/sub" "$d/lc1/quickstart" "$d/lc2" "$d/lc3" "$d/lc4"
+cat > "$d/lc1/docker-compose.yml" <<'YML'
+services:
+  db:
+    image: postgres:${PG_VERSION:-16}
+  cache:
+    image: "redis:7@sha256:aaaa"
+  app:
+    image: ghcr.io/baryodev/barako-cms:${BARAKO_TAG}
+  app2:
+    image: ${REGISTRY:-ghcr.io}/baryodev/barako-cms-decaf:latest
+YML
+printf 'services:\n  a:\n    image: caddy:2\n' > "$d/lc1/docker-compose.override.yaml"
+printf 'services:\n  a:\n    image: nginx:1\n' > "$d/lc1/quickstart/docker-compose.yml"
+printf 'spec:\n  containers:\n    - image: busybox:1\n' > "$d/lc1/k8s/sub/job.yml"
+out=$(bash "$lst" "$d/lc1" 2>/dev/null); rc=$?
+eq "$rc" 0;                                                         check "defaults resolve, own images skipped" pass $?
+printf '%s\n' "$out" | grep -qx 'postgres:16';                      check "variable with a default is scanned"   pass $?
+printf '%s\n' "$out" | grep -qx 'redis@sha256:aaaa';                check "digest reference"                     pass $?
+printf '%s\n' "$out" | grep -qx 'caddy:2';                          check "docker-compose*.yaml is read"         pass $?
+printf '%s\n' "$out" | grep -qx 'busybox:1';                        check "k8s .yml in a subfolder is read"      pass $?
+! printf '%s\n' "$out" | grep -qi 'baryodev';                       check "own images are not listed"            pass $?
+printf 'services:\n  a:\n    image: foo/bar:%s\n  b:\n    image: postgres:16\n' '${TAG}' > "$d/lc2/docker-compose.yml"
+err=$(bash "$lst" "$d/lc2" 2>&1 >/dev/null); rc=$?
+! eq "$rc" 0;                                                       check "variable with no default fails"       pass $?
+printf '%s' "$err" | grep -q 'docker-compose.yml' && printf '%s' "$err" | grep -qF 'foo/bar:${TAG}'
+check "the error names the file and the image" pass $?
+out=$(bash "$lst" "$d/lc2" 2>/dev/null)
+printf '%s\n' "$out" | grep -qx 'postgres:16';                      check "the rest is still listed"             pass $?
+bash "$lst" "$d/lc3" > /dev/null 2>&1;                               check "no files at all"                      fail $?
+bash "$lst" "$here/.." > /dev/null 2>&1;                             check "this repository's compose files"      pass $?
+
+echo
+echo "Action pins in composite actions:"
+mkdir -p "$d/gh1/workflows" "$d/gh1/actions/mine" "$d/gh2/workflows" "$d/gh2/actions/mine"
+printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@%s # v7\n' "$sha" > "$d/gh1/workflows/a.yml"
+cp "$d/gh1/workflows/a.yml" "$d/gh2/workflows/a.yml"
+printf 'runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@%s # v7\n' "$sha" > "$d/gh1/actions/mine/action.yml"
+printf 'runs:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v4\n' > "$d/gh2/actions/mine/action.yaml"
+bash "$here/check-action-pins.sh" "$d/gh1/workflows" > /dev/null; check "composite action pinned by SHA"     pass $?
+bash "$here/check-action-pins.sh" "$d/gh2/workflows" > /dev/null; check "composite action pinned by a tag"   fail $?
 
 echo
 echo "$pass passed, $fail failed"
