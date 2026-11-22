@@ -34,9 +34,26 @@ public class ComposeDefaultsTests
         return File.ReadAllLines(path);
     }
 
-    /// <summary>A volume entry whose source is a path on the host rather than a named volume.</summary>
+    /// <summary>
+    /// A short-form volume entry whose source is a path on the host: SOURCE:/TARGET. A tmpfs entry
+    /// (/home/app:size=16m) names a path inside the container and has no target, so it does not match.
+    /// </summary>
     private static readonly Regex HostBindMount =
-        new(@"^-\s*[""']?(\$\{?HOME\}?|~|/(etc|root|home|var/run))", RegexOptions.Compiled);
+        new(@"^-\s*[""']?(\$\{?HOME\}?|~|/(etc|root|home|var/run))[^:\s]*:/", RegexOptions.Compiled);
+
+    [Theory]
+    [InlineData("- ~/.kube/config:/root/.kube/config:ro", true)]
+    [InlineData("- ${HOME}/.kube:/home/app/.kube", true)]
+    [InlineData("- \"$HOME/.aws:/root/.aws\"", true)]
+    [InlineData("- /var/run/docker.sock:/var/run/docker.sock", true)]
+    [InlineData("- /etc/ssl/private:/certs:ro", true)]
+    [InlineData("- /home/app:uid=1654,gid=1654,mode=0700,size=16m", false)]
+    [InlineData("- /var/run/postgresql:mode=1777,size=8m", false)]
+    [InlineData("- pgdata:/var/lib/postgresql/data", false)]
+    public void The_host_mount_pattern_catches_binds_and_skips_tmpfs(string line, bool isHostMount)
+    {
+        HostBindMount.IsMatch(line).Should().Be(isHostMount, line);
+    }
 
     [Theory]
     [MemberData(nameof(ComposeFiles))]
