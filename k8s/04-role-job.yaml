@@ -1,0 +1,109 @@
+# Creates the database role the API connects as, once, before the Deployment starts.
+#
+# Runs scripts/db-app-role.sql as the database owner: installs pg_stat_statements, creates the login
+# role (DB_APP_USER, no superuser), sets its password and makes it owner of what is in schema
+# public. The script is safe to run again. The API refuses to start as a superuser outside
+# Development, so apply this and wait for it before 05-deployment.yaml (see README.md).
+#
+# The script is not copied here. README.md creates the ConfigMap barako-db-app-role from
+# scripts/db-app-role.sql, so the cluster runs the file the repository tests.
+#
+# The owner credentials come from barako-secrets (POSTGRES_PASSWORD) and barako-config
+# (POSTGRES_USER, POSTGRES_DB), and the role's name and password from the same secret
+# (DB_APP_USER, DB_APP_PASSWORD). Nothing goes on the command line.
+#
+# A Job rather than an initContainer on the Deployment, so it runs once and not once per replica.
+# It keeps its logs for ttlSecondsAfterFinished, then Kubernetes removes it. Apply it again to run
+# it again.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: barako-db-app-role
+  namespace: barako-cms
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: barako-db-app-role
+    spec:
+      # 70 is the postgres user of the postgres:16-alpine image, as in 07-backup-cronjob.yaml.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      restartPolicy: OnFailure
+      containers:
+        - name: role
+          image: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d # postgres:16-alpine
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+
+              # Postgres may still be starting when this Job is applied with the rest. Wait up to
+              # five minutes, then fail so the Job's log says it never came up.
+              i=0
+              until pg_isready -q -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE"; do
+                  i=$((i + 1))
+                  [ "$i" -lt 150 ] || { echo "db-app-role: Postgres at $PGHOST did not become ready" >&2; exit 1; }
+                  sleep 2
+              done
+
+              exec psql -X -v ON_ERROR_STOP=1 -f /scripts/db-app-role.sql
+          env:
+            - name: PGHOST
+              value: postgres-service
+            - name: PGDATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: barako-config
+                  key: POSTGRES_DB
+            - name: PGUSER
+              valueFrom:
+                configMapKeyRef:
+                  name: barako-config
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: barako-secrets
+                  key: POSTGRES_PASSWORD
+            - name: DB_APP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: barako-secrets
+                  key: DB_APP_USER
+            - name: DB_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: barako-secrets
+                  key: DB_APP_PASSWORD
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: script
+          configMap:
+            name: barako-db-app-role
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi

@@ -317,6 +317,57 @@ public class KubernetesManifestTests
         Regex.IsMatch(backup, @"(?m)^\s*runAsUser:\s*70\s*$").Should().BeTrue("70 is the postgres user of postgres:16-alpine");
     }
 
+    private static string Secret() => File.ReadAllText(Path.Combine(ManifestDir(), "02-secret.yaml"));
+
+    private static string RoleJob() => File.ReadAllText(Path.Combine(ManifestDir(), "04-role-job.yaml"));
+
+    [Fact]
+    public void The_API_connection_string_is_the_app_role_and_not_postgres()
+    {
+        var line = Lines(Path.Combine(ManifestDir(), "02-secret.yaml"))
+            .Single(l => l.TrimStart().StartsWith("ConnectionStrings__DefaultConnection:", StringComparison.Ordinal));
+
+        line.Should().Contain("Username=barako_app");
+        line.Should().NotContainEquivalentOf("Username=postgres",
+            "the API refuses to start as a superuser outside Development");
+        line.Should().Contain("Password=REPLACE_THIS", "an unedited placeholder is refused at start");
+
+        var owner = Regex.Match(Secret(), @"(?m)^\s*POSTGRES_PASSWORD:\s*""(?<v>[^""]+)""").Groups["v"].Value;
+        var app = Regex.Match(line, @"Password=(?<v>[^"";]+)").Groups["v"].Value;
+        app.Should().NotBe(owner, "the owner and the API's role do not share a password");
+        Regex.IsMatch(Secret(), $@"(?m)^\s*DB_APP_PASSWORD:\s*""{Regex.Escape(app)}""").Should().BeTrue(
+            "the role Job creates the role with the password the connection string uses");
+    }
+
+    [Fact]
+    public void The_role_Job_runs_the_pinned_image_hardened_and_waits_for_Postgres()
+    {
+        var job = RoleJob();
+
+        job.Should().Contain("kind: Job").And.Contain("ttlSecondsAfterFinished:");
+        job.Should().MatchRegex(@"image:\s*postgres:16-alpine@sha256:[0-9a-f]{64}");
+        MissingContainerHardening(job).Should().BeEmpty();
+        Regex.IsMatch(job, @"(?m)^\s*runAsNonRoot:\s*true\s*$").Should().BeTrue();
+        Regex.IsMatch(job, @"(?m)^\s*runAsUser:\s*70\s*$").Should().BeTrue("70 is the postgres user of postgres:16-alpine");
+        Regex.IsMatch(job, @"(?m)^\s*runAsGroup:\s*70\s*$").Should().BeTrue();
+        job.Should().Contain("pg_isready", "the Job is applied with Postgres, so it waits for it itself");
+        job.Should().Contain("name: barako-db-app-role", "the script comes from the ConfigMap the README creates");
+        foreach (var key in new[] { "POSTGRES_PASSWORD", "DB_APP_USER", "DB_APP_PASSWORD" })
+        {
+            job.Should().MatchRegex($@"secretKeyRef:\s*\n\s*name:\s*barako-secrets\s*\n\s*key:\s*{key}\b");
+        }
+    }
+
+    [Fact]
+    public void The_role_Job_sorts_after_Postgres_and_before_the_Deployment()
+    {
+        var files = ManifestFiles().Select(Path.GetFileName).ToArray();
+        var job = Array.IndexOf(files, "04-role-job.yaml");
+
+        job.Should().BeGreaterThan(Array.IndexOf(files, "03-postgres.yaml"));
+        job.Should().BeLessThan(Array.IndexOf(files, "05-deployment.yaml"));
+    }
+
     [Fact]
     public void The_Postgres_readiness_probe_asks_over_TCP()
     {
