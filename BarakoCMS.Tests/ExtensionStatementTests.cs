@@ -28,13 +28,15 @@ public class ExtensionStatementTests
     ];
 
     /// <summary>
-    /// A statement: the keywords, an optional IF NOT EXISTS, a name (bare or double quoted), then a
-    /// semicolon, a closing quote (a psql -c string), or WITH, SCHEMA, VERSION or CASCADE. A bare end
-    /// of line after the name does not count, so prose such as "drops the CREATE EXTENSION and" does not
-    /// match with the name "and".
+    /// A statement: the keywords, an optional IF NOT EXISTS, a name, then a semicolon, a closing quote
+    /// (a psql -c string), or WITH, SCHEMA, VERSION or CASCADE. The name is bare, double quoted, or a
+    /// placeholder that starts with <c>{</c>, <c>%</c>, <c>$</c> or <c>:</c> (an interpolated string, a
+    /// format call or a psql variable). Whitespace between the keywords may include line breaks, so a
+    /// statement split across lines counts. A bare end of line after the name does not count, so prose
+    /// such as "drops the CREATE EXTENSION and" does not match with the name "and".
     /// </summary>
     internal static readonly Regex Statement = new(
-        @"\bcreate\s+extension\s+(?:if\s+not\s+exists\s+)?(?:""[^""]+""|[A-Za-z_][\w$-]*)(?:\s*;|\s*[""']|\s+(?:with|schema|version|cascade)\b)",
+        @"\bcreate\s+extension\s+(?:if\s+not\s+exists\s+)?(?:""[^""]+""|[{%$:][^\s;""']*|[A-Za-z_][\w$-]*)(?:[ \t]*;|[ \t]*[""']|\s+(?:with|schema|version|cascade)\b)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private const long LargestFile = 5 * 1024 * 1024;
@@ -62,13 +64,14 @@ public class ExtensionStatementTests
                 continue; // a binary file
             }
 
-            var lines = Encoding.UTF8.GetString(bytes).Split('\n');
-            for (var i = 0; i < lines.Length; i++)
+            if (Allowed.Contains(path))
             {
-                if (Statement.IsMatch(lines[i]) && !Allowed.Contains(path))
-                {
-                    found.Add($"{path}:{i + 1}");
-                }
+                continue;
+            }
+
+            foreach (var line in StatementLines(Encoding.UTF8.GetString(bytes)))
+            {
+                found.Add($"{path}:{line}");
             }
         }
 
@@ -85,7 +88,7 @@ public class ExtensionStatementTests
         files.Should().Contain(Allowed);
         foreach (var path in Allowed)
         {
-            File.ReadAllText(Path.Combine(RepoPaths.Root, path)).Split('\n').Any(l => Statement.IsMatch(l)).Should().BeTrue("{0} holds the statement the scan looks for", path);
+            StatementLines(File.ReadAllText(Path.Combine(RepoPaths.Root, path))).Should().NotBeEmpty("{0} holds the statement the scan looks for", path);
         }
     }
 
@@ -100,13 +103,43 @@ public class ExtensionStatementTests
     [InlineData("psql -c \"CREATE EXTENSION IF NOT EXISTS unaccent\"", true)]
     [InlineData("CREATE EXTENSION \"uuid-ossp\" WITH SCHEMA public;", true)]
     [InlineData("CREATE EXTENSION vector CASCADE;", true)]
-    public void The_pattern_matches_statements_and_not_mentions(string line, bool matches)
+    [InlineData("var sql = $\"CREATE EXTENSION IF NOT EXISTS {name};\";", true)]
+    [InlineData("format('CREATE EXTENSION IF NOT EXISTS %I;', x)", true)]
+    [InlineData("CREATE EXTENSION IF NOT EXISTS :ext;", true)]
+    [InlineData("CREATE EXTENSION\n  IF NOT EXISTS hstore;", true)]
+    [InlineData("the stream drops the CREATE EXTENSION\nand COMMENT ON EXTENSION lines", false)]
+    public void The_pattern_matches_statements_and_not_mentions(string text, bool matches)
     {
-        Statement.IsMatch(line).Should().Be(matches);
+        StatementLines(text).Any().Should().Be(matches);
     }
 
+    [Fact]
+    public void A_match_reports_the_line_it_starts_on()
+    {
+        StatementLines("one\ntwo\nCREATE EXTENSION\n  IF NOT EXISTS hstore;\n").Should().Equal(3);
+    }
+
+    /// <summary>The 1-based line each statement starts on, scanning the whole text.</summary>
+    private static IEnumerable<int> StatementLines(string text)
+    {
+        foreach (Match match in Statement.Matches(text))
+        {
+            var line = 1;
+            for (var i = 0; i < match.Index; i++)
+            {
+                if (text[i] == '\n')
+                {
+                    line++;
+                }
+            }
+
+            yield return line;
+        }
+    }
+
+    // Any top-level test project, such as BarakoCMS.Tests/ or BarakoCMS.Pages.Tests/.
     private static bool IsExcluded(string path) =>
-        path.StartsWith("BarakoCMS.Tests/", StringComparison.Ordinal)
+        path.Split('/')[0].EndsWith(".Tests", StringComparison.Ordinal)
         || path == "CHANGELOG.md"
         || path.StartsWith("changelog.d/", StringComparison.Ordinal);
 
