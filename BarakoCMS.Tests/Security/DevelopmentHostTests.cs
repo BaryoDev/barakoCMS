@@ -42,6 +42,24 @@ public class DevelopmentHostTests
         DevelopmentHost.Of(services).Should().BeFalse();
     }
 
+    [Fact]
+    public void A_later_factory_registration_is_Production_and_nothing_earlier_counts()
+    {
+        var services = new ServiceCollection().AsHost(Environments.Development);
+        services.AddSingleton<IHostEnvironment>(_ => new HostingEnvironment { EnvironmentName = Environments.Development });
+
+        DevelopmentHost.Of(services).Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_later_type_registration_is_Production()
+    {
+        var services = new ServiceCollection().AsHost(Environments.Development);
+        services.AddSingleton<IHostEnvironment, HostingEnvironment>();
+
+        DevelopmentHost.Of(services).Should().BeFalse();
+    }
+
     [Theory]
     [InlineData("Development", true)]
     [InlineData("Production", false)]

@@ -17,18 +17,19 @@ internal static class DevelopmentHost
     /// <summary>Whether the host being built is Development, from the environment it registered in <paramref name="services"/>.</summary>
     /// <remarks>
     /// Both <c>WebApplicationBuilder</c> and the generic host register the instance, and the later
-    /// registration wins, as it does for resolution.
+    /// registration wins, as it does for resolution. When that one is a factory or a type, which
+    /// cannot be read here, the answer is Production.
     /// </remarks>
     public static bool Of(IServiceCollection services)
     {
         for (var i = services.Count - 1; i >= 0; i--)
         {
             var descriptor = services[i];
-            if (typeof(IHostEnvironment).IsAssignableFrom(descriptor.ServiceType)
-                && !descriptor.IsKeyedService
-                && descriptor.ImplementationInstance is IHostEnvironment environment)
+            if (typeof(IHostEnvironment).IsAssignableFrom(descriptor.ServiceType) && !descriptor.IsKeyedService)
             {
-                return Of(environment);
+                // The last registration is the one resolution returns. A factory or a type cannot be
+                // read before the host is built, so it counts as Production and nothing earlier does.
+                return descriptor.ImplementationInstance is IHostEnvironment environment && Of(environment);
             }
         }
 
