@@ -168,7 +168,7 @@ public sealed class ManagedAdminRoleStepsTests(ManagedAdminRoleStepsTests.Postgr
     }
 
     [Fact]
-    public async Task The_role_script_still_needs_a_superuser_so_the_doc_sends_a_managed_admin_to_the_steps()
+    public async Task The_role_script_refuses_a_managed_admin_before_it_changes_anything()
     {
         var admin = await postgres.RunAsync(
             "psql", "-X", "-U", "postgres", "-d", "postgres", "-c",
@@ -178,12 +178,25 @@ public sealed class ManagedAdminRoleStepsTests(ManagedAdminRoleStepsTests.Postgr
             "psql", "-X", "-U", "postgres", "-d", "postgres", "-c", "CREATE DATABASE managed_script_db OWNER mgr2");
         created.ExitCode.Should().Be(0, created.Stderr);
 
+        const string publicOwner = "select pg_get_userbyid(nspowner) from pg_namespace where nspname = 'public'";
+        var before = await postgres.PsqlAsync("postgres", "managed_script_db", "-c", publicOwner);
+        before.ExitCode.Should().Be(0, before.Stderr);
+
         var run = await postgres.RunAsync(
             "env", "DB_APP_USER=barako_script_role", "DB_APP_PASSWORD=Aa1-" + Guid.NewGuid().ToString("N"),
             "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-U", "mgr2", "-d", "managed_script_db",
             "-f", "/work/scripts/db-app-role.sql");
 
-        run.ExitCode.Should().NotBe(0, "scripts/db-app-role.sql needs a superuser; if this starts passing, update the doc");
-        run.Stderr.Should().Contain("permission denied", "the script stops on a privilege a managed admin lacks, not on anything else");
+        run.ExitCode.Should().NotBe(0, "the script refuses a role that is not a superuser");
+        run.Stderr.Should().Contain("is not a superuser");
+        run.Stderr.Should().Contain("deploy-on-a-managed-platform.md");
+
+        var role = await postgres.PsqlAsync(
+            "postgres", "postgres", "-c", "select count(*) from pg_roles where rolname = 'barako_script_role'");
+        role.ExitCode.Should().Be(0, role.Stderr);
+        role.Stdout.Trim().Should().Be("0", "the refusal created no role");
+        var after = await postgres.PsqlAsync("postgres", "managed_script_db", "-c", publicOwner);
+        after.ExitCode.Should().Be(0, after.Stderr);
+        after.Stdout.Trim().Should().Be(before.Stdout.Trim(), "the refusal moved no ownership");
     }
 }

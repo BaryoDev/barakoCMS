@@ -1,0 +1,1 @@
+- **`scripts/db-app-role.sql` names the managed database steps when the role running it is not a superuser.** Run as a managed platform admin, it stops before its first statement and points to "The app role on a managed database" in `docs/deploy-on-a-managed-platform.md`, instead of stopping with "permission denied to set parameter".

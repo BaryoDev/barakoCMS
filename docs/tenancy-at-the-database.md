@@ -36,7 +36,10 @@ Three steps, in this order.
 DB_APP_USER=barako_app DB_APP_PASSWORD='...' psql -d barako -f scripts/db-app-role.sql
 ```
 
-Run it as the database owner, a superuser. `scripts/db-app-role.sql` is the one file; it is meant to
+Run it as the database owner, a superuser. Run as any other role, such as a managed platform's admin,
+it stops before its first statement and points to
+[the managed database steps](deploy-on-a-managed-platform.md#the-app-role-on-a-managed-database).
+`scripts/db-app-role.sql` is the one file; it is meant to
 run on every start (the production and quickstart compose files run it in a job before the API starts, see
 [Deploy in production](deploy-in-production.md#database-roles)), and `migrations/tenancy/001-app-role.sql` is kept at its old path and includes
 it, so `psql -v app_role=barako_app -v app_password='...' -f migrations/tenancy/001-app-role.sql`
