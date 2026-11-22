@@ -24,8 +24,8 @@ public class OutboundClientRegistrationScanTests
     // configuration or is a constant in code. No route, tenant setting or stored row sets it.
     internal static readonly Dictionary<string, string> OperatorSetClients = new()
     {
-        ["BarakoCMS.AI/AiModule.cs|AddHttpClient<IEmbeddingClient, OllamaEmbeddingClient>()"] =
-            "target is Modules:AI:EmbeddingBaseUrl from host configuration, and an operator may point it at a local model on loopback on purpose; the tenant-overridable EmbeddingBaseUrl setting is declared but this client does not read tenant settings",
+        ["BarakoCMS.AI/AiModule.cs|AddHttpClient<IEmbeddingClient, OllamaEmbeddingClient>(OllamaEmbeddingClient.Configure)"] =
+            "target is Modules:AI:EmbeddingBaseUrl from host configuration, and an operator may point it at a local model on loopback on purpose; the tenant-overridable EmbeddingBaseUrl setting is declared but this client does not read tenant settings; Configure gives it a 30 second timeout and a 1 MB response buffer cap",
         ["BarakoCMS.AI/AiModule.cs|AddHttpClient<ICompletionClient, CompletionClient>(c => c.MaxResponseContentBufferSize = 1_000_000)"] =
             "target is the same host configuration or the fixed OpenAI and Anthropic addresses, with a client timeout and a response buffer cap",
         ["BarakoCMS.Diagnostics/DiagnosticsModule.cs|AddHttpClient<SentryForwardClient>()"] =
@@ -39,13 +39,20 @@ public class OutboundClientRegistrationScanTests
     // Key: file, then "new HttpClient(" and its first argument. Empty: production code builds none.
     internal static readonly Dictionary<string, string> DirectHttpClients = new();
 
-    private static readonly Regex Registration = new(@"\.AddHttpClient(?<generics><[^>]*>)?\(", RegexOptions.Compiled);
-    // Also the qualified forms and a target-typed new on a field, local or property declared as
-    // HttpClient. It cannot see a target-typed new() returned from a method whose return type is HttpClient.
+    // The dot may be followed by whitespace or a newline (a chained call split over lines), and the
+    // type arguments may nest, so the angle brackets are balanced rather than cut at the first ">".
+    private static readonly Regex Registration = new(
+        @"\.\s*AddHttpClient\s*(?<generics><(?:[^<>]+|<(?<d>)|>(?<-d>))*(?(d)(?!))>)?\s*\(",
+        RegexOptions.Compiled);
+    // Also the qualified forms, an object initializer with no parentheses, and a target-typed new on
+    // a field, local or property declared as HttpClient. It cannot see a target-typed new() returned
+    // from a method whose return type is HttpClient.
     private static readonly Regex Direct = new(
-        @"\bnew\s+(?:global::)?(?:System\s*\.\s*Net\s*\.\s*Http\s*\.\s*)?HttpClient\s*\("
+        @"\bnew\s+(?:global::)?(?:System\s*\.\s*Net\s*\.\s*Http\s*\.\s*)?HttpClient\s*[({]"
         + @"|\bHttpClient\??\s+\w+\s*(?:\{[^{}]*\}\s*)?=\s*new\s*\(",
         RegexOptions.Compiled);
+    private static readonly Regex TimeoutAssignment = new(@"\bTimeout\s*=(?![=>])", RegexOptions.Compiled);
+    private static readonly Regex CreateClientCall = new(@"\bCreateClient\s*\(", RegexOptions.Compiled);
 
     private sealed record Found(string Key, string Statement);
 
@@ -74,14 +81,93 @@ public class OutboundClientRegistrationScanTests
                 continue;
             }
 
-            yield return (relative, File.ReadAllText(file));
+            yield return (relative, WithoutComments(File.ReadAllText(file)));
         }
     }
 
-    private static bool IsCommentLine(string text, int index)
+    /// <summary>
+    /// The text with every <c>//</c> and <c>/* */</c> comment blanked, newlines kept so positions do
+    /// not move. String, verbatim string and char literals are walked over, so a slash pair inside
+    /// one is not a comment. It does not handle raw (triple quote) strings.
+    /// </summary>
+    internal static string WithoutComments(string text)
     {
-        var lineStart = text.LastIndexOf('\n', index) + 1;
-        return text.AsSpan(lineStart, index - lineStart).TrimStart().StartsWith("//");
+        var chars = text.ToCharArray();
+        for (var i = 0; i < chars.Length; i++)
+        {
+            var c = chars[i];
+            var next = i + 1 < chars.Length ? chars[i + 1] : '\0';
+            if (c == '/' && next == '/')
+            {
+                for (; i < chars.Length && chars[i] != '\n'; i++)
+                {
+                    chars[i] = ' ';
+                }
+
+                i--;
+            }
+            else if (c == '/' && next == '*')
+            {
+                var close = text.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                var end = close < 0 ? chars.Length : close + 2;
+                for (; i < end; i++)
+                {
+                    if (chars[i] is not ('\n' or '\r'))
+                    {
+                        chars[i] = ' ';
+                    }
+                }
+
+                i--;
+            }
+            else if (c == '"' || (c == '@' && next is '"' or '$') || (c == '$' && next == '@' && i + 2 < chars.Length && chars[i + 2] == '"'))
+            {
+                var verbatim = c != '"';
+                while (chars[i] != '"')
+                {
+                    i++;
+                }
+
+                for (i++; i < chars.Length; i++)
+                {
+                    if (verbatim && chars[i] == '"')
+                    {
+                        if (i + 1 < chars.Length && chars[i + 1] == '"')
+                        {
+                            i++;
+                            continue;
+                        }
+
+                        break;
+                    }
+
+                    if (!verbatim && chars[i] == '\\')
+                    {
+                        i++;
+                    }
+                    else if (!verbatim && chars[i] == '"')
+                    {
+                        break;
+                    }
+                }
+            }
+            else if (c == '\'')
+            {
+                for (i++; i < chars.Length; i++)
+                {
+                    if (chars[i] == '\\')
+                    {
+                        i++;
+                    }
+                    else if (chars[i] == '\'')
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+
+        return new string(chars);
     }
 
     /// <summary>
@@ -213,11 +299,6 @@ public class OutboundClientRegistrationScanTests
         {
             foreach (Match m in Registration.Matches(text))
             {
-                if (IsCommentLine(text, m.Index))
-                {
-                    continue;
-                }
-
                 var open = m.Index + m.Length - 1;
                 var (first, code, _) = Read(text, open);
                 var statement = text[m.Index..open] + code;
@@ -235,19 +316,37 @@ public class OutboundClientRegistrationScanTests
         {
             foreach (Match m in Direct.Matches(text))
             {
-                if (!IsCommentLine(text, m.Index))
-                {
-                    found.Add($"{relative}|new HttpClient({Read(text, m.Index + m.Length - 1).FirstArgument})");
-                }
+                found.Add($"{relative}|new HttpClient({Read(text, m.Index + m.Length - 1).FirstArgument})");
             }
         }
 
         return found;
     }
 
-    private static bool IsGuarded(string statement) =>
-        statement.Contains("OutboundHttpHandler.Create(", StringComparison.Ordinal)
-        && statement.Contains("Timeout", StringComparison.Ordinal);
+    /// <summary>
+    /// The statement hands <c>OutboundHttpHandler.Create</c> to <c>ConfigurePrimaryHttpMessageHandler</c>,
+    /// so the guard is the handler that connects, and assigns a <c>Timeout</c>. Either appearing
+    /// somewhere in the statement is not enough: a guard built and dropped, or a handler added
+    /// beside an unguarded primary one, would still contain the text.
+    /// </summary>
+    internal static bool IsGuarded(string statement)
+    {
+        var at = statement.IndexOf("ConfigurePrimaryHttpMessageHandler", StringComparison.Ordinal);
+        if (at < 0)
+        {
+            return false;
+        }
+
+        var open = statement.IndexOf('(', at);
+        if (open < 0)
+        {
+            return false;
+        }
+
+        var (primary, _, _) = Read(statement, open);
+        return primary.Contains("OutboundHttpHandler.Create(", StringComparison.Ordinal)
+            && TimeoutAssignment.IsMatch(statement);
+    }
 
     [Fact]
     public void Every_AddHttpClient_registration_is_guarded_or_named_as_operator_set()
@@ -276,10 +375,124 @@ public class OutboundClientRegistrationScanTests
     [Fact]
     public void Every_new_HttpClient_in_production_code_is_named_with_a_reason()
     {
+        var sources = ProductionSources().ToList();
+        sources.Should().NotBeEmpty("an empty scan would pass for any code");
+        sources.Select(s => s.Relative).Should().Contain(
+            "barakoCMS/Extensions/ServiceCollectionExtensions.cs", "the scan has to be reading the production sources");
+
         var all = DirectClients();
 
         all.Where(k => !DirectHttpClients.ContainsKey(k)).Should().BeEmpty(
             "a client built by hand skips the factory and the guard; register one with AddHttpClient or name this one with its reason");
         DirectHttpClients.Keys.Where(k => !all.Contains(k)).Should().BeEmpty();
+    }
+
+    private static readonly HashSet<string> UnnamedClientFiles = new()
+    {
+        "BarakoCMS.ExternalAuth/FacebookAuthEndpoints.cs",
+        "BarakoCMS.ExternalAuth/GitHubAuthEndpoints.cs",
+        "BarakoCMS.ExternalAuth/GoogleAuthEndpoints.cs",
+        "BarakoCMS.ExternalAuth/LinkedInAuthEndpoints.cs",
+    };
+
+    /// <summary>
+    /// A literal in a <c>CreateClient</c> call is a copy of a name. Rename the registration and the
+    /// copy keeps working, on the unguarded default client. Callers pass a constant.
+    /// </summary>
+    [Fact]
+    public void Every_CreateClient_call_passes_a_name_constant_and_the_unnamed_ones_are_the_provider_endpoints()
+    {
+        var literals = new List<string>();
+        var unnamedOutsideTheList = new List<string>();
+        var seen = 0;
+        foreach (var (relative, text) in ProductionSources())
+        {
+            foreach (Match m in CreateClientCall.Matches(text))
+            {
+                seen++;
+                var (first, _, _) = Read(text, m.Index + m.Length - 1);
+                if (first.Contains('"'))
+                {
+                    literals.Add($"{relative}|CreateClient({first})");
+                }
+                else if (first.Length == 0 && !UnnamedClientFiles.Contains(relative))
+                {
+                    unnamedOutsideTheList.Add(relative);
+                }
+            }
+        }
+
+        seen.Should().BeGreaterThan(5, "the scan has to find the callers or it proves nothing");
+        literals.Should().BeEmpty("pass HttpClientNames.ExternalApi, not its text");
+        unnamedOutsideTheList.Should().BeEmpty(
+            "the unnamed client is unguarded; only the fixed-address provider endpoints may ask for it");
+    }
+
+    // The patterns above are what the scan stands on, so they are pinned against sample source.
+
+    [Theory]
+    [InlineData("services.AddHttpClient();", true)]
+    [InlineData("services.AddHttpClient<IFoo, Foo>();", true)]
+    [InlineData("services.AddHttpClient<IFoo<Bar>, Baz>();", true)]
+    [InlineData("services.AddHttpClient<IFoo<Bar<Qux>>, Baz>(x => x.Timeout = t);", true)]
+    [InlineData("services\n    .AddHttpClient(\"a\");", true)]
+    [InlineData("services.\n    AddHttpClient(\"a\");", true)]
+    [InlineData("services. AddHttpClient<IFoo<Bar>, Baz>(\n);", true)]
+    [InlineData("services.AddHttpClientInstrumentation();", false)]
+    [InlineData("// services.AddHttpClient();", false)]
+    [InlineData("/* services.AddHttpClient(); */", false)]
+    [InlineData("/* one\n services.AddHttpClient<IFoo<Bar>, Baz>();\n two */", false)]
+    [InlineData("var s = \"/* \"; services.AddHttpClient(); var t = \" */\";", true)]
+    public void The_registration_pattern_matches_the_forms_it_has_to(string source, bool matches)
+    {
+        Registration.IsMatch(WithoutComments(source)).Should().Be(matches);
+    }
+
+    [Theory]
+    [InlineData("var c = new HttpClient();", true)]
+    [InlineData("var c = new HttpClient(handler);", true)]
+    [InlineData("var c = new HttpClient { Timeout = t };", true)]
+    [InlineData("var c = new HttpClient\n{\n    Timeout = t,\n};", true)]
+    [InlineData("var c = new System.Net.Http.HttpClient(h);", true)]
+    [InlineData("var c = new global::System.Net.Http.HttpClient {};", true)]
+    [InlineData("HttpClient c = new();", true)]
+    [InlineData("private readonly HttpClient _c = new();", true)]
+    [InlineData("var c = new HttpClientHandler();", false)]
+    [InlineData("// var c = new HttpClient();", false)]
+    [InlineData("/* var c = new HttpClient { }; */", false)]
+    public void The_direct_construction_pattern_matches_the_forms_it_has_to(string source, bool matches)
+    {
+        Direct.IsMatch(WithoutComments(source)).Should().Be(matches);
+    }
+
+    [Fact]
+    public void A_target_typed_new_returned_from_a_method_is_the_documented_blind_spot()
+    {
+        Direct.IsMatch(WithoutComments("HttpClient Make() => new();")).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(
+        "services.AddHttpClient(N).ConfigurePrimaryHttpMessageHandler(sp => OutboundHttpHandler.Create(g, p)).ConfigureHttpClient(c => c.Timeout = t);",
+        true)]
+    [InlineData(
+        "services.AddHttpClient(N).ConfigurePrimaryHttpMessageHandler(sp => OutboundHttpHandler.Create(g, p)).ConfigureHttpClient(c => Timeout = t);",
+        true)]
+    [InlineData(
+        "services.AddHttpClient(N).ConfigurePrimaryHttpMessageHandler(sp => OutboundHttpHandler.Create(g, p));",
+        false)]
+    [InlineData(
+        "services.AddHttpClient(N).ConfigurePrimaryHttpMessageHandler(sp => new SocketsHttpHandler()).AddHttpMessageHandler(sp => OutboundHttpHandler.Create(g, p)).ConfigureHttpClient(c => c.Timeout = t);",
+        false)]
+    [InlineData(
+        "services.AddHttpClient(N).ConfigurePrimaryHttpMessageHandler(sp => OutboundHttpHandler.Create(g, p)).ConfigureHttpClient(c => c.Timeout == t);",
+        false)]
+    [InlineData(
+        "services.AddHttpClient(N).ConfigurePrimaryHttpMessageHandler(sp => OutboundHttpHandler.Create(g, p)).ConfigureHttpClient(c => c.AttemptTimeout = t);",
+        false)]
+    [InlineData("services.AddHttpClient(N).ConfigureHttpClient(c => c.Timeout = t);", false)]
+    public void The_guard_check_wants_the_primary_handler_and_a_timeout_assignment(string statement, bool guarded)
+    {
+        IsGuarded(statement).Should().Be(guarded);
     }
 }
