@@ -36,15 +36,31 @@ public class ExtensionStatementTests
         var found = new List<string>();
         foreach (var path in TrackedFiles())
         {
-            if (IsExcluded(path)) continue;
+            if (IsExcluded(path))
+            {
+                continue;
+            }
+
             var full = Path.Combine(RepoPaths.Root, path);
-            if (!File.Exists(full) || new FileInfo(full).Length > LargestFile) continue;
+            if (!File.Exists(full) || new FileInfo(full).Length > LargestFile)
+            {
+                continue;
+            }
+
             var bytes = File.ReadAllBytes(full);
-            if (Array.IndexOf(bytes, (byte)0) >= 0) continue; // a binary file
+            if (Array.IndexOf(bytes, (byte)0) >= 0)
+            {
+                continue; // a binary file
+            }
+
             var lines = Encoding.UTF8.GetString(bytes).Split('\n');
             for (var i = 0; i < lines.Length; i++)
+            {
                 if (Statement.IsMatch(lines[i]) && !Allowed.Contains(path))
+                {
                     found.Add($"{path}:{i + 1}");
+                }
+            }
         }
 
         found.Should().BeEmpty(
@@ -59,7 +75,9 @@ public class ExtensionStatementTests
         var files = TrackedFiles().ToList();
         files.Should().Contain(Allowed);
         foreach (var path in Allowed)
+        {
             File.ReadAllText(Path.Combine(RepoPaths.Root, path)).Should().MatchRegex("(?i)create\\s+extension");
+        }
     }
 
     private static bool IsExcluded(string path) =>
@@ -71,7 +89,10 @@ public class ExtensionStatementTests
     private static IEnumerable<string> TrackedFiles()
     {
         var listed = GitFiles();
-        if (listed is not null) return listed;
+        if (listed is not null)
+        {
+            return listed;
+        }
 
         // No git here (a source archive): every file, minus what a build or a checkout leaves behind.
         var skip = new[] { "/.git/", "/bin/", "/obj/", "/node_modules/" };
@@ -91,7 +112,11 @@ public class ExtensionStatementTests
                 RedirectStandardError = true,
             };
             using var process = Process.Start(start);
-            if (process is null) return null;
+            if (process is null)
+            {
+                return null;
+            }
+
             var output = process.StandardOutput.ReadToEnd();
             process.StandardError.ReadToEnd();
             process.WaitForExit();
