@@ -86,7 +86,8 @@ spec:
                   pg_dump -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
                       --no-owner --no-acl > "$TMP" || fail "pg_dump exited non-zero"
 
-                  # A dump of an empty schema is comfortably over 1KB.
+                  # An empty database dumps to about 650 bytes, so anything under 1KB holds no data:
+                  # the app has not created its tables yet, or something went wrong upstream.
                   SIZE=$(wc -c < "$TMP")
                   [ "$SIZE" -ge "$MIN_BYTES" ] || fail "dump is only ${SIZE} bytes"
 

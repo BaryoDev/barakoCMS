@@ -53,8 +53,8 @@ cat <<'JOB' > /tmp/backup_job.sh
 set -eu
 
 BACKUP_DIR=/backups
-# A dump of an empty schema is still comfortably over 1KB, so anything smaller
-# means something went wrong upstream.
+# An empty database dumps to about 650 bytes, so anything under 1KB holds no data:
+# the app has not created its tables yet, or something went wrong upstream.
 MIN_BYTES="${BACKUP_MIN_BYTES:-1000}"
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
 FINAL="$BACKUP_DIR/barako_backup_$TIMESTAMP.sql.gz"
