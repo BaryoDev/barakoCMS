@@ -114,6 +114,8 @@ bash "$gate" trivy "$d/img-clean.json" "$d/allow-none.json" $today > /dev/null; 
 bash "$gate" trivy "$d/img-objshape.json" "$d/allow-none.json" $today > /dev/null;        check "Results is an object"               fail $?
 bash "$gate" trivy "$d/img-garbage.json" "$d/allow-none.json" $today > /dev/null;         check "unparseable output"                 fail $?
 bash "$gate" trivy "$d/img-empty.json" "$d/allow-none.json" $today > /dev/null;           check "empty report"                       fail $?
+echo '{"SchemaVersion":2,"Results":[{"Target":"image","Vulnerabilities":["CVE-2099-0001"]}]}' > "$d/img-oddfinding.json"
+bash "$gate" trivy "$d/img-oddfinding.json" "$d/allow-none.json" $today > /dev/null 2>&1; check "a finding jq cannot read"           fail $?
 
 # Expiry is inclusive: an entry dated today still accepts, the day after it does not. Dates that fit
 # the pattern but are not real fail the gate, and the error names the entry.
@@ -151,6 +153,8 @@ bash "$gate" dotnet "$d/net-ghsa.json" "$d/allow-net.json" $today > /dev/null;  
 bash "$gate" dotnet "$d/net-ghsa.json" "$d/allow-net.json" 2027-01-15 > /dev/null; check "same entry after its expiry"    fail $?
 bash "$gate" dotnet "$d/net-moderate.json" "$d/allow-none.json" $today > /dev/null; check "Moderate only"                 pass $?
 bash "$gate" dotnet "$d/net-garbage.json" "$d/allow-none.json" $today > /dev/null;  check "unparseable output"            fail $?
+echo '{"projects":[{"frameworks":[{"topLevelPackages":[{"id":"Fake.Package","vulnerabilities":[{"severity":"High","advisoryurl":7}]}]}]}]}' > "$d/net-oddurl.json"
+bash "$gate" dotnet "$d/net-oddurl.json" "$d/allow-none.json" $today > /dev/null 2>&1; check "an advisory url jq cannot read" fail $?
 bash "$gate" nonsense "$d/net-ghsa.json" "$d/allow-none.json" $today > /dev/null 2>&1; check "unknown report kind"        fail $?
 
 echo

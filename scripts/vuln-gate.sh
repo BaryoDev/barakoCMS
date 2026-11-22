@@ -97,12 +97,16 @@ done <<<"$expired"
 
 live=$(jq -c --arg today "$today" '[.[] | select(.expires >= $today)]' "$allowlist")
 
-# Every finding once, as "severity<TAB>id<TAB>package<TAB>fixed<TAB>accepted".
-rows=$(jq -r --argjson live "$live" "$findings"' | unique[]
+# Every finding once, as "severity<TAB>id<TAB>package<TAB>fixed<TAB>accepted". The shape check above
+# does not look inside each finding, so a finding jq cannot read fails here instead of vanishing.
+if ! rows=$(jq -r --argjson live "$live" "$findings"' | unique[]
     | . as $f
     | "\(.severity)\t\(.id)\t\(.package)\t\(.fixed)\t\(
         [$live[] | select(.id == $f.id and (.package == $f.package or .package == "*"))] | length > 0)"' \
-    "$report")
+    "$report"); then
+    echo "::error::could not read the findings in the $kind report, failing closed"
+    exit 1
+fi
 
 sarif_rows=""
 reported=0
