@@ -168,7 +168,8 @@ public sealed partial class OwnerSessionStaticTests
         restoreDb.Should().Contain("PGOPTIONS=\"-c role=", "scripts/restore-db.sh loads the dump as the app role");
         restoreDb.Should().Contain(ExtensionFilter, "scripts/restore-db.sh drops the extension lines with the shared filter");
         restoreDb.Should().Contain("runs as the database owner", "on a stack without the job scripts/restore-db.sh says it restores as the owner");
-        restoreDb.Should().Contain("Nothing was changed", "scripts/restore-db.sh stops when compose config fails, before it changes anything");
+        Regex.IsMatch(restoreDb, @"config --services\)""; then\n\s*echo ""[^\n]*Nothing was changed\.""\n\s*exit 1\n")
+            .Should().BeTrue("scripts/restore-db.sh stops when compose config fails, before it changes anything");
         restoreDb.Should().Contain("run --rm --no-deps -T postgres-extensions", "the owner job runs without a tty");
         Regex.Count(restoreDb, @"^\s*read -p", RegexOptions.Multiline).Should().Be(1, "scripts/restore-db.sh asks once, after it knows which path it takes");
         var bare = restoreDb.Split('\n').Where(l => Regex.IsMatch(l, @"^[^#]*\bdocker compose\b") && !l.TrimStart().StartsWith("echo", StringComparison.Ordinal) && !l.Contains("DC=(docker compose)")).ToList();
@@ -178,7 +179,8 @@ public sealed partial class OwnerSessionStaticTests
         restoreCheck.Should().Contain("-c role=$APP_ROLE", "scripts/restore-check.sh restores as the app role");
         restoreCheck.Should().Contain(ExtensionFilter);
         restoreCheck.Should().Contain("does not exist|permission denied", "scripts/restore-check.sh fails on a missing object or a permission error in the restore output");
-        restoreCheck.Should().Contain("deptype = 'e'", "scripts/restore-check.sh leaves extension members out of the ownership check");
+        Regex.Count(restoreCheck, @"d\.objid = [cp]\.oid and d\.deptype = 'e'")
+            .Should().Be(2, "scripts/restore-check.sh leaves extension members out of both ownership checks, relations and routines");
         restoreCheck.Should().Contain("pg_policies").And.Contain("relforcerowsecurity");
         restoreCheck.Should().Contain("Tenancy__DatabaseEnforcement=true");
         restoreCheck.Should().NotContain("AllowSuperuser", "the API in scripts/restore-check.sh connects as the app role");
