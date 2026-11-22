@@ -33,16 +33,42 @@ Three steps, in this order.
 ### 1. Create the role and hand it the tables
 
 ```bash
-psql -d barako -v app_role=barako_app -v app_password='...' \
-     -f migrations/tenancy/001-app-role.sql
+DB_APP_USER=barako_app DB_APP_PASSWORD='...' psql -d barako -f scripts/db-app-role.sql
 ```
 
-Run it as a superuser, once. It creates a `NOSUPERUSER` login role and makes it the owner of the
-schema and of every table, sequence and function. Ownership rather than grants, because Marten
-issues DDL and a non-owner cannot.
+Run it as the database owner, a superuser. `scripts/db-app-role.sql` is the one file; it is meant to
+run on every start (the compose files call it from 6.0), and `migrations/tenancy/001-app-role.sql` is kept at its old path and includes
+it, so `psql -v app_role=barako_app -v app_password='...' -f migrations/tenancy/001-app-role.sql`
+still works. `-v` wins over the environment when both are given, but it puts the password on the
+command line, so prefer the environment. `app_role` defaults to `barako_app`.
 
-It is idempotent, and rerunning it re-asserts `NOSUPERUSER` on a role that has since been granted
-superuser.
+It creates a login role with `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`, sets
+its password, and makes it the owner of schema `public` and of every table, view, materialized
+view, sequence, function, procedure and aggregate in it, except objects a PostgreSQL extension owns.
+Standalone types, domains, enums, ranges, operators, collations and text search objects in `public`
+are not moved: the role can use them but cannot alter or drop them, and Marten creates none. Ownership rather
+than grants, because Marten issues DDL and a non-owner cannot, and because a `pg_dump --no-owner
+--no-privileges` restore then needs nothing about the role. It also installs `pg_stat_statements`.
+
+It is idempotent. Every run re-asserts the attributes on the role and sets the password again, so
+rotating the password is a rerun with the new one. It ends with one line, for example
+`db-app-role: role barako_app, rolsuper false, 0 objects changed owner`, and never prints the
+password. Stop the API while you run it by hand, because its ALTERs take `ACCESS EXCLUSIVE` locks
+on the tables. It also resets `VALID UNTIL` and `CONNECTION LIMIT`, so an expired or capped login
+works again. Statement logging, the statement printed beside an error and `pg_stat_statements` utility
+tracking are off for the run, so the password reaches no log or stats view.
+
+It refuses, and changes nothing, for an `app_role` that is not a lower case identifier
+(`^[a-z_][a-z0-9_]{0,62}$`, because it goes into a connection string) or one that starts with
+`pg_`, an empty password or an
+example one (`CHANGE-ME`, `change-me-to-a-strong-password` and the other values the API refuses at
+start), the role running the script, and any role that is a superuser or bypasses row level
+security. The owner never loses superuser through this file. Two runs at once take turns on an
+advisory lock.
+
+The quickstart carries its own copy at `quickstart/scripts/db-app-role.sql`, because that folder is
+copied out of the repository. `scripts/check-quickstart-backup-script.sh` fails CI when the copy
+differs.
 
 ### 2. Point the application at that role
 
