@@ -127,6 +127,34 @@ public sealed class SecretFilesTests : IDisposable
         message.Should().NotContain(content);
     }
 
+    [Fact]
+    public void A_directory_that_cannot_be_listed_stops_startup_naming_the_directory()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "chmod does not restrict directory access on Windows");
+        var locked = Path.Combine(_dir, "locked");
+        Directory.CreateDirectory(locked);
+        File.SetUnixFileMode(locked, UnixFileMode.None);
+        try
+        {
+            Assert.SkipWhen(CanList(locked), "running as a user that ignores directory modes");
+
+            var act = () => Build(b => b.AddSecretFiles(locked));
+
+            var message = act.Should().Throw<InvalidOperationException>().Which.Message;
+            message.Should().Contain(locked).And.Contain("1654");
+        }
+        finally
+        {
+            File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    private static bool CanList(string path)
+    {
+        try { _ = Directory.EnumerateFiles(path).ToArray(); return true; }
+        catch (UnauthorizedAccessException) { return false; }
+    }
+
     private static bool CanRead(string path)
     {
         try { using var _ = File.OpenRead(path); return true; }
@@ -256,6 +284,33 @@ public class SecretFilesShippedFilesTests
         var passwords = lines.Where(l => l.StartsWith("POSTGRES_PASSWORD:") || l.StartsWith("PGPASSWORD:")).ToList();
         passwords.Should().HaveCount(3, "postgres, postgres-extensions and db-backup");
         passwords.Should().OnlyContain(l => l.EndsWith("${DB_PASSWORD:-}"));
+    }
+
+    [Fact]
+    public void Program_adds_the_secret_files_once_after_the_builder_and_before_configuration_is_read()
+    {
+        var code = string.Join('\n', Read("barakoCMS/Program.cs").Split('\n').Select(l =>
+        {
+            var i = l.IndexOf("//", StringComparison.Ordinal);
+            return i >= 0 ? l[..i] : l;
+        }));
+
+        const string call = "AddSecretFilesFromEnvironment";
+        Regex.Matches(code, call).Should().HaveCount(1);
+        var at = code.IndexOf(call, StringComparison.Ordinal);
+
+        var created = code.IndexOf("WebApplication.CreateBuilder", StringComparison.Ordinal);
+        created.Should().BeGreaterThanOrEqualTo(0);
+        at.Should().BeGreaterThan(created, "the builder has to exist first");
+
+        foreach (var read in new[] { "ReadFrom.Configuration", "builder.Configuration[", "GetSection", "Get<", "GetValue" })
+        {
+            var first = code.IndexOf(read, StringComparison.Ordinal);
+            if (first >= 0)
+            {
+                at.Should().BeLessThan(first, "a secret file has to be in configuration before {0} reads it", read);
+            }
+        }
     }
 
     [Fact]

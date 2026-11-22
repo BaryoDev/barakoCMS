@@ -16,7 +16,8 @@ namespace barakoCMS.Infrastructure.Security;
 /// The framework's key-per-file provider removes one trailing newline. <c>echo key &gt; file</c>
 /// leaves one, but an editor or a template can leave more, and a key with a hidden newline is a
 /// different secret than the one typed, so every trailing carriage return and line feed is removed
-/// here. Nothing else is trimmed.
+/// here. A file's UTF-8 byte order mark is dropped, and an empty file sets an empty value. Nothing else is
+/// trimmed.
 /// </remarks>
 internal static class SecretFiles
 {
@@ -40,7 +41,8 @@ internal static class SecretFiles
 
     /// <summary>
     /// Adds every file in <paramref name="directory"/> as a configuration key. A directory that does
-    /// not exist adds nothing. A file that cannot be read throws, naming the file and never its content.
+    /// not exist adds nothing. A file that cannot be read, or a directory that cannot be listed, throws and names the file or
+    /// the directory, never a content.
     /// </summary>
     public static IConfigurationBuilder AddSecretFiles(this IConfigurationBuilder builder, string directory)
     {
@@ -51,7 +53,19 @@ internal static class SecretFiles
 
         // The provider's own failure names a path. This names the file and says what to check, and
         // runs first so the message is ours whichever call inside the provider would have failed.
-        foreach (var file in Directory.EnumerateFiles(directory))
+        string[] listed;
+        try
+        {
+            listed = Directory.EnumerateFiles(directory).ToArray();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"The secrets directory {directory} cannot be listed. Check that the user the API runs as "
+              + "(uid 1654 in the shipped image) can read and enter it.");
+        }
+
+        foreach (var file in listed)
         {
             var name = Path.GetFileName(file);
             if (name.StartsWith('.') || name.StartsWith("ignore.", StringComparison.OrdinalIgnoreCase))

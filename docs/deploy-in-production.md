@@ -308,14 +308,15 @@ The JWT key, the admin password and the database password can live in files inst
 (Docker secrets, or a Kubernetes secret volume). The API reads a directory of files as configuration:
 `BARAKO_SECRETS_DIR`, default `/run/secrets`, blank means the default. A file name is the
 configuration key with `__` for the section separator, so `/run/secrets/JWT__Key` is `JWT:Key`. A
-missing directory is fine. A file the API cannot read stops startup with a message that names the
-file and never its content.
+missing directory is fine. A file the API cannot read, or a directory it cannot list, stops startup with a message that names
+the file or directory and never a content.
 
 Secret files are read after every other source, so a file wins over an environment variable, a
 command-line argument and an `appsettings` value for the same key. The startup guards read the same configuration, so an example
 key or password in a file is refused outside Development exactly as it is in `.env`. Trailing
 carriage returns and line feeds are removed from the value, so `echo key > file` and an editor that
-adds a final newline both give the key you typed. Nothing else is trimmed.
+adds a final newline both give the key you typed. A UTF-8 byte order mark is dropped, and an empty file sets an empty value
+(for the admin password that means one is generated). Nothing else is trimmed.
 
 To use it with the production stack, add the override with a second `-f` and set
 `SECRETS_AS_FILES=true`, in `.env` or the shell. That variable only lets the required `JWT_KEY`,
