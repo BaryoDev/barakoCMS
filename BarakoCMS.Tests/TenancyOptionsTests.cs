@@ -180,7 +180,7 @@ public class TenancyOptionsTests
     [Fact]
     public void The_map_knows_an_active_slug_exactly_as_it_is_stored()
     {
-        var map = new TenantDomainMap([], ["acme"]);
+        var map = new TenantDomainMap([], ["acme"], []);
 
         map.IsActiveTenant("acme").Should().BeTrue();
         map.IsActiveTenant("Acme").Should().BeFalse("the caller lowercases, and the issuer matches the stored slug exactly");
@@ -240,7 +240,7 @@ public class TenancyOptionsTests
             return Task.CompletedTask;
         });
 
-        await middleware.InvokeAsync(context, tenant, new FixedDomains(new TenantDomainMap([], activeSlugs)));
+        await middleware.InvokeAsync(context, tenant, new FixedDomains(new TenantDomainMap([], activeSlugs, [])));
 
         context.Response.Body.Position = 0;
         var body = await new StreamReader(context.Response.Body).ReadToEndAsync();

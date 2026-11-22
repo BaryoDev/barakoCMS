@@ -20,7 +20,8 @@ public class EmailTemplateWorkflowValidationTests
             Type = "Email",
             RequiredParameters = ["To", "Subject", "Body"],
         });
-        _validator = new WorkflowSchemaValidator(registry.Object, Mock.Of<Marten.IQuerySession>());
+        _validator = new WorkflowSchemaValidator(registry.Object, Mock.Of<Marten.IQuerySession>(), null,
+            barakoCMS.Features.Workflows.WorkflowTriggerRegistry.BuiltIn, new barakoCMS.Features.Workflows.WorkflowExecutors([]));
     }
 
     private static WorkflowDefinition Workflow(Dictionary<string, string> parameters) => new()

@@ -34,37 +34,17 @@ public sealed class ContentWriter : IContentWriter
     /// </remarks>
     private readonly HashSet<Guid> _staged = new();
 
-    /// <summary>Writes with document types appending, which is the default and the old behaviour.</summary>
-    public ContentWriter(IDocumentSession session, IContentSourcingPolicy policy)
-        : this(session, policy, documentTypesAppend: true)
-    {
-    }
-
-    public ContentWriter(IDocumentSession session, IContentSourcingPolicy policy, IConfiguration configuration)
-        : this(session, policy, configuration.GetValue(DocumentTypesAppendKey, true), batch: null)
-    {
-    }
-
     /// <summary>
-    /// The same, inside a content batch, where a new stream is held until the batch commits (see
-    /// <see cref="Multitenancy.BatchTransaction"/>).
+    /// A writer. <paramref name="batch"/> holds a new stream until a content batch commits (see
+    /// <see cref="Multitenancy.BatchTransaction"/>) and is null outside one. <paramref name="logger"/>
+    /// is where a stored uniqueness rule that is not applied gets logged.
     /// </summary>
     public ContentWriter(
         IDocumentSession session,
         IContentSourcingPolicy policy,
         IConfiguration configuration,
-        Multitenancy.BatchTransaction? batch)
-        : this(session, policy, configuration.GetValue(DocumentTypesAppendKey, true), batch)
-    {
-    }
-
-    /// <summary>The same, with somewhere to log a stored uniqueness rule that is not applied.</summary>
-    public ContentWriter(
-        IDocumentSession session,
-        IContentSourcingPolicy policy,
-        IConfiguration configuration,
-        Multitenancy.BatchTransaction? batch,
-        ILogger<ContentWriter> logger)
+        Multitenancy.BatchTransaction? batch = null,
+        ILogger<ContentWriter>? logger = null)
         : this(session, policy, configuration.GetValue(DocumentTypesAppendKey, true), batch, logger)
     {
     }

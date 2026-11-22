@@ -54,7 +54,7 @@ public class TemplatePlaceholderContextTests
         var ramon = await StoreUserAsync(session, "ramon");
         var (entry, sequence) = await ClockedOutEntryAsync(session, maria.Id, ramon.Id);
 
-        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session);
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session, null, null, null);
 
         var resolved = await ActionParameters.ResolveAsync(extractor, "Email", new Dictionary<string, string>
         {
@@ -88,7 +88,7 @@ public class TemplatePlaceholderContextTests
         await session.SaveChangesAsync(Ct);
 
         const string template = "{{transition.name}} {{transition.at}} {{transition.by.name}} {{transition.by.email}}";
-        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session);
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session, null, null, null);
 
         await extractor.PrepareAsync(entry, ClockOut, sequence, [template], Ct);
         extractor.ResolveVariables(template, entry)
@@ -110,7 +110,7 @@ public class TemplatePlaceholderContextTests
         var (entry, sequence) = await ClockedOutEntryAsync(session, Guid.Empty, Guid.NewGuid());
 
         const string template = "[{{createdBy.name}}][{{createdBy.email}}][{{transition.by.name}}][{{transition.by.email}}][{{transition.name}}]";
-        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session);
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session, null, null, null);
 
         await extractor.PrepareAsync(entry, ClockOut, sequence, [template], Ct);
 
@@ -129,7 +129,7 @@ public class TemplatePlaceholderContextTests
         var (entry, sequence) = await ClockedOutEntryAsync(session, maria.Id, maria.Id);
 
         const string template = "{{createdBy.name}} {{transition.name}} {{transition.by.email}}";
-        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session);
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session, null, null, null);
 
         await extractor.PrepareAsync(entry, WorkflowEvents.Updated, sequence, [template], Ct);
 
@@ -145,7 +145,7 @@ public class TemplatePlaceholderContextTests
 
         await using var session = _store.LightweightSession(_tenant);
         var (entry, sequence) = await ClockedOutEntryAsync(session, Guid.Empty, Guid.Empty);
-        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session);
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session, null, null, null);
 
         (await ActionParameters.ResolveAsync(extractor, "CreateTask", parameters, entry, ClockOut, sequence, Ct))["Title"]
             .Should().Be("12:30 AM", "a tenant with no site entry formats in UTC");
@@ -167,7 +167,7 @@ public class TemplatePlaceholderContextTests
         await using var session = _store.LightweightSession(_tenant);
         await StoreSiteAsync(session, new() { ["TimeZone"] = "Asia/Manilla" });
         var (entry, sequence) = await ClockedOutEntryAsync(session, Guid.Empty, Guid.Empty);
-        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session);
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session, null, null, null);
 
         var resolved = await ActionParameters.ResolveAsync(extractor, "CreateTask", new Dictionary<string, string>
         {
@@ -189,7 +189,7 @@ public class TemplatePlaceholderContextTests
         await using var session = _store.LightweightSession(_tenant);
         await StoreSiteAsync(session, new() { ["TimeZone"] = "Asia/Manila" }, ContentStatus.Draft);
         var (entry, sequence) = await ClockedOutEntryAsync(session, Guid.Empty, Guid.Empty);
-        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session);
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session, null, null, null);
 
         var resolved = await ActionParameters.ResolveAsync(
             extractor, "CreateTask", new Dictionary<string, string> { ["Title"] = "{{createdAt | date \"h:mm tt\"}}" },
@@ -215,7 +215,7 @@ public class TemplatePlaceholderContextTests
         entry.Data["Hostile"] = hostile;
         entry.Data["Secret"] = "TOP-SECRET";
 
-        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session);
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session, null, null, null);
 
         async Task<Dictionary<string, string>> ResolveAsync(string actionType, string hole) =>
             await ActionParameters.ResolveAsync(extractor, actionType, new Dictionary<string, string>
@@ -260,7 +260,7 @@ public class TemplatePlaceholderContextTests
         var ramon = await StoreUserAsync(session, "ramon");
         var (entry, sequence) = await ClockedOutEntryAsync(session, maria.Id, ramon.Id);
 
-        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session);
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session, null, null, null);
         var recorder = new RecordingEmailService();
         var services = new ServiceCollection();
         services.AddSingleton<IWorkflowAction>(new EmailAction(recorder, NullLogger<EmailAction>.Instance));
@@ -331,7 +331,7 @@ public class TemplatePlaceholderContextTests
         var engine = new WorkflowEngine(
             session,
             [new EmailAction(recorder, NullLogger<EmailAction>.Instance)],
-            new TemplateVariableExtractor(session),
+            new TemplateVariableExtractor(session, null, null, null),
             scope.ServiceProvider.GetRequiredService<IWorkflowDebugger>(),
             scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Security.ISecretProtector>(),
             NullLogger<WorkflowEngine>.Instance);
@@ -357,7 +357,7 @@ public class TemplatePlaceholderContextTests
         var (entry, sequence) = await ClockedOutEntryAsync(session, maria.Id, maria.Id);
         var other = new Content { Id = Guid.NewGuid(), ContentType = entry.ContentType };
 
-        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session);
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session, null, null, null);
         await extractor.PrepareAsync(entry, ClockOut, sequence, ["{{createdBy.email}}"], Ct);
 
         extractor.ResolveVariables("{{createdBy.email}}", entry).Should().Be(maria.Email);
@@ -376,7 +376,7 @@ public class TemplatePlaceholderContextTests
         var (entry, _) = await ClockedOutEntryAsync(session, maria.Id, maria.Id);
 
         const string template = "{{createdBy.email}} {{transition.by.email}} {{transition.name}} {{transition.at}}";
-        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session);
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session, null, null, null);
 
         await extractor.PrepareSampleAsync(entry, ClockOut, [template], Ct);
         var shown = extractor.ResolveVariables(template, entry);
@@ -400,7 +400,7 @@ public class TemplatePlaceholderContextTests
         var suspended = await StoreUserAsync(session, "suspended", MembershipStatus.Suspended);
 
         const string template = "[{{createdBy.name}}][{{createdBy.email}}][{{transition.by.name}}][{{transition.by.email}}]";
-        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session);
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session, null, null, null);
 
         var (byMember, memberSequence) = await ClockedOutEntryAsync(session, member.Id, removed.Id);
         await extractor.PrepareAsync(byMember, ClockOut, memberSequence, [template], Ct);
@@ -433,7 +433,7 @@ public class TemplatePlaceholderContextTests
         await session.SaveChangesAsync(Ct);
 
         var (entry, sequence) = await ClockedOutEntryAsync(session, keyOwner.Id, keyOwner.Id);
-        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session);
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session, null, null, null);
 
         var resolved = await ActionParameters.ResolveAsync(extractor, "Email", new Dictionary<string, string>
         {

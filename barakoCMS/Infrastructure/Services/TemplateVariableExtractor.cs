@@ -163,11 +163,6 @@ public class TemplateVariableExtractor(
     barakoCMS.Core.Interfaces.ISensitivityService? sensitivity,
     Microsoft.Extensions.Configuration.IConfiguration? configuration) : ITemplateVariableExtractor
 {
-    public TemplateVariableExtractor(IDocumentSession session)
-        : this(session, null, null, null)
-    {
-    }
-
     /// <summary>The setting that holds the console's URL, which <c>links.console</c> is built on.</summary>
     public const string ConsoleUrlKey = "App:ConsoleUrl";
 

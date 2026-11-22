@@ -51,7 +51,7 @@ public class HostTenantRoutingTests
 
     private static async Task<(bool Reached, string Slug, int Status, string Body)> RunAsync(string host, string? header)
     {
-        var map = new TenantDomainMap([("b.example.com", "tenant-b")], ["tenant-a", "tenant-b"]);
+        var map = new TenantDomainMap([("b.example.com", "tenant-b")], ["tenant-a", "tenant-b"], []);
         var services = new ServiceCollection()
             .AddSingleton(new TenancyOptions())
             .BuildServiceProvider();

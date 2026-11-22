@@ -16,13 +16,8 @@ public class OtpService : IOtpService
 
     private readonly barakoCMS.Infrastructure.Auth.AuthMailQueue? _mail;
 
-    public OtpService(IDocumentSession session, IEmailService email, IConfiguration config, ILogger<OtpService> logger)
-        : this(session, email, config, logger, null)
-    {
-    }
-
     public OtpService(IDocumentSession session, IEmailService email, IConfiguration config, ILogger<OtpService> logger,
-        barakoCMS.Infrastructure.Auth.AuthMailQueue? mail)
+        barakoCMS.Infrastructure.Auth.AuthMailQueue? mail = null)
     {
         _mail = mail;
         _session = session;

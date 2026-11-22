@@ -22,7 +22,7 @@ public class TemplateVariableExtractorIntegrationTests
     {
         // Arrange
         using var session = _store.LightweightSession();
-        var extractor = new TemplateVariableExtractor(session);
+        var extractor = new TemplateVariableExtractor(session, null, null, null);
 
         // Act
         var result = await extractor.GetVariablesAsync("TestType");
@@ -58,7 +58,7 @@ public class TemplateVariableExtractorIntegrationTests
     public async Task The_variables_list_the_formats_and_each_listed_example_resolves()
     {
         using var session = _store.LightweightSession();
-        var extractor = new TemplateVariableExtractor(session);
+        var extractor = new TemplateVariableExtractor(session, null, null, null);
 
         var result = await extractor.GetVariablesAsync("TestType");
 
@@ -108,7 +108,7 @@ public class TemplateVariableExtractorIntegrationTests
     {
         // Arrange
         using var session = _store.LightweightSession();
-        var extractor = new TemplateVariableExtractor(session);
+        var extractor = new TemplateVariableExtractor(session, null, null, null);
 
         var sampleContent = new Content
         {
@@ -147,7 +147,7 @@ public class TemplateVariableExtractorIntegrationTests
     {
         // Arrange
         using var session = _store.LightweightSession();
-        var extractor = new TemplateVariableExtractor(session);
+        var extractor = new TemplateVariableExtractor(session, null, null, null);
 
         // Act
         var result = await extractor.GetVariablesAsync("NonExistentType");

@@ -27,7 +27,7 @@ public class EmailTemplateActionTests
     private IDocumentStore Store => _fixture.Services.GetRequiredService<IDocumentStore>();
 
     private static EmailAction ActionFor(RecordingEmailService recorder, IDocumentSession session) =>
-        new(recorder, NullLogger<EmailAction>.Instance, session: session, extractor: new TemplateVariableExtractor(session));
+        new(recorder, NullLogger<EmailAction>.Instance, session: session, extractor: new TemplateVariableExtractor(session, null, null, null));
 
     private static Content Entry(Dictionary<string, object>? data = null) =>
         new() { Id = Guid.NewGuid(), ContentType = "signup", Status = ContentStatus.Draft, Data = data ?? new() { ["Name"] = "Ana" } };

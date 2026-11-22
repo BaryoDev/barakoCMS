@@ -103,7 +103,7 @@ public class ImportTokenFieldTests
         });
         await session.SaveChangesAsync(Ct);
 
-        IContentWriter writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
+        IContentWriter writer = new ContentWriter(session, new ContentSourcingPolicyService(session), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         var created = await writer.CreateAsync(
             new ContentCreated(
                 Guid.NewGuid(), type, new Dictionary<string, object> { ["Name"] = "Ana" }, ContentStatus.Published,

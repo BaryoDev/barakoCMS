@@ -54,7 +54,7 @@ public class CreateTaskInlineImageTests
         await using var session = seeded.Store.LightweightSession(seeded.Tenant);
         var action = new CreateTaskAction(
             session, NullLogger<CreateTaskAction>.Instance,
-            new ContentWriter(session, new ContentSourcingPolicyService(session)));
+            new ContentWriter(session, new ContentSourcingPolicyService(session), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build()));
 
         return await action.RunAsync(
             new Dictionary<string, string> { ["ContentType"] = seeded.Type, ["Title"] = "Follow up", [key] = value },

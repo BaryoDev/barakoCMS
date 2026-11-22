@@ -20,12 +20,7 @@ public sealed class TenantSessionFactory : ISessionFactory
     private readonly TenantContext _tenant;
     private readonly BatchTransaction? _batch;
 
-    public TenantSessionFactory(IDocumentStore store, TenantContext tenant)
-        : this(store, tenant, null)
-    {
-    }
-
-    public TenantSessionFactory(IDocumentStore store, TenantContext tenant, BatchTransaction? batch)
+    public TenantSessionFactory(IDocumentStore store, TenantContext tenant, BatchTransaction? batch = null)
     {
         _store = store;
         _tenant = tenant;

@@ -14,7 +14,7 @@ public class TemplateVariableExtractorTests
     public TemplateVariableExtractorTests()
     {
         _mockSession = new Mock<IDocumentSession>();
-        _extractor = new TemplateVariableExtractor(_mockSession.Object);
+        _extractor = new TemplateVariableExtractor(_mockSession.Object, null, null, null);
     }
 
     [Fact]

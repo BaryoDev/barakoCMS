@@ -95,7 +95,7 @@ public class CreateTaskActionJsonTests(IntegrationTestFixture fixture)
         WorkflowActionResult result;
         await using (var session = store.LightweightSession(tenant))
         {
-            var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
+            var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
             var action = new CreateTaskAction(session, NullLogger<CreateTaskAction>.Instance, writer);
 
             var subject = source;

@@ -27,7 +27,8 @@ public class WorkflowRunActionLabelTests
         registry.Setup(r => r.IsActionRegistered(actionType)).Returns(true);
         registry.Setup(r => r.GetActionMetadata(actionType)).Returns(new WorkflowActionMetadata { Type = actionType });
         registry.Setup(r => r.GetAllActions()).Returns([new WorkflowActionMetadata { Type = actionType }]);
-        return new WorkflowSchemaValidator(registry.Object, Mock.Of<IQuerySession>());
+        return new WorkflowSchemaValidator(registry.Object, Mock.Of<IQuerySession>(), null,
+            barakoCMS.Features.Workflows.WorkflowTriggerRegistry.BuiltIn, new barakoCMS.Features.Workflows.WorkflowExecutors([]));
     }
 
     private static WorkflowDefinition WorkflowWith(string? label) => new()

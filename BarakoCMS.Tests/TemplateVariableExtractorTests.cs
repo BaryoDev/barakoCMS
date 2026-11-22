@@ -9,7 +9,7 @@ namespace BarakoCMS.Tests;
 
 public class TemplateVariableExtractorTests
 {
-    private static TemplateVariableExtractor Sut() => new(Mock.Of<IDocumentSession>());
+    private static TemplateVariableExtractor Sut() => new(Mock.Of<IDocumentSession>(), null, null, null);
 
     private static Content ContentWith(Dictionary<string, object> data) => new()
     {

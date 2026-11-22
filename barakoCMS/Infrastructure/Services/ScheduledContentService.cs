@@ -1,4 +1,5 @@
 using Marten;
+using Microsoft.Extensions.Configuration;
 using barakoCMS.Models;
 using barakoCMS.Events;
 
@@ -28,6 +29,9 @@ public class ScheduledContentService : BackgroundService
 
     // Transitions the scheduler makes are attributed to the system, not a user.
     public static readonly Guid SystemActor = Guid.Empty;
+
+    // The sweep's writer reads no settings, so it keeps the defaults the old two-argument constructor gave.
+    private static readonly IConfiguration NoSettings = new ConfigurationBuilder().Build();
 
     /// <param name="store">The document store.</param>
     /// <param name="logger">The logger.</param>
@@ -472,7 +476,7 @@ public class ScheduledContentService : BackgroundService
 
             // Constructed rather than injected: this sweep opens its own session per tenant, so there
             // is no scoped writer to resolve.
-            var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
+            var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), NoSettings);
             var appliedInBatch = 0;
 
             foreach (var loaded in due)

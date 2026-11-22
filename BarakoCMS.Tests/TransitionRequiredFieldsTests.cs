@@ -623,7 +623,8 @@ public class TransitionRequiredFieldsTests
                 services.AddScoped<IContentWriter>(sp => new DocumentAdvancingContentWriter(
                     new ContentWriter(
                         sp.GetRequiredService<IDocumentSession>(),
-                        sp.GetRequiredService<IContentSourcingPolicy>()),
+                        sp.GetRequiredService<IContentSourcingPolicy>(),
+                        sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>()),
                     sp.GetRequiredService<IDocumentStore>(),
                     AfterVersionRead));
             }));
