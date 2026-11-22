@@ -182,10 +182,13 @@ and the stock ones to go back to, are in the barakoCMS repository's
 
 ## Upgrading
 
-Change `BARAKO_TAG` first, then:
+Change `BARAKO_TAG` first, then. The `postgres-extensions` job must exit 0 before `db-assert`: the API connects as the
+app role, which the job creates, and a 5.x volume does not have it yet.
 
 ```bash
 docker compose pull
+docker compose stop api
+docker compose run --rm postgres-extensions
 docker compose run --rm --no-deps api db-assert
 docker compose up -d
 ```

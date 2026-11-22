@@ -93,7 +93,10 @@ instead; it runs this same image.
 ```bash
 curl -O https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/quickstart/docker-compose.yml
 curl -O https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/quickstart/.env.example
-cp .env.example .env      # then set DB_PASSWORD, JWT_KEY (32+ chars), ADMIN_PASSWORD, and check BARAKO_TAG
+mkdir -p scripts          # the compose file mounts both scripts, and Docker makes an empty directory of a missing one
+curl -o scripts/db-app-role.sql https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/quickstart/scripts/db-app-role.sql
+curl -o scripts/backup-cron.sh https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/quickstart/scripts/backup-cron.sh
+cp .env.example .env      # then set DB_PASSWORD, DB_APP_PASSWORD, JWT_KEY (32+ chars), ADMIN_PASSWORD, and check BARAKO_TAG
 docker compose up -d
 ```
 

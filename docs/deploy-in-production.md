@@ -356,7 +356,8 @@ Two roles are in play. The owner (`DB_USER`, default `postgres`, password `DB_PA
 superuser, because it is the one Postgres is initialised with. The app role (`DB_APP_USER`, default
 `barako_app`, password `DB_APP_PASSWORD`) is a login role with no superuser and no `BYPASSRLS`, and
 it owns what is in schema `public`. The API connects as the app role, so Postgres binds it to the
-row level security policies Marten creates. A superuser is not bound by them. See
+row level security policies Marten creates, but only when `Tenancy:DatabaseEnforcement` is on. It is
+off by default, and without it the policies do not exist. A superuser is never bound by them. See
 [Tenancy at the database](tenancy-at-the-database.md).
 
 Before the API starts, the `postgres-extensions` job runs `scripts/db-app-role.sql` as the owner. It
@@ -690,24 +691,35 @@ more fields than the limit keeps working, and only adding fields to it is refuse
 
 ## Upgrading
 
+Change `BARAKO_TAG` first, then pull and stop the API. From 6.0 the API connects as the app role,
+which the `postgres-extensions` job creates and hands the tables to, so the job runs before any
+`db-migrate` or `db-assert`. On a 5.x volume the role does not exist yet and those commands cannot
+sign in. Where the role exists but the job has not run, a migration's DDL fails as a non-owner.
+
 ```bash
 docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml stop app
+docker compose -f docker-compose.prod.yml run --rm postgres-extensions
+echo "job exit code: $?"
+```
+
+Carry on only when the exit code is 0. Then check what the new build would do:
+
+```bash
 docker compose -f docker-compose.prod.yml run --rm --no-deps app db-migrate --status
 ```
 
-Change `BARAKO_TAG` first. `--status` only reads, so it is safe while the old container serves. It
-exits 0 when this database has had every SQL file the new build ships, and then the upgrade is:
+`--status` only reads. It exits 0 when this database has had every SQL file the new build ships, and
+then the upgrade is:
 
 ```bash
 docker compose -f docker-compose.prod.yml run --rm --no-deps app db-assert
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-When `--status` lists a migration as `pending` or `not-needed` and exits 1, stop the API before
-migrating:
+When `--status` lists a migration as `pending` or `not-needed` and exits 1, migrate first:
 
 ```bash
-docker compose -f docker-compose.prod.yml stop app
 docker compose -f docker-compose.prod.yml run --rm --no-deps app db-migrate
 docker compose -f docker-compose.prod.yml run --rm --no-deps app db-assert
 docker compose -f docker-compose.prod.yml up -d

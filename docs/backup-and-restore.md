@@ -134,6 +134,11 @@ last good copy.
 Stop the application first. A restore into a database the app is writing to will not be the database
 you backed up.
 
+The target must be empty. The dump creates every object, and the restore stops at the first statement
+that fails, so a populated database stops it at the first `CREATE`. Each block below drops the
+database and creates it again, owned by the same user, before it restores. That deletes what is in
+it now.
+
 The dump is taken with `--no-owner --no-privileges`, so it names no role and a restore needs none of
 them. The restored tables belong to the role that ran the restore, which is the owner (a superuser),
 not the app role the API connects as. In the production and quickstart stacks, run
@@ -145,6 +150,8 @@ command that runs the job.
 
 ```bash
 docker compose stop app
+docker compose exec -T postgres psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
+  -c 'drop database if exists barako_cms with (force)' -c 'create database barako_cms owner postgres'
 gunzip -c ./backups/barako_backup_2026-08-30_02-00-00.sql.gz \
   | docker compose exec -T postgres psql -U postgres -d barako_cms -v ON_ERROR_STOP=1
 docker compose start app
@@ -160,6 +167,12 @@ docker compose -f docker-compose.prod.yml stop app
 
 # List what is there.
 docker compose -f docker-compose.prod.yml exec db-backup ls -1 /backups
+
+# Drop and recreate the database, owned by the owner role.
+docker compose -f docker-compose.prod.yml exec -T postgres sh -c \
+  'psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 \
+     -c "drop database if exists ${POSTGRES_DB} with (force)" \
+     -c "create database ${POSTGRES_DB} owner ${POSTGRES_USER}"'
 
 docker compose -f docker-compose.prod.yml exec -T db-backup \
     sh -c 'gunzip -c /backups/barako_backup_2026-08-30_02-00-00.sql.gz' \
@@ -177,6 +190,11 @@ The service is `api`, not `app`, and the database defaults to `barakocms` rather
 ```bash
 cd quickstart
 docker compose stop api
+
+docker compose exec -T postgres sh -c \
+  'psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 \
+     -c "drop database if exists ${POSTGRES_DB} with (force)" \
+     -c "create database ${POSTGRES_DB} owner ${POSTGRES_USER}"'
 
 docker compose exec -T db-backup sh -c 'gunzip -c /backups/barako_backup_2026-08-30_02-00-00.sql.gz' \
   | docker compose exec -T postgres psql -U "${DB_USER:-postgres}" -d "${DB_NAME:-barakocms}" -v ON_ERROR_STOP=1
