@@ -552,7 +552,8 @@ The minimum data rates are read from two keys each, `Kestrel:Limits:MinRequestBo
 and `:GracePeriod`, and the same for `MinResponseDataRate`. The configuration binder cannot build the
 rate object itself, so only these keys work. The request body rate is 240 bytes per second with a 5
 second grace period, and the response rate is the framework's, the same values. A key left out keeps
-that value. The request line size, the HTTP/2 limits and the other limits not in the table are the
+that value. A rate of zero bytes per second, a grace period of one second or less, and a
+`RequestLimits:MaxBodyBytes` of zero or less stop the host at startup, naming the key. The request line size, the HTTP/2 limits and the other limits not in the table are the
 framework's.
 
 The caps count per process, and behind a proxy such as Caddy they count the proxy's connections to

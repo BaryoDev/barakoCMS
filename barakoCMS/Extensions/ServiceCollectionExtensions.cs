@@ -445,8 +445,16 @@ public static class ServiceCollectionExtensions
             .Configure<IConfiguration>((o, root) => o.MultipartBodyLengthLimit = MaxBodyBytesOf(root));
     }
 
-    private static long MaxBodyBytesOf(IConfiguration configuration) =>
-        configuration.GetValue<long?>("RequestLimits:MaxBodyBytes") ?? 10L * 1024 * 1024;
+    private static long MaxBodyBytesOf(IConfiguration configuration)
+    {
+        var bytes = configuration.GetValue<long?>("RequestLimits:MaxBodyBytes") ?? 10L * 1024 * 1024;
+        if (bytes <= 0)
+        {
+            throw new InvalidOperationException("RequestLimits:MaxBodyBytes must be a positive number.");
+        }
+
+        return bytes;
+    }
 
     /// <summary>
     /// Sets the limits Kestrel starts with: the request headers timeout, the header size and count,
@@ -514,11 +522,11 @@ public static class ServiceCollectionExtensions
                 .Where(pair => !string.IsNullOrWhiteSpace(pair.Value)))
             .Build();
 
-        // Bind each plain key alone on a scratch copy, so a bad value names its key. The value itself
-        // is left out of the message.
-        foreach (var child in set.GetChildren())
+        // Bind each leaf key alone on a scratch copy, nested ones such as Http2:* included, so a bad
+        // value names its full key. The value itself is left out of the message.
+        foreach (var child in set.AsEnumerable(makePathsRelative: true))
         {
-            if (child.Value is null || child.Key.EndsWith("DataRate", StringComparison.Ordinal))
+            if (child.Value is null || child.Key.Contains("DataRate:", StringComparison.Ordinal))
             {
                 continue;
             }
@@ -571,9 +579,20 @@ public static class ServiceCollectionExtensions
             return current;
         }
 
-        return new Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate(
-            bytesPerSecond: rate.GetValue<double?>("BytesPerSecond") ?? current?.BytesPerSecond ?? 240,
-            gracePeriod: rate.GetValue<TimeSpan?>("GracePeriod") ?? current?.GracePeriod ?? TimeSpan.FromSeconds(5));
+        var bytesPerSecond = rate.GetValue<double?>("BytesPerSecond") ?? current?.BytesPerSecond ?? 240;
+        var gracePeriod = rate.GetValue<TimeSpan?>("GracePeriod") ?? current?.GracePeriod ?? TimeSpan.FromSeconds(5);
+        // Zero turns the slow-body guard off, and Kestrel refuses a grace period of a second or less.
+        if (bytesPerSecond <= 0)
+        {
+            throw new InvalidOperationException($"Kestrel:Limits:{rate.Key}:BytesPerSecond must be a positive number.");
+        }
+
+        if (gracePeriod <= TimeSpan.FromSeconds(1))
+        {
+            throw new InvalidOperationException($"Kestrel:Limits:{rate.Key}:GracePeriod must be a time span longer than 1 second.");
+        }
+
+        return new Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate(bytesPerSecond, gracePeriod);
     }
 
     private static void AddOpenApiDocument(IServiceCollection services, IConfiguration configuration)

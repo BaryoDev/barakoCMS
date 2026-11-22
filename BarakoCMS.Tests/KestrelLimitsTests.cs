@@ -154,6 +154,51 @@ public class KestrelLimitsTests
     }
 
     [Theory]
+    [InlineData("Kestrel:Limits:MinRequestBodyDataRate:BytesPerSecond", "0")]
+    [InlineData("Kestrel:Limits:MinRequestBodyDataRate:BytesPerSecond", "-1")]
+    [InlineData("Kestrel:Limits:MinResponseDataRate:BytesPerSecond", "0")]
+    [InlineData("Kestrel:Limits:MinRequestBodyDataRate:GracePeriod", "00:00:01")]
+    [InlineData("Kestrel:Limits:MinResponseDataRate:GracePeriod", "00:00:00")]
+    [InlineData("Kestrel:Limits:Http2:MaxStreamsPerConnection", "many")]
+    [InlineData("Kestrel:Limits:Http2:MaxStreamsPerConnection", "0")]
+    [InlineData("RequestLimits:MaxBodyBytes", "0")]
+    [InlineData("RequestLimits:MaxBodyBytes", "-5")]
+    public void Kestrel_ABadRateHttp2OrBodyValueIsRefusedAndNamesTheKey(string key, string value)
+    {
+        Limits((key, value)).Should().Throw<Exception>().Where(e => e.ToString().Contains(key));
+    }
+
+    [Fact]
+    public void Kestrel_AGoodRateHttp2AndBodyValueIsAccepted()
+    {
+        var limits = Limits(
+            ("Kestrel:Limits:MinRequestBodyDataRate:BytesPerSecond", "100"),
+            ("Kestrel:Limits:MinRequestBodyDataRate:GracePeriod", "00:00:02"),
+            ("Kestrel:Limits:Http2:MaxStreamsPerConnection", "50"),
+            ("RequestLimits:MaxBodyBytes", "4096"))();
+
+        limits.MinRequestBodyDataRate!.BytesPerSecond.Should().Be(100);
+        limits.MinRequestBodyDataRate.GracePeriod.Should().Be(TimeSpan.FromSeconds(2));
+        limits.Http2.MaxStreamsPerConnection.Should().Be(50);
+        limits.MaxRequestBodySize.Should().Be(4096);
+    }
+
+    [Theory]
+    [InlineData("Kestrel:Limits:MinRequestBodyDataRate:BytesPerSecond")]
+    [InlineData("Kestrel:Limits:MinRequestBodyDataRate:GracePeriod")]
+    [InlineData("Kestrel:Limits:Http2:MaxStreamsPerConnection")]
+    [InlineData("RequestLimits:MaxBodyBytes")]
+    public void Kestrel_ABlankRateHttp2OrBodyValueKeepsTheDefault(string key)
+    {
+        var limits = Limits((key, ""))();
+
+        limits.MinRequestBodyDataRate!.BytesPerSecond.Should().Be(240);
+        limits.MinRequestBodyDataRate.GracePeriod.Should().Be(TimeSpan.FromSeconds(5));
+        limits.Http2.MaxStreamsPerConnection.Should().Be(100);
+        limits.MaxRequestBodySize.Should().Be(10L * 1024 * 1024);
+    }
+
+    [Theory]
     [InlineData("Kestrel:Limits:MaxConcurrentConnections", "0")]
     [InlineData("Kestrel:Limits:MaxConcurrentConnections", "-5")]
     [InlineData("Kestrel:Limits:MaxConcurrentUpgradedConnections", "0")]
