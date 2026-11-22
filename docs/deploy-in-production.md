@@ -530,7 +530,7 @@ covers a route naming a missing policy and the reserved names, on a real host.
 ## Connection and header limits
 
 Kestrel runs with these limits on purpose. Each is a default in code, and `Kestrel:Limits:*`
-overrides it (`Kestrel__Limits__KeepAliveTimeout=00:03:00` in compose). A duration is `hh:mm:ss`.
+overrides it (the host does not read that section by itself, the application does) (`Kestrel__Limits__KeepAliveTimeout=00:03:00` in compose). A duration is `hh:mm:ss`.
 
 | Setting | Default | Why |
 | --- | --- | --- |
@@ -541,9 +541,24 @@ overrides it (`Kestrel__Limits__KeepAliveTimeout=00:03:00` in compose). A durati
 | `Kestrel:Limits:MaxConcurrentConnections` | 10000 | far above one node behind a proxy in normal use, and still stops a connection flood |
 | `Kestrel:Limits:MaxConcurrentUpgradedConnections` | 1000 | WebSockets stay open, so they are bounded lower |
 
-The request body limit is `RequestLimits:MaxBodyBytes` (10 MB), and the minimum body data rate is
-the framework's 240 bytes per second with a 5 second grace period. `KestrelLimitsTests` covers the
-defaults and that configuration wins.
+`RequestLimits:MaxBodyBytes` (10 MB) is the one request body size setting. It sets Kestrel's body
+limit and the multipart form limit together. `Kestrel:Limits:MaxRequestBodySize` is refused: the host
+fails to start and the message names `RequestLimits:MaxBodyBytes`.
+
+The minimum data rates are read from two keys each, `Kestrel:Limits:MinRequestBodyDataRate:BytesPerSecond`
+and `:GracePeriod`, and the same for `MinResponseDataRate`. The configuration binder cannot build the
+rate object itself, so only these keys work. The request body rate is 240 bytes per second with a 5
+second grace period, and the response rate is the framework's, the same values. A key left out keeps
+that value. The request line size, the HTTP/2 limits and the other limits not in the table are the
+framework's.
+
+The caps count per process, and behind a proxy such as Caddy they count the proxy's connections to
+Kestrel, not users. Ten thousand connections is far more than one proxy opens. Upgraded connections
+(WebSockets) are counted apart from the others, and once past 1000 realtime clients connected at
+once, raise `Kestrel:Limits:MaxConcurrentUpgradedConnections`.
+
+`KestrelLimitsTests` covers the defaults, configuration winning, the data rate keys, the refusal and
+that the body and form limits follow `RequestLimits:MaxBodyBytes`.
 
 ## Content type field limit
 
