@@ -49,6 +49,7 @@ Each row is a control that is implemented and checkable, not a plan.
 | Static analysis | CodeQL on every pull request that touches code (docs-only changes skip it) |
 | Dependency vulnerabilities | Dependabot, plus a `dotnet list package --vulnerable` gate that fails the build on High or Critical |
 | Secret scanning | Gitleaks on every pull request |
+| Scan of the running API | A weekly and on-demand ZAP scan of the production stack (the DAST workflow); a new High alert fails it. See "Scanning the running API" below |
 | Software bill of materials | One CycloneDX SBOM covering the whole solution, generated on each release run and kept as a 90-day workflow artifact. Not per package, none for the container image, and not attached to the GitHub release |
 | Backup and restore | Every deployment path takes verified backups; CI restores one and boots against it on every pull request (`docs/backup-and-restore.md`) |
 | Upgrade safety | CI upgrades a real database created by the last 4.x release (4.9.0) and rolls it back, then does the same from one created by 4.1.0 (`scripts/upgrade-check.sh`, `docs/upgrading-to-5.0.md`). No other 4.x start is exercised in CI, and a 3.x database is not upgraded to 5.0 directly: it goes to 4.9 first |
@@ -139,6 +140,34 @@ minutes.
 The reasoning, what you will notice, and what your deployment topology needs for the cookie to be
 sent are all in `docs/session-and-token-storage.md`. Worth reading before answering a questionnaire
 about session handling, because the honest answer includes what this does not fix.
+
+## Scanning the running API
+
+The DAST workflow (`.github/workflows/dast.yml`) starts the production compose stack on a runner, with
+secrets made on the spot, and runs the ZAP API scan against it twice, using `openapi/baseline.json`
+as the list of routes: once anonymous, and once signed in as a user with only the User role. It runs
+weekly, on demand from the Actions tab, and when the workflow, `scripts/dast-*` or `security/zap/` change.
+Each pass is capped at 15 minutes. The job fails on a new High alert and on a scan that could not run.
+
+This repository's logs are public, so CI prints only the count of alerts per risk level and a pass or
+fail line. The full reports are written to a folder on the runner that the script deletes at the end
+of the job. Nothing is uploaded.
+
+To run it on your machine (Docker and `openssl` are needed):
+
+```
+bash scripts/dast-scan.sh
+```
+
+It prints the folder it wrote the full reports to, with ZAP's own output and the API's log beside them.
+
+To accept an alert, add a line to `security/zap/accepted.tsv`: the plugin id from the full report, a
+tab, the reason, a tab, and the date. The file says how. An accepted plugin id is dropped from the
+counts for every alert that rule raises, so write the reason down and review the file now and then.
+
+The scan stack turns off email verification for registration, because there is no mailbox to confirm
+from, so one low-privilege user can be created. The scan does not run the active attacks that need
+a second tenant or a real mail server, so it is one layer, not a penetration test.
 
 ## Reporting a vulnerability
 

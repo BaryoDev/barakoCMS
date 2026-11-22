@@ -1,0 +1,114 @@
+{
+  "@programName": "ZAP",
+  "@version": "2.17.0",
+  "site": [
+    {
+      "@name": "http://app:8080",
+      "@host": "app",
+      "@port": "8080",
+      "@ssl": "false",
+      "alerts": [
+        {
+          "pluginid": "90001",
+          "alertRef": "90001",
+          "alert": "Zq Other Medium",
+          "name": "Zq Other Medium",
+          "riskcode": "2",
+          "confidence": "2",
+          "riskdesc": "x",
+          "desc": "<p>zq-description-text</p>",
+          "count": "1",
+          "instances": [
+            {
+              "uri": "http://app:8080/zq-secret-path/42",
+              "method": "GET",
+              "param": "zq_param",
+              "attack": "",
+              "evidence": "zq-evidence-token"
+            }
+          ]
+        },
+        {
+          "pluginid": "90002",
+          "alertRef": "90002",
+          "alert": "Zq Other Medium Two",
+          "name": "Zq Other Medium Two",
+          "riskcode": "2",
+          "confidence": "2",
+          "riskdesc": "x",
+          "desc": "<p>zq-description-text</p>",
+          "count": "1",
+          "instances": [
+            {
+              "uri": "http://app:8080/zq-secret-path/42",
+              "method": "GET",
+              "param": "zq_param",
+              "attack": "",
+              "evidence": "zq-evidence-token"
+            }
+          ]
+        },
+        {
+          "pluginid": "90003",
+          "alertRef": "90003",
+          "alert": "Zq Low",
+          "name": "Zq Low",
+          "riskcode": "1",
+          "confidence": "2",
+          "riskdesc": "x",
+          "desc": "<p>zq-description-text</p>",
+          "count": "1",
+          "instances": [
+            {
+              "uri": "http://app:8080/zq-secret-path/42",
+              "method": "GET",
+              "param": "zq_param",
+              "attack": "",
+              "evidence": "zq-evidence-token"
+            }
+          ]
+        },
+        {
+          "pluginid": "90004",
+          "alertRef": "90004",
+          "alert": "Zq Info",
+          "name": "Zq Info",
+          "riskcode": "0",
+          "confidence": "2",
+          "riskdesc": "x",
+          "desc": "<p>zq-description-text</p>",
+          "count": "1",
+          "instances": [
+            {
+              "uri": "http://app:8080/zq-secret-path/42",
+              "method": "GET",
+              "param": "zq_param",
+              "attack": "",
+              "evidence": "zq-evidence-token"
+            }
+          ]
+        },
+        {
+          "pluginid": "90005",
+          "alertRef": "90005",
+          "alert": "Zq Info Two",
+          "name": "Zq Info Two",
+          "riskcode": "0",
+          "confidence": "2",
+          "riskdesc": "x",
+          "desc": "<p>zq-description-text</p>",
+          "count": "1",
+          "instances": [
+            {
+              "uri": "http://app:8080/zq-secret-path/42",
+              "method": "GET",
+              "param": "zq_param",
+              "attack": "",
+              "evidence": "zq-evidence-token"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

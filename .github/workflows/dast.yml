@@ -1,0 +1,37 @@
+name: DAST
+
+# A ZAP scan of the API, run against the hardened production stack started on the runner. This
+# repository is public and so are its logs, so the job prints counts per risk level and a pass or
+# fail line, never an alert, rule, URL or parameter. The full reports stay in a folder on the
+# runner that the script deletes, and nothing is uploaded. See docs/compliance-posture.md.
+on:
+  schedule:
+    - cron: "41 3 * * 2" # weekly, Tuesday
+  workflow_dispatch:
+  # So the release workflow can call it later.
+  workflow_call:
+  pull_request:
+    branches: ["master"]
+    paths:
+      - ".github/workflows/dast.yml"
+      - "scripts/dast-*"
+      - "security/zap/**"
+
+permissions:
+  contents: read
+
+jobs:
+  zap-api-scan:
+    name: ZAP API scan
+    runs-on: ubuntu-latest
+    # Two passes of up to 15 minutes each, plus the image build and the stack start.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      # Builds this checkout as barako-cms:dast when no image is given, then starts the stack, scans
+      # it and tears it down. Exit 1 is a new High, exit 2 is a scan that could not run.
+      - name: Scan the API
+        run: bash scripts/dast-scan.sh

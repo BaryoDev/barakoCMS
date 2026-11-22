@@ -1,0 +1,16 @@
+# A workflow that breaks every rule scripts/test-dast.sh checks for dast.yml.
+name: DAST
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker run ghcr.io/zaproxy/zaproxy:stable zap-api-scan.py
+      - uses: actions/upload-artifact@v7
+        with:
+          path: reports
