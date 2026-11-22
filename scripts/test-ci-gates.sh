@@ -129,6 +129,22 @@ err=$(bash "$gate" trivy "$d/img-clean.json" "$d/allow-baddate.json" $today 2>&1
 printf '%s\n' "$err" | grep -q 'CVE-2099-0001 (libfake) has the impossible expiry date 2026-13-45'
 check "impossible date names the entry" pass $?
 
+# A High with a fix whose id or package is empty, or holds a newline or tab, must fail the gate
+# and not shift columns into the "unfixed, reported only" branch.
+printf '%s\n' '{"SchemaVersion":2,"Results":[{"Vulnerabilities":[{"VulnerabilityID":"CVE-2099-0009","PkgName":"","Severity":"HIGH","FixedVersion":"1.0"}]}]}' > "$d/img-nopkg.json"
+printf '%s\n' '{"SchemaVersion":2,"Results":[{"Vulnerabilities":[{"VulnerabilityID":"","PkgName":"libfake","Severity":"HIGH","FixedVersion":"1.0"}]}]}' > "$d/img-noid.json"
+printf '%s\n' '{"SchemaVersion":2,"Results":[{"Vulnerabilities":[{"VulnerabilityID":"CVE-2099-0009\nlibfake","PkgName":"libfake","Severity":"HIGH","FixedVersion":"1.0"}]}]}' > "$d/img-nlid.json"
+printf '%s\n' '{"SchemaVersion":2,"Results":[{"Vulnerabilities":[{"VulnerabilityID":"CVE-2099-0009","PkgName":"lib\tfake","Severity":"HIGH","FixedVersion":"1.0"}]}]}' > "$d/img-tabpkg.json"
+printf '%s\n' '{"SchemaVersion":2,"Results":[{"Vulnerabilities":[{"VulnerabilityID":null,"PkgName":"libfake","Severity":"CRITICAL","FixedVersion":"1.0"}]}]}' > "$d/img-nullid.json"
+bash "$gate" trivy "$d/img-nopkg.json" "$d/allow-none.json" $today > /dev/null 2>&1;      check "High with an empty package name"    fail $?
+bash "$gate" trivy "$d/img-noid.json" "$d/allow-none.json" $today > /dev/null 2>&1;       check "High with an empty id"              fail $?
+bash "$gate" trivy "$d/img-nlid.json" "$d/allow-none.json" $today > /dev/null 2>&1;       check "High with a newline in its id"      fail $?
+bash "$gate" trivy "$d/img-tabpkg.json" "$d/allow-none.json" $today > /dev/null 2>&1;     check "High with a tab in its package"     fail $?
+bash "$gate" trivy "$d/img-nullid.json" "$d/allow-none.json" $today > /dev/null 2>&1;     check "Critical with a null id"            fail $?
+# A Low with an empty id is not gated, so it must not fail.
+printf '%s\n' '{"SchemaVersion":2,"Results":[{"Vulnerabilities":[{"VulnerabilityID":"","PkgName":"","Severity":"LOW","FixedVersion":"1.0"}]}]}' > "$d/img-lowempty.json"
+bash "$gate" trivy "$d/img-lowempty.json" "$d/allow-none.json" $today > /dev/null 2>&1;   check "Low with empty fields is ignored"   pass $?
+
 # Writes SARIF for the findings that failed, and only those.
 VULN_GATE_SARIF="$d/out.sarif" bash "$gate" trivy "$d/img-high.json" "$d/allow-none.json" $today > /dev/null
 jq -e '(.runs[0].results | length) == 1 and .runs[0].results[0].ruleId == "CVE-2099-0001"' "$d/out.sarif" > /dev/null 2>&1
@@ -155,6 +171,10 @@ bash "$gate" dotnet "$d/net-moderate.json" "$d/allow-none.json" $today > /dev/nu
 bash "$gate" dotnet "$d/net-garbage.json" "$d/allow-none.json" $today > /dev/null;  check "unparseable output"            fail $?
 echo '{"projects":[{"frameworks":[{"topLevelPackages":[{"id":"Fake.Package","vulnerabilities":[{"severity":"High","advisoryurl":7}]}]}]}]}' > "$d/net-oddurl.json"
 bash "$gate" dotnet "$d/net-oddurl.json" "$d/allow-none.json" $today > /dev/null 2>&1; check "an advisory url jq cannot read" fail $?
+printf '%s\n' '{"projects":[{"frameworks":[{"topLevelPackages":[{"id":"","vulnerabilities":[{"severity":"High","advisoryurl":"https://github.com/advisories/GHSA-fake-fake-fake"}]}]}]}]}' > "$d/net-nopkg.json"
+printf '%s\n' '{"projects":[{"frameworks":[{"topLevelPackages":[{"id":"Fake.Package","vulnerabilities":[{"severity":"High","advisoryurl":"https://github.com/advisories/"}]}]}]}]}' > "$d/net-noid.json"
+bash "$gate" dotnet "$d/net-nopkg.json" "$d/allow-none.json" $today > /dev/null 2>&1;   check "advisory on an empty package id"   fail $?
+bash "$gate" dotnet "$d/net-noid.json" "$d/allow-none.json" $today > /dev/null 2>&1;    check "advisory url with an empty id"     fail $?
 bash "$gate" nonsense "$d/net-ghsa.json" "$d/allow-none.json" $today > /dev/null 2>&1; check "unknown report kind"        fail $?
 
 echo
@@ -255,6 +275,22 @@ printf 'runs:\n  using: composite\n  steps:\n    - uses: actions/checkout@%s # v
 printf 'runs:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v4\n' > "$d/gh2/actions/mine/action.yaml"
 bash "$here/check-action-pins.sh" "$d/gh1/workflows" > /dev/null; check "composite action pinned by SHA"     pass $?
 bash "$here/check-action-pins.sh" "$d/gh2/workflows" > /dev/null; check "composite action pinned by a tag"   fail $?
+
+echo
+echo "Action pins, other YAML forms and nested actions:"
+mkdir -p "$d/gf/workflows" "$d/gq/workflows" "$d/gn/workflows" "$d/gn/actions/a/b" "$d/gm/workflows" "$d/gm/actions/a/b" "$d/gc/workflows"
+printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@%s # v7\n      - {uses: actions/checkout@v4}\n' "$sha" > "$d/gf/workflows/a.yml"
+printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@%s # v7\n      - "uses": actions/checkout@v4\n' "$sha" > "$d/gq/workflows/a.yml"
+printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@%s # v7\n' "$sha" > "$d/gn/workflows/a.yml"
+cp "$d/gn/workflows/a.yml" "$d/gm/workflows/a.yml"
+printf 'runs:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v4\n' > "$d/gn/actions/a/b/action.yml"
+printf 'runs:\n  using: composite\n  steps:\n    - uses: actions/setup-node@v4\n' > "$d/gm/actions/a/b/action.yaml"
+printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@%s # v7\n      # uses: actions/setup-node@v4\n      - run: echo "- uses: x/y@v1"\n' "$sha" > "$d/gc/workflows/a.yml"
+bash "$here/check-action-pins.sh" "$d/gf/workflows" > /dev/null; check "flow-style step with a tag"          fail $?
+bash "$here/check-action-pins.sh" "$d/gq/workflows" > /dev/null; check "quoted uses key with a tag"           fail $?
+bash "$here/check-action-pins.sh" "$d/gn/workflows" > /dev/null; check "nested action.yml with a tag"         fail $?
+bash "$here/check-action-pins.sh" "$d/gm/workflows" > /dev/null; check "nested action.yaml with a tag"        fail $?
+bash "$here/check-action-pins.sh" "$d/gc/workflows" > /dev/null; check "comments and run text are not steps"  pass $?
 
 echo
 echo "$pass passed, $fail failed"

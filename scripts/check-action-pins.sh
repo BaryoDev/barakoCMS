@@ -4,7 +4,7 @@
 #
 #   bash scripts/check-action-pins.sh [<workflows-dir>]    default .github/workflows
 #
-# Composite actions under the sibling actions/ folder (.github/actions/*/action.yml and .yaml) are
+# Composite actions under the sibling actions/ folder (action.yml and action.yaml at any depth under .github/actions) are
 # checked the same way when it exists. Local actions (./path) are exempt. docker:// references must carry a sha256 digest.
 set -uo pipefail
 
@@ -12,10 +12,31 @@ dir=${1:-.github/workflows}
 bad=0
 checked=0
 
+actions_dir="$(dirname "$dir")/actions"
+files=()
 shopt -s nullglob
-for f in "$dir"/*.yml "$dir"/*.yaml "$(dirname "$dir")"/actions/*/action.yml "$(dirname "$dir")"/actions/*/action.yaml; do
+for f in "$dir"/*.yml "$dir"/*.yaml; do files+=("$f"); done
+if [ -d "$actions_dir" ]; then
+    while IFS= read -r f; do files+=("$f"); done < <(find "$actions_dir" -type f \( -name action.yml -o -name action.yaml \) | sort)
+fi
+
+# "uses" as a key: block (- uses: x), quoted ("uses": x) or inside a flow map (- {name: a, uses: x}).
+# Text elsewhere in a line, such as a script that prints a workflow, is not a key.
+q='["'"'"']?'
+key_re="(^[[:space:]-]*|[{,][[:space:]]*)${q}uses${q}[[:space:]]*:[[:space:]]*(.*)\$"
+
+for f in "${files[@]}"; do
     while IFS= read -r line; do
-        ref=$(printf '%s' "$line" | sed -E 's/^[[:space:]-]*uses:[[:space:]]*//; s/[[:space:]]+#.*$//; s/[[:space:]]+$//; s/^"//; s/"$//; s/^'"'"'//; s/'"'"'$//')
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ "$line" =~ $key_re ]] || continue
+        ref=${BASH_REMATCH[2]}
+        if [[ "$ref" =~ ^\"([^\"]*)\" ]]; then
+            ref=${BASH_REMATCH[1]}
+        elif [[ "$ref" =~ ^\'([^\']*)\' ]]; then
+            ref=${BASH_REMATCH[1]}
+        else
+            ref=$(printf '%s' "$ref" | sed -E 's/[[:space:]]*(#.*|[,}].*)?$//')
+        fi
         case "$ref" in ./*) continue ;; esac
         checked=$((checked + 1))
         if [[ "$ref" == docker://* ]]; then
@@ -25,7 +46,7 @@ for f in "$dir"/*.yml "$dir"/*.yaml "$(dirname "$dir")"/actions/*/action.yml "$(
         fi
         echo "::error file=$f::not pinned by a full commit SHA: $ref"
         bad=$((bad + 1))
-    done < <(grep -E '^[[:space:]-]*uses:[[:space:]]' "$f")
+    done < "$f"
 done
 
 echo "action pins: $checked checked, $bad not pinned"
