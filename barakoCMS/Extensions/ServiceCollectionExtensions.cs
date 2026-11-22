@@ -50,7 +50,7 @@ public static class ServiceCollectionExtensions
 
         AddJobQueue(services);
 
-        AddRequestLimits(services, configuration);
+        AddRequestLimits(services);
         AddOpenApiDocument(services, configuration);
 
         AddHealthProbes(services, configuration);
@@ -426,36 +426,52 @@ public static class ServiceCollectionExtensions
         services.AddJobQueues<barakoCMS.Models.JobRecord, barakoCMS.Infrastructure.Jobs.MartenJobStorageProvider>();
     }
 
-    private static void AddRequestLimits(IServiceCollection services, IConfiguration configuration)
+    private static void AddRequestLimits(IServiceCollection services)
     {
         // Request body size limit (defends against large-payload memory pressure / DoS on the
         // arbitrary-JSON content endpoints). Configurable via RequestLimits:MaxBodyBytes; default 10 MB.
-        var maxBodyBytes = configuration.GetValue<long?>("RequestLimits:MaxBodyBytes") ?? 10L * 1024 * 1024;
-        // Read when the options are first built, not here, so a setting a test host or the
+        // It is the one body size setting: Kestrel's limit and the multipart form limit both read it.
+        // Read when the options are first built, not at registration, so a setting a test host or the
         // environment adds after this method has run still counts.
         services.AddOptions<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>()
             .Configure<IConfiguration>((o, root) =>
             {
-                o.Limits.MaxRequestBodySize = maxBodyBytes;
+                o.Limits.MaxRequestBodySize = MaxBodyBytesOf(root);
                 // "Server: Kestrel" tells a scanner what it is talking to and tells a client nothing.
                 o.AddServerHeader = false;
                 ApplyKestrelLimits(o.Limits, root.GetSection("Kestrel:Limits"));
             });
-        services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
-        {
-            o.MultipartBodyLengthLimit = maxBodyBytes;
-        });
+        services.AddOptions<Microsoft.AspNetCore.Http.Features.FormOptions>()
+            .Configure<IConfiguration>((o, root) => o.MultipartBodyLengthLimit = MaxBodyBytesOf(root));
     }
 
+    private static long MaxBodyBytesOf(IConfiguration configuration) =>
+        configuration.GetValue<long?>("RequestLimits:MaxBodyBytes") ?? 10L * 1024 * 1024;
+
     /// <summary>
-    /// The connection and header limits Kestrel runs with, set on purpose so a fresh production start
-    /// does not rely on framework defaults that can change. Each is a default in code and
-    /// <c>Kestrel:Limits:*</c> overrides it: the section is bound over these values, so the
-    /// configuration wins. See docs/deploy-in-production.md.
+    /// Sets the limits Kestrel starts with: the request headers timeout, the header size and count,
+    /// the keep-alive timeout, the two connection caps and the minimum request body data rate. The
+    /// framework's own values stand for everything else, among them the minimum response data rate,
+    /// the request line size and the HTTP/2 limits. <c>Kestrel:Limits:*</c> overrides each of these
+    /// (the host does not bind that section by itself, this method does), and the two data rates
+    /// are read from <c>:BytesPerSecond</c> and <c>:GracePeriod</c> because the configuration binder
+    /// cannot build a <see cref="Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate"/>.
+    /// <c>RequestLimits:MaxBodyBytes</c> is the one body size setting, so
+    /// <c>Kestrel:Limits:MaxRequestBodySize</c> is refused. See docs/deploy-in-production.md.
     /// </summary>
+    /// <exception cref="InvalidOperationException"><c>Kestrel:Limits:MaxRequestBodySize</c> is set.</exception>
     internal static void ApplyKestrelLimits(
         Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerLimits limits, IConfiguration section)
     {
+        // Two keys for one limit would let the one bound last win for Kestrel while the multipart
+        // form limit kept the other. An empty value is refused too, since it binds to no limit at all.
+        if (section.GetSection("MaxRequestBodySize").Exists())
+        {
+            throw new InvalidOperationException(
+                "Kestrel:Limits:MaxRequestBodySize is not supported. Set RequestLimits:MaxBodyBytes, "
+                + "which sets the request body limit and the multipart form limit together.");
+        }
+
         // A client that opens a connection and dribbles its headers holds a slot until this runs out.
         limits.RequestHeadersTimeout = TimeSpan.FromSeconds(15);
         // The framework values, now written down.
@@ -475,6 +491,26 @@ public static class ServiceCollectionExtensions
             bytesPerSecond: 240, gracePeriod: TimeSpan.FromSeconds(5));
 
         section.Bind(limits);
+
+        limits.MinRequestBodyDataRate = DataRateFrom(section.GetSection("MinRequestBodyDataRate"), limits.MinRequestBodyDataRate);
+        limits.MinResponseDataRate = DataRateFrom(section.GetSection("MinResponseDataRate"), limits.MinResponseDataRate);
+    }
+
+    /// <summary>
+    /// The rate the section names, a key it leaves out keeping the value of <paramref name="current"/>.
+    /// The binder leaves a rate untouched, so without this the section would be ignored.
+    /// </summary>
+    private static Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate? DataRateFrom(
+        IConfigurationSection rate, Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate? current)
+    {
+        if (!rate.Exists())
+        {
+            return current;
+        }
+
+        return new Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate(
+            bytesPerSecond: rate.GetValue<double?>("BytesPerSecond") ?? current?.BytesPerSecond ?? 240,
+            gracePeriod: rate.GetValue<TimeSpan?>("GracePeriod") ?? current?.GracePeriod ?? TimeSpan.FromSeconds(5));
     }
 
     private static void AddOpenApiDocument(IServiceCollection services, IConfiguration configuration)
