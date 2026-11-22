@@ -404,9 +404,17 @@ public class OutboundClientRegistrationScanTests
     {
         var literals = new List<string>();
         var unnamedOutsideTheList = new List<string>();
+        var copies = new List<string>();
         var seen = 0;
         foreach (var (relative, text) in ProductionSources())
         {
+            // A constant elsewhere that repeats the name is the same copy, one step removed.
+            if (relative != "barakoCMS/Infrastructure/Http/HttpClientNames.cs"
+                && text.Contains("\"ExternalApi\"", StringComparison.Ordinal))
+            {
+                copies.Add(relative);
+            }
+
             foreach (Match m in CreateClientCall.Matches(text))
             {
                 seen++;
@@ -424,6 +432,7 @@ public class OutboundClientRegistrationScanTests
 
         seen.Should().BeGreaterThan(5, "the scan has to find the callers or it proves nothing");
         literals.Should().BeEmpty("pass HttpClientNames.ExternalApi, not its text");
+        copies.Should().BeEmpty("use HttpClientNames.ExternalApi rather than a second spelling of the name");
         unnamedOutsideTheList.Should().BeEmpty(
             "the unnamed client is unguarded; only the fixed-address provider endpoints may ask for it");
     }
