@@ -18,7 +18,7 @@ LOGS="$(mktemp)"
 
 [ ! -e secrets ] || { echo "secrets/ already exists, refusing to overwrite or delete it" >&2; rm -f "$ENVFILE" "$LOGS"; exit 2; }
 
-# No JWT_KEY, ADMIN_PASSWORD or DB_PASSWORD here, on purpose.
+# No JWT_KEY, ADMIN_PASSWORD, DB_PASSWORD or DB_APP_PASSWORD here, on purpose.
 cat .env.prod.example > "$ENVFILE"
 cat >> "$ENVFILE" <<ENV
 BARAKO_TAG=$TAG
@@ -46,7 +46,9 @@ mkdir secrets
 openssl rand -hex 24 | tr -d '\n' > secrets/jwt_key
 openssl rand -hex 24 | tr -d '\n' > secrets/admin_password
 openssl rand -hex 24 | tr -d '\n' > secrets/db_password
-printf 'Host=postgres;Database=barako_cms;Username=postgres;Password=%s' "$(cat secrets/db_password)" > secrets/db_connection_string
+openssl rand -hex 24 | tr -d '\n' > secrets/db_app_password
+# The API connects as the app role, so this holds its name and its password, not the owner's.
+printf 'Host=postgres;Database=barako_cms;Username=barako_app;Password=%s' "$(cat secrets/db_app_password)" > secrets/db_connection_string
 ADMIN_PASSWORD_VALUE="$(cat secrets/admin_password)" # read before the chown, the file is not ours after it
 sudo chown 1654:1654 secrets/*
 sudo chmod 0440 secrets/*
@@ -63,8 +65,15 @@ without_override ps --status running --format '{{.Service}}' | grep -qx app && f
 without_override ps --status running --format '{{.Service}}' | grep -qx postgres && fail "postgres initialised without a password"
 without_override down -v --remove-orphans > /dev/null 2>&1 || true
 
-step "with the override, postgres, app and db-backup start on a fresh volume and report healthy"
-with_override up -d --wait --wait-timeout 240 postgres app db-backup || fail "the stack did not become healthy"
+step "with the override, postgres starts on a fresh volume and reports healthy"
+with_override up -d --wait --wait-timeout 240 postgres || fail "postgres did not become healthy"
+
+step "running the app role job, which reads both passwords from files"
+with_override run --rm --no-deps postgres-extensions || fail "postgres-extensions did not finish cleanly"
+
+step "app and db-backup start and report healthy"
+# --no-deps: the job has already run and exited, and an exited one-shot fails --wait.
+with_override up -d --no-deps --wait --wait-timeout 240 app db-backup || fail "the stack did not become healthy"
 
 step "the initial admin signs in with the password from secrets/admin_password"
 # An empty admin password makes the seeder generate one, so a healthy app proves nothing about the
@@ -80,8 +89,15 @@ login() {
 [ "$(login "$ADMIN_PASSWORD_VALUE")" = "200" ] || fail "the initial admin could not sign in with secrets/admin_password"
 [ "$(login "not-the-admin-password")" != "200" ] || fail "the sign-in check accepts any password"
 
-step "running the extensions one-shot"
-with_override run --rm --no-deps postgres-extensions || fail "postgres-extensions did not finish cleanly"
+step "the API's sessions use the app role"
+# Not the owner: a superuser session would bypass row level security. The API is found by its
+# address on the project network, so the other services' sessions are not counted.
+api_ips="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$(with_override ps -q app)")"
+[ -n "${api_ips// /}" ] || fail "could not find the API's address"
+roles="$(with_override exec -T postgres psql -X -At -U postgres -d barako_cms -v ips="$api_ips" -c \
+  "select distinct usename from pg_stat_activity where client_addr = any(string_to_array(btrim(:'ips'), ' ')::inet[])")" \
+  || fail "could not read pg_stat_activity"
+[ "$roles" = "barako_app" ] || fail "the API's sessions use '$roles', not barako_app"
 
 step "the backup reads its password from the file and writes an archive"
 ok=0

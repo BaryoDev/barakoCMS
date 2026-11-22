@@ -322,9 +322,11 @@ done
 # The operator's own env file: a limit at 0 or -1 removes the limit, and compose cannot refuse it.
 base_env="$d/ch-base.env"
 cp "$here/../.env.prod.example" "$base_env"
-printf 'BARAKO_TAG=check\nDB_PASSWORD=x-check-value\nJWT_KEY=x-check-value-0123456789-0123456789\nADMIN_PASSWORD=x-check-value\n' >> "$base_env"
+printf 'BARAKO_TAG=check\nDB_PASSWORD=x-check-value\nDB_APP_PASSWORD=x-app-check-value\nJWT_KEY=x-check-value-0123456789-0123456789\nADMIN_PASSWORD=x-check-value\n' >> "$base_env"
 prod="$here/../docker-compose.prod.yml"
 bash "$chk" --env-file "$base_env" "$prod" > /dev/null 2>&1;         check "the operator env as shipped passes"    pass $?
+grep -v '^DB_APP_PASSWORD=' "$base_env" > "$d/ch-noapp.env"
+bash "$chk" --env-file "$d/ch-noapp.env" "$prod" > /dev/null 2>&1;    check "no DB_APP_PASSWORD does not resolve"   fail $?
 for var in API_MEM_LIMIT API_PIDS_LIMIT DB_MEM_LIMIT DB_PIDS_LIMIT EXTENSIONS_MEM_LIMIT EXTENSIONS_PIDS_LIMIT \
            BACKUP_MEM_LIMIT BACKUP_PIDS_LIMIT PROXY_MEM_LIMIT PROXY_PIDS_LIMIT API_TMP_SIZE; do
   for bad in 0 -1; do

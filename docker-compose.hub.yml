@@ -1,4 +1,5 @@
 # BarakoCMS — run everything from prebuilt Docker Hub images (no build step).
+# The API connects as the database owner here and no app role job runs. Production is docker-compose.prod.yml.
 #
 #   docker compose -f docker-compose.hub.yml up -d
 #

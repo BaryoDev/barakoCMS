@@ -6,14 +6,16 @@
 #
 # The image has to exist already (CI builds it first). Caddy is left out because it needs ACME.
 #
-#   1. postgres, app and db-backup start on a fresh volume and report healthy (up --wait)
-#   2. postgres-extensions runs to completion on its own, because an exited one-shot counts as a
-#      failure for --wait
-#   3. the probe built into the binary answers on /health/ready, inside the container
-#   4. the backup's cron job runs once a minute and writes an archive with the root file system
+#   1. postgres starts on a fresh volume and reports healthy (up --wait)
+#   2. postgres-extensions, the job that runs scripts/db-app-role.sql, runs to completion on its
+#      own, because an exited one-shot counts as a failure for --wait
+#   3. app and db-backup start and report healthy, and the app's sessions in pg_stat_activity use
+#      the app role, not the owner
+#   4. the probe built into the binary answers on /health/ready, inside the container
+#   5. the backup's cron job runs once a minute and writes an archive with the root file system
 #      read-only
-#   5. no read-only file system or permission error is in the app, backup or database logs
-#   6. a second start of the app with an example JWT key, and then with an example database
+#   6. no read-only file system or permission error is in the app, backup or database logs
+#   7. a second start of the app with an example JWT key, and then with an example database
 #      password, exits non-zero and names the setting without printing the value
 #
 # The core image has no upload route, so no upload is exercised here. /tmp and the home directory
@@ -31,6 +33,7 @@ cat .env.prod.example > "$ENVFILE"
 cat >> "$ENVFILE" <<ENV
 BARAKO_TAG=$TAG
 DB_PASSWORD=$(openssl rand -hex 16)
+DB_APP_PASSWORD=$(openssl rand -hex 16)
 JWT_KEY=$(openssl rand -hex 32)
 ADMIN_PASSWORD=Ci-$(openssl rand -hex 8)-Aa1!
 BACKUP_CRON_SCHEDULE=* * * * *
@@ -48,14 +51,28 @@ trap cleanup EXIT
 step() { printf '\n=== %s\n' "$1"; }
 fail() { printf '\nFAILED: %s\n' "$1" >&2; dc logs --no-color --tail 60 app db-backup postgres >&2 || true; exit 1; }
 
-step "starting postgres, app and db-backup on a fresh volume"
-dc up -d --wait --wait-timeout 240 postgres app db-backup || fail "the stack did not become healthy"
+step "starting postgres on a fresh volume"
+dc up -d --wait --wait-timeout 240 postgres || fail "postgres did not become healthy"
 
-step "running the extensions one-shot"
+step "running the app role job, which the app waits for"
 dc run --rm --no-deps postgres-extensions || fail "postgres-extensions did not finish cleanly"
+
+step "starting app and db-backup"
+# --no-deps: the job has already run and exited, and an exited one-shot fails --wait.
+dc up -d --no-deps --wait --wait-timeout 240 app db-backup || fail "the stack did not become healthy"
 
 step "the probe answers on /health/ready"
 dc exec -T app dotnet barakoCMS.dll --health-probe /health/ready || fail "the readiness probe failed"
+
+step "the API's sessions use the app role"
+# Not the owner: a superuser session would bypass row level security. The API is found by its
+# address on the project network, so the other services' sessions are not counted.
+api_ips="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$(dc ps -q app)")"
+[ -n "${api_ips// /}" ] || fail "could not find the API's address"
+roles="$(dc exec -T postgres psql -X -At -U postgres -d barako_cms -v ips="$api_ips" -c \
+  "select distinct usename from pg_stat_activity where client_addr = any(string_to_array(btrim(:'ips'), ' ')::inet[])")" \
+  || fail "could not read pg_stat_activity"
+[ "$roles" = "barako_app" ] || fail "the API's sessions use '$roles', not barako_app"
 
 step "the backup writes an archive on a read-only root"
 ok=0
@@ -87,6 +104,6 @@ refused() { # name, expected phrase, env overrides...
 step "example secrets are refused outside Development"
 refused "example JWT key" "JWT:Key" -e "JWT__Key=change-me-to-at-least-32-characters-secret"
 refused "example database password" "database password" \
-  -e "ConnectionStrings__DefaultConnection=Host=postgres;Database=barako_cms;Username=postgres;Password=change-me-to-a-strong-password"
+  -e "ConnectionStrings__DefaultConnection=Host=postgres;Database=barako_cms;Username=barako_app;Password=change-me-to-a-strong-password"
 
 printf '\nall checks passed\n'

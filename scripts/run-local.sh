@@ -23,6 +23,7 @@ if [ ! -f .env ]; then
     DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9')
     JWT_KEY=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9')
     ADMIN_PASSWORD="Barako-Local-123!"
+    DB_APP_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9')
 
     cat <<ENV > .env
 # Domain (loopback)
@@ -41,6 +42,9 @@ BARAKO_TAG=latest
 DB_NAME=barako_cms
 DB_USER=barako_user
 DB_PASSWORD=$DB_PASSWORD
+# The API connects as this role, which has no superuser. A job creates it before the API starts.
+DB_APP_USER=barako_app
+DB_APP_PASSWORD=$DB_APP_PASSWORD
 
 # Security
 JWT_KEY=$JWT_KEY

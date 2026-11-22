@@ -2,7 +2,7 @@
 # images. Nothing to build. For the console in front of it, use BaryoDev/barakoBrew's quickstart.
 #
 #   1.  cp .env.example .env
-#   2.  edit .env  (at minimum: DB_PASSWORD, JWT_KEY, ADMIN_PASSWORD)
+#   2.  edit .env  (at minimum: DB_PASSWORD, DB_APP_PASSWORD, JWT_KEY, ADMIN_PASSWORD)
 #   3.  docker compose up -d
 #
 # CMS API:   http://localhost:${API_PORT:-5005}
@@ -25,7 +25,7 @@ services:
     # defaults for 4 GB and 8 GB, and the stock values to go back to, are in
     # docs/deploy-in-production.md in the barakoCMS repository, "Postgres on a small server". max_connections stays at the stock
     # 100 so an existing deployment's connection pool keeps fitting. pg_stat_statements is loaded so
-    # slow queries can be found; the postgres-extensions service below creates the extension.
+    # slow queries can be found; the postgres-extensions job below installs the extension.
     command:
       - postgres
       - -c
@@ -65,10 +65,15 @@ services:
     mem_limit: ${DB_MEM_LIMIT:-2g}
     pids_limit: ${DB_PIDS_LIMIT:-512}
 
-  # Creates pg_stat_statements once Postgres is up, then exits. A separate one-shot rather than a
-  # script in docker-entrypoint-initdb.d, because that only runs on an empty volume and an existing
-  # deployment would never get the extension. IF NOT EXISTS makes every later start a no-op. Nothing
-  # depends on it, so if it fails the API still starts; its log says why.
+  # Runs scripts/db-app-role.sql as the database owner once Postgres is up, then exits. It installs
+  # pg_stat_statements, creates the login role the API connects as (DB_APP_USER, no superuser),
+  # sets its password and makes it owner of what is in schema public. A separate one-shot rather
+  # than a script in docker-entrypoint-initdb.d, because that only runs on an empty volume and an
+  # existing deployment would never get the role. The script is safe to run on every start.
+  #
+  # The API waits for this job to finish, because its ALTERs take locks on the tables and the API
+  # connects as the role the job creates. If the job fails the API does not start; its log says why.
+  # It reads DB_APP_USER and DB_APP_PASSWORD from its environment, never from the command line.
   postgres-extensions:
     image: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d # postgres:16-alpine
     restart: "no"
@@ -80,7 +85,11 @@ services:
       PGDATABASE: ${DB_NAME:-barakocms}
       PGUSER: ${DB_USER:-postgres}
       PGPASSWORD: ${DB_PASSWORD}
-    command: ["psql", "-v", "ON_ERROR_STOP=1", "-c", "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"]
+      DB_APP_USER: ${DB_APP_USER:-barako_app}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?set DB_APP_PASSWORD in .env}
+    command: ["psql", "-X", "-v", "ON_ERROR_STOP=1", "-f", "/db-app-role.sql"]
+    volumes:
+      - ./scripts/db-app-role.sql:/db-app-role.sql:ro
     user: "70:70"
     read_only: true
     cap_drop: [ALL]
@@ -89,7 +98,7 @@ services:
     mem_limit: ${EXTENSIONS_MEM_LIMIT:-128m}
     pids_limit: ${EXTENSIONS_PIDS_LIMIT:-64}
     labels:
-      org.barakocms.hardening.one-shot: "creates the extension and exits, so it has nothing to check"
+      org.barakocms.hardening.one-shot: "runs the app role script and exits, so it has nothing to check"
 
   api:
     # Barako = core + all modules. For the lean core swap in ghcr.io/baryodev/barako-cms-decaf.
@@ -97,15 +106,18 @@ services:
     # `docker compose pull` is an unplanned major upgrade.
     image: ghcr.io/baryodev/barako-cms:${BARAKO_TAG:?pin a version in .env, for example 5.9.0}
     restart: unless-stopped
+    # The role job first: it creates the role this API connects as and takes locks on the tables.
     depends_on:
       postgres:
         condition: service_healthy
+      postgres-extensions:
+        condition: service_completed_successfully
     ports:
       # Loopback unless API_BIND says otherwise. Set API_BIND=0.0.0.0 only with TLS in front.
       - "${API_BIND:-127.0.0.1}:${API_PORT:-5005}:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
-      ConnectionStrings__DefaultConnection: "Host=postgres;Database=${DB_NAME:-barakocms};Username=${DB_USER:-postgres};Password=${DB_PASSWORD}"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=${DB_NAME:-barakocms};Username=${DB_APP_USER:-barako_app};Password=${DB_APP_PASSWORD:?set DB_APP_PASSWORD in .env}"
       # Must be 32+ characters or the API refuses to start.
       JWT__Key: ${JWT_KEY:?set a 32+ char JWT_KEY in .env}
       InitialAdmin__Username: ${ADMIN_USERNAME:-admin}

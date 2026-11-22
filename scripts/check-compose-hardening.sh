@@ -52,6 +52,7 @@ trap 'rm -rf "$tmp"' EXIT
 cat > "$tmp/throwaway.env" <<'ENV'
 BARAKO_TAG=check
 DB_PASSWORD=throwaway-value-for-the-check
+DB_APP_PASSWORD=throwaway-app-value-for-the-check
 JWT_KEY=throwaway-value-for-the-check-0123456789
 JWT_SECRET=throwaway-value-for-the-check-0123456789
 ADMIN_PASSWORD=throwaway-value-for-the-check

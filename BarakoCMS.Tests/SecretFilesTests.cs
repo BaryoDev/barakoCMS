@@ -263,7 +263,7 @@ public class SecretFilesShippedFilesTests
     {
         var lines = Read("docker-compose.prod.yml").Split('\n').Select(l => l.Trim()).Where(l => !l.StartsWith('#')).ToList();
 
-        foreach (var variable in new[] { "JWT_KEY", "ADMIN_PASSWORD", "DB_PASSWORD" })
+        foreach (var variable in new[] { "JWT_KEY", "ADMIN_PASSWORD", "DB_APP_PASSWORD" })
         {
             lines.Should().Contain(l => l.Contains("${" + variable + ":-${SECRETS_AS_FILES:?"),
                 "{0} stays required, and only SECRETS_AS_FILES=true lets a secret file stand in", variable);
@@ -284,6 +284,40 @@ public class SecretFilesShippedFilesTests
         var passwords = lines.Where(l => l.StartsWith("POSTGRES_PASSWORD:") || l.StartsWith("PGPASSWORD:")).ToList();
         passwords.Should().HaveCount(3, "postgres, postgres-extensions and db-backup");
         passwords.Should().OnlyContain(l => l.EndsWith("${DB_PASSWORD:-}"));
+    }
+
+    [Fact]
+    public void The_app_role_password_is_in_the_connection_string_and_the_role_job_takes_it_plain()
+    {
+        var lines = Read("docker-compose.prod.yml").Split('\n').Select(l => l.Trim()).Where(l => !l.StartsWith('#')).ToList();
+
+        var connection = lines.Single(l => l.Contains("ConnectionStrings__DefaultConnection="));
+        connection.Should().Contain("Username=${DB_APP_USER:-barako_app}");
+        connection.Should().Contain("${DB_APP_PASSWORD:-${SECRETS_AS_FILES:?");
+
+        // A switch fallback on the job would hand the app role the string "true" as its password.
+        var job = lines.Where(l => l.StartsWith("DB_APP_PASSWORD:")).ToList();
+        job.Should().ContainSingle().Which.Should().EndWith("${DB_APP_PASSWORD:-}");
+    }
+
+    [Fact]
+    public void The_secrets_override_gives_the_role_job_its_own_app_password_file()
+    {
+        var text = Read("docker-compose.secrets.yml");
+
+        text.Should().Contain("DB_APP_PASSWORD: \"\"");
+        text.Should().Contain("/run/secrets/db_app_password");
+        text.Should().Contain("file: ./secrets/db_app_password");
+    }
+
+    [Fact]
+    public void The_api_waits_for_the_role_job_to_finish_in_both_compose_files()
+    {
+        foreach (var file in new[] { "docker-compose.prod.yml", "quickstart/docker-compose.yml" })
+        {
+            Regex.IsMatch(Read(file), @"postgres-extensions:\r?\n\s+condition: service_completed_successfully")
+                .Should().BeTrue("{0}: the API connects as the role the job creates", file);
+        }
     }
 
     private static void AssertWiredOnce(string programPath)
