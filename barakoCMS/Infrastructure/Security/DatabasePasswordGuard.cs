@@ -26,14 +26,16 @@ internal static class DatabasePasswordGuard
     /// <summary>Every placeholder in the shipped manifests starts with this.</summary>
     private const string PlaceholderPrefix = "REPLACE_THIS";
 
-    public static void Validate(string? connectionString, bool isDevelopment)
+    public static void Validate(string? connectionString, bool isDevelopment, Func<string, string?>? environment = null)
     {
         if (isDevelopment || string.IsNullOrWhiteSpace(connectionString))
         {
             return;
         }
 
-        var password = PasswordOf(connectionString);
+        // Npgsql falls back to PGPASSWORD when the string has no password, so that value counts too.
+        var password = PasswordOf(connectionString)
+            ?? NullIfBlank((environment ?? Environment.GetEnvironmentVariable)("PGPASSWORD"));
         if (password is null)
         {
             return;
@@ -50,6 +52,8 @@ internal static class DatabasePasswordGuard
               + "(environment variable DB_PASSWORD in the compose files) before starting outside Development.");
         }
     }
+
+    private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
     private static string? PasswordOf(string connectionString)
     {

@@ -172,6 +172,8 @@ public class HealthProbeCommandTests
     [InlineData("api.example.com;app", "api.example.com")]
     [InlineData("*;api.example.com", "api.example.com")]
     [InlineData("*.example.com; api.example.com", "api.example.com")]
+    [InlineData("*.example.com", "probe.example.com")]
+    [InlineData("*;*.example.com;*.other.org", "probe.example.com")]
     [InlineData("localhost;127.0.0.1", "localhost")]
     [InlineData("*", "localhost")]
     [InlineData("", "localhost")]

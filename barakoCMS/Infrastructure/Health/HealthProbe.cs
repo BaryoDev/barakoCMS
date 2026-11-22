@@ -89,11 +89,26 @@ internal static class HealthProbe
             : DefaultPort;
     }
 
-    /// <summary>The first <c>AllowedHosts</c> entry that is not a wildcard, or <c>localhost</c>.</summary>
-    internal static string HostHeaderFrom(string? allowedHosts) =>
-        allowedHosts?.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .FirstOrDefault(h => !h.Contains('*') && h != "0.0.0.0" && h != "[::]" && !h.Any(char.IsWhiteSpace))
-        ?? "localhost";
+    /// <summary>
+    /// The first <c>AllowedHosts</c> entry that is not a wildcard. When every entry is a wildcard,
+    /// <c>probe.</c> plus the suffix of the first <c>*.suffix</c> entry, which host filtering accepts.
+    /// Otherwise <c>localhost</c>.
+    /// </summary>
+    internal static string HostHeaderFrom(string? allowedHosts)
+    {
+        var entries = allowedHosts?.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [];
+        var concrete = entries.FirstOrDefault(h => !h.Contains('*') && h != "0.0.0.0" && h != "[::]" && !h.Any(char.IsWhiteSpace));
+        if (concrete is not null)
+        {
+            return concrete;
+        }
+
+        var suffix = entries
+            .Where(h => h.StartsWith("*.", StringComparison.Ordinal) && h.Length > 2)
+            .Select(h => h[2..])
+            .FirstOrDefault(h => !h.Contains('*') && !h.Any(char.IsWhiteSpace));
+        return suffix is null ? "localhost" : $"probe.{suffix}";
+    }
 
     internal static TimeSpan TimeoutFrom(string? configured) =>
         int.TryParse(configured, out var seconds) && seconds is >= 1 and <= MaxTimeoutSeconds

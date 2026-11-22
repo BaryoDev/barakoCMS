@@ -79,6 +79,35 @@ public class DatabasePasswordGuardTests
         act.Should().NotThrow();
     }
 
+    [Theory]
+    [InlineData("postgres", true)]
+    [InlineData("a-random-password-0f3c9d81b2", false)]
+    [InlineData("", false)]
+    public void With_no_Password_in_the_string_the_PGPASSWORD_value_is_checked(string pgPassword, bool refused)
+    {
+        var act = () => DatabasePasswordGuard.Validate(
+            "Host=db;Username=u;Database=d", isDevelopment: false,
+            environment: name => name == "PGPASSWORD" ? pgPassword : null);
+
+        if (refused)
+        {
+            act.Should().Throw<InvalidOperationException>().Which.Message.Should().NotContain(pgPassword);
+        }
+        else
+        {
+            act.Should().NotThrow();
+        }
+    }
+
+    [Fact]
+    public void The_PGPASSWORD_value_is_not_checked_in_Development()
+    {
+        var act = () => DatabasePasswordGuard.Validate(
+            "Host=db;Username=u;Database=d", isDevelopment: true, environment: _ => "postgres");
+
+        act.Should().NotThrow();
+    }
+
     [Fact]
     public void The_Pwd_keyword_is_read_as_the_password()
     {
