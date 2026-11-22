@@ -686,7 +686,7 @@
           "AspNetCore.HealthChecks.Npgsql": "[9.0.0, )",
           "AspNetCore.HealthChecks.System": "[9.0.0, )",
           "BCrypt.Net-Next": "[4.2.0, )",
-          "BarakoCMS.Abstractions": "[5.8.0, )",
+          "BarakoCMS.Abstractions": "[5.9.0, )",
           "Carom": "[2.1.0, )",
           "Carom.Extensions": "[2.1.0, )",
           "Cronos": "[0.13.0, )",
@@ -727,8 +727,8 @@
       "barakocms.files": {
         "type": "Project",
         "dependencies": {
-          "BarakoCMS": "[5.8.0, )",
-          "BarakoCMS.Abstractions": "[5.8.0, )",
+          "BarakoCMS": "[5.9.0, )",
+          "BarakoCMS.Abstractions": "[5.9.0, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "SkiaSharp": "[4.156.1, )",
           "SkiaSharp.NativeAssets.Linux.NoDependencies": "[4.156.1, )",

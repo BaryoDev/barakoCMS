@@ -511,7 +511,8 @@ public class WorkflowTriggerEventsTests
         var runner = new WorkflowRunner(
             _factory.Services,
             _factory.Services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<WorkflowRunner>>(),
-            _factory.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>());
+            _factory.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>(),
+            _factory.Services.GetRequiredService<barakoCMS.Features.Workflows.WorkflowMetrics>());
 
         await PollAsync(
             async () =>

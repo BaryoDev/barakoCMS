@@ -23,14 +23,14 @@ internal sealed record ApiKeyRefusal(DateTime At, ApiKeyRefusalReason Reason, st
 /// <see cref="MaxContentTypeLength"/>) are kept. Never the secret, a body or a header.
 /// The counts live in one process, so they restart empty and a second replica has its own.
 /// </summary>
-internal sealed class ApiKeyRefusals(TimeProvider clock)
+internal sealed class ApiKeyRefusals(TimeProvider clock, IMetricFactory metrics)
 {
     public static readonly TimeSpan Window = TimeSpan.FromHours(24);
     public const int MaxPerKey = 200;
     public const int MaxKeys = 10_000;
     public const int MaxContentTypeLength = 100;
 
-    private static readonly Counter RefusalCounter = Metrics.CreateCounter(
+    private readonly Counter _refusalCounter = metrics.CreateCounter(
         "barakocms_api_key_refusals_total",
         "Requests refused for an API key that exists, by reason. /metrics is anonymous, so no key id.",
         new CounterConfiguration { LabelNames = ["reason"] });
@@ -47,7 +47,7 @@ internal sealed class ApiKeyRefusals(TimeProvider clock)
 
     public void Record(Guid keyId, ApiKeyRefusalReason reason, string? contentType = null)
     {
-        RefusalCounter.WithLabels(ReasonName(reason)).Inc();
+        _refusalCounter.WithLabels(ReasonName(reason)).Inc();
 
         if (contentType is { Length: > MaxContentTypeLength })
             contentType = contentType[..MaxContentTypeLength];

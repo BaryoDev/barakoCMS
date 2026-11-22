@@ -662,7 +662,8 @@ public class EmailAttachmentStoredFileTests
     private WorkflowRunner NewRunner() => new(
         _factory.Services,
         _factory.Services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<WorkflowRunner>>(),
-        _factory.Services.GetRequiredService<IConfiguration>());
+        _factory.Services.GetRequiredService<IConfiguration>(),
+        _factory.Services.GetRequiredService<barakoCMS.Features.Workflows.WorkflowMetrics>());
 
     /// <summary>A type with a Confirm transition, and a workflow that emails on it.</summary>
     private async Task<string> FormTypeWithConfirmationEmailAsync(string to)

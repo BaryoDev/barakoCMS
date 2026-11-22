@@ -60,7 +60,7 @@ public class WorkflowScheduleCatchUpTests
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var before = await OwnRunCountAsync(session);
-        await WorkflowSchedule.FireDueAsync(session, now, null, Ct);
+        await WorkflowSchedule.FireDueAsync(session, new WorkflowMetrics(Prometheus.Metrics.NewCustomRegistry()), now, null, Ct);
         return await OwnRunCountAsync(session) - before;
     }
 
@@ -375,7 +375,7 @@ public class WorkflowScheduleCatchUpTests
         WorkflowSchedule.Next(WorkflowSchedule.Parse(Yearly)!, TimeZoneInfo.Utc, after.ScheduleArmedAt!.Value, 1)
             .Single().Should().BeAfter(DateTime.UtcNow, "the next time is ahead of now");
 
-        await WorkflowSchedule.FireDueAsync(read, DateTime.UtcNow, null, Ct);
+        await WorkflowSchedule.FireDueAsync(read, new WorkflowMetrics(Prometheus.Metrics.NewCustomRegistry()), DateTime.UtcNow, null, Ct);
         (await read.Query<WorkflowRun>().CountAsync(r => r.WorkflowDefinitionId == id, Ct))
             .Should().Be(0, "the January 1 times that passed while it was off are not owed");
     }

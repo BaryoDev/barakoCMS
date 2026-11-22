@@ -1,1 +1,0 @@
-- **A published message delivered twice writes back once.** A test now covers a retry after the receiver answers 500, the sender run twice for one outbox row, and two overlapping deliveries, all writing back to the API with the message id as `Idempotency-Key`. `docs/webhooks.md` says how a receiver should use the id.

@@ -401,6 +401,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         // running no modules, and the fakes below stand in for the real clients.
         builder.ConfigureServices((ctx, services) =>
         {
+            // Its own metrics registry, so two hosts in one process do not write to the same series.
+            services.UseIsolatedMetricsRegistry();
+
             // Let a test choose its own client IP so the auth rate limiter (5 attempts /
             // 15 min per IP) partitions per test instead of sharing one loopback bucket.
             // Without this, xunit v3 ordering packs enough auth calls into one window that a
