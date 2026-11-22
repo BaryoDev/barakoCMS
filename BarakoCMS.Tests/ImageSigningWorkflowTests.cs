@@ -173,6 +173,7 @@ public class ImageSigningWorkflowTests
         foreach (var file in files)
         {
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var all = new List<string>();
             var inSteps = false;
             foreach (var raw in File.ReadAllLines(file))
             {
@@ -186,13 +187,22 @@ public class ImageSigningWorkflowTests
                     inSteps = true;
                 }
 
-                // A step id sits at the step's key indent: "- id: x" or "  id: x" under "      - name".
-                var m = Regex.Match(raw, @"^      (?:- )?id:\s*['""]?([A-Za-z0-9_-]+)['""]?\s*(#.*)?$");
+                // A step id is "      - id: x" (the first key of the step) or "        id: x" under
+                // "      - name:". Anything deeper, such as an id inside "with:", is not a step id.
+                var m = Regex.Match(raw, @"^(?:      - |        )id:\s*['""]?([A-Za-z0-9_-]+)['""]?\s*(#.*)?$");
                 if (inSteps && m.Success)
                 {
+                    all.Add(m.Groups[1].Value);
                     seen.Add(m.Groups[1].Value).Should().BeTrue(
                         "{0} defines step id '{1}' twice in one job", Path.GetFileName(file), m.Groups[1].Value);
                 }
+            }
+
+            // A scan that matches nothing passes on any file, so the file we know has ids must yield them.
+            if (Path.GetFileName(file) == "release.yml")
+            {
+                all.Should().Contain(new[] { "check", "build", "dockerhub", "sign" },
+                    "the step id scan has to see the ids that are in release.yml");
             }
         }
     }
