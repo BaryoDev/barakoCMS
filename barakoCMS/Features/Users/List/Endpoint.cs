@@ -15,6 +15,10 @@ internal class UserResponse
     public List<Guid> RoleIds { get; set; } = new();
     public List<Guid> GroupIds { get; set; } = new();
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>True when a SuperAdmin has blocked the account. Absent when it is not blocked.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public bool? Blocked { get; set; }
 }
 
 internal class Endpoint(IDocumentSession session) : Endpoint<Request, PaginatedResponse<UserResponse>>
@@ -38,7 +42,8 @@ internal class Endpoint(IDocumentSession session) : Endpoint<Request, PaginatedR
             Email = u.Email,
             RoleIds = u.RoleIds,
             GroupIds = u.GroupIds,
-            CreatedAt = u.CreatedAt
+            CreatedAt = u.CreatedAt,
+            Blocked = u.BlockedAt is null ? null : true,
         }), cancellation: ct);
     }
 }

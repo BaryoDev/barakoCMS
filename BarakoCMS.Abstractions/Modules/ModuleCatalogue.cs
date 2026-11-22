@@ -27,6 +27,11 @@ internal sealed class ModuleCatalogue
     /// </summary>
     internal const string ReservedSectionName = "email";
 
+    /// <summary>
+    /// Every settings section name the host serves itself, including <c>/api/tenant-settings/cdn-purge</c>.
+    /// </summary>
+    internal static readonly IReadOnlyList<string> ReservedSectionNames = [ReservedSectionName, "cdn-purge"];
+
     public static ModuleCatalogue Of(IEnumerable<IBarakoModule> seen, IEnumerable<IBarakoModule> enabled)
     {
         var running = new HashSet<IBarakoModule>(enabled, ReferenceEqualityComparer.Instance);
@@ -54,11 +59,11 @@ internal sealed class ModuleCatalogue
         {
             foreach (var section in module.SettingsSections)
             {
-                if (string.Equals(section.Name, ReservedSectionName, StringComparison.OrdinalIgnoreCase))
+                if (ReservedSectionNames.Contains(section.Name, StringComparer.OrdinalIgnoreCase))
                 {
                     throw new InvalidOperationException(
                         $"Module '{module.Name}' declares a settings section named '{section.Name}'. "
-                        + $"'{ReservedSectionName}' is reserved for the host's own route, so the section could never be reached.");
+                        + $"'{section.Name}' is reserved for the host's own route, so the section could never be reached.");
                 }
 
                 if (!owners.TryAdd(section.Name, module.Name))

@@ -23,7 +23,8 @@ exactly what it is today, so a deployment that sets no override changes nothing.
 `manage_settings` (held by a tenant's Admin through its membership). Null leaves a field alone, an
 empty string clears it so the host default applies again. The default tenant has no override and
 gets a 400 pointing at `/api/settings/email`. The existing `/api/settings/email` routes are
-unchanged.
+unchanged. `GET` and `PUT /api/tenant-settings/cdn-purge` hold a tenant's CDN purge provider and token (see
+`cdn-purge.md`).
 
 ## Module-declared sections
 
@@ -41,7 +42,7 @@ Declared today: Email.Smtp (From), Files.S3 (Bucket, PublicBaseUrl, AccessKey, S
 The module-declared sections live in `TenantSettings`, one row per tenant in `mt_doc_tenant_settings`.
 Production runs `CreateOnly`, so apply `migrations/5.5.0/896-tenant-settings.sql` before the upgrade
 (`rollback-896-tenant-settings.sql` undoes it). Section names are unique across running modules, and
-`email` is reserved for the route above.
+`email` and `cdn-purge` are reserved for the routes above.
 
 ## Not in this tranche
 

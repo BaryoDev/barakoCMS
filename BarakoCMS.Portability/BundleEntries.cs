@@ -129,6 +129,12 @@ internal static class BundleEntries
         ContentCreateBatch batch, CancellationToken ct)
     {
         var refused = new List<ValidationFailure>();
+
+        // Every type the bundle writes is locked first, in name order, whatever order the records
+        // depend on each other in, so a change to the types cannot wait on a lock this import holds.
+        await barakoCMS.Infrastructure.Jobs.ContentTypeLocks.LockSharedAsync(
+            session, prepared.Pending.Select(p => p.Request.ContentType), ct);
+
         foreach (var (index, request) in InDependencyOrder(prepared.Pending, prepared.NewIds))
         {
             var errors = await creator.CheckAsync(request, userId, http, batch, ct);

@@ -68,6 +68,17 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
     protected override Microsoft.Extensions.Hosting.IHost CreateHost(Microsoft.Extensions.Hosting.IHostBuilder builder) =>
         StartAgainstOwnDatabase(() => base.CreateHost(builder));
 
+    /// <summary>
+    /// A client with its own limiter bucket unless the test sends its own address (#1392). Without
+    /// one, every client of this host shares the "unknown" bucket, so a class waits on the traffic
+    /// of the classes before it.
+    /// </summary>
+    protected override void ConfigureClient(HttpClient client)
+    {
+        base.ConfigureClient(client);
+        TestClientIp.Give(client);
+    }
+
     /// <summary>The API key this host is configured with, standing in for a deployment's own.</summary>
     public const string ConfiguredEmailKey = "key_from_the_deployment_not_the_admin";
 
@@ -135,6 +146,7 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         {
             ThrowIfReleased();
             base.ConfigureClient(client);
+            TestClientIp.Give(client);
         }
 
         private void ThrowIfReleased()
@@ -342,10 +354,15 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
                 // minute for ninety minutes, running whichever sync a test had just configured at a
                 // moment the test did not choose.
                 { "CollectionSyncs:Enabled", "false" },
-                // The outbox sender polls once an hour here. PublishActionTests drives delivery
-                // itself, and a host sweeping every five seconds would reach the message first,
-                // refuse the test's plain-http listener and leave nothing due for the test to send.
+                // The hosted outbox sender is removed below, so this is a second line of defence for
+                // a test that builds a sender from the host's configuration. PublishActionTests
+                // drives delivery itself.
                 { barakoCMS.Features.Workflows.Outbox.OutboxSender.PollSecondsKey, "3600" },
+                // The CDN purge sender waits ten minutes before it takes a row and polls once an hour, so a
+                // host left over from another class never sends a purge a purge test is waiting on. The
+                // purge tests drive the sender themselves with a clock past the window.
+                { "Delivery:CdnPurge:DebounceMs", "600000" },
+                { "Delivery:CdnPurge:PollSeconds", "3600" },
                 // The job queue, tuned for a test run: a retry waits nothing, so a job that fails
                 // five times dead-letters in seconds. The backoff arithmetic itself is
                 // JobBackoffTests, a unit test.
@@ -384,6 +401,9 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
         // running no modules, and the fakes below stand in for the real clients.
         builder.ConfigureServices((ctx, services) =>
         {
+            // Its own metrics registry, so two hosts in one process do not write to the same series.
+            services.UseIsolatedMetricsRegistry();
+
             // Let a test choose its own client IP so the auth rate limiter (5 attempts /
             // 15 min per IP) partitions per test instead of sharing one loopback bucket.
             // Without this, xunit v3 ordering packs enough auth calls into one window that a
@@ -484,6 +504,23 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
             }
 
             services.Remove(logRedaction);
+
+            // The outbox sender, for the same reason as the runner below: every derived host shares
+            // this database, and a host starting sweeps every tenant at once. That sweep leases a
+            // message a test just queued, or sends it through the host's own guarded transport, which
+            // refuses the test's loopback listener, so the test's own delivery finds nothing due
+            // (#1389). The tests that cover delivery build an OutboxSender and call DeliverDueAsync
+            // themselves, and none waits on a background send.
+            var outboxSender = services.SingleOrDefault(d =>
+                d.ImplementationType == typeof(barakoCMS.Features.Workflows.Outbox.OutboxSender));
+            if (outboxSender is null)
+            {
+                throw new InvalidOperationException(
+                    "OutboxSender is no longer registered the way this fixture expects, so a host's "
+                  + "sweep may still reach messages tests queue. See #1389.");
+            }
+
+            services.Remove(outboxSender);
 
             // Only this fixture's own host runs the workflow runner. Every host a test derives with
             // WithWebHostBuilder shares this database and lives until another class derives a host, and each

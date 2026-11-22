@@ -8,6 +8,7 @@ using FluentAssertions;
 using Marten;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using Xunit;
 
 namespace BarakoCMS.Tests;
@@ -42,7 +43,13 @@ public class ParentReferenceHookTests
         private readonly Lock _gate = new();
         private readonly Dictionary<string, (int Arrived, TaskCompletionSource Both)> _byMarker = new();
         private readonly HashSet<string> _timedOut = new();
+        private readonly HashSet<string> _stalled = new();
         private readonly Dictionary<string, TaskCompletionSource> _firstArrival = new();
+
+        private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(10);
+
+        /// <summary>The connection string of the database the writers run against, set before the host starts.</summary>
+        public string ConnectionString { get; set; } = "";
 
         /// <summary>Completes when the first writer carrying this marker reaches the barrier.</summary>
         public Task FirstArrivalAsync(string marker)
@@ -58,7 +65,7 @@ public class ParentReferenceHookTests
                 ? arrived
                 : _firstArrival[marker] = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public async Task ArriveAsync(string marker)
+        public async Task ArriveAsync(string marker, CancellationToken ct)
         {
             Task both;
             lock (_gate)
@@ -77,14 +84,56 @@ public class ParentReferenceHookTests
                 both = entry.Both.Task;
             }
 
-            // A writer blocked on the lock never arrives, so the first one gives up waiting and
-            // commits. That is the fixed behaviour; without the lock both arrive and both commit.
-            if (await Task.WhenAny(both, Task.Delay(TimeSpan.FromSeconds(4))) != both)
+            // A writer blocked on the lock never arrives, so the first one stops waiting as soon as
+            // Postgres shows another writer waiting on an advisory lock, and commits. That is the
+            // fixed behaviour; without the lock both arrive and both commit.
+            var deadline = DateTime.UtcNow + Deadline;
+            while (!both.IsCompleted)
             {
-                lock (_gate)
+                if (await AnotherWriterIsWaitingOnTheLockAsync(ct))
                 {
-                    _timedOut.Add(marker);
+                    lock (_gate)
+                    {
+                        _timedOut.Add(marker);
+                    }
+
+                    return;
                 }
+
+                if (DateTime.UtcNow >= deadline)
+                {
+                    lock (_gate)
+                    {
+                        _stalled.Add(marker);
+                    }
+
+                    return;
+                }
+
+                await Task.Delay(25, ct);
+            }
+        }
+
+        private async Task<bool> AnotherWriterIsWaitingOnTheLockAsync(CancellationToken ct)
+        {
+            await using var connection = new NpgsqlConnection(ConnectionString);
+            await connection.OpenAsync(ct);
+            await using var command = new NpgsqlCommand(
+                """
+                select count(*) from pg_locks
+                where locktype = 'advisory' and not granted
+                  and database = (select oid from pg_database where datname = current_database())
+                """,
+                connection);
+            return (long)(await command.ExecuteScalarAsync(ct))! > 0;
+        }
+
+        /// <summary>Whether neither a second writer arrived nor one waited on the lock within the deadline.</summary>
+        public bool Stalled(string marker)
+        {
+            lock (_gate)
+            {
+                return _stalled.Contains(marker);
             }
         }
 
@@ -110,7 +159,7 @@ public class ParentReferenceHookTests
         {
             if (context.Data.TryGetValue("Title", out var title) && title?.ToString() is { } t && t.StartsWith("race-"))
             {
-                await _barrier.ArriveAsync(t);
+                await _barrier.ArriveAsync(t, ct);
             }
 
             return [];
@@ -118,6 +167,11 @@ public class ParentReferenceHookTests
     }
 
     private static readonly Barrier SharedBarrier = new();
+
+    private const string StalledMessage =
+        "the first writer reached the barrier and, in 10 seconds, no second writer arrived and none waited "
+        + "on an advisory lock in pg_locks, so the race the test sets up never formed "
+        + "(this can also mean the hook took no advisory lock at all, so check the hook first)";
     private static readonly Lock HostGate = new();
     private static WebApplicationFactory<Program>? _host;
 
@@ -125,6 +179,7 @@ public class ParentReferenceHookTests
     {
         lock (HostGate)
         {
+            SharedBarrier.ConnectionString = _factory.ConnectionString;
             return _host ??= _factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
             {
                 services.AddScoped<IContentLifecycleHook>(_ => new ParentReferenceHook(TypeName, "ParentPage", MaxDepth));
@@ -408,14 +463,15 @@ public class ParentReferenceHookTests
     public async Task Two_concurrent_writes_cannot_close_a_cycle_between_them()
     {
         var client = await AdminAsync();
-        var a = await CreateAsync(client, "race-a-create");
-        var b = await CreateAsync(client, "race-b-create");
+        var a = await CreateAsync(client, "seed-a");
+        var b = await CreateAsync(client, "seed-b");
         var marker = "race-" + Guid.NewGuid().ToString("n");
 
         var results = await Task.WhenAll(
             UpdateAsync(client, a, marker, parent: b),
             UpdateAsync(client, b, marker, parent: a));
 
+        SharedBarrier.Stalled(marker).Should().BeFalse(StalledMessage);
         var codes = results.Select(r => r.StatusCode).ToList();
         codes.Should().HaveCount(2);
         codes.Should().ContainSingle(c => c == HttpStatusCode.OK, "one of the two edges can land");
@@ -489,6 +545,7 @@ public class ParentReferenceHookTests
         toRoot.StatusCode.Should().Be(HttpStatusCode.OK, await toRoot.Content.ReadAsStringAsync(Ct));
         await UpdateAsync(client, p, "hold-p-under-x", parent: x);
         (await held).StatusCode.Should().Be(HttpStatusCode.OK);
+        SharedBarrier.Stalled(marker).Should().BeFalse(StalledMessage);
 
         var xParent = await StoredParentAsync(x);
         var pParent = await StoredParentAsync(p);
@@ -534,6 +591,7 @@ public class ParentReferenceHookTests
 
         results.Should().HaveCount(2);
         results.Should().OnlyContain(r => r.StatusCode == HttpStatusCode.OK);
+        SharedBarrier.Stalled(marker).Should().BeFalse(StalledMessage);
         SharedBarrier.TimedOut(marker).Should().BeFalse("neither edit waited for the other to commit");
     }
 

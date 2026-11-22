@@ -100,7 +100,7 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAu
         foreach (var type in key.ContentTypes ?? [])
             claims.Add(new Claim(ContentTypeClaim, type));
 
-        _ = TouchLastUsedAsync(store, key.Id, key.LastUsedAt); // best-effort, non-blocking
+        _ = TouchLastUsedAsync(store, key.Id, key.LastUsedAt, Context.Connection.RemoteIpAddress?.ToString()); // best-effort, non-blocking
 
         var identity = new ClaimsIdentity(claims, SchemeName, "Username", ClaimTypes.Role);
         var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName);
@@ -114,7 +114,7 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAu
     private static async Task<List<Claim>?> OwnerClaimsAsync(IQuerySession lookup, ApiKey key, string slug, CancellationToken ct)
     {
         var user = await lookup.LoadAsync<User>(key.UserId, ct);
-        if (user is null)
+        if (user is null || AccountBlock.Is(user))
             return null;
 
         // A key must not outlive its owner's access to the tenant: mirror the token-issuer membership
@@ -213,18 +213,23 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAu
             .AnyAsync(m => m.UserId == user.Id && m.TenantSlug == slug && m.Status == MembershipStatus.Active, ct);
     }
 
-    private static async Task TouchLastUsedAsync(IDocumentStore store, Guid keyId, DateTime? lastUsed)
+    private static async Task TouchLastUsedAsync(IDocumentStore store, Guid keyId, DateTime? lastUsed, string? ip)
     {
         // Throttle to at most one write per 5 minutes so a busy key isn't a write per request.
         if (lastUsed is { } l && l > DateTime.UtcNow.AddMinutes(-5)) return;
         try
         {
             await using var s = store.LightweightSession();
-            // Targeted patch of ONLY LastUsedAt. A full-document Update() here would serialize the
+            // Targeted patch of ONLY LastUsedAt and LastUsedIp. A full-document Update() here would serialize the
             // whole ApiKey and, with no optimistic concurrency, a stale copy could clobber a
             // concurrent revoke (Revoked=true) written between our load and save — silently
             // un-revoking the key. A field patch never touches Revoked, so revocation stays durable.
             s.Patch<ApiKey>(keyId).Set(x => x.LastUsedAt, DateTime.UtcNow);
+            if (ip is not null)
+            {
+                s.Patch<ApiKey>(keyId).Set(x => x.LastUsedIp, ip);
+            }
+
             await s.SaveChangesAsync();
         }
         catch { /* last-used is best-effort; never fail a request over it */ }

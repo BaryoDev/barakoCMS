@@ -56,4 +56,19 @@ public class User
     /// being invalidated rather than at three call sites that have to remember.
     /// </remarks>
     public DateTime? TokensValidFrom { get; set; }
+
+    /// <summary>
+    /// When a platform administrator blocked this account. Null means not blocked, which is every
+    /// account that existed before the field did.
+    /// </summary>
+    /// <remarks>
+    /// A block is global: it applies in every tenant the user belongs to. A blocked user is refused
+    /// by every sign-in path and by the token issuer, and their access tokens and owned API keys stop
+    /// working. It is separate from <see cref="LockoutUntil"/>, which expires on its own and is set
+    /// by failed attempts.
+    /// </remarks>
+    public DateTime? BlockedAt { get; set; }
+
+    /// <summary>The administrator who blocked this account. Kept for the audit trail only.</summary>
+    public Guid? BlockedBy { get; set; }
 }

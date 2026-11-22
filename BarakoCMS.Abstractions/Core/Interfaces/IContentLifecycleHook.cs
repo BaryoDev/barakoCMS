@@ -41,6 +41,82 @@ public sealed class ContentLifecycleContext : IContentHookContext
 #pragma warning restore CS0618
 
     private IContentReader? _reader;
+
+    async Task IContentHookContext.LockAsync(string key, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+
+#pragma warning disable CS0618
+        var session = Session;
+#pragma warning restore CS0618
+
+        // The transaction is the one SaveChangesAsync commits, so the lock lives exactly as long as
+        // the write. The tenant is length-prefixed so no tenant and key pair can spell another's.
+        await session.BeginTransactionAsync(cancellationToken);
+        var tenant = session.TenantId;
+        var lockKey = $"barakocms:hook-lock:{tenant.Length}:{tenant}:{key}";
+        await session.QueryAsync<int>(
+            "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", cancellationToken, lockKey);
+    }
+
+    async Task<T?> IContentHookContext.LoadAsync<T>(Guid id, CancellationToken cancellationToken) where T : class
+    {
+        RefuseCoreType(typeof(T));
+
+#pragma warning disable CS0618
+        var session = Session;
+#pragma warning restore CS0618
+
+        // A document stored earlier in this unit of work is only staged, and the database has not seen
+        // it. The session knows what is staged, so every context on it, whichever entry's hooks it
+        // serves, answers the same. Once a save or an eject clears the staging the row is read.
+        var idProperty = IdProperty(typeof(T));
+        if (idProperty is not null)
+        {
+            var staged = session.PendingChanges.AllChangedFor<T>()
+                .LastOrDefault(d => (Guid)idProperty.GetValue(d)! == id);
+            if (staged is not null)
+            {
+                return staged;
+            }
+        }
+
+        return await session.LoadAsync<T>(id, cancellationToken);
+    }
+
+    void IContentHookContext.Store<T>(T document) where T : class
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        RefuseCoreType(typeof(T));
+
+        if (IdProperty(typeof(T)) is null)
+        {
+            throw new ArgumentException($"{typeof(T).Name} needs a readable Guid Id property.", nameof(document));
+        }
+
+#pragma warning disable CS0618
+        Session.Store(document);
+#pragma warning restore CS0618
+    }
+
+    private static System.Reflection.PropertyInfo? IdProperty(Type type)
+    {
+        var property = type.GetProperty("Id");
+        return property is { CanRead: true } && property.PropertyType == typeof(Guid) ? property : null;
+    }
+
+    // The core's own documents (roles, users, content types) are not a hook's to read or write through
+    // this: the context is for the hook's own documents, not a general store.
+    private static void RefuseCoreType(Type type)
+    {
+        if (type.Assembly.GetName().Name is "barakoCMS" or "BarakoCMS.Abstractions")
+        {
+            throw new InvalidOperationException(
+                $"{type.Name} is a core document, so a hook cannot load or store it through its context. "
+                + "Use a document type the module declares.");
+        }
+    }
+
     /// <summary>
     /// The lifecycle transition this write is, with its name and the states it moves between; null
     /// for a plain save. A hook picks its checks from the real move instead of a client-sent field.

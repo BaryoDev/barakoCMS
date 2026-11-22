@@ -48,8 +48,9 @@ internal sealed class MigrationScratchDatabase : IAsyncDisposable
         return database;
     }
 
-    public MigrationLedger Ledger(string schema = MigrationLedger.SupportedSchema) =>
-        new(() => new NpgsqlConnection(ConnectionString), "tests", schema);
+    public MigrationLedger Ledger(
+        string schema = MigrationLedger.SupportedSchema, Microsoft.Extensions.Configuration.IConfiguration? configuration = null) =>
+        new(() => new NpgsqlConnection(ConnectionString), "tests", schema, configuration);
 
     /// <summary>Polls until the query answers true, and fails the test if it never does.</summary>
     public async Task WaitForAsync(string sql, string what)

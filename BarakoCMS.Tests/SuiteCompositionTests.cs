@@ -47,7 +47,7 @@ public class SuiteCompositionTests
 
     /// <summary>
     /// The modules the Suite project references, plus the Testing fixture module and this
-    /// project's own probe, which the test process references too. A module project added to
+    /// project's own probes (one reaches core, one is contract-only), which the test process references too. A module project added to
     /// the Suite without being added here fails this test, which is the point: the set is pinned.
     /// </summary>
     [Fact]
@@ -71,6 +71,7 @@ public class SuiteCompositionTests
             "Portability",
             "Fixture",
             DiscoverableProbeModule.ModuleName,
+            ContractOnlyProbe.ContractOnlyProbeModule.ModuleName,
         ]);
     }
 

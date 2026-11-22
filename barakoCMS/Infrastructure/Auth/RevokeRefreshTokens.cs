@@ -27,22 +27,37 @@ public static class RevokeRefreshTokens
     /// an optimisation, not the mechanism: the database is the source of truth and other instances
     /// pick the change up when their own cache expires regardless.
     /// </param>
+    /// <param name="blankIdentifiers">
+    /// Also blanks the device text and addresses on every row of the user, for an erasure.
+    /// </param>
     public static async Task ForUserAsync(
         IDocumentSession session,
         Guid userId,
         string reason,
         CancellationToken ct,
-        Services.ISessionEpochService? sessionEpoch = null)
+        Services.ISessionEpochService? sessionEpoch = null,
+        bool blankIdentifiers = false)
     {
+        // Erasing a person reads every row, used ones included, because a used row keeps nothing
+        // that identifies them now but one from before this change may still.
         var tokens = await session.Query<RefreshToken>()
-            .Where(t => t.UserId == userId && !t.IsRevoked)
+            .Where(t => t.UserId == userId && (blankIdentifiers || !t.IsRevoked))
             .ToListAsync(ct);
 
         foreach (var token in tokens)
         {
-            token.IsRevoked = true;
-            token.RevokedReason = reason;
-            token.RevokedAt = DateTime.UtcNow;
+            if (!token.IsRevoked)
+            {
+                token.IsRevoked = true;
+                token.RevokedReason = reason;
+                token.RevokedAt = DateTime.UtcNow;
+            }
+
+            if (blankIdentifiers)
+            {
+                token.ClearIdentifiers();
+            }
+
             session.Store(token);
         }
 

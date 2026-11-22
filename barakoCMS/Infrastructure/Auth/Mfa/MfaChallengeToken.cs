@@ -20,6 +20,9 @@ public static class MfaChallengeToken
 
     public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
 
+    private const string FactorClaim = "mfafactor";
+    private const int MaxFactorLength = 64;
+
     private const string PurposeClaim = "purpose";
     private const string PurposeValue = "mfa";
     private const string UserClaim = "mfauid";
@@ -36,7 +39,15 @@ public static class MfaChallengeToken
     /// verify, not trusted from here. The grant is given a fresh <see cref="PendingExternalGrant.Id"/>
     /// here, which verify records as spent with the grant, so one challenge grants at most once.
     /// </summary>
-    public static (string Token, DateTime ExpiresAt) Create(IConfiguration config, Guid userId, PendingExternalGrant? grant)
+    public static (string Token, DateTime ExpiresAt) Create(IConfiguration config, Guid userId, PendingExternalGrant? grant) =>
+        Create(config, userId, grant, null);
+
+    /// <summary>
+    /// As above, naming the first factor (<c>password</c>, <c>code</c>, <c>link</c> or
+    /// <c>social:&lt;provider&gt;</c>) so the session that verify starts records how it began.
+    /// </summary>
+    public static (string Token, DateTime ExpiresAt) Create(
+        IConfiguration config, Guid userId, PendingExternalGrant? grant, string? firstFactor)
     {
         var expiresAt = DateTime.UtcNow.Add(Lifetime);
         var token = JwtBearer.CreateToken(o =>
@@ -48,6 +59,10 @@ public static class MfaChallengeToken
             var u = o.User;
                 u.Claims.Add(new(PurposeClaim, PurposeValue));
                 u.Claims.Add(new(UserClaim, userId.ToString()));
+                if (!string.IsNullOrEmpty(firstFactor))
+                {
+                    u.Claims.Add(new(FactorClaim, firstFactor.Length > MaxFactorLength ? firstFactor[..MaxFactorLength] : firstFactor));
+                }
                 if (grant is { RoleIds.Count: > 0 and <= MaxGrantRoles })
                 {
                     u.Claims.Add(new(GrantClaim, (grant with { Id = Guid.NewGuid() }).Encode()));
@@ -64,7 +79,13 @@ public static class MfaChallengeToken
         Validated(config, token)?.UserId;
 
     /// <summary>The user the challenge was minted for and any external grant it carries, or null when it does not verify.</summary>
-    public static (Guid UserId, PendingExternalGrant? Grant)? Validated(IConfiguration config, string token)
+    public static (Guid UserId, PendingExternalGrant? Grant)? Validated(IConfiguration config, string token) =>
+        ValidatedChallenge(config, token) is { } c ? (c.UserId, c.Grant) : null;
+
+    /// <summary>What a verified challenge carries: the user, any external grant and the first factor.</summary>
+    internal sealed record Challenge(Guid UserId, PendingExternalGrant? Grant, string? FirstFactor);
+
+    internal static Challenge? ValidatedChallenge(IConfiguration config, string token)
     {
         if (string.IsNullOrWhiteSpace(token)) return null;
 
@@ -88,7 +109,8 @@ public static class MfaChallengeToken
             var principal = new JwtSecurityTokenHandler().ValidateToken(token, parameters, out _);
             if (principal.FindFirst(PurposeClaim)?.Value != PurposeValue) return null;
             if (!Guid.TryParse(principal.FindFirst(UserClaim)?.Value, out var id)) return null;
-            return (id, PendingExternalGrant.Decode(principal.FindFirst(GrantClaim)?.Value));
+            return new Challenge(id, PendingExternalGrant.Decode(principal.FindFirst(GrantClaim)?.Value),
+                principal.FindFirst(FactorClaim)?.Value);
         }
         catch
         {

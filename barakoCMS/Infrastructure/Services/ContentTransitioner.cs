@@ -104,8 +104,7 @@ internal sealed class ContentTransitioner(
             return ContentTransitionResult.Forbidden(denial);
         }
 
-        var definition = await session.Query<ContentTypeDefinition>()
-            .FirstNamedAsync(content.ContentType, ct);
+        var definition = await barakoCMS.Infrastructure.Jobs.FieldChanges.LockAndReadAsync(session, content.ContentType, ct);
 
         // Nothing below this line may be reached by an actor with no rights on the type. The
         // refusals further down name the type's declared transitions and the entry's current

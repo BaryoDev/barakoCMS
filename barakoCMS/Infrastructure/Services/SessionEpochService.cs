@@ -49,10 +49,15 @@ public sealed class SessionEpochService(IQuerySession session, IMemoryCache cach
 
         // Projected rather than loading the User, so this does not pull a whole document, and so a
         // cached User elsewhere in the session cannot answer with a stale copy of the field.
-        var validFrom = await session.Query<Models.User>()
+        var row = await session.Query<Models.User>()
             .Where(u => u.Id == userId)
-            .Select(u => u.TokensValidFrom)
+            .Select(u => new { u.TokensValidFrom, u.BlockedAt })
             .FirstOrDefaultAsync(ct);
+
+        // A blocked account refuses every token, so its epoch is the far future. Carrying the block
+        // in the epoch closes the race at block time, where a token minted between the stamp and
+        // the commit has an iat at or after TokensValidFrom and would pass.
+        var validFrom = row?.BlockedAt is not null ? DateTime.MaxValue : row?.TokensValidFrom;
 
         // Size is required: AddMemoryCache sets SizeLimit, and an entry without one throws. That
         // is not hypothetical, it is what this line did first, and the middleware's catch turned the

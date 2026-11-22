@@ -59,7 +59,8 @@ internal sealed class Endpoint(
     IPermissionResolver permissions,
     ISensitivityService sensitivity,
     IWorkflowRunQueue queue,
-    TenantContext tenant) : Endpoint<Request, Response>
+    TenantContext tenant,
+    WorkflowMetrics metrics) : Endpoint<Request, Response>
 {
     public const string KeyHeader = "Idempotency-Key";
 
@@ -154,7 +155,7 @@ internal sealed class Endpoint(
             throw;
         }
 
-        WorkflowMetrics.Default.Queued(WorkflowEvents.Manual, 1, session.TenantId);
+        metrics.Queued(WorkflowEvents.Manual, 1, session.TenantId);
         await Send.ResponseAsync(new Response { RunId = run.Id }, 202, ct);
     }
 

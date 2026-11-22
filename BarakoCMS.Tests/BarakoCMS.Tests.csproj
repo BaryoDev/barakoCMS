@@ -37,6 +37,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\barakoCMS\barakoCMS.csproj" />
+    <ProjectReference Include="..\tests-fixtures\ContractOnlyProbe\ContractOnlyProbe.csproj" />
     <ProjectReference Include="..\BarakoCMS.Diagnostics\BarakoCMS.Diagnostics.csproj" />
     <ProjectReference Include="..\BarakoCMS.Files.S3\BarakoCMS.Files.S3.csproj" />
     <ProjectReference Include="..\BarakoCMS.AI\BarakoCMS.AI.csproj" />
@@ -61,6 +62,10 @@
          published image runs it, and its exit code is the claim. Referencing the assembly would put
          a second Program type next to the core host's. -->
     <ProjectReference Include="..\BarakoCMS.Suite\BarakoCMS.Suite.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Fixtures\MetricsGolden\barakocms-metrics.golden.tsv" LogicalName="barakocms-metrics.golden.tsv" />
   </ItemGroup>
 
   <ItemGroup>

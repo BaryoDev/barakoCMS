@@ -116,7 +116,8 @@ public class WorkflowActionBuildFailureTests
         var runner = new WorkflowRunner(
             services,
             services.GetRequiredService<ILogger<WorkflowRunner>>(),
-            services.GetRequiredService<IConfiguration>());
+            services.GetRequiredService<IConfiguration>(),
+            services.GetRequiredService<barakoCMS.Features.Workflows.WorkflowMetrics>());
 
         var polls = 0;
         while (await runner.RunOnceAsync(Ct))

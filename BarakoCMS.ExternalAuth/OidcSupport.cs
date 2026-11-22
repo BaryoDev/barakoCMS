@@ -53,8 +53,8 @@ internal static partial class OidcSupport
     public static int Positive(IConfiguration config, string name, int fallback) =>
         int.TryParse(config[$"{RateLimitSection}:{name}"], out var value) && value > 0 ? value : fallback;
 
-    public static string CallbackUrl(IConfiguration config, HttpContext context, OidcProvider provider) =>
-        ExternalAuthSupport.BaseUrl(config, context) + $"/api/auth/oidc/{provider.Name}/callback";
+    public static string CallbackUrl(HttpContext context, OidcProvider provider) =>
+        ExternalAuthSupport.BaseUrl(context) + $"/api/auth/oidc/{provider.Name}/callback";
 
     /// <summary>
     /// Expires a <c>__Host-</c> cookie. The removal has to carry Secure and Path=/ like the cookie it

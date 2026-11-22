@@ -101,7 +101,7 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         byType.Should().HaveCount(30);
 
         byType["Webhook"].RequiredParameters.Should().Equal("Url");
-        byType["Webhook"].OptionalParameters.Should().Equal("Secret");
+        byType["Webhook"].OptionalParameters.Should().Equal("Secret", "Connector");
         byType["Webhook"].SecretParameters.Should().Equal("Secret");
 
         byType["CreateTask"].OptionalParameters.Should().Equal("Status");

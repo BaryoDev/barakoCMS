@@ -14,8 +14,8 @@ namespace barakoCMS.Features.Workflows;
 /// tenant add series without limit. A slug is the operator's own registry entry, and the label can
 /// be switched off with <c>Metrics:TenantLabel</c>.
 ///
-/// One instance per registry. The host uses <see cref="Default"/>. A test builds its own on a
-/// registry nothing else writes to.
+/// One instance per host, built from the host's metric factory and handed out by DI. A test that
+/// builds one by hand gives it a registry nothing else writes to.
 /// </remarks>
 internal sealed class WorkflowMetrics
 {
@@ -32,18 +32,17 @@ internal sealed class WorkflowMetrics
     /// </remarks>
     public const int MaxActionLabels = 50;
 
-    // Declared before Default, which reads it: static fields are set in the order they are written.
     private static readonly double[] DurationBuckets = [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300];
-
-    public static readonly WorkflowMetrics Default = new(Prometheus.Metrics.DefaultRegistry);
 
     private readonly ConcurrentDictionary<string, int> _actionLabels = new(StringComparer.Ordinal);
     private int _actionLabelsGiven;
 
-    public WorkflowMetrics(CollectorRegistry registry)
+    public WorkflowMetrics(CollectorRegistry registry) : this(Prometheus.Metrics.WithCustomRegistry(registry))
     {
-        var factory = Prometheus.Metrics.WithCustomRegistry(registry);
+    }
 
+    public WorkflowMetrics(IMetricFactory factory)
+    {
         RunsQueued = factory.CreateCounter(
             "barakocms_workflow_runs_queued_total",
             "Workflow runs queued, by the kind of event that fired them.",

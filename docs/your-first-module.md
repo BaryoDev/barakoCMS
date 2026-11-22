@@ -235,11 +235,31 @@ public sealed class GlossaryTermHook : IContentLifecycleHook
 ```
 
 `context.Reader` reads other entries, so a hook can check a write against content that already
-exists without naming a Marten type. A hook that needs the write session itself (locks, number
-allocation) still overrides the older `OnBeforeSaveAsync(ContentLifecycleContext, ...)`, which is
-obsolete and removed in 6.0.0, and uses `context.Session` to store something atomically with the entry. An example is a hook that checks
-every referenced entry exists and allocates the next entry number inside the write transaction,
-so a rejected entry never uses a number.
+exists without naming a Marten type. Three more calls on the context cover a hook that has to
+write as well as check, all inside the transaction the content write runs in:
+
+- `context.LockAsync(key, ct)` takes an exclusive lock on `key` for the tenant of the write. It is
+  held until the write commits or rolls back, not until the hook returns, so a second write that
+  asks for the same key waits. It then sees what the first one committed through `LoadAsync` and
+  `Reader`, not through `Existing`, which is loaded before the hooks run. The same key in two
+  tenants is two locks. The key is yours to name; start it with your module's name so it cannot
+  meet another module's key, and take locks in one order so two writes cannot wait on each other.
+- `context.Store(document)` stores a document with a `Guid` `Id` in the same unit of work as the
+  content write, in the tenant of the write. It commits with the write and is gone if the write
+  fails.
+- `context.LoadAsync<T>(id, ct)` returns a document stored earlier in the same write, or else the
+  committed one. Use it to read a row, change it and store it back under the lock.
+
+These are for the hook's own writes, for example allocating a number so a rejected entry never
+uses one. They are not a document store for the rest of the module, and a core document type (a role, a user,
+a content type definition) is refused with an `InvalidOperationException`, so use a document type
+your module declares. A hook that keeps its state as
+ordinary content entries needs none of them: write the entry through the content endpoints and read
+it with `context.Reader`.
+
+The older `OnBeforeSaveAsync(ContentLifecycleContext, ...)` and its `context.Session` are obsolete
+and removed in 6.0.0. `BarakoCMS.Pages` has moved off them: its `PageTreeHook` reads its settings
+with `LoadAsync` and the page type's definition with `context.Reader.GetContentTypeAsync`.
 
 One rule ships ready made. A reference to the entry's own type is not a parent just because it
 points at its own type (a related post pointing back is fine), so core cannot refuse loops for every
@@ -624,6 +644,46 @@ pipeline it runs and what it can rely on there.
 
 A module that ships from its own repository instead starts from the `dotnet new barakocms-module`
 template. See [Writing a module outside this repository](../MODULES.md#writing-a-module-outside-this-repository).
+
+## Counting or listing content for a caller
+
+An endpoint that counts or lists entries for the signed-in caller has to apply two limits, the
+caller's read rules and the caller's branches. Resolve `IPermissionResolver` and `IBranchScopeGuard`
+from DI and use both:
+
+```csharp
+// user is the caller's User document, principal is their ClaimsPrincipal, contentType the type asked for.
+var read = await resolver.ReadPredicateAsync(user, contentType, ct);
+if (!read.Compiled)
+{
+    // No SQL for this caller's rules. Check each entry with CanPerformActionAsync instead,
+    // or skip the type unless the caller may read it at all.
+    if (!await resolver.CanPerformActionAsync(user, contentType, "read", null, ct))
+        return 0;
+}
+
+var rows = session.Query<Content>().Where(c => c.ContentType == contentType);
+if (read.Compiled && read.Sql == ReadPredicate.Nothing.Sql)
+    return 0;
+if (read.Compiled && read.Sql != ReadPredicate.All.Sql)
+    rows = rows.Where(c => c.MatchesSql(read.Sql, read.Parameters));
+
+var branches = await guard.FilterAsync(principal, ct);
+if (branches is not null)
+    rows = rows.Where(c => c.MatchesSql(branches.Sql, branches.Parameters));
+
+var total = await rows.CountAsync(ct);
+```
+
+`ReadPredicateAsync` returns a predicate that is not `Compiled` (null `Sql`) when the resolver cannot
+express the rules in SQL. Never count every row then: evaluate each entry with
+`CanPerformActionAsync`, as the snippet's early check does for a caller with no read rule at all.
+`ReadPredicate.Nothing` means no rows, and `ReadPredicate.All` means no condition to add.
+`FilterAsync` returns null when no stored type is branch scoped, and then there is nothing to add.
+
+The filter's SQL is a condition for `MatchesSql` over the content table aliased `d`, and nothing
+else. Pass `Sql` and `Parameters` through unchanged. Do not parse it, extend it or run it against
+another table. Its body can change in a minor release, so only the call is a contract.
 
 ## What to build next
 

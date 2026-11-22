@@ -41,7 +41,8 @@ public class JobRetryJitterTests
             new JobOptions { MaxAttempts = 5, BackoffBaseSeconds = BaseSeconds, BackoffMaxSeconds = 3600 },
             NullLogger<MartenJobStorageProvider>.Instance,
             new JobStorageGate(),
-            _factory.Services.GetRequiredService<IConfiguration>());
+            _factory.Services.GetRequiredService<IConfiguration>(),
+            new JobMetrics(Prometheus.Metrics.NewCustomRegistry()));
 
         var jobs = new List<JobRecord>();
         await using (var seed = store.LightweightSession())

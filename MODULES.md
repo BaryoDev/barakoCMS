@@ -33,13 +33,34 @@ await app.RunBarakoModuleSeedersAsync();  // runs each module's SeedAsync
 `AddBarakoCMS` reads the application's dependency context (`DependencyContext.Default`, the
 `deps.json` next to the host) and loads every library that reaches `BarakoCMS` or `BarakoCMS.Abstractions` through its
 dependencies, directly or through another module (`BarakoCMS.Files.S3` references only
-`BarakoCMS.Files`). A module built on the contract package alone is found without a core
-reference. An unrelated package is never loaded on the chance it holds a module. In each
+`BarakoCMS.Files`). An unrelated package is never loaded on the chance it holds a module. In each
 one it looks for
 public, top-level, concrete `IBarakoModule` types with a parameterless constructor, and registers
 them ordered by type name so a build is reproducible. A private or nested implementation is not a
 module anyone ships and is left alone. `AppDomain.CurrentDomain.GetAssemblies()` is not used,
 because assemblies load lazily and a referenced module nothing has touched yet is absent from it.
+
+**Marking a module assembly.** A library that references only `BarakoCMS.Abstractions` says it holds
+modules with an assembly attribute from the contract:
+
+```csharp
+[assembly: BarakoModuleAssembly]   // namespace barakoCMS.Modules
+```
+
+or, in the project file, `<AssemblyAttribute Include="barakoCMS.Modules.BarakoModuleAssembly" />`.
+The rule:
+
+| The library | Scanned | Warning |
+| --- | --- | --- |
+| References only the contract and carries the attribute | yes | no |
+| References only the contract and does not carry it | yes, until 6.0.0 | one at startup naming it |
+| Reaches `BarakoCMS` (attribute or not) | yes | no |
+| Reaches neither | never loaded | no |
+
+Libraries that reach only the contract were scanned without the attribute from 5.5.0 to 5.8.0, so
+5.9.0 keeps scanning them and says so once at startup. From 6.0.0 an unmarked contract-only library
+is not scanned. A library that reaches `BarakoCMS` is not affected. Every first-party module and the
+`barakocms-module` template carry the attribute.
 
 A module that needs constructor arguments, or a host that wants only the modules it names, adds
 them by hand. What the callback adds keeps its place ahead of anything discovered, and discovery
@@ -219,6 +240,14 @@ The contract ships as [`BarakoCMS.Abstractions`](BarakoCMS.Abstractions): `IBara
 `barakoCMS.Events`, the service interfaces under `barakoCMS.Core.Interfaces`, and the workflow
 extension points. It does not reference the core, so it cannot grow a dependency on the host by
 accident. Namespaces are unchanged, so a module already built on `BarakoCMS` needs no edit.
+
+A module can compile against `BarakoCMS.Abstractions` alone, with no reference to `BarakoCMS`.
+`BarakoCMS.Email.Smtp` does: its package pulls in 59 packages instead of 148, and the host still maps
+its endpoints and registers its services. Add `[assembly: BarakoModuleAssembly]` (see discovery above).
+What the contract does not hold stays in core: a module that reads content through the
+services in `barakoCMS.Infrastructure.Services`, for example, still references `BarakoCMS`. Two
+contract members came from this work: `IMfaService.CreateChallengeToken` mints the second-factor
+challenge, and `IPublicBaseUrl` answers the deployment's public base URL.
 
 Implement `IBarakoModule` (all members but `Name` have default no-op implementations, so implement
 only what you need):
@@ -820,7 +849,7 @@ dotnet test
 ```
 
 `-n Acme.Notes` gives a module named `Notes` in the `Acme.Notes` package: an `IBarakoModule` that
-declares `ContractVersion`, binds its options from `Modules:Notes`, registers one document type and
+declares `ContractVersion`, binds its options from `Modules:Notes`, seeds one content type and
 grants its capability to Admin at seed; one endpoint, `GET /api/notes/notes`, gated on that
 capability, paged and tenant scoped; a README in the structure below; an icon placeholder; a
 `Directory.Build.props` carrying the packaging metadata and the `barakocms-module` tag; and a test

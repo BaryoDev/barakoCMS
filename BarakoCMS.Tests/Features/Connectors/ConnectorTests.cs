@@ -375,6 +375,219 @@ public class ConnectorTests
             await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
+    private const string InboundValue = "inbound-test-value-not-real";
+
+    private static object WithInbound(string slug, object? inbound, Dictionary<string, string>? secrets = null) => new
+    {
+        name = "Company Mail",
+        slug,
+        baseUrl = "https://example.com",
+        auth = "None",
+        settings = new Dictionary<string, string>(),
+        enabled = true,
+        probePath = "/",
+        secrets,
+        inbound,
+    };
+
+    [Fact]
+    public async Task An_inbound_section_round_trips_and_the_read_says_only_that_its_secret_is_set()
+    {
+        var client = await AdminClient();
+        var slug = NewSlug();
+
+        var created = await client.PostAsJsonAsync("/api/connectors",
+            WithInbound(slug, new { scheme = "Svix", allowedEvents = new[] { "email.bounced", "email.complained" }, secret = Convert.ToBase64String("inbound-fake"u8.ToArray()) }),
+            TestContext.Current.CancellationToken);
+        var createdBody = await created.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        created.IsSuccessStatusCode.Should().BeTrue(createdBody);
+
+        var one = await Body(client, $"/api/connectors/{slug}");
+        using var json = System.Text.Json.JsonDocument.Parse(one);
+        var inbound = json.RootElement.GetProperty("inbound");
+
+        inbound.GetProperty("scheme").GetString().Should().Be("Svix");
+        inbound.GetProperty("secretSet").GetBoolean().Should().BeTrue();
+        var events = inbound.GetProperty("allowedEvents").EnumerateArray().Select(e => e.GetString()).ToList();
+        events.Should().NotBeEmpty();
+        events.Should().BeEquivalentTo("email.bounced", "email.complained");
+        inbound.TryGetProperty("secret", out _).Should().BeFalse("the secret is write only");
+    }
+
+    [Fact]
+    public async Task The_inbound_secret_is_encrypted_at_rest_and_in_no_response_or_export()
+    {
+        var client = await AdminClient();
+        var slug = NewSlug();
+
+        var created = await client.PostAsJsonAsync("/api/connectors",
+            WithInbound(slug, new { scheme = "Hmac", allowedEvents = new[] { "paid" }, secret = InboundValue }),
+            TestContext.Current.CancellationToken);
+        var createdBody = await created.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        created.IsSuccessStatusCode.Should().BeTrue(createdBody);
+
+        var one = await Body(client, $"/api/connectors/{slug}");
+        var list = await Body(client, "/api/connectors");
+        var export = await Body(client, "/api/config/export?sections=connectors");
+
+        createdBody.Should().NotContain(InboundValue);
+        one.Should().NotContain(InboundValue);
+        list.Should().NotContain(InboundValue);
+        export.Should().NotContain(InboundValue);
+        one.Should().Contain("InboundSecret", "the name is listed so a screen can say one is held");
+        export.Should().Contain("InboundSecret");
+
+        var raw = await RawSecretJsonAsync(slug);
+        raw.Should().NotBeNull();
+        raw.Should().NotContain(InboundValue);
+    }
+
+    [Fact]
+    public async Task A_connector_stored_without_an_inbound_section_reads_and_updates_fine()
+    {
+        var client = await AdminClient();
+        var slug = NewSlug();
+
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession())
+        {
+            session.Store(new Connector { Id = Guid.NewGuid(), Name = "Old", Slug = slug, BaseUrl = "https://example.com", Auth = ConnectorAuth.None });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var before = await Body(client, $"/api/connectors/{slug}");
+        using (var json = System.Text.Json.JsonDocument.Parse(before))
+        {
+            json.RootElement.TryGetProperty("slug", out var s).Should().BeTrue(before);
+            s.GetString().Should().Be(slug);
+        }
+
+        var updated = await client.PutAsJsonAsync($"/api/connectors/{slug}", NewConnector(slug, null, name: "Renamed"),
+            TestContext.Current.CancellationToken);
+        updated.IsSuccessStatusCode.Should().BeTrue(await updated.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task An_update_without_inbound_keeps_the_section_and_an_empty_secret_clears_only_the_secret()
+    {
+        var client = await AdminClient();
+        var slug = NewSlug();
+        (await client.PostAsJsonAsync("/api/connectors",
+            WithInbound(slug, new { scheme = "Hmac", allowedEvents = new[] { "paid" }, secret = InboundValue }),
+            TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
+
+        var kept = await client.PutAsJsonAsync($"/api/connectors/{slug}", NewConnector(slug, null), TestContext.Current.CancellationToken);
+        kept.IsSuccessStatusCode.Should().BeTrue(await kept.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var afterKeep = await Body(client, $"/api/connectors/{slug}");
+        afterKeep.Should().Contain("\"secretSet\":true");
+
+        var cleared = await client.PutAsJsonAsync($"/api/connectors/{slug}",
+            WithInbound(slug, new { scheme = "Hmac", allowedEvents = new[] { "paid" }, secret = "" }),
+            TestContext.Current.CancellationToken);
+        cleared.IsSuccessStatusCode.Should().BeTrue(await cleared.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var afterClear = await Body(client, $"/api/connectors/{slug}");
+        afterClear.Should().Contain("\"secretSet\":false");
+        afterClear.Should().Contain("paid");
+    }
+
+    [Fact]
+    public async Task An_unknown_inbound_scheme_is_refused()
+    {
+        var client = await AdminClient();
+
+        var res = await client.PostAsJsonAsync("/api/connectors",
+            WithInbound(NewSlug(), new { scheme = "Rot13", allowedEvents = Array.Empty<string>(), secret = InboundValue }),
+            TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Another_tenant_cannot_see_a_connector_with_an_inbound_section_and_the_owner_reads_its_scheme()
+    {
+        var slug = NewSlug();
+        var ownSlug = NewSlug();
+        var store = _factory.Services.GetRequiredService<IDocumentStore>();
+        await using (var session = store.LightweightSession("conn-inbound-other"))
+        {
+            session.Store(new Connector
+            {
+                Id = Guid.NewGuid(), Name = "Theirs", Slug = slug, BaseUrl = "https://example.com",
+                Inbound = new ConnectorInbound { Scheme = "Hmac" },
+            });
+            await session.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var client = await AdminClient();
+        (await client.PostAsJsonAsync("/api/connectors",
+            WithInbound(ownSlug, new { scheme = "Svix", allowedEvents = Array.Empty<string>() }),
+            TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
+
+        var own = await Body(client, $"/api/connectors/{ownSlug}");
+        using (var json = System.Text.Json.JsonDocument.Parse(own))
+        {
+            json.RootElement.GetProperty("inbound").GetProperty("scheme").GetString().Should().Be("Svix");
+        }
+
+        var res = await client.GetAsync($"/api/connectors/{slug}", TestContext.Current.CancellationToken);
+
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task An_update_with_an_inbound_object_that_leaves_out_scheme_and_events_keeps_the_stored_values()
+    {
+        var client = await AdminClient();
+        var slug = NewSlug();
+        (await client.PostAsJsonAsync("/api/connectors",
+            WithInbound(slug, new { scheme = "Svix", allowedEvents = new[] { "paid" } }),
+            TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
+
+        var res = await client.PutAsJsonAsync($"/api/connectors/{slug}",
+            WithInbound(slug, new { secret = Convert.ToBase64String("inbound-fake"u8.ToArray()) }),
+            TestContext.Current.CancellationToken);
+
+        res.IsSuccessStatusCode.Should().BeTrue(await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        using var json = System.Text.Json.JsonDocument.Parse(await Body(client, $"/api/connectors/{slug}"));
+        var inbound = json.RootElement.GetProperty("inbound");
+        inbound.GetProperty("scheme").GetString().Should().Be("Svix");
+        inbound.GetProperty("allowedEvents").EnumerateArray().Select(e => e.GetString()).Should().Equal("paid");
+        inbound.GetProperty("secretSet").GetBoolean().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_create_whose_inbound_leaves_out_the_scheme_means_Hmac()
+    {
+        var client = await AdminClient();
+        var slug = NewSlug();
+
+        var res = await client.PostAsJsonAsync("/api/connectors",
+            WithInbound(slug, new { allowedEvents = Array.Empty<string>() }), TestContext.Current.CancellationToken);
+
+        res.IsSuccessStatusCode.Should().BeTrue(await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        (await Body(client, $"/api/connectors/{slug}")).Should().Contain("\"scheme\":\"Hmac\"");
+    }
+
+    [Fact]
+    public async Task The_plain_secrets_map_refuses_InboundSecret_on_create_and_on_update()
+    {
+        var client = await AdminClient();
+        var slug = NewSlug();
+        var viaSecrets = new Dictionary<string, string> { ["InboundSecret"] = InboundValue };
+
+        var create = await client.PostAsJsonAsync("/api/connectors",
+            WithInbound(slug, new { scheme = "Hmac" }, viaSecrets), TestContext.Current.CancellationToken);
+        create.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await create.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().Contain("inbound.secret");
+
+        (await client.PostAsJsonAsync("/api/connectors",
+            WithInbound(slug, new { scheme = "Hmac" }), TestContext.Current.CancellationToken)).IsSuccessStatusCode.Should().BeTrue();
+
+        var update = await client.PutAsJsonAsync($"/api/connectors/{slug}",
+            WithInbound(slug, new { scheme = "Hmac" }, viaSecrets), TestContext.Current.CancellationToken);
+        update.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
     private Task<HttpClient> AdminClient() =>
         _factory.CreateClientAsync("SuperAdmin", "Admin");
 

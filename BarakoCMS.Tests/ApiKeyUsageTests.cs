@@ -211,7 +211,7 @@ public class ApiKeyUsageTests(IntegrationTestFixture factory)
     public void An_idle_key_is_swept_when_the_cap_is_reached_so_new_keys_are_still_counted()
     {
         var clock = new Clock(DateTimeOffset.UtcNow);
-        var refusals = new ApiKeyRefusals(clock);
+        var refusals = new ApiKeyRefusals(clock, Prometheus.Metrics.WithCustomRegistry(Prometheus.Metrics.NewCustomRegistry()));
         for (var i = 0; i < ApiKeyRefusals.MaxKeys; i++)
             refusals.Record(Guid.NewGuid(), ApiKeyRefusalReason.Scope);
         refusals.Record(Guid.NewGuid(), ApiKeyRefusalReason.Scope);
@@ -229,7 +229,7 @@ public class ApiKeyUsageTests(IntegrationTestFixture factory)
     public void The_window_drops_old_entries_and_each_key_is_capped()
     {
         var clock = new Clock(DateTimeOffset.UtcNow);
-        var refusals = new ApiKeyRefusals(clock);
+        var refusals = new ApiKeyRefusals(clock, Prometheus.Metrics.WithCustomRegistry(Prometheus.Metrics.NewCustomRegistry()));
         var key = Guid.NewGuid();
 
         refusals.Record(key, ApiKeyRefusalReason.Scope);

@@ -395,7 +395,7 @@ public class TenantStatusTests
     private async Task SweepAsync(IDocumentStore store)
     {
         var logger = _fixture.Services.GetRequiredService<ILogger<ScheduledContentService>>();
-        (await new ScheduledContentService(store, logger).TrySweepAllTenantsAsync(DateTime.UtcNow, Ct))
+        (await new ScheduledContentService(store, logger, null, TestMetricFactory.New()).TrySweepAllTenantsAsync(DateTime.UtcNow, Ct))
             .Should().BeTrue("nothing else holds the sweep lock");
     }
 

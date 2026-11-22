@@ -131,6 +131,14 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheListener>>()));
         }
 
+        // A purge for the CDN, for a tenant that turned it on, whether or not the response cache is on.
+        // It only writes a row after the commit. The sender makes the call.
+        options.Listeners.Add(new barakoCMS.Infrastructure.Caching.Purge.CdnPurgeListener(
+            sp.GetRequiredService<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeGate>(),
+            sp.GetRequiredService<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeSignal>(),
+            sp.GetRequiredService<IConfiguration>(),
+            sp.GetRequiredService<ILogger<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeListener>>()));
+
         // The private site check forgets its cached answer when a site entry is written.
         options.Listeners.Add(new barakoCMS.Infrastructure.Multitenancy.PrivateSiteCacheListener(
             sp.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.PrivateSiteCache>()));
@@ -173,8 +181,7 @@ public static class ServiceCollectionExtensions
         if (moduleBuilder.Discover)
             moduleBuilder.DiscoverFrom();
 
-        foreach (var skipped in moduleBuilder.Skipped)
-            WarnUnloadable(skipped.Assembly, skipped.Missing);
+        WarnAboutLibraries(moduleBuilder);
 
         var seen = moduleBuilder.Modules;
         var enabledNames = ModuleEnablement.ReadEnabled(configuration);
@@ -281,6 +288,33 @@ public static class ServiceCollectionExtensions
         return false;
     }
 
+    /// <summary>The libraries discovery could not load, then the unmarked contract-only ones.</summary>
+    private static void WarnAboutLibraries(BarakoModuleBuilder moduleBuilder)
+    {
+        foreach (var skipped in moduleBuilder.Skipped)
+            WarnUnloadable(skipped.Assembly, skipped.Missing);
+
+        WarnUnmarked(moduleBuilder.Unmarked);
+    }
+
+    /// <summary>
+    /// One warning per library that holds a module, references only the contract package and does
+    /// not carry <see cref="BarakoModuleAssemblyAttribute"/>. Discovery scans it in 5.x and stops
+    /// in 6.0.0.
+    /// </summary>
+    internal static void WarnUnmarked(IEnumerable<System.Reflection.Assembly> assemblies)
+    {
+        foreach (var assembly in assemblies)
+        {
+            var name = assembly.GetName();
+            Log.Warning(
+                "{Assembly} {Version} holds a module and references only BarakoCMS.Abstractions, but is not marked "
+                + "as a module assembly. It is scanned now and will not be from barakoCMS 6.0.0. Add "
+                + "[assembly: BarakoModuleAssembly] to it.",
+                name.Name, name.Version);
+        }
+    }
+
     private static void WarnUnloadable(System.Reflection.Assembly assembly, IReadOnlyList<string> missing)
     {
         var name = assembly.GetName();
@@ -333,8 +367,44 @@ public static class ServiceCollectionExtensions
         });
     }
 
+    /// <summary>
+    /// Makes this host's internal registry-bound collectors resolvable from one place. Production
+    /// publishes to prometheus-net's default registry. <see cref="UseIsolatedMetricsRegistry"/>
+    /// swaps in a registry of the host's own, in either call order.
+    /// </summary>
+    private static void AddHostMetrics(IServiceCollection services)
+    {
+        services.TryAddSingleton(_ => barakoCMS.Infrastructure.Observability.HostMetrics.Default());
+        services.TryAddSingleton<IMetricFactory>(
+            sp => sp.GetRequiredService<barakoCMS.Infrastructure.Observability.HostMetrics>().Factory);
+        services.TryAddSingleton(sp => new barakoCMS.Features.Workflows.WorkflowMetrics(sp.GetRequiredService<IMetricFactory>()));
+        services.TryAddSingleton(sp => new barakoCMS.Infrastructure.Jobs.JobMetrics(sp.GetRequiredService<IMetricFactory>()));
+    }
+
+    /// <summary>
+    /// For a test factory only. Gives the host a metrics registry of its own, with its own runtime,
+    /// process, event counter and meter collectors, stopped when the host is disposed. Two hosts in
+    /// one process then no longer write to the same series.
+    /// </summary>
+    /// <remarks>
+    /// The Meter and EventCounter listeners are process wide, so with two hosts alive each isolated
+    /// registry also shows the other host's System.Diagnostics Meter series. The series this
+    /// library writes itself (requests, workflows, jobs, API keys, mail) stay on their own host.
+    ///
+    /// Production does not call this: a host that does not keeps prometheus-net's default registry
+    /// and the same series it always had.
+    /// </remarks>
+    public static IServiceCollection UseIsolatedMetricsRegistry(this IServiceCollection services)
+    {
+        services.Replace(ServiceDescriptor.Singleton(_ => barakoCMS.Infrastructure.Observability.HostMetrics.Isolated()));
+        return services;
+    }
+
     private static void AddJobQueue(IServiceCollection services)
     {
+        // The job queue counts to the host's metrics, so they are registered first.
+        AddHostMetrics(services);
+
         // The job queue. The storage provider is a singleton that reaches the request's scoped
         // session through IHttpContextAccessor, which is what makes an enqueue commit with the
         // request; see MartenJobStorageProvider and docs/background-jobs.md.
@@ -454,7 +524,9 @@ public static class ServiceCollectionExtensions
                 tags: new[] { "workflow", "projection" });
 
         services.AddSingleton(sp => new barakoCMS.Infrastructure.Health.WorkflowProjectionHealthCheck(
-            sp.GetRequiredService<IDocumentStore>(), maxProjectionLag));
+            sp.GetRequiredService<IDocumentStore>(),
+            sp.GetRequiredService<barakoCMS.Infrastructure.Observability.HostMetrics>().Factory,
+            maxProjectionLag));
     }
 
     private static void AddJwtAndApiKeyAuth(IServiceCollection services, IConfiguration configuration)
@@ -630,6 +702,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Auth.AuthMailQueue>();
         services.AddHostedService(sp => sp.GetRequiredService<barakoCMS.Infrastructure.Auth.AuthMailQueue>());
         services.AddSingleton<barakoCMS.Infrastructure.Auth.AccountLockout>();
+        services.AddHostedService<barakoCMS.Infrastructure.Auth.RefreshRetryWindowCheck>();
         services.AddScoped<ITokenRevocationService, TokenRevocationService>();
         services.AddScoped<ISessionEpochService, SessionEpochService>();
         services.AddScoped<IPasswordPolicyValidator, PasswordPolicyValidator>();
@@ -652,6 +725,12 @@ public static class ServiceCollectionExtensions
         // its size bounds only apply then, so the output cache keeps its defaults for everyone else.
         services.AddOptions<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheOptions>()
             .BindConfiguration(barakoCMS.Infrastructure.Caching.DeliveryResponseCacheOptions.SectionName);
+
+        // Cache tag bounds (#561): read once, clamped, with a warning at start for what was changed.
+        services.AddSingleton(sp => barakoCMS.Infrastructure.Caching.DeliveryTagBounds.Read(
+            sp.GetRequiredService<IConfiguration>(), out _));
+        services.AddHostedService<barakoCMS.Infrastructure.Caching.DeliveryTagBoundsCheck>();
+
         services.AddOptions<Microsoft.AspNetCore.OutputCaching.OutputCacheOptions>()
             .Configure<Microsoft.Extensions.Options.IOptions<barakoCMS.Infrastructure.Caching.DeliveryResponseCacheOptions>>(
                 (output, cache) =>
@@ -756,7 +835,9 @@ public static class ServiceCollectionExtensions
             .DocumentAlias("system_settings");
 
         MapPendingBuilds(options);
+        MapPendingCdnPurges(options);
         MapOnDemandDocuments(options);
+        options.Schema.For<barakoCMS.Modules.ModuleSeededType>().MultiTenanted().DocumentAlias("module_seeded_types");
         // Global: a webhook carries no tenant, and the receiver has to find a replay before it
         // knows whose data the event touches.
         options.Schema.For<InboundWebhookEvent>()
@@ -931,17 +1012,28 @@ public static class ServiceCollectionExtensions
             .Index(x => x.CreatedAt);
     }
 
+    private static void MapTenantSettingsDocuments(StoreOptions options)
+    {
+        // One row per tenant, found by an id derived from the slug (like the per-tenant mail row), so
+        // the resolver can read any tenant outside a request.
+        options.Schema.For<TenantSettings>()
+            .SingleTenanted()
+            .DocumentAlias("tenant_settings");
+
+        // One row per tenant for CDN purge, found by an id derived from the slug. A new table;
+        // migrations/5.9.0/561-cdn-purge-settings.sql adds it to an existing database.
+        options.Schema.For<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeSettings>()
+            .SingleTenanted()
+            .DocumentAlias("cdn_purge_settings");
+    }
+
     private static void MapGlobalDocuments(StoreOptions options)
     {
         options.Schema.For<EmailSettings>()
             .SingleTenanted() // one mail provider for the deployment, not one per tenant
             .DocumentAlias("email_settings");
 
-        // One row per tenant, found by an id derived from the slug (like the per-tenant mail row), so
-        // the resolver can read any tenant outside a request.
-        options.Schema.For<TenantSettings>()
-            .SingleTenanted()
-            .DocumentAlias("tenant_settings");
+        MapTenantSettingsDocuments(options);
 
         // Stored in one table for the deployment, with the owning tenant kept as data. A name is
         // unique within a tenant, and among platform roles: NULLS NOT DISTINCT makes the platform
@@ -1415,6 +1507,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Security.ISecretProtector, barakoCMS.Infrastructure.Security.SecretProtector>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.IEmailSettingsProvider, barakoCMS.Infrastructure.Services.EmailSettingsProvider>();
         services.TryAddScoped<barakoCMS.Core.Interfaces.ITenantSettings, barakoCMS.Infrastructure.Services.TenantSettingsResolver>();
+        services.TryAddScoped<barakoCMS.Infrastructure.Caching.Purge.CdnPurgeResolver>();
+        barakoCMS.Infrastructure.Caching.Purge.CdnPurgeRegistration.AddCdnPurgeOnCommit(services);
     }
 
     private static void AddConnectorServices(IServiceCollection services)
@@ -1480,6 +1574,13 @@ public static class ServiceCollectionExtensions
         options.Schema.For<WorkflowDefinition>().MultiTenanted();
     }
 
+    private static void MapPendingCdnPurges(StoreOptions options) =>
+        options.Schema.For<barakoCMS.Infrastructure.Caching.Purge.PendingCdnPurge>()
+            .MultiTenanted()
+            .DocumentAlias("pending_cdn_purges")
+            // Two nodes sweeping together must not send the same rows. The second claim is refused by the version.
+            .UseOptimisticConcurrency(true);
+
     private static void MapPendingBuilds(StoreOptions options) =>
         options.Schema.For<PendingBuild>()
             .MultiTenanted()
@@ -1513,6 +1614,7 @@ public static class ServiceCollectionExtensions
     private static void AddMfaAndDeviceTrust(IServiceCollection services)
     {
         services.AddScoped<barakoCMS.Infrastructure.Auth.Mfa.IMfaService, barakoCMS.Infrastructure.Auth.Mfa.MfaService>();
+        services.AddSingleton<barakoCMS.Infrastructure.Security.IPublicBaseUrl, barakoCMS.Infrastructure.Security.CanonicalPublicBaseUrl>();
         // Device trust is opt-in: the default gate does nothing. The DeviceTrust module overrides it.
         services.TryAddScoped<barakoCMS.Core.Interfaces.IDeviceGate, barakoCMS.Core.Interfaces.NoopDeviceGate>();
     }
@@ -1620,6 +1722,19 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IContentBatchRunner, ContentBatchRunner>();
         services.AddScoped<barakoCMS.Core.Interfaces.IRuleEngine, barakoCMS.Infrastructure.Rules.RuleEngine>();
         services.AddScoped<IContentTypeValidatorService, ContentTypeValidatorService>();
+        // One scanner per kind of thing a lifecycle edit can break. The route and its dry run run them all.
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleEntryScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.LifecycleWorkflows>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleRoleScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleRuleScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleUniquenessScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleWorkflowTriggerScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleWorkflowActionScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleWorkflowRunScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleScheduleScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleTemplateLinkScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.ILifecycleScanner, barakoCMS.Infrastructure.Services.LifecycleModuleScanner>();
+        services.AddScoped<barakoCMS.Infrastructure.Services.LifecycleEditChecks>();
         services.AddScoped<barakoCMS.Features.ContentType.Blueprints.BlueprintCatalog>();
         services.AddSingleton<IKubernetesMonitorService, KubernetesMonitorService>();
         services.AddSingleton<IMetricsService, MetricsService>();
@@ -1985,10 +2100,17 @@ public static class ServiceCollectionExtensions
     // the health probes and FastEndpoints, which end the pipeline for the requests they answer.
     // Placed after UseBarakoCMS in Program.cs it only ever saw requests nothing answered.
     // Tenant slug when it is a registered tenant, else the default tenant; "all" when Metrics:TenantLabel is off.
-    private static void UseRequestMetrics(IApplicationBuilder app) =>
-        app.UseHttpMetrics(options => options.AddCustomLabel(
-            barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.Name,
-            context => barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.ForRequest(context)));
+    private static void UseRequestMetrics(IApplicationBuilder app)
+    {
+        var host = app.ApplicationServices.GetRequiredService<barakoCMS.Infrastructure.Observability.HostMetrics>();
+        app.UseHttpMetrics(options =>
+        {
+            options.SetMetricFactory(host.Factory);
+            options.AddCustomLabel(
+                barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.Name,
+                context => barakoCMS.Infrastructure.Multitenancy.MetricTenantLabel.ForRequest(context));
+        });
+    }
 
     private static void UseExceptionHandling(IApplicationBuilder app)
     {
@@ -2461,7 +2583,7 @@ public static class ServiceCollectionExtensions
 
             try
             {
-                await module.SeedAsync(new ModuleSeedContext(session, scope.ServiceProvider), ct);
+                await module.SeedAsync(new ModuleSeedContext(session, scope.ServiceProvider, module.Name), ct);
                 var granted = 0;
                 if (module.ContentPermissions is { } contentPermissions)
                 {

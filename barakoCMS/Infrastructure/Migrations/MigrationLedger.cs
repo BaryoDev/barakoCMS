@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Services;
 using Npgsql;
 
 namespace barakoCMS.Infrastructure.Migrations;
@@ -102,7 +103,8 @@ internal sealed record MigrationRunResult(
 /// </para>
 /// </remarks>
 internal sealed class MigrationLedger(
-    Func<NpgsqlConnection> connect, string recordedBy, string schemaName = MigrationLedger.SupportedSchema)
+    Func<NpgsqlConnection> connect, string recordedBy, string schemaName = MigrationLedger.SupportedSchema,
+    IConfiguration? configuration = null)
 {
     /// <summary>The schema the ledger table and every shipped file name.</summary>
     public const string SupportedSchema = "public";
@@ -119,8 +121,8 @@ internal sealed class MigrationLedger(
     /// <summary>Same family as <c>SchemaApplyLock.Key</c> and the sweep keys.</summary>
     public const long LockKey = 8_242_026_901L;
 
-    private const string TryLockSql = "select pg_try_advisory_lock(@key)";
-    private const string UnlockSql = "select pg_advisory_unlock(@key)";
+    /// <summary>Tests only: runs before each file the run is about to apply, ahead of the lock check.</summary>
+    internal Func<ShippedMigration, CancellationToken, Task>? BeforeStep { get; set; }
 
     private const string CreateTableSql =
         """
@@ -188,7 +190,7 @@ internal sealed class MigrationLedger(
 
         try
         {
-            var (locked, result) = await UnderLockAsync(connection => ApplyLockedAsync(connection, shipped, report, ct), ct);
+            var (locked, result) = await UnderLockAsync((connection, lease) => ApplyLockedAsync(connection, lease, shipped, report, ct), ct);
             return locked ? result! : new MigrationRunResult(MigrationRunOutcome.LockBusy, [], [], []);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -199,7 +201,8 @@ internal sealed class MigrationLedger(
     }
 
     private async Task<MigrationRunResult> ApplyLockedAsync(
-        NpgsqlConnection connection, IReadOnlyList<ShippedMigration> shipped, Action<string> report, CancellationToken ct)
+        NpgsqlConnection connection, AdvisoryLease lease, IReadOnlyList<ShippedMigration> shipped,
+        Action<string> report, CancellationToken ct)
     {
         await ExecuteAsync(connection, null, CreateTableSql, ct);
         var rows = await ReadRowsAsync(connection, ct);
@@ -228,6 +231,18 @@ internal sealed class MigrationLedger(
         {
             if (rows.ContainsKey((migration.Owner, migration.Id)))
                 continue;
+
+            if (BeforeStep is { } beforeStep)
+                await beforeStep(migration, ct);
+
+            // A lost lock means another run may be applying files now, so nothing more is applied here.
+            if (!await lease.IsHeldAsync(ct))
+            {
+                return new MigrationRunResult(
+                    MigrationRunOutcome.Failed, applied, baselined, [], migration.Key,
+                    "the migration lock (advisory lock key " + LockKey + ") was lost before this file, so the run stopped "
+                    + "here and applied nothing further. The connection that held it is gone. Run db-migrate again.");
+            }
 
             try
             {
@@ -355,7 +370,7 @@ internal sealed class MigrationLedger(
                 return [];
         }
 
-        var (locked, recorded) = await UnderLockAsync<IReadOnlyList<string>>(async connection =>
+        var (locked, recorded) = await UnderLockAsync<IReadOnlyList<string>>(async (connection, _) =>
         {
             if (!await IsFreshAsync(connection, ct))
                 return [];
@@ -382,7 +397,7 @@ internal sealed class MigrationLedger(
     {
         ArgumentNullException.ThrowIfNull(migration);
 
-        var (locked, _) = await UnderLockAsync(async connection =>
+        var (locked, _) = await UnderLockAsync(async (connection, _) =>
         {
             await ExecuteAsync(connection, null, CreateTableSql, ct);
             return await WriteRowAsync(connection, null, UpsertSql, migration, MigrationState.Recorded, ct);
@@ -397,7 +412,7 @@ internal sealed class MigrationLedger(
         ArgumentException.ThrowIfNullOrWhiteSpace(owner);
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
 
-        var (locked, removed) = await UnderLockAsync(async connection =>
+        var (locked, removed) = await UnderLockAsync(async (connection, _) =>
         {
             if (!await TableExistsAsync(connection, ct))
                 return 0;
@@ -411,37 +426,25 @@ internal sealed class MigrationLedger(
     }
 
     private async Task<(bool Locked, T? Value)> UnderLockAsync<T>(
-        Func<NpgsqlConnection, Task<T>> work, CancellationToken ct)
+        Func<NpgsqlConnection, AdvisoryLease, Task<T>> work, CancellationToken ct)
     {
         // Session scoped and on the connection the work runs on, so a run that dies frees the lock
-        // when its connection drops, and the lock outlives each file's own transaction.
+        // when its connection drops, and the lock outlives each file's own transaction. The lease
+        // owns the connection once it holds the lock; until then this does.
         await using var connection = connect();
         await connection.OpenAsync(ct);
 
-        await using (var acquire = new NpgsqlCommand(TryLockSql, connection))
-        {
-            acquire.Parameters.AddWithValue("key", LockKey);
-            if (await acquire.ExecuteScalarAsync(ct) is not true)
-                return (false, default);
-        }
+        var lease = await AdvisoryLease.TryAcquireAsync(connection, LockKey, ct);
+        if (lease is null)
+            return (false, default);
 
-        try
+        await using (lease)
         {
-            return (true, await work(connection));
-        }
-        finally
-        {
-            try
-            {
-                await using var release = new NpgsqlCommand(UnlockSql, connection);
-                release.Parameters.AddWithValue("key", LockKey);
-                await release.ExecuteScalarAsync(CancellationToken.None);
-            }
-            catch (Exception ex) when (ex is NpgsqlException or InvalidOperationException)
-            {
-                // The connection is gone, and the lock went with it. Npgsql says so with either type,
-                // and letting it out of this finally would replace the result that names the file.
-            }
+            // Off unless Leadership:RefuseBehindPooler is true, so a deployment that starts today still does.
+            if (lease.PoolerSuspected && AdvisoryLease.RefuseBehindPooler(configuration))
+                throw new InvalidOperationException(AdvisoryLease.PoolerMessage(LockKey));
+
+            return (true, await work(connection, lease));
         }
     }
 

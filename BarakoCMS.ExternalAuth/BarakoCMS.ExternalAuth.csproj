@@ -5,7 +5,7 @@
 
     <IsPackable>true</IsPackable>
     <PackageId>BarakoCMS.ExternalAuth</PackageId>
-    <Version>4.9.3</Version>
+    <Version>4.9.4</Version>
     <Description>External / social sign-in module for barakoCMS: "Continue with Facebook / Google / LinkedIn / GitHub" via OAuth, matched to a global user by verified email, plus any OpenID Connect provider configured by issuer URL (Apple included) and an id token grant for native apps, issuing the same tenant-scoped, device-bound token as the built-in flows. Captures profile details (photo, birthday, location) per provider.</Description>
   </PropertyGroup>
 
@@ -41,5 +41,9 @@
     <EmbeddedResource Include="..\migrations\5.1.0\915-external-auth-role-maps.sql" LogicalName="barako-migrations/5.1.0/915-external-auth-role-maps.sql" />
     <EmbeddedResource Include="..\migrations\5.5.0\915-external-auth-provider-settings.sql" LogicalName="barako-migrations/5.5.0/915-external-auth-provider-settings.sql" />
     <EmbeddedResource Include="..\migrations\5.5.0\1270-external-auth-social-handoff.sql" LogicalName="barako-migrations/5.5.0/1270-external-auth-social-handoff.sql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="barakoCMS.Modules.BarakoModuleAssembly" />
   </ItemGroup>
 </Project>

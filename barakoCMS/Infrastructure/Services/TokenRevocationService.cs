@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Auth;
 using Marten;
 using Microsoft.Extensions.Caching.Memory;
 using barakoCMS.Models;
@@ -49,12 +50,17 @@ public class TokenRevocationService(
     /// <summary>PostgreSQL's undefined_table. The schema has not been applied yet.</summary>
     private const string UndefinedTable = "42P01";
 
-    public async Task<bool> IsTokenRevokedAsync(string jti, CancellationToken ct = default)
+    public Task<bool> IsTokenRevokedAsync(string jti, CancellationToken ct = default) =>
+        IsTokenRevokedAsync(jti, null, ct);
+
+    public async Task<bool> IsTokenRevokedAsync(string jti, string? sessionId, CancellationToken ct = default)
     {
         var cacheKey = $"revoked:{jti}";
+        var sessionKey = string.IsNullOrEmpty(sessionId) ? null : $"{SessionRevocation.KeyPrefix}{sessionId}";
 
         // Check cache first
-        if (cache.TryGetValue(cacheKey, out bool _))
+        if (cache.TryGetValue(cacheKey, out bool _)
+            || (sessionKey is not null && cache.TryGetValue($"revoked:{sessionKey}", out bool _)))
         {
             logger.LogDebug("Token revocation cache hit: {Jti}", jti);
             return true;
@@ -63,8 +69,10 @@ public class TokenRevocationService(
         // Fallback to database
         try
         {
+            // One query for the token and its session. Without a session the second key is the jti.
+            var otherKey = sessionKey ?? jti;
             var isRevoked = await session.Query<RevokedToken>()
-                .AnyAsync(r => r.TokenJti == jti && r.ExpiresAt > DateTime.UtcNow, ct);
+                .AnyAsync(r => (r.TokenJti == jti || r.TokenJti == otherKey) && r.ExpiresAt > DateTime.UtcNow, ct);
 
             if (isRevoked)
             {

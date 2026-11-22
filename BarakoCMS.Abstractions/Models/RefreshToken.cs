@@ -34,8 +34,62 @@ public class RefreshToken
         ExpiresAt = expiresAt,
         CreatedAt = DateTime.UtcNow,
         IsRevoked = false,
-        DeviceId = deviceId,
+        DeviceId = CapDeviceId(deviceId),
     };
+
+    /// <summary>Longest stored <see cref="DeviceId"/>. A client chooses it, so it is cut on write.</summary>
+    public const int MaxDeviceIdLength = 128;
+
+    internal static string? CapDeviceId(string? deviceId) =>
+        deviceId is { Length: > MaxDeviceIdLength } ? deviceId[..MaxDeviceIdLength] : deviceId;
+
+    /// <summary>
+    /// The first row of a new session. <paramref name="method"/> is how the person signed in:
+    /// <c>password</c>, <c>code</c>, <c>link</c> or <c>social:&lt;provider&gt;</c>, with <c>+mfa</c> after a
+    /// second factor. <paramref name="sessionId"/> is the id already put in the access token's
+    /// <c>sid</c> claim.
+    /// </summary>
+    public static RefreshToken StartSession(
+        Guid userId, string rawToken, DateTime expiresAt, Infrastructure.DeviceContext device, string method, Guid sessionId)
+    {
+        var now = DateTime.UtcNow;
+        var row = Issue(userId, rawToken, expiresAt, device.DeviceId);
+        row.SessionId = sessionId;
+        row.SessionStartedAt = now;
+        row.Device = Infrastructure.DeviceContext.StoredDescription(device.UserAgent);
+        row.SignInIp = device.IpAddress;
+        row.SignInMethod = method;
+        row.LastSeenAt = now;
+        row.LastSeenIp = device.IpAddress;
+        return row;
+    }
+
+    /// <summary>
+    /// The row that replaces this one on refresh. The session id, start, sign-in address and method
+    /// carry over; the last seen time and address move to this request. A row from before sessions
+    /// existed has no id, so the new row starts one.
+    /// </summary>
+    public RefreshToken Successor(string rawToken, DateTime expiresAt, Infrastructure.DeviceContext device, Guid sessionId)
+    {
+        var now = DateTime.UtcNow;
+        var row = Issue(UserId, rawToken, expiresAt, DeviceId);
+        row.SessionId = sessionId;
+        row.SessionStartedAt = SessionStartedAt ?? now;
+        row.Device = string.IsNullOrEmpty(Device) ? Infrastructure.DeviceContext.StoredDescription(device.UserAgent) : Device;
+        row.SignInIp = string.IsNullOrEmpty(SignInIp) ? device.IpAddress : SignInIp;
+        row.SignInMethod = SignInMethod;
+        row.LastSeenAt = now;
+        row.LastSeenIp = device.IpAddress;
+        return row;
+    }
+
+    /// <summary>Drops what identifies the person from a row that is no longer the session's live one.</summary>
+    public void ClearIdentifiers()
+    {
+        Device = null;
+        SignInIp = null;
+        LastSeenIp = null;
+    }
 
     /// <summary>
     /// The user this refresh token belongs to
@@ -72,4 +126,34 @@ public class RefreshToken
     /// Lets a refresh be tied to its device and revoked with it.
     /// </summary>
     public string? DeviceId { get; set; }
+
+    /// <summary>
+    /// The session this row belongs to, the <c>sid</c> claim of its access tokens. Null on a row
+    /// from before sessions; its next refresh gives the new row one.
+    /// </summary>
+    public Guid? SessionId { get; set; }
+
+    /// <summary>
+    /// The row that replaced this one on rotation (#1391). Lets a retry of this token find the
+    /// successor. Cleared once the retry is spent, and null on rows from before this field.
+    /// </summary>
+    public Guid? SuccessorId { get; set; }
+
+    /// <summary>When the session began, carried across rotation.</summary>
+    public DateTime? SessionStartedAt { get; set; }
+
+    /// <summary>"Browser on OS" for the session, at most 80 characters. Cleared on a used row.</summary>
+    public string? Device { get; set; }
+
+    /// <summary>The address the session was started from. Cleared on a used row.</summary>
+    public string? SignInIp { get; set; }
+
+    /// <summary><c>password</c>, <c>code</c>, <c>link</c> or <c>social:&lt;provider&gt;</c>, plus <c>+mfa</c>.</summary>
+    public string? SignInMethod { get; set; }
+
+    /// <summary>When this session last refreshed.</summary>
+    public DateTime? LastSeenAt { get; set; }
+
+    /// <summary>The address of the last refresh. Cleared on a used row.</summary>
+    public string? LastSeenIp { get; set; }
 }

@@ -98,4 +98,30 @@ public class ModuleHttpContractVersionTests
         modules.Should().HaveCount(2);
         modules.Select(m => (m.Name, m.HttpContractVersion)).Should().Equal([("Files", 2), ("AI", 3)]);
     }
+
+    [Fact]
+    public void Every_discovered_module_that_maps_endpoints_states_a_version()
+    {
+        var builder = new BarakoModuleBuilder();
+        builder.DiscoverFrom();
+
+        // A module's own assembly is the one that holds its endpoint classes. The suite's probe
+        // modules live in this assembly, the Testing package's FixtureModule exists only for tests
+        // of core mechanisms, and ContractOnlyProbe is the suite's contract-only module (#972).
+        // None is a product module, so all three are left out.
+        var shipped = builder.Modules
+            .Where(m => m.GetType().Assembly != typeof(ModuleHttpContractVersionTests).Assembly
+                && m.GetType().Assembly != typeof(BarakoCMS.Testing.Fixture.FixtureModule).Assembly
+                && m.GetType().Assembly != typeof(ContractOnlyProbe.ContractOnlyProbeModule).Assembly)
+            .ToList();
+        var withEndpoints = shipped.Where(m => MapsEndpoints(m.GetType().Assembly)).ToList();
+
+        withEndpoints.Should().HaveCountGreaterThan(5, "discovery finds the first-party modules, so an empty list would prove nothing");
+        withEndpoints.Where(m => m.HttpContractVersion == 0).Select(m => m.Name).Should().BeEmpty(
+            "a module that serves endpoints states its HTTP contract version, so a reader can tell it from one that serves nothing (#902)");
+    }
+
+    private static bool MapsEndpoints(System.Reflection.Assembly assembly) =>
+        assembly.GetTypes().Any(t => t is { IsAbstract: false, IsClass: true }
+            && typeof(FastEndpoints.BaseEndpoint).IsAssignableFrom(t));
 }

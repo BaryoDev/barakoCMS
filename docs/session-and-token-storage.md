@@ -87,6 +87,174 @@ The security gain is not that the token stopped existing in the response. It is 
 **persisting** it. A page that holds a credential for a few milliseconds during sign-in is a much
 smaller target than one that keeps it in storage for a week.
 
+## Sessions
+
+Each sign-in is a session with its own id. The id is on the refresh row (`SessionId`) and in every
+access token the session mints, as a `sid` claim. Rotation keeps it, so the id names the sign-in and
+not one refresh token. A tenant switch copies `sid` from the token it was given, so a person signed
+in on two tenants from one sign-in holds one session, not two.
+
+The refresh row also records, for a later list of sessions:
+
+- `SessionStartedAt`, `Device`, `SignInIp` and `SignInMethod`, set at sign-in and carried across
+  rotation.
+- `LastSeenAt` and `LastSeenIp`, moved on each refresh.
+
+`SignInMethod` is `password`, `code`, `link` or `social:<provider>`, with `+mfa` added when a second
+factor was used. The MFA challenge carries the first factor to verify, so a sign-in that goes
+through it records both.
+
+`Device` is built from the user agent as "Chrome on macOS", or "Unknown device" when neither the
+browser nor the system is recognised. The raw header is never stored. Control characters are
+stripped and the text is cut at 80 characters. The device id is cut at 128 characters when written.
+
+`SignInIp` and `LastSeenIp` are the address the API sees. Behind a proxy that is the proxy's
+address unless `ForwardedHeaders:KnownProxies` lists it. Set that if you want real client addresses
+in the session record.
+
+### Ending one session
+
+Ending a session stores a revoke key `sid:<id>` that lasts as long as the session can, and revokes
+the session's refresh row with reason `session_revoked`. The token check and the realtime hub look
+up the token's `jti` and its `sid:` key in one query, and refuse the token if either is there. Like
+the `jti` check, it fails closed when the store cannot be read. Other sessions of the same user are
+not touched.
+
+A refresh that loses a race to this answers 401 and revokes nothing else. It is not treated as
+token reuse.
+
+Logout is unchanged and does not end only the current session.
+
+### Rotation, reuse and the retry window
+
+Each refresh rotates the token: the old row is marked `used` and a new row takes its place. A
+`used` token presented again is reuse. It revokes every refresh token the user has (reason
+`reuse_detected`), audits `auth.token.reuse_detected` and answers 401.
+
+One replay is allowed as a retry, for a client that never got the answer to its refresh. It is a
+retry, not reuse, only when all of these hold:
+
+- the token was rotated no more than the window ago
+- its successor has never been used or revoked
+- the row has a session id (rows from before sessions never qualify)
+- the request carries the same `X-Device-Id` when the row is bound to a device
+- the token has not been retried already
+
+A retry revokes the unused successor with reason `superseded`, issues a new successor on the same
+session and answers like a normal refresh. It is audited as `auth.token.refresh_retried`. The
+`superseded` token answers 401 and revokes no other session. A second replay of the old token is
+reuse. The cookie path follows the same rule, and a caller that sent only the cookie still gets no
+refresh token in the body.
+
+The retry, the revoke of the successor and the new successor commit together under the same
+optimistic concurrency guard as rotation, so two retries at once cannot both succeed. The loser is
+treated as a race and revokes the user's tokens, as two plain refreshes of one token do.
+
+The window is `Auth:RefreshRetryWindowSeconds`. Default 30. `0` turns the retry off, so every replay
+is reuse. The most it can be is 300: a larger value, including one too big for a number, is clamped
+to 300 with a warning. A negative value means off (0), with a warning. A value that is not a whole
+number falls back to 30 with a warning. Surrounding spaces and a leading plus sign are accepted. The value is read on each request, and
+the warnings are written at start only.
+
+A used row with no device id (device trust off and no `X-Device-Id` at sign-in) gets the retry from
+any client, since there is nothing to compare. Only the window, the session and the unused successor
+limit it.
+
+Inside the window a thief who replays a stolen token before the real client uses its successor gets
+a working session, and the real client loses that one session instead of all of them. Keep the
+window short.
+
+### Listing and ending sessions
+
+| Route | Who | What |
+|---|---|---|
+| `GET /api/me/sessions` | the signed-in user | their live sessions, newest `lastSeenAt` first, paged |
+| `DELETE /api/me/sessions/{id}` | the signed-in user | ends one of their sessions, 204, or 404 when it is not theirs |
+| `POST /api/me/sessions/revoke-others` | the signed-in user | ends every session except the one the request came from, 204 |
+| `GET /api/users/{id}/sessions` | a global SuperAdmin | the same list for any user |
+| `DELETE /api/users/{id}/sessions/{sessionId}` | a global SuperAdmin | ends one of that user's sessions |
+| `DELETE /api/users/{id}/sessions` | a global SuperAdmin | ends all of that user's sessions |
+
+A live session is a refresh row that is not revoked, not expired and has a session id, so rows from
+before sessions are left out until their first refresh. Each item holds `id`, `device`,
+`signInMethod`, `signInIp`, `lastSeenIp`, `startedAt`, `lastSeenAt` and `current`. `current` is true
+for the session whose token made the request, and is always false on the admin list. Lists take
+`page` and `pageSize` and never return more than 100 items.
+
+Ending the session the request came from signs the caller out: the answer is still 204 and the next
+request is a 401, and the refresh cookie is cleared as logout does. The end routes share the `logout`
+rate limit, 30 a minute per address. The two list routes use the global limiter.
+
+Ending all sessions, from either route, also revokes the user's refresh tokens that carry no session
+id, since a refresh of one would start a new session.
+
+The admin routes are for a global SuperAdmin only, a role in the user's own `RoleIds` and not one
+held through a tenant membership. A session spans tenants, so the list shows addresses from every
+tenant the user signs in to, and a tenant administrator does not see them. A SuperAdmin may use them
+on themselves. A tenant administrator's view of sessions is not built.
+
+Every end writes `auth.session.revoked` with the actor as the caller, `targetType` `User`, `targetId`
+the user, and the session id in `metadata.sessionId`. It holds no device text and no address. The
+entry goes to the tenant the request came in on.
+
+### API keys
+
+`GET /api/api-keys` returns `lastUsedIp` beside `lastUsedAt` for each key. Both are written in one
+patch, at most once every five minutes per key, so the address is at most five minutes stale. It is
+null for a key not used since this was recorded. The usage endpoint does not return it.
+
+### Rows from before sessions
+
+A refresh row written before this change has no `SessionId`. Its next refresh gives the new row one,
+and the access token minted by that refresh carries it.
+
+### Erasing a user
+
+Rotation clears `Device`, `SignInIp` and `LastSeenIp` on the row it retires. Erasing a user blanks
+the same three fields on every row of that user, used rows included.
+
+## Blocking an account
+
+`POST /api/users/{userId}/block` and `/unblock` are for a global SuperAdmin. They refuse your own
+account (400) and any user holding the SuperAdmin role, in their global roles or in a membership
+(403). A user who does not exist is a 404 whose error reads "No account has that id.", so a console can tell it from a server with no block route, which answers 404 with no body. A block is global: it is separate from `LockoutUntil`, which
+the failed-login counter sets and a password reset clears. Both are audited, as `auth.account.blocked`
+and `auth.account.unblocked`. Repeating either changes nothing and is not audited twice.
+
+Block and unblock take a per-user advisory lock inside their transaction, so two calls at once run
+one after the other and only the call that changed `BlockedAt` writes the audit row.
+
+Blocking stores `BlockedAt` and `BlockedBy` on the user, revokes every refresh row, and caches
+the session epoch as the far future while `BlockedAt` is set, so every access token is refused on
+the next request, a token minted in the same second as the block included. Blocking a user who is
+already blocked revokes refresh rows again, because a sign-in can commit its row between the first
+block's query and its commit, but it does not audit again.
+
+A blocked user gets no token on any path. The token issuer reads the stored row, so password,
+code, link, MFA completion, social sign-in, the OIDC id token grant, refresh and tenant switch all
+refuse, and so does a step-up code. Each answers as it does for a wrong password or an unknown
+account, with the same work. A blocked password attempt is audited as `auth.login.blocked` with
+reason `account_blocked`. Code and link requests send no mail and store nothing. A challenge or code
+issued before the block does not finish. An API key owned by the user is refused with 401, and works
+again after unblock. A service principal key does not read its creator and keeps working.
+
+Unblocking clears both fields, revokes every refresh row (any row alive then was minted during the
+block), and sets `TokensValidFrom` to the next whole second. Sessions and tokens the block ended stay
+ended, so the person signs in again. `FailedLoginAttempts` and `LockoutUntil` are left as they were.
+
+What to expect from this:
+
+- Other instances keep a cached epoch for up to 30 seconds (`SessionEpochService.CacheDuration`).
+  After a block, an access token can still pass on another instance for that long. After an unblock,
+  another instance can refuse a fresh sign-in for up to the same 30 seconds.
+- The epoch check fails open when the database cannot be read. The token issuer reads the stored
+  row, so new sign-ins, refreshes and tenant switches close at once even then.
+- A sign-in in the same second as the unblock is refused by the epoch, because token times and the
+  epoch are compared in whole seconds. The person signs in a second time.
+- Blocking the last Admin of a tenant is allowed. A SuperAdmin can still manage that tenant.
+
+`GET /api/users` returns `"blocked": true` on a blocked account and omits the field otherwise.
+
 ## What this needs from your deployment
 
 The cookie is `SameSite=Lax`, which means the browser sends it when the admin and the API are the

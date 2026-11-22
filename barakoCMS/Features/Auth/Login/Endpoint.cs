@@ -121,6 +121,27 @@ internal class Endpoint : Endpoint<Request, Response>
     }
 
     /// <summary>
+    /// Answers a locked or blocked account like a wrong password, with the same verify. A block is
+    /// audited with its own reason so an administrator can tell it from a lock.
+    /// </summary>
+    private async Task RefuseLockedOrBlockedAsync(
+        barakoCMS.Models.User user, Request req, barakoCMS.Infrastructure.DeviceContext device, CancellationToken ct)
+    {
+        BCrypt.Net.BCrypt.Verify(req.Password, DummyPasswordHash);
+
+        var blocked = barakoCMS.Infrastructure.Auth.AccountBlock.Is(user);
+        _logger.LogWarning("Login attempt for {State} account: {Username}", blocked ? "blocked" : "locked", req.Username);
+
+        var metadata = blocked
+            ? new Dictionary<string, object> { ["reason"] = barakoCMS.Infrastructure.Auth.AccountBlock.LoginAuditReason }
+            : new Dictionary<string, object> { ["reason"] = "locked_out", ["lockoutUntil"] = user.LockoutUntil!.Value };
+        await AuditLog.RecordAsync(_documentSession, _tenant.Slug, barakoCMS.Infrastructure.Auth.AccountBlock.LoginAuditAction,
+            user.Id, user.Username, metadata: metadata, ipAddress: device.IpAddress, ct: ct);
+        await _documentSession.SaveChangesAsync(ct);
+        ThrowError("Invalid credentials", 401);
+    }
+
+    /// <summary>
     /// Refuses a tenant that does not allow passwords, before the account is looked at, so the
     /// answer is the same for every username and says only what the tenant allows.
     /// </summary>
@@ -156,18 +177,10 @@ internal class Endpoint : Endpoint<Request, Response>
         // the same verify. An account that does not exist never locks, so any distinct answer here
         // tells a caller the username is real, and a stated duration tells them when to lock it
         // again. The owner hears about the lock by email instead, when it is set (#640).
-        if (user.LockoutUntil.HasValue && user.LockoutUntil.Value > DateTime.UtcNow)
+        if (barakoCMS.Infrastructure.Auth.AccountBlock.Is(user)
+            || (user.LockoutUntil.HasValue && user.LockoutUntil.Value > DateTime.UtcNow))
         {
-            BCrypt.Net.BCrypt.Verify(req.Password, DummyPasswordHash);
-
-            _logger.LogWarning(
-                "Login attempt for locked account: {Username}, Lockout until: {LockoutUntil}",
-                req.Username, user.LockoutUntil.Value);
-
-            await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.blocked", user.Id, user.Username,
-                metadata: new() { ["reason"] = "locked_out", ["lockoutUntil"] = user.LockoutUntil.Value }, ipAddress: device.IpAddress, ct: ct);
-            await _documentSession.SaveChangesAsync(ct);
-            ThrowError("Invalid credentials", 401);
+            await RefuseLockedOrBlockedAsync(user, req, device, ct);
             return;
         }
 
@@ -227,7 +240,7 @@ internal class Endpoint : Endpoint<Request, Response>
         // /api/auth/mfa/verify. This takes precedence over device approval — MFA is the stronger factor.
         if (await _mfa.IsEnabledAsync(user.Id, ct))
         {
-            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(_config, user.Id);
+            var (challenge, _) = barakoCMS.Infrastructure.Auth.Mfa.MfaChallengeToken.Create(_config, user.Id, null, "password");
             await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.mfa.challenge", user.Id, user.Username,
                 ipAddress: device.IpAddress, ct: ct);
             await _documentSession.SaveChangesAsync(ct);
@@ -275,7 +288,9 @@ internal class Endpoint : Endpoint<Request, Response>
 
         // Mint through the issuer so the tenant-access check runs. `X-Tenant` is client-supplied, so
         // valid credentials alone must not be enough to get a token scoped to an arbitrary tenant.
-        var issued = await _tokenIssuer.IssueAccessTokenAsync(user, _tenant.Slug, gate.Claims, ct);
+        var sessionId = Guid.NewGuid();
+        var issued = await _tokenIssuer.IssueAccessTokenAsync(
+            user, _tenant.Slug, barakoCMS.Infrastructure.Auth.SessionRevocation.With(gate.Claims, sessionId), ct);
         if (!issued.Allowed)
         {
             // Same message as bad credentials on purpose: telling an attacker "right password,
@@ -290,15 +305,13 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        var jti = issued.Jti;
         var accessTokenExpiry = issued.ExpiresAt;
         var jwtToken = issued.Token;
 
         // The refresh token lives seven days, or the tenant's session length when that is shorter.
         var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var refreshTokenExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
-        
-        var refreshToken = RefreshToken.Issue(user.Id, refreshTokenString, refreshTokenExpiry, device.DeviceId);
+        var refreshToken = RefreshToken.StartSession(user.Id, refreshTokenString, refreshTokenExpiry, device, "password", sessionId);
 
         _documentSession.Store(refreshToken);
         await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.login.succeeded", user.Id, user.Username,

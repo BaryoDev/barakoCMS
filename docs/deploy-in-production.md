@@ -196,8 +196,12 @@ routed (`docs/multi-tenancy.md`), because the response is cacheable per tenant, 
 
 Each read also carries a weak ETag for revalidation and `Surrogate-Key` and `Cache-Tag` headers
 whose tags all start with the tenant, so a CDN that purges by tag can drop exactly what an entry
-appears in. Most CDNs strip both tag headers before the browser. The tag headers stay under 1024
-bytes each, inside a default nginx `proxy_buffer_size`. See "Cache classes, validators and tags" in
+appears in. Most CDNs strip both tag headers before the browser. By default the tag headers stay
+under 1024 bytes each, inside a default nginx `proxy_buffer_size`. If you raise
+`Delivery:CacheTags:MaxHeaderLength`, both headers grow to that size, so raise `proxy_buffer_size`
+to at least twice that plus about 2k, together with `proxy_buffers` and `proxy_busy_buffers_size` (for
+16384 bytes: `proxy_buffer_size 64k; proxy_buffers 8 16k; proxy_busy_buffers_size 64k;`), or nginx
+answers 502. nginx refuses a larger `proxy_buffer_size` on its own. See "Tags" in `docs/delivery-api.md`. See "Cache classes, validators and tags" in
 `docs/delivery-api.md`.
 
 This section is about that cacheable majority. `GET /api/public/events`, the change stream, is not

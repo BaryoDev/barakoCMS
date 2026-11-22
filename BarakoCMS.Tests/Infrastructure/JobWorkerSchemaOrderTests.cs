@@ -46,7 +46,7 @@ public class JobWorkerSchemaOrderTests
         app.UseBarakoCMS();
 
         // An unheld worker polls as soon as it starts, so the table shows up within a second.
-        var createdEarly = await EventuallyExistsAsync(connectionString, "mt_doc_jobs", TimeSpan.FromSeconds(5), ct);
+        var createdEarly = await EventuallyExistsAsync(connectionString, "mt_doc_jobs", TimeSpan.FromSeconds(2), ct);
         createdEarly.Should().BeFalse("nothing may create schema objects outside the locked apply");
 
         await app.ApplyMartenSchemaAsync();
@@ -59,7 +59,8 @@ public class JobWorkerSchemaOrderTests
     /// </summary>
     /// <remarks>
     /// An event trigger sleeps inside any DDL on the jobs table issued on its own, which is what
-    /// Marten's lazy path sends, and keeps that create uncommitted for a few seconds. The explicit
+    /// Marten's lazy path sends, and keeps that create uncommitted for a second per DDL statement on
+    /// the table (the table, then each of its indexes), so the window is the sum of those. The explicit
     /// apply sends the jobs table in one batch with the event store, so its DDL is never slowed. An
     /// apply that starts in that window does not see the table, issues its own create, waits on the
     /// uncommitted one, and fails once it commits. With nothing creating the table lazily, this passes.
@@ -170,7 +171,7 @@ public class JobWorkerSchemaOrderTests
             begin
               if exists (select 1 from pg_event_trigger_ddl_commands() c where c.object_identity like '%mt_doc_jobs%')
                  and current_query() not ilike '%mt_events%' then
-                perform pg_sleep(3);
+                perform pg_sleep(1);
               end if;
             end $$;
             create event trigger slow_unlocked_jobs_ddl on ddl_command_end execute function slow_unlocked_jobs_ddl();

@@ -25,10 +25,10 @@ Acme.Notes/
   Directory.Build.props          shared packaging metadata: the barakocms-module tag, icon, README
   Directory.Packages.props       package versions, in one place
   src/Acme.Notes/
-    NotesModule.cs               IBarakoModule: contract version, scoped configuration, schema, seeder
+    NotesModule.cs               IBarakoModule: contract version, scoped configuration, seeder
     NotesCapabilities.cs         what the endpoint asks for, granted to Admin by the seeder
     NotesOptions.cs              bound from Modules:Notes
-    Note.cs                      the document type the module owns
+    NotesContentTypes.cs         the note content type the seeder adds, read through IContentReader
     Features/Notes/List/         GET /api/notes/notes, gated on the capability, bounded, tenant scoped
     README.md                    the package page
     assets/icon.png              a placeholder to replace
@@ -44,6 +44,9 @@ Options:
 | `--TestingVersion` | the harness it shipped beside | the `BarakoCMS.Testing` package version |
 | `--Author` | `Module authors` | `<Authors>` in the shared props |
 | `--License` | `MIT` | `<PackageLicenseExpression>` in the shared props |
+
+The note content type is seeded on the default tenant only, like every module seed, so a tenant
+that is not the default has no definition of it until one is added there.
 
 The tests need Docker. [MODULES.md](https://github.com/BaryoDev/barakoCMS/blob/master/MODULES.md)
 is the module contract and has the publishing conventions.

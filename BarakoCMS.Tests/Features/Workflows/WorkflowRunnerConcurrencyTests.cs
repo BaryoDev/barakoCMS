@@ -635,7 +635,8 @@ public class WorkflowRunnerConcurrencyTests
         return new WorkflowRunner(
             _factory.Services,
             _factory.Services.GetRequiredService<ILogger<WorkflowRunner>>(),
-            config);
+            config,
+            _factory.Services.GetRequiredService<barakoCMS.Features.Workflows.WorkflowMetrics>());
     }
 
     private static string NewTenant() => $"conc-{Guid.NewGuid():N}"[..21];

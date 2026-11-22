@@ -13,7 +13,7 @@ namespace BarakoCMS.Tests.Features.Workflows;
 /// Runs are counted as they are queued, under the kind of event that fired them.
 /// </summary>
 /// <remarks>
-/// The queue counts on the registry the host publishes, which every test in the process moves, so
+/// The queue counts on the registry its host publishes, which every test on that host moves, so
 /// each test reads its series before and after and asserts the difference. The projection can queue
 /// a run for another test's event in between, so the difference is at least what the test queued.
 /// </remarks>
@@ -28,6 +28,8 @@ public class WorkflowQueueMetricsTests
         _factory = factory;
         _harness = new WorkflowStopHarness(factory);
     }
+
+    private WorkflowMetrics Metrics => _factory.Services.GetRequiredService<WorkflowMetrics>();
 
     private static CancellationToken Ct => WorkflowStopHarness.Ct;
 
@@ -48,7 +50,7 @@ public class WorkflowQueueMetricsTests
             w.TriggerEvent = trigger;
         });
 
-        var before = WorkflowMetrics.Default.RunsQueued.WithLabels("transition", Tenant.DefaultSlug).Value;
+        var before = Metrics.RunsQueued.WithLabels("transition", Tenant.DefaultSlug).Value;
 
         using (var scope = _factory.Services.CreateScope())
         {
@@ -63,10 +65,10 @@ public class WorkflowQueueMetricsTests
             (await queue.EnqueueAsync(content, trigger, Random.Shared.NextInt64(1, long.MaxValue), Ct)).Should().Be(1);
         }
 
-        (WorkflowMetrics.Default.RunsQueued.WithLabels("transition", Tenant.DefaultSlug).Value - before).Should().BeGreaterThanOrEqualTo(1);
+        (Metrics.RunsQueued.WithLabels("transition", Tenant.DefaultSlug).Value - before).Should().BeGreaterThanOrEqualTo(1);
 
         using var stream = new MemoryStream();
-        await Prometheus.Metrics.DefaultRegistry.CollectAndExportAsTextAsync(stream, Ct);
+        await _factory.Services.GetRequiredService<barakoCMS.Infrastructure.Observability.HostMetrics>().Registry.CollectAndExportAsTextAsync(stream, Ct);
         var published = Encoding.UTF8.GetString(stream.ToArray());
 
         published.Should().Contain("barakocms_workflow_runs_queued_total");
@@ -93,12 +95,12 @@ public class WorkflowQueueMetricsTests
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", await _factory.StoredUserTokenAsync("SuperAdmin"));
 
-        var before = WorkflowMetrics.Default.RunsQueued.WithLabels("deleted", Tenant.DefaultSlug).Value;
+        var before = Metrics.RunsQueued.WithLabels("deleted", Tenant.DefaultSlug).Value;
 
         (await client.DeleteAsync($"/api/contents/{id}/erase", Ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         (await _harness.RunsOfAsync(workflowId)).Should().HaveCount(1, "the count below is of a run that was queued");
-        (WorkflowMetrics.Default.RunsQueued.WithLabels("deleted", Tenant.DefaultSlug).Value - before).Should().BeGreaterThanOrEqualTo(1);
+        (Metrics.RunsQueued.WithLabels("deleted", Tenant.DefaultSlug).Value - before).Should().BeGreaterThanOrEqualTo(1);
     }
 
     private async Task<Guid> CreateEntryAsync(string contentType)

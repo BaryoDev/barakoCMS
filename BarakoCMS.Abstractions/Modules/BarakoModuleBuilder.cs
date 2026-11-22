@@ -13,11 +13,19 @@ public sealed class BarakoModuleBuilder
 {
     private readonly List<IBarakoModule> _modules = new();
     private readonly List<UnloadableModuleAssembly> _skipped = new();
+    private readonly List<Assembly> _unmarked = new();
 
     public IReadOnlyList<IBarakoModule> Modules => _modules;
 
     /// <summary>Module assemblies discovery passed over because a type in them cannot load.</summary>
     internal IReadOnlyList<UnloadableModuleAssembly> Skipped => _skipped;
+
+    /// <summary>
+    /// Libraries discovery scanned that reach only the contract package, hold a module and do not
+    /// carry <see cref="BarakoModuleAssemblyAttribute"/>. Scanned in 5.x and not from 6.0.0, so the
+    /// host names each one in a warning.
+    /// </summary>
+    internal IReadOnlyList<Assembly> Unmarked => _unmarked;
 
     /// <summary>
     /// Whether <c>AddBarakoCMS</c> calls <see cref="DiscoverFrom()"/> after the host's callback.
@@ -117,27 +125,36 @@ public sealed class BarakoModuleBuilder
     /// fails to load is reported by name rather than skipped: skipping it would look like "my
     /// module does nothing", which is the failure this whole mechanism exists to avoid.
     ///
+    /// A library that reaches BarakoCMS is scanned as it always was. A library that reaches only
+    /// BarakoCMS.Abstractions is meant to carry <see cref="BarakoModuleAssemblyAttribute"/>. One
+    /// that does not is still scanned in 5.x, because 5.5.0 to 5.8.0 scanned it without asking, and
+    /// is listed in <see cref="Unmarked"/> for the host to warn about. From 6.0.0 it is not scanned.
+    ///
     /// No dependency context (a host published without a deps.json) finds nothing. Such a host adds
     /// its modules by hand.
     /// </remarks>
-    public BarakoModuleBuilder DiscoverFrom()
+    public BarakoModuleBuilder DiscoverFrom() => DiscoverFrom(DependencyContext.Default, Assembly.Load);
+
+    /// <summary><see cref="DiscoverFrom()"/> over a given context and loader, so a test can supply both.</summary>
+    internal BarakoModuleBuilder DiscoverFrom(DependencyContext? context, Func<AssemblyName, Assembly> load)
     {
-        var context = DependencyContext.Default;
         if (context is null)
             return this;
 
-        var reachesCore = ReachesCore(context);
+        var reach = Reach(context);
         var assemblies = new List<Assembly>();
         foreach (var library in context.RuntimeLibraries)
         {
-            if (!reachesCore(library.Name))
+            var kind = reach(library.Name);
+            if (kind == ModuleReach.None)
                 continue;
 
             foreach (var name in library.GetDefaultAssemblyNames(context))
             {
+                Assembly assembly;
                 try
                 {
-                    assemblies.Add(Assembly.Load(name));
+                    assembly = load(name);
                 }
                 catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or BadImageFormatException)
                 {
@@ -147,6 +164,17 @@ public sealed class BarakoModuleBuilder
                         + "Fix the reference, or set BarakoCMS:Modules:Discover to false and add "
                         + "modules explicitly.", ex);
                 }
+
+                if (kind == ModuleReach.ContractOnly
+                    && !assembly.IsDefined(typeof(BarakoModuleAssemblyAttribute), inherit: false)
+                    && !_unmarked.Contains(assembly))
+                {
+                    // A library with no module in it has nothing to mark, so it is not listed.
+                    if (LoadableTypes(assembly).Any(t => IsDiscoverable(t) && !IsRegistered(t)))
+                        _unmarked.Add(assembly);
+                }
+
+                assemblies.Add(assembly);
             }
         }
 
@@ -259,16 +287,37 @@ public sealed class BarakoModuleBuilder
     private const string ContractLibraryName = "BarakoCMS.Abstractions";
 
     /// <summary>
-    /// Whether a library's dependency closure contains core or the contract package. Memoised, because the same packages
-    /// sit under every module; core itself answers false, since it does not depend on itself.
+    /// Whether a library's dependency closure contains core or the contract package, which is the
+    /// test for loading it at all. Core itself answers false, since it does not depend on itself.
     /// </summary>
     internal static Func<string, bool> ReachesCore(DependencyContext context)
+    {
+        var reach = Reach(context);
+        return name => reach(name) != ModuleReach.None;
+    }
+
+    /// <summary>
+    /// How a library reaches the host libraries. Memoised, because the same packages sit under
+    /// every module. A library that reaches core also reaches the contract package, so core is
+    /// asked first.
+    /// </summary>
+    internal static Func<string, ModuleReach> Reach(DependencyContext context)
     {
         var dependencies = context.RuntimeLibraries.ToDictionary(
             l => l.Name,
             l => l.Dependencies.Select(d => d.Name).ToArray(),
             StringComparer.OrdinalIgnoreCase);
 
+        var core = Closure(dependencies, name => CoreLibraryNames.Contains(name));
+        var contract = Closure(dependencies, name => string.Equals(name, ContractLibraryName, StringComparison.OrdinalIgnoreCase));
+
+        return name => core(name) ? ModuleReach.Core
+            : contract(name) ? ModuleReach.ContractOnly
+            : ModuleReach.None;
+    }
+
+    private static Func<string, bool> Closure(Dictionary<string, string[]> dependencies, Func<string, bool> isTarget)
+    {
         var memo = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
         bool Reaches(string name)
@@ -281,7 +330,7 @@ public sealed class BarakoModuleBuilder
 
             var result = !IsHostLibrary(name)
                 && dependencies.TryGetValue(name, out var deps)
-                && deps.Any(d => IsHostLibrary(d) || Reaches(d));
+                && deps.Any(d => isTarget(d) || Reaches(d));
 
             memo[name] = result;
             return result;
@@ -319,4 +368,12 @@ public sealed class BarakoModuleBuilder
     }
 
     private bool IsRegistered(Type type) => _modules.Any(m => m.GetType() == type);
+}
+
+/// <summary>How a library's dependencies reach the host: the core, the contract package alone, or neither.</summary>
+internal enum ModuleReach
+{
+    None,
+    ContractOnly,
+    Core,
 }

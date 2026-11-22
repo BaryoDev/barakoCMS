@@ -70,7 +70,7 @@ internal sealed class Endpoint(
             return;
         }
 
-        var (entryShown, withheld, _) = await AsShownAsync(entry, ct);
+        var (entryShown, withheld, entryHidden) = await AsShownAsync(entry, ct);
 
         // The layout is content too: its header and footer are shown only as the caller reads them.
         var (rendered, problem) = await EmailTemplateRenderer.RenderAsync(session, templateShown, ct,
@@ -94,10 +94,10 @@ internal sealed class Endpoint(
 
         // A preview cannot know which workflow will send it, so a transition placeholder is not
         // warned about here. The workflow's own save says so when its trigger is not a transition.
-        var warnings = EmailTemplateRenderer.Warnings(rendered, onTransition: true)
+        var warnings = await WithTransitionLinkWarningsAsync(EmailTemplateRenderer.Warnings(rendered, onTransition: true)
             .Take(WorkflowSchemaValidator.MaxPlaceholderWarnings)
             .Select(w => new PreviewWarning(w.Field, w.Message))
-            .ToList();
+            .ToList(), rendered, entry.ContentType, entryHidden, ct);
 
         if (withheld > 0)
         {
@@ -115,6 +115,36 @@ internal sealed class Endpoint(
             Warnings = warnings,
             Notes = extractor.Notes.ToList(),
         };
+    }
+
+    /// <summary>
+    /// The warnings with one for each link to a transition the entry's type does not declare, within the
+    /// one cap on warnings. An entry the caller may not read gets none, as it would show its type's lifecycle.
+    /// </summary>
+    private async Task<List<PreviewWarning>> WithTransitionLinkWarningsAsync(
+        List<PreviewWarning> warnings, RenderedTemplate rendered, string contentType, bool entryHidden, CancellationToken ct)
+    {
+        if (entryHidden) return warnings;
+
+        var lifecycle = (await session.Query<ContentTypeDefinition>().FirstNamedAsync(contentType, ct))?.Lifecycle;
+        foreach (var source in rendered.Sources)
+        {
+            foreach (var message in TemplateExpression.UndeclaredTransitionLinks(source.Text, lifecycle, contentType))
+            {
+                if (warnings.Count > WorkflowSchemaValidator.MaxPlaceholderWarnings) return warnings;
+
+                if (warnings.Count == WorkflowSchemaValidator.MaxPlaceholderWarnings)
+                {
+                    warnings.Add(new PreviewWarning("actions",
+                        $"More than {WorkflowSchemaValidator.MaxPlaceholderWarnings} placeholder warnings. Only the first {WorkflowSchemaValidator.MaxPlaceholderWarnings} are listed"));
+                    return warnings;
+                }
+
+                warnings.Add(new PreviewWarning(source.Field, message));
+            }
+        }
+
+        return warnings;
     }
 
     /// <summary>

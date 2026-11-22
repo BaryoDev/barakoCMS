@@ -102,7 +102,8 @@ public class JobQueueLoggingTests
             new JobOptions(),
             log,
             new JobStorageGate(),
-            new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
+            new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(),
+            new JobMetrics(Prometheus.Metrics.NewCustomRegistry()));
 
         return (provider, http, log);
     }

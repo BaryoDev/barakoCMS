@@ -40,12 +40,28 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
         public IConfiguration Config => Factory.Services.GetRequiredService<IConfiguration>();
     }
 
+    /// <summary>
+    /// One host per distinct set of settings, kept for the run. Every test reads and writes its own
+    /// tenant and content type, so a cached response, a tag or a logged statement from one test is
+    /// never one another test looks at. A test whose settings differ asks for its own host.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Host>> Shared = new();
+
     private Host HostWith(params (string Key, string Value)[] settings)
     {
-        var logger = new CapturingMartenLogger();
         var all = settings.ToDictionary(s => s.Key, s => (string?)s.Value);
-        var derived = fixture.WithSettings(all).WithWebHostBuilder(builder =>
-            builder.ConfigureServices(services => services.ConfigureMarten(options => options.Logger(logger))));
+        var key = string.Join('|', all.OrderBy(s => s.Key, StringComparer.Ordinal).Select(s => $"{s.Key}={s.Value}"));
+        return Shared.GetOrAdd(key, _ => new Lazy<Host>(() => Build(all))).Value;
+    }
+
+    private Host Build(Dictionary<string, string?> settings)
+    {
+        var logger = new CapturingMartenLogger(keepRaw: false);
+        var derived = fixture.WithRunScopedHost(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(settings));
+            builder.ConfigureServices(services => services.ConfigureMarten(options => options.Logger(logger)));
+        });
         return new Host(derived, logger);
     }
 
@@ -389,6 +405,48 @@ public class DeliveryResponseCacheTests(IntegrationTestFixture fixture)
 
         (await BodyAsync(client, list)).Should().NotContain(fresh);
         await BodyAsync(client, $"/api/public/{type}/fresh", HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_publish_clears_the_cached_response_within_one_second()
+    {
+        var host = Cached();
+        var tenant = await TenantAsync();
+        var type = $"rsp{Guid.NewGuid():n}"[..12];
+        var old = $"OLD{Guid.NewGuid():N}";
+        var fresh = $"NEW{Guid.NewGuid():N}";
+        await DefineAsync(host, tenant, type);
+        var id = await EntryAsync(host, tenant, type, "timed", old);
+        using var client = In(host, tenant);
+        var single = $"/api/public/{type}/timed";
+        var list = $"/api/public/{type}";
+
+        foreach (var url in new[] { single, list })
+        {
+            (await BodyAsync(client, url)).Should().Contain(old);
+            host.Logger.Commands.Clear();
+            await BodyAsync(client, url);
+            Reads(host, type).Should().Be(0, $"the control: the repeat of {url} is a cache hit");
+        }
+
+        await EntryAsync(host, tenant, type, "timed", fresh, ContentStatus.Published, id: id);
+        var published = System.Diagnostics.Stopwatch.StartNew();
+
+        foreach (var url in new[] { single, list })
+        {
+            var stale = true;
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (stale && DateTime.UtcNow < deadline)
+            {
+                stale = !(await BodyAsync(client, url)).Contains(fresh);
+                if (stale)
+                    await Task.Delay(50, Ct);
+            }
+
+            stale.Should().BeFalse($"{url} must show the new value, and the poll stops at 5 seconds");
+            published.Elapsed.Should().BeLessThanOrEqualTo(TimeSpan.FromSeconds(1),
+                $"a publish clears the cached {url} within one second");
+        }
     }
 
     [Fact]

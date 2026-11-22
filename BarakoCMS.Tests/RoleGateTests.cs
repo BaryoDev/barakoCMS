@@ -79,6 +79,7 @@ public class RoleGateTests
         new("PUT", "/api/content-types/{name}/icon", "/api/content-types/no-such-type/icon"),
         new("PUT", "/api/content-types/{name}/structured-data", "/api/content-types/no-such-type/structured-data"),
         new("PUT", "/api/content-types/{name}/uniqueness", "/api/content-types/no-such-type/uniqueness"),
+        new("PUT", "/api/content-types/{name}/lifecycle", "/api/content-types/no-such-type/lifecycle"),
         new("PUT", "/api/content-types/{name}/lookup", "/api/content-types/no-such-type/lookup"),
         new("PUT", "/api/content-types/{name}/lines", "/api/content-types/no-such-type/lines"),
         new("GET", "/api/content-types/{name}/uniqueness/{rule}/duplicates", "/api/content-types/no-such-type/uniqueness/NoSuchRule/duplicates?page=not-a-number"),
@@ -167,12 +168,17 @@ public class RoleGateTests
         new("POST", "/api/user-groups/{groupId}/users", $"/api/user-groups/{NotAGuid}/users"),
         new("DELETE", "/api/user-groups/{groupId}/users/{userId}", $"/api/user-groups/{NotAGuid}/users/{NotAGuid}"),
         new("GET", "/api/users", "/api/users"),
+        new("GET", "/api/users/{id}/sessions", $"/api/users/{NotAGuid}/sessions"),
+        new("DELETE", "/api/users/{id}/sessions", $"/api/users/{NotAGuid}/sessions"),
+        new("DELETE", "/api/users/{id}/sessions/{sessionId}", $"/api/users/{NotAGuid}/sessions/{NotAGuid}"),
         new("POST", "/api/users/{userId}/groups", $"/api/users/{NotAGuid}/groups"),
         new("DELETE", "/api/users/{userId}/groups/{groupId}", $"/api/users/{NotAGuid}/groups/{NotAGuid}"),
         new("POST", "/api/users/{userId}/roles", $"/api/users/{NotAGuid}/roles"),
         new("DELETE", "/api/users/{userId}/roles/{roleId}", $"/api/users/{NotAGuid}/roles/{NotAGuid}"),
         new("POST", "/api/users/{userId}/password", $"/api/users/{NotAGuid}/password"),
         new("POST", "/api/users/{userId}/mfa/reset", $"/api/users/{NotAGuid}/mfa/reset"),
+        new("POST", "/api/users/{userId}/block", $"/api/users/{NotAGuid}/block"),
+        new("POST", "/api/users/{userId}/unblock", $"/api/users/{NotAGuid}/unblock"),
         // to before from: the endpoint answers 400 from its own range check, before any ledger read.
         new("GET", "/api/numbering/external/{series}/gaps", "/api/numbering/external/no-such-series/gaps?from=5&to=1"),
         new("GET", "/api/stations", "/api/stations"),
@@ -210,6 +216,8 @@ public class RoleGateTests
         new("GET", "/api/user-groups/deleted", "/api/user-groups/deleted"),
         new("GET", "/api/tenant-settings/email", "/api/tenant-settings/email"),
         new("PUT", "/api/tenant-settings/email", "/api/tenant-settings/email"),
+        new("GET", "/api/tenant-settings/cdn-purge", "/api/tenant-settings/cdn-purge"),
+        new("PUT", "/api/tenant-settings/cdn-purge", "/api/tenant-settings/cdn-purge"),
         new("GET", "/api/tenant-settings/{section}", "/api/tenant-settings/Email.Smtp"),
         new("PUT", "/api/tenant-settings/{section}", "/api/tenant-settings/Email.Smtp"),
         new("GET", "/api/api-keys/{id}/usage", $"/api/api-keys/{NotAGuid}/usage"),
@@ -275,6 +283,9 @@ public class RoleGateTests
     internal static HttpRequestMessage Request(GatedRoute route)
     {
         var request = new HttpRequestMessage(new HttpMethod(route.Verb), route.Probe);
+
+        // Its own client address, so the static clients never pass the global limiter's hundred in one bucket.
+        request.Headers.Add(TestRemoteIpFilter.Header, TestClientIp.Next());
 
         if (route.Verb is "POST" or "PUT" or "PATCH")
         {

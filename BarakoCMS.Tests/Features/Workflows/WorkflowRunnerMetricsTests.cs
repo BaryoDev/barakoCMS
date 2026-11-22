@@ -556,10 +556,8 @@ public class WorkflowRunnerMetricsTests
         var runner = new WorkflowRunner(
             _factory.Services,
             _factory.Services.GetRequiredService<ILogger<WorkflowRunner>>(),
-            config)
-        {
-            Metrics = metrics,
-        };
+            config,
+            metrics);
 
         return (runner, metrics, registry);
     }

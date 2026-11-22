@@ -752,20 +752,53 @@ tag starts with the tenant, so a purge by tag cannot cross tenants:
 | `t:<tenant>:sitemap`         | the sitemap |
 | `t:<tenant>:redirects`       | a redirect lookup |
 
-Nothing evicts `t:<tenant>:redirects` yet, so a changed redirect rule is served from the output
-cache until it expires.
+A commit that inserts, updates or deletes a redirect rule evicts `t:<tenant>:redirects` from the
+output cache (`DeliveryResponseCacheListener`, the `redirectChanged` check), so a changed redirect
+rule shows on the next read when the delivery response cache is on. A CDN in front still needs the
+purge.
 
 Only values the response already shows go in a tag: a type name, a published entry's id, a public
 file's id. Anything outside letters, digits and `-_.~` is percent-encoded, so a type name cannot
 pose as another tag. A `no-store` read carries no tag and no ETag.
 
-A response carries at most 32 tags and 1024 bytes per header, which keeps both headers inside the 4
-KB header buffer of a default nginx proxy. Past either bound the remaining tags are dropped in
-order, and `X-Barako-Cache-Tags-Dropped` says how many. The order is the tenant, the type read,
-each type it refers to or includes, then the entries, so entry tags are what falls off. That gives
-the purge rule: when an entry of type X is published, purge `t:<tenant>:entry:<id>` and
+A response carries at most 32 tags and 1024 bytes per header by default, which keeps both headers
+inside the 4 KB header buffer of a default nginx proxy. Past either bound the remaining tags are
+dropped in order, and `X-Barako-Cache-Tags-Dropped` says how many. The order is the tenant, the type
+read, each type it refers to or includes, then the entries, so entry tags are what falls off. That
+gives the purge rule: when an entry of type X is published, purge `t:<tenant>:entry:<id>` and
 `t:<tenant>:type:X`. The type tag reaches every list and search of X, and every read of another
 type that refers to or includes X, whether or not its entry tags survived.
+
+To tag every entry in a list, raise the bounds:
+
+| Setting                              | Default | Allowed        | Meaning |
+|--------------------------------------|---------|----------------|---------|
+| `Delivery:CacheTags:MaxTags`         | 32      | 1 to 1000      | tags kept per response |
+| `Delivery:CacheTags:MaxHeaderLength` | 1024    | 1024 to 16384  | bytes per tag header |
+
+A page of 100 entries needs about 5000 bytes, since an entry tag is `t:<tenant>:entry:<36 character id>`
+plus a space: about 46 bytes plus the tenant slug, per entry, per header. Both are read once at start and need a restart to change. A value outside the allowed
+range is clamped and the log says so at start (a warning naming the key); a value that is not a
+number is ignored. The ceiling is the smallest limit the two CDNs accept for one header:
+Cloudflare `Cache-Tag` and Fastly `Surrogate-Key` both refuse a header over 16 KB
+(16,384 bytes), and Cloudflare puts that at about 1,000 unique tags.
+
+Two costs of a raised bound:
+
+- `Surrogate-Key` and `Cache-Tag` carry the same value, so the response headers grow by twice the
+  length you allow.
+- A tag header larger than the proxy in front of the API accepts breaks the response at the proxy,
+  with a 502 from nginx. The default `proxy_buffer_size` is 4k or 8k. It needs at least twice
+  `MaxHeaderLength` plus about 2k, for the two tag headers and the other response headers. nginx
+  refuses `proxy_buffer_size` raised alone, because the default `proxy_busy_buffers_size` then
+  exceeds what `proxy_buffers` allows (it must be less than the size of all `proxy_buffers` minus
+  one buffer), so the three go together. For a 16384 byte `MaxHeaderLength`:
+
+  ```
+  proxy_buffer_size 64k;
+  proxy_buffers 8 16k;
+  proxy_busy_buffers_size 64k;
+  ```
 
 The sitemap is the exception, because a tenant can have more types than the bound holds. Purge
 `t:<tenant>:sitemap` on every publish; its type tags are best effort and fall off past about thirty
@@ -779,6 +812,9 @@ Core sends the tags and leaves the purge to you. A workflow that triggers on pub
 CDN's purge API with `t:<tenant>:entry:<id>`, `t:<tenant>:type:<type>` and `t:<tenant>:sitemap`, the
 same tags the headers carry. Do not purge the bare `t:<tenant>` tag: it is on every read and would
 empty the tenant's cache. A Cloudflare purge module that did this was removed in 5.5.0.
+
+Core now has a purge client and per-tenant settings for it, with nothing calling it yet. See
+[CDN purge client](cdn-purge.md).
 
 ### Response cache
 

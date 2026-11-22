@@ -19,13 +19,15 @@ internal sealed record ConnectorConfig(
     Dictionary<string, string>? Settings,
     bool Enabled,
     string? ProbePath,
-    List<string>? Secrets)
+    List<string>? Secrets,
+    ConnectorInboundConfig? Inbound = null)
 {
     public static ConnectorConfig Of(Connector connector) => new(
         connector.Name, connector.BaseUrl, connector.Auth.ToString(),
         new Dictionary<string, string>(connector.Settings ?? [], StringComparer.Ordinal), connector.Enabled,
         string.IsNullOrWhiteSpace(connector.ProbePath) ? "/" : connector.ProbePath,
-        connector.SecretKeys.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList());
+        connector.SecretKeys.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList(),
+        connector.Inbound is null ? null : ConnectorInboundConfig.Normalised(connector.Inbound.Scheme, connector.Inbound.AllowedEvents));
 
     /// <summary>Everything compared between what is stored and what is declared: all but the secrets.</summary>
     public ConnectorConfig WithoutSecrets() => this with
@@ -36,7 +38,16 @@ internal sealed record ConnectorConfig(
         Settings = new Dictionary<string, string>(Settings ?? [], StringComparer.Ordinal),
         ProbePath = string.IsNullOrWhiteSpace(ProbePath) ? "/" : ProbePath.Trim(),
         Secrets = null,
+        Inbound = Inbound is null ? null : ConnectorInboundConfig.Normalised(Inbound.Scheme, Inbound.AllowedEvents),
     };
+}
+
+/// <summary>The inbound section as its document. The inbound secret is a held secret, listed by name in <c>secrets</c>.</summary>
+internal sealed record ConnectorInboundConfig(string? Scheme, List<string>? AllowedEvents)
+{
+    public static ConnectorInboundConfig Normalised(string? scheme, IEnumerable<string>? events) => new(
+        Enum.TryParse<InboundWebhookScheme>(scheme, ignoreCase: true, out var parsed) ? parsed.ToString() : scheme,
+        (events ?? []).Select(e => e?.Trim() ?? string.Empty).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList());
 }
 
 /// <summary>
@@ -159,6 +170,13 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
             connector.Settings = config.Settings ?? [];
             connector.Enabled = config.Enabled;
             connector.ProbePath = string.IsNullOrWhiteSpace(config.ProbePath) ? "/" : config.ProbePath.Trim();
+            connector.Inbound = config.Inbound is null
+                ? null
+                : new ConnectorInbound
+                {
+                    Scheme = Enum.Parse<InboundWebhookScheme>(config.Inbound.Scheme!, ignoreCase: true).ToString(),
+                    AllowedEvents = ConnectorInboundConfig.Normalised(config.Inbound.Scheme, config.Inbound.AllowedEvents).AllowedEvents!,
+                };
             connector.SecretKeys = connector.SecretKeys.Where(k => !cleared.Contains(k)).ToList();
             connector.UpdatedAt = DateTime.UtcNow;
             session.Store(connector);
@@ -181,8 +199,22 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
             return null;
         }
 
+        if (InboundCarriesSecret(document))
+        {
+            errors.Add($"'{slug}': inbound never carries a secret's value. A configuration document names the secrets "
+                       + $"the connector holds; set it with PUT /api/connectors/{slug}.");
+            return null;
+        }
+
         if (ConfigJson.Read<ConnectorConfig>(slug, document, errors) is not { } config)
         {
+            return null;
+        }
+
+        if (config.Inbound is null && (config.Secrets ?? []).Contains(ConnectorSecretKeys.InboundSecret, StringComparer.Ordinal))
+        {
+            errors.Add($"'{slug}': secrets lists {ConnectorSecretKeys.InboundSecret}, which belongs to the inbound section, "
+                       + "and the document has none.");
             return null;
         }
 
@@ -195,6 +227,9 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
             Settings = config.Settings ?? [],
             Enabled = config.Enabled,
             ProbePath = config.ProbePath ?? "/",
+            Inbound = config.Inbound is null
+                ? null
+                : new SaveConnectorInbound { Scheme = config.Inbound.Scheme ?? string.Empty, AllowedEvents = config.Inbound.AllowedEvents },
         });
         if (problem is not null)
         {
@@ -204,6 +239,12 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
 
         return config;
     }
+
+    private static bool InboundCarriesSecret(JsonElement document) =>
+        document.ValueKind == JsonValueKind.Object
+        && document.EnumerateObject()
+            .Where(p => string.Equals(p.Name, "inbound", StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == JsonValueKind.Object)
+            .Any(p => p.Value.EnumerateObject().Any(q => string.Equals(q.Name, "secret", StringComparison.OrdinalIgnoreCase)));
 
     private static bool SecretsAreNames(JsonElement document) =>
         document.ValueKind != JsonValueKind.Object
@@ -238,7 +279,7 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
 
         if (!ConfigJson.Same(held with { BaseUrl = null }, wanted with { BaseUrl = null }))
         {
-            details.Add("name, auth, settings, probe path or enabled change");
+            details.Add("name, auth, settings, probe path, inbound or enabled change");
         }
 
         details.AddRange(cleared.Select(k => $"secret {k} is cleared and has to be set again"));
@@ -267,7 +308,7 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
                          && !string.Equals(current.Settings?.GetValueOrDefault(ConnectorSettingKeys.TokenUrl)?.Trim(), tokenUrl, StringComparison.Ordinal);
 
         return current.SecretKeys
-            .Where(key => moved || !listed.Contains(key) || (tokenMoved && key == ConnectorSecretKeys.ClientSecret))
+            .Where(key => (moved && key != ConnectorSecretKeys.InboundSecret) || !listed.Contains(key) || (tokenMoved && key == ConnectorSecretKeys.ClientSecret))
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal);
     }

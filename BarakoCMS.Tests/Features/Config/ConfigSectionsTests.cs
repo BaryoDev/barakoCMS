@@ -236,6 +236,154 @@ public class ConfigSectionsTests
             .Should().BeFalse("the credential entered for the old address is gone, not sent to the new one");
     }
 
+    private async Task<(string Tenant, string Slug, HttpClient Client)> InboundConnectorAsync()
+    {
+        var tenant = await _callers.TenantAsync();
+        var slug = TestNames.Compact("mail-");
+        var client = await _callers.SuperAdminAsync(tenant);
+        await OkAsync(await client.PostAsJsonAsync("/api/connectors", new
+        {
+            name = "Mail", slug, baseUrl = "https://mail.example.com", auth = "BearerToken",
+            secrets = new Dictionary<string, string> { ["Token"] = "tok_" + Guid.NewGuid().ToString("N"), ["SigningSecret"] = "sig_" + Guid.NewGuid().ToString("N") },
+            inbound = new { scheme = "Hmac", allowedEvents = new[] { "paid" }, secret = "in_" + Guid.NewGuid().ToString("N") },
+        }, Ct));
+        return (tenant, slug, client);
+    }
+
+    [Fact]
+    public async Task A_connector_with_an_inbound_section_exports_and_plans_empty_against_itself()
+    {
+        var (_, slug, client) = await InboundConnectorAsync();
+
+        var (_, export) = await ExportAsync(client, "connectors");
+
+        var inbound = export.GetProperty("connectors").GetProperty(slug).GetProperty("inbound");
+        inbound.GetProperty("scheme").GetString().Should().Be("Hmac");
+        export.GetProperty("connectors").GetProperty(slug).GetProperty("secrets").EnumerateArray()
+            .Select(x => x.GetString()).Should().Contain("InboundSecret");
+        var (_, plan) = await PlanAsync(client, export);
+        plan.GetProperty("isEmpty").GetBoolean().Should().BeTrue(plan.ToString());
+    }
+
+    [Fact]
+    public async Task Moving_an_origin_keeps_the_inbound_secret_and_clears_the_signing_secret()
+    {
+        var (tenant, slug, client) = await InboundConnectorAsync();
+        var document = new
+        {
+            version = 1,
+            connectors = new Dictionary<string, object>
+            {
+                [slug] = new
+                {
+                    name = "Mail", baseUrl = "https://elsewhere.example.net", auth = "BearerToken", enabled = true,
+                    secrets = new[] { "InboundSecret", "SigningSecret", "Token" },
+                    inbound = new { scheme = "Hmac", allowedEvents = new[] { "paid" } },
+                },
+            },
+        };
+
+        var (_, plan) = await PlanAsync(client, document);
+        plan.ToString().Should().Contain("secret SigningSecret is cleared").And.NotContain("secret InboundSecret is cleared");
+        (await ApplyAsync(client, document, allowDestructive: true)).Response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var stored = await _callers.InTenantAsync(tenant, s => s.Query<Connector>().SingleAsync(c => c.Slug == slug, Ct));
+        stored!.SecretKeys.Should().Equal("InboundSecret");
+        (await _callers.InTenantAsync(tenant, s => s.Query<ConnectorSecret>().Where(x => x.ConnectorId == stored.Id).Select(x => x.Key).ToListAsync(Ct)))
+            .Should().Equal("InboundSecret");
+    }
+
+    [Fact]
+    public async Task A_document_without_an_inbound_section_removes_it_and_its_secret()
+    {
+        var (tenant, slug, client) = await InboundConnectorAsync();
+        var document = new
+        {
+            version = 1,
+            connectors = new Dictionary<string, object>
+            {
+                [slug] = new { name = "Mail", baseUrl = "https://mail.example.com", auth = "BearerToken", enabled = true, secrets = new[] { "SigningSecret", "Token" } },
+            },
+        };
+
+        var (_, plan) = await PlanAsync(client, document);
+        plan.ToString().Should().Contain("inbound").And.Contain("secret InboundSecret is cleared");
+        (await ApplyAsync(client, document, allowDestructive: true)).Response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var stored = await _callers.InTenantAsync(tenant, s => s.Query<Connector>().SingleAsync(c => c.Slug == slug, Ct));
+        stored!.Inbound.Should().BeNull();
+        stored.SecretKeys.Should().NotContain("InboundSecret");
+        (await _callers.InTenantAsync(tenant, s => s.Query<ConnectorSecret>().AnyAsync(x => x.ConnectorId == stored.Id && x.Key == "InboundSecret", Ct)))
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_document_whose_inbound_carries_a_secret_is_refused_like_a_secret_value()
+    {
+        var tenant = await _callers.TenantAsync();
+        var slug = TestNames.Compact("leak-");
+        var client = await _callers.SuperAdminAsync(tenant);
+
+        var (response, body) = await ApplyAsync(client, new
+        {
+            version = 1,
+            connectors = new Dictionary<string, object>
+            {
+                [slug] = new { name = "Leak", baseUrl = "https://leak.example.com", auth = "None", inbound = new { scheme = "Hmac", secret = "plain-value" } },
+            },
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body.ToString());
+        body.ToString().Should().Contain("never carries a secret's value");
+        (await _callers.InTenantAsync(tenant, s => s.Query<Connector>().AnyAsync(c => c.Slug == slug, Ct))).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_document_whose_inbound_is_written_with_another_casing_and_carries_a_secret_is_refused()
+    {
+        var tenant = await _callers.TenantAsync();
+        var slug = TestNames.Compact("leak-");
+        var client = await _callers.SuperAdminAsync(tenant);
+
+        var (response, body) = await ApplyAsync(client, new
+        {
+            version = 1,
+            connectors = new Dictionary<string, object>
+            {
+                [slug] = new Dictionary<string, object>
+                {
+                    ["name"] = "Leak", ["baseUrl"] = "https://leak.example.com", ["auth"] = "None",
+                    ["Inbound"] = new Dictionary<string, string> { ["scheme"] = "Hmac", ["Secret"] = "plain-value" },
+                },
+            },
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body.ToString());
+        body.ToString().Should().Contain("never carries a secret's value");
+        (await _callers.InTenantAsync(tenant, s => s.Query<Connector>().AnyAsync(c => c.Slug == slug, Ct))).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_document_listing_InboundSecret_with_no_inbound_section_is_refused_and_leaves_no_orphan_secret()
+    {
+        var (tenant, slug, client) = await InboundConnectorAsync();
+        var document = new
+        {
+            version = 1,
+            connectors = new Dictionary<string, object>
+            {
+                [slug] = new { name = "Mail", baseUrl = "https://mail.example.com", auth = "BearerToken", enabled = true, secrets = new[] { "InboundSecret", "SigningSecret", "Token" } },
+            },
+        };
+
+        var (response, body) = await ApplyAsync(client, document, allowDestructive: true);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body.ToString());
+        body.ToString().Should().Contain("InboundSecret");
+        var stored = await _callers.InTenantAsync(tenant, s => s.Query<Connector>().SingleAsync(c => c.Slug == slug, Ct));
+        stored!.Inbound.Should().NotBeNull("a refused apply changes nothing");
+    }
+
     [Fact]
     public async Task A_rule_left_out_is_removed_only_for_this_tenants_types()
     {

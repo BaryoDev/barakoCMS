@@ -139,7 +139,8 @@ internal class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenant
 
         // A locked account gets no new token from a token it already holds, the same refusal the
         // refresh endpoint makes.
-        if (barakoCMS.Infrastructure.Auth.AccountLockout.LockedMessage(user) is not null)
+        if (barakoCMS.Infrastructure.Auth.AccountLockout.LockedMessage(user) is not null
+            || barakoCMS.Infrastructure.Auth.AccountBlock.Is(user))
         {
             await Send.UnauthorizedAsync(ct);
             return;
@@ -150,6 +151,11 @@ internal class SwitchTenantEndpoint : Endpoint<SwitchTenantRequest, SwitchTenant
         var extraClaims = new List<Claim>();
         if (!string.IsNullOrEmpty(did))
             extraClaims.Add(new("did", did));
+
+        // The same sign-in, so the same session id. Ending it ends this token as well.
+        var sid = User.FindFirst(barakoCMS.Infrastructure.Auth.SessionRevocation.ClaimType)?.Value;
+        if (Guid.TryParse(sid, out var sessionId))
+            extraClaims.Add(barakoCMS.Infrastructure.Auth.SessionRevocation.ClaimFor(sessionId));
 
         // This endpoint already performed the membership check correctly and was the model for
         // ITokenIssuer; it now delegates so there is exactly one implementation to keep right.

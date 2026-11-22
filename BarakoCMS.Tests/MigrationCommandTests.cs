@@ -95,6 +95,40 @@ public class MigrationCommandTests
         (await database.RunsAsync()).Should().Equal("first");
     }
 
+    /// <summary>Revert to see it red: remove the catch in <c>MigrationCommand.RunAsync</c>, and the refusal escapes as an exception.</summary>
+    [Fact]
+    public async Task A_run_refused_behind_a_pooler_prints_why_and_exits_one()
+    {
+        var config = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [barakoCMS.Infrastructure.Services.AdvisoryLease.RefuseBehindPoolerKey] = "true",
+            })
+            .Build();
+        await using var database = await MigrationScratchDatabase.CreateAsync(_factory);
+        var shipped = new[] { Insert("first") };
+
+        barakoCMS.Infrastructure.Services.AdvisoryLease.ForcePoolerSuspected = true;
+        try
+        {
+            foreach (var args in new[] { Array.Empty<string>(), ["--record", shipped[0].Key], ["--forget", shipped[0].Key] })
+            {
+                var output = new StringWriter();
+                var exit = await MigrationCommand.RunAsync(
+                    database.Ledger(configuration: config), shipped, args, output, TestContext.Current.CancellationToken);
+
+                exit.Should().Be(1, string.Join(' ', args));
+                output.ToString().Should().Contain("pooler");
+            }
+        }
+        finally
+        {
+            barakoCMS.Infrastructure.Services.AdvisoryLease.ForcePoolerSuspected = null;
+        }
+
+        (await database.RunsAsync()).Should().BeEmpty("a refused run changes nothing");
+    }
+
     [Fact]
     public async Task A_held_lock_exits_one_and_says_so()
     {

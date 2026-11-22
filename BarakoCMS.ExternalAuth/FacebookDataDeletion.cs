@@ -226,7 +226,7 @@ internal sealed class FacebookDataDeletionEndpoint(IDocumentSession session, ICo
         session.Store(request);
         await session.SaveChangesAsync(ct);
 
-        var baseUrl = ExternalAuthSupport.BaseUrl(config, HttpContext);
+        var baseUrl = ExternalAuthSupport.BaseUrl(HttpContext);
         await Send.OkAsync(new FacebookDeletionResponse
         {
             Url = $"{baseUrl}/api/auth/facebook/data-deletion/status/{code}",

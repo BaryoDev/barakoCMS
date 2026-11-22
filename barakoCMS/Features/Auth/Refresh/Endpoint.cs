@@ -15,14 +15,17 @@ internal class Endpoint : Endpoint<Request, Response>
     private readonly IDocumentSession _documentSession;
     private readonly ILogger<Endpoint> _logger;
     private readonly barakoCMS.Infrastructure.Multitenancy.TenantContext _tenant;
+    private readonly IConfiguration _configuration;
 
     public Endpoint(
         IQuerySession querySession,
         IDocumentSession documentSession,
         ILogger<Endpoint> logger,
         barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
-        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer)
+        barakoCMS.Infrastructure.Auth.ITokenIssuer tokenIssuer,
+        IConfiguration configuration)
     {
+        _configuration = configuration;
         _querySession = querySession;
         _documentSession = documentSession;
         _logger = logger;
@@ -44,17 +47,120 @@ internal class Endpoint : Endpoint<Request, Response>
         barakoCMS.Infrastructure.Auth.RevokeRefreshTokens.ForUserAsync(
             _documentSession, userId, reason, ct, Resolve<barakoCMS.Infrastructure.Services.ISessionEpochService>());
 
-    private async Task RevokeAfterRaceAsync(Guid userId, CancellationToken ct)
+    private async Task RevokeAfterRaceAsync(Guid userId, Guid sessionId, CancellationToken ct)
     {
+        // The rotation never committed, so drop it before looking: the session still holds it.
+        _documentSession.EjectAllPendingChanges();
+
+        // Losing to a session end is not reuse: answer 401 and leave the user's other sessions alone.
+        if (await barakoCMS.Infrastructure.Auth.SessionRevocation.IsEndedAsync(_documentSession, sessionId, ct))
+        {
+            ThrowError("Refresh token has been revoked. Please log in again.", 401);
+            return;
+        }
+
         _logger.LogWarning(
             "Concurrent refresh-token use detected for UserId: {UserId}. Rejecting duplicate rotation.",
             userId);
 
-        // The rotation never committed, so drop it before revoking: the session still holds it.
-        _documentSession.EjectAllPendingChanges();
         await RevokeSessionsAsync(userId, "reuse_detected", ct);
         await _documentSession.SaveChangesAsync(ct);
         ThrowError("Refresh token was already used. Please log in again.", 401);
+    }
+
+    /// <summary>
+    /// The unused successor of a used token that is being retried, or null when this is reuse. A
+    /// retry is one replay, inside the window, from the same device, while the successor has never
+    /// been used or revoked. A row with no session id never qualifies.
+    /// </summary>
+    private async Task<RefreshToken?> RetrySuccessorAsync(RefreshToken used, CancellationToken ct)
+    {
+        var window = barakoCMS.Infrastructure.Auth.RefreshRetryWindow.Read(_configuration);
+        if (window <= TimeSpan.Zero)
+            return null;
+
+        if (used.SessionId is not { } sessionId || used.SuccessorId is not { } successorId || used.RevokedAt is not { } rotatedAt)
+            return null;
+
+        if (DateTime.UtcNow - rotatedAt > window)
+            return null;
+
+        if (!string.IsNullOrEmpty(used.DeviceId)
+            && used.DeviceId != RefreshToken.CapDeviceId(barakoCMS.Infrastructure.DeviceContext.From(HttpContext).DeviceId))
+            return null;
+
+        // Through the document session, so the successor's version is guarded with the rest.
+        var successor = await _documentSession.LoadAsync<RefreshToken>(successorId, ct);
+        if (successor is null || successor.IsRevoked || successor.SessionId != sessionId || successor.UserId != used.UserId)
+            return null;
+
+        return successor;
+    }
+
+    /// <summary>
+    /// Stages the rotation, or the retry when <paramref name="unusedSuccessor"/> is set, and returns
+    /// the new row. Nothing is saved here: the caller commits it all under the concurrency guard.
+    /// </summary>
+    private async Task<RefreshToken> StageRotationAsync(
+        RefreshToken refreshToken, RefreshToken? unusedSuccessor, string newRefreshTokenString,
+        DateTime newRefreshTokenExpiry, Guid sessionId, User user, CancellationToken ct)
+    {
+        // Device binding, session id and sign-in facts carry across rotation. Without the device id,
+        // device trust stopped enforcing anything from the second refresh onward.
+        // A retry builds on the successor the client never saw, so the session facts it holds carry on.
+        var newRefreshToken = (unusedSuccessor ?? refreshToken).Successor(
+            newRefreshTokenString, newRefreshTokenExpiry,
+            barakoCMS.Infrastructure.DeviceContext.From(HttpContext), sessionId);
+
+        if (unusedSuccessor is null)
+        {
+            // Revoke old refresh token (rotation)
+            refreshToken.IsRevoked = true;
+            refreshToken.RevokedReason = "used";
+            refreshToken.RevokedAt = DateTime.UtcNow;
+            // The used row keeps no address or device text. The new row holds them.
+            refreshToken.ClearIdentifiers();
+            refreshToken.SuccessorId = newRefreshToken.Id;
+        }
+        else
+        {
+            // The retry is spent: the old token has no successor to point at, so a second replay is
+            // reuse. The unused successor and the new one commit with it, under the same guard.
+            refreshToken.SuccessorId = null;
+            unusedSuccessor.IsRevoked = true;
+            unusedSuccessor.RevokedReason = "superseded";
+            unusedSuccessor.RevokedAt = DateTime.UtcNow;
+            unusedSuccessor.ClearIdentifiers();
+            _documentSession.Update(unusedSuccessor);
+        }
+
+        _documentSession.Update(refreshToken);
+        _documentSession.Store(newRefreshToken);
+        await AuditLog.RecordAsync(_documentSession, _tenant.Slug,
+            unusedSuccessor is null ? "auth.token.refreshed" : "auth.token.refresh_retried",
+            user.Id, user.Username,
+            ipAddress: barakoCMS.Infrastructure.DeviceContext.From(HttpContext).IpAddress, ct: ct);
+
+        return newRefreshToken;
+    }
+
+    /// <summary>
+    /// A lost race. A retry saves two versioned rows, so Marten can report the loss as one
+    /// exception per row, wrapped in an AggregateException.
+    /// </summary>
+    private static bool IsConcurrencyRace(Exception ex) =>
+        ex is JasperFx.ConcurrencyException
+        || ex is AggregateException { InnerExceptions.Count: > 0 } many
+            && many.InnerExceptions.All(inner => inner is JasperFx.ConcurrencyException);
+
+    private static List<System.Security.Claims.Claim> RefreshClaims(RefreshToken refreshToken, Guid sessionId)
+    {
+        var claims = new List<System.Security.Claims.Claim>();
+        // Preserve device binding so DeviceTrust enforcement still applies to refreshed tokens.
+        if (!string.IsNullOrEmpty(refreshToken.DeviceId))
+            claims.Add(new("did", refreshToken.DeviceId));
+        claims.Add(barakoCMS.Infrastructure.Auth.SessionRevocation.ClaimFor(sessionId));
+        return claims;
     }
 
     private async Task<User> LoadUsableUserAsync(RefreshToken refreshToken, CancellationToken ct)
@@ -66,9 +172,10 @@ internal class Endpoint : Endpoint<Request, Response>
             ThrowError("User not found", 401);
         }
 
-        if (barakoCMS.Infrastructure.Auth.AccountLockout.LockedMessage(user) is not null)
+        if (barakoCMS.Infrastructure.Auth.AccountLockout.LockedMessage(user) is not null
+            || barakoCMS.Infrastructure.Auth.AccountBlock.Is(user))
         {
-            _logger.LogWarning("Refresh refused for locked account. UserId: {UserId}", user.Id);
+            _logger.LogWarning("Refresh refused for locked or blocked account. UserId: {UserId}", user.Id);
             ThrowError("Invalid refresh token", 401);
         }
 
@@ -106,7 +213,12 @@ internal class Endpoint : Endpoint<Request, Response>
             return;
         }
 
-        if (refreshToken.IsRevoked)
+        // Set when a used token is a retry: its successor was never used, and is replaced below.
+        RefreshToken? unusedSuccessor = null;
+        if (refreshToken.IsRevoked && refreshToken.RevokedReason == "used")
+            unusedSuccessor = await RetrySuccessorAsync(refreshToken, ct);
+
+        if (refreshToken.IsRevoked && unusedSuccessor is null)
         {
             // Reuse detection: replaying an already-rotated ("used") token is a strong signal that
             // the token family is compromised — revoke every active token for the user.
@@ -146,10 +258,9 @@ internal class Endpoint : Endpoint<Request, Response>
         // out with a token scoped to a tenant you never belonged to. The issuer re-checks every time,
         // which also means a membership revoked mid-session stops working at the next refresh rather
         // than lingering until the refresh token expires.
-        var extraClaims = new List<System.Security.Claims.Claim>();
-        // Preserve device binding so DeviceTrust enforcement still applies to refreshed tokens.
-        if (!string.IsNullOrEmpty(refreshToken.DeviceId))
-            extraClaims.Add(new("did", refreshToken.DeviceId));
+        // A row from before sessions had no id. Its next refresh gives the new row one.
+        var sessionId = refreshToken.SessionId ?? Guid.NewGuid();
+        var extraClaims = RefreshClaims(refreshToken, sessionId);
 
         var issued = await _tokenIssuer.IssueAccessTokenAsync(user, _tenant.Slug, extraClaims, ct);
         if (!issued.Allowed)
@@ -169,22 +280,8 @@ internal class Endpoint : Endpoint<Request, Response>
         var newRefreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         var newRefreshTokenExpiry = DateTime.UtcNow.Add(issued.RefreshLifetime);
         
-        var newRefreshToken = RefreshToken.Issue(
-            user.Id, newRefreshTokenString, newRefreshTokenExpiry,
-            // Carried across rotation. Without this the binding survived exactly one refresh: the
-            // token being exchanged still had it, the one replacing it did not, so device trust
-            // stopped enforcing anything from the second refresh onward and nothing said so.
-            refreshToken.DeviceId);
-
-        // Revoke old refresh token (rotation)
-        refreshToken.IsRevoked = true;
-        refreshToken.RevokedReason = "used";
-        refreshToken.RevokedAt = DateTime.UtcNow;
-
-        _documentSession.Update(refreshToken);
-        _documentSession.Store(newRefreshToken);
-        await AuditLog.RecordAsync(_documentSession, _tenant.Slug, "auth.token.refreshed", user.Id, user.Username,
-            ipAddress: barakoCMS.Infrastructure.DeviceContext.From(HttpContext).IpAddress, ct: ct);
+        var newRefreshToken = await StageRotationAsync(
+            refreshToken, unusedSuccessor, newRefreshTokenString, newRefreshTokenExpiry, sessionId, user, ct);
 
         try
         {
@@ -192,9 +289,9 @@ internal class Endpoint : Endpoint<Request, Response>
             // this commit throws and we reject rather than issuing a second valid token.
             await _documentSession.SaveChangesAsync(ct);
         }
-        catch (JasperFx.ConcurrencyException)
+        catch (Exception ex) when (IsConcurrencyRace(ex))
         {
-            await RevokeAfterRaceAsync(refreshToken.UserId, ct);
+            await RevokeAfterRaceAsync(refreshToken.UserId, sessionId, ct);
             return;
         }
 

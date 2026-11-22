@@ -23,6 +23,8 @@ public sealed class DiagnosticsModule : IBarakoModule
 
     public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
 
+    public int HttpContractVersion => 1;
+
     public string? Category => ModuleCategory.Platform;
 
     public string? Description => "Browser error logging";
