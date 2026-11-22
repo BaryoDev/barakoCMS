@@ -178,6 +178,10 @@ public sealed class ManagedAdminRoleStepsTests(ManagedAdminRoleStepsTests.Postgr
             "psql", "-X", "-U", "postgres", "-d", "postgres", "-c", "CREATE DATABASE managed_script_db OWNER mgr2");
         created.ExitCode.Should().Be(0, created.Stderr);
 
+        const string publicOwner = "select pg_get_userbyid(nspowner) from pg_namespace where nspname = 'public'";
+        var before = await postgres.PsqlAsync("postgres", "managed_script_db", "-c", publicOwner);
+        before.ExitCode.Should().Be(0, before.Stderr);
+
         var run = await postgres.RunAsync(
             "env", "DB_APP_USER=barako_script_role", "DB_APP_PASSWORD=Aa1-" + Guid.NewGuid().ToString("N"),
             "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-U", "mgr2", "-d", "managed_script_db",
@@ -191,9 +195,8 @@ public sealed class ManagedAdminRoleStepsTests(ManagedAdminRoleStepsTests.Postgr
             "postgres", "postgres", "-c", "select count(*) from pg_roles where rolname = 'barako_script_role'");
         role.ExitCode.Should().Be(0, role.Stderr);
         role.Stdout.Trim().Should().Be("0", "the refusal created no role");
-        var owner = await postgres.PsqlAsync(
-            "postgres", "managed_script_db", "-c", "select pg_get_userbyid(nspowner) from pg_namespace where nspname = 'public'");
-        owner.ExitCode.Should().Be(0, owner.Stderr);
-        owner.Stdout.Trim().Should().Be("mgr2", "the refusal moved no ownership");
+        var after = await postgres.PsqlAsync("postgres", "managed_script_db", "-c", publicOwner);
+        after.ExitCode.Should().Be(0, after.Stderr);
+        after.Stdout.Trim().Should().Be(before.Stdout.Trim(), "the refusal moved no ownership");
     }
 }
