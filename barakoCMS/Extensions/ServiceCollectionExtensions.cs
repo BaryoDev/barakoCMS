@@ -499,7 +499,7 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Binds <c>Kestrel:Limits:*</c> over the defaults and keeps a blank or non-positive value from
     /// removing a limit. A blank value is skipped like a key that is left out, so a blank connection
-    /// cap keeps its default (the binder would read it as no cap). A cap or timeout of zero or less is refused with a message naming the key. There is
+    /// cap keeps its default (the binder would read it as no cap). A cap or timeout of zero or less, or a timeout Kestrel reads as none, is refused with a message naming the key. There is
     /// no way to ask for no cap other than a very large number such as 9223372036854775807.
     /// </summary>
     private static void BindKestrelLimits(
@@ -543,8 +543,9 @@ public static class ServiceCollectionExtensions
         limits.MaxConcurrentUpgradedConnections ??= maxUpgraded;
         RefuseNonPositive(limits.MaxConcurrentConnections, "MaxConcurrentConnections", "number");
         RefuseNonPositive(limits.MaxConcurrentUpgradedConnections, "MaxConcurrentUpgradedConnections", "number");
-        RefuseNonPositive(limits.RequestHeadersTimeout > TimeSpan.Zero, "RequestHeadersTimeout", "time span");
-        RefuseNonPositive(limits.KeepAliveTimeout > TimeSpan.Zero, "KeepAliveTimeout", "time span");
+        // Kestrel reads -00:00:00.001 (Timeout.InfiniteTimeSpan) as no timeout and stores MaxValue.
+        RefuseNonPositive(limits.RequestHeadersTimeout > TimeSpan.Zero && limits.RequestHeadersTimeout != TimeSpan.MaxValue, "RequestHeadersTimeout", "time span");
+        RefuseNonPositive(limits.KeepAliveTimeout > TimeSpan.Zero && limits.KeepAliveTimeout != TimeSpan.MaxValue, "KeepAliveTimeout", "time span");
     }
 
     private static void RefuseNonPositive(long? value, string key, string kind) =>
