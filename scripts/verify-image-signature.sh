@@ -10,7 +10,12 @@
 #
 #   VERIFY_WORKFLOW=publish-master-image.yml bash scripts/verify-image-signature.sh ghcr.io/baryodev/barako-cms:master
 #
-# Needs cosign and docker (buildx) on PATH. Exit 0 when both checks pass, 1 when one fails, 2 on
+# Signed and attested: release :VERSION and :latest of barako-cms and barako-cms-decaf, and
+# :master and :master-<sha> of barako-cms. Not signed: playground, dev, per-arch and Docker Hub
+# mirror (arnelirobles/*) tags, and images published before signing was added. For a mirror image,
+# verify the same digest against ghcr.io.
+#
+# Needs cosign, docker (buildx) and jq on PATH. Exit 0 when both checks pass, 1 when one fails, 2 on
 # bad usage. Only ghcr.io/baryodev/ images are accepted.
 set -euo pipefail
 
@@ -37,6 +42,7 @@ if ! [[ "$REF" =~ ^ghcr\.io/baryodev/[a-z0-9][a-z0-9._-]*((:[A-Za-z0-9._-]+)|(@s
     exit 2
 fi
 
+command -v jq > /dev/null 2>&1 || fail "jq is not installed"
 command -v cosign > /dev/null 2>&1 || fail "cosign is not installed, see https://docs.sigstore.dev/cosign/system_config/installation/"
 
 NAME="${REF%%@*}"
@@ -51,7 +57,7 @@ fi
 [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "no usable digest for $REF, got '$DIGEST'"
 
 SUBJECT="$NAME@$DIGEST"
-IDENTITY="^https://github.com/BaryoDev/barakoCMS/.github/workflows/${WORKFLOW//./\\.}@"
+IDENTITY="^https://github\\.com/BaryoDev/barakoCMS/\\.github/workflows/${WORKFLOW//./\\.}@refs/heads/master\$"
 
 echo "Verifying $SUBJECT"
 
@@ -61,14 +67,11 @@ cosign verify \
     "$SUBJECT" > /dev/null \
     || fail "the signature on $SUBJECT does not verify. Do not run this image."
 
-# Provenance is attached to release images only. The :master image is signed but not attested.
-if [ "$WORKFLOW" = "release.yml" ]; then
-    cosign verify-attestation --type slsaprovenance1 \
-        --certificate-identity-regexp "$IDENTITY" \
-        --certificate-oidc-issuer "$ISSUER" \
-        "$SUBJECT" > /dev/null \
-        || fail "the provenance attestation on $SUBJECT does not verify. Do not run this image."
-fi
+cosign verify-attestation --type slsaprovenance1 \
+    --certificate-identity-regexp "$IDENTITY" \
+    --certificate-oidc-issuer "$ISSUER" \
+    "$SUBJECT" > /dev/null \
+    || fail "the provenance attestation on $SUBJECT does not verify. Do not run this image."
 
 echo "OK: $SUBJECT is signed by $WORKFLOW in BaryoDev/barakoCMS"
 echo "Run it by digest to be sure you get exactly this image: $SUBJECT"
