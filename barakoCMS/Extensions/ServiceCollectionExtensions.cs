@@ -46,6 +46,12 @@ public static class ServiceCollectionExtensions
     {
         ValidateStartupGuards(services, configuration);
 
+        // A host that never calls ApplyMartenSchemaAsync, such as one built from docs/delivering-a-client-project.md,
+        // still has its database role checked as it starts. The schema apply runs the check first
+        // when it is called, and this skips then.
+        services.AddSingleton<barakoCMS.Infrastructure.Security.DatabaseRoleGuardKey>();
+        services.AddSingleton<IHostedService, barakoCMS.Infrastructure.Security.DatabaseRoleBackstop>();
+
         var (seen, enabled, modules, unloadable) = AddModules(services, configuration, configureModules);
 
         AddModuleEndpoints(services, seen, enabled, modules, unloadable);
@@ -2834,7 +2840,7 @@ public static class ServiceCollectionExtensions
             barakoCMS.Infrastructure.Security.DevelopmentHost.Of(host.Services.GetService<IHostEnvironment>()),
             store,
             host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Database"),
-            host.Services);
+            host.Services.GetRequiredService<barakoCMS.Infrastructure.Security.DatabaseRoleGuardKey>());
 
         // Before the schema, not after. If database tenancy is on and the connection cannot be
         // subject to it, the right outcome is refusing to start, and doing that before any DDL keeps

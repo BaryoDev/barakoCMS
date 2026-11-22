@@ -44,8 +44,9 @@ internal static class DatabaseRoleGuard
     internal static readonly string[] ManagedAdminRoles = ["rds_superuser", "azure_pg_admin", "cloudsqlsuperuser"];
 
     /// <summary>
-    /// The role's name, its two attributes and the first managed admin role it belongs to. A missing
-    /// admin role on the server is skipped by <c>to_regrole</c> rather than raising an error.
+    /// The role's name, its two attributes, the first managed admin role it belongs to, and the first
+    /// other role it belongs to that is a superuser or has BYPASSRLS. A missing admin role on the
+    /// server is skipped by <c>to_regrole</c> rather than raising an error.
     /// </summary>
     internal const string RoleQuery =
         """
@@ -57,6 +58,13 @@ internal static class DatabaseRoleGuard
                  where to_regrole(a.name) is not null
                    and pg_has_role(current_user, to_regrole(a.name)::oid, 'member')
                  order by a.name
+                 limit 1),
+               (select p.rolname::text
+                  from pg_roles p
+                 where p.oid <> r.oid
+                   and (p.rolsuper or p.rolbypassrls)
+                   and pg_has_role(current_user, p.oid, 'member')
+                 order by p.rolname
                  limit 1)
           from pg_roles r
          where r.rolname = current_user
@@ -65,7 +73,13 @@ internal static class DatabaseRoleGuard
     /// <summary>One warning per start, even where the schema apply runs twice in a process.</summary>
     private static readonly ConditionalWeakTable<object, StrongBox<int>> Warned = new();
 
-    internal sealed record RoleFacts(string Name, bool Superuser, bool BypassRls, string? AdminRole);
+    /// <summary>Set once the check has run for a start, so a second caller for the same start skips it.</summary>
+    private static readonly ConditionalWeakTable<object, StrongBox<int>> Checked = new();
+
+    /// <summary>One warning per start for an allow value the guard does not know.</summary>
+    private static readonly ConditionalWeakTable<object, StrongBox<int>> WarnedUnrecognised = new();
+
+    internal sealed record RoleFacts(string Name, bool Superuser, bool BypassRls, string? AdminRole, string? PrivilegedMembership = null);
 
     /// <summary>Whether the key allows a superuser, and whether its value was one the guard knows.</summary>
     internal static (bool Allowed, bool Recognised) ReadAllow(string? value)
@@ -96,20 +110,49 @@ internal static class DatabaseRoleGuard
         IDocumentStore store,
         ILogger logger,
         object startKey,
-        CancellationToken ct = default) =>
-        AssertAsync(
+        CancellationToken ct = default)
+    {
+        if (Checked.TryGetValue(startKey, out _))
+        {
+            return Task.CompletedTask;
+        }
+
+        return RunOnceAsync(configuration, isDevelopment, store, logger, startKey, ct);
+    }
+
+    private static async Task RunOnceAsync(
+        IConfiguration configuration,
+        bool isDevelopment,
+        IDocumentStore store,
+        ILogger logger,
+        object startKey,
+        CancellationToken ct)
+    {
+        await AssertAsync(
             configuration,
             isDevelopment,
             async token =>
             {
                 var connection = store.Storage.Database.CreateConnection();
-                await connection.OpenAsync(token);
+                try
+                {
+                    await connection.OpenAsync(token);
+                }
+                catch
+                {
+                    await connection.DisposeAsync();
+                    throw;
+                }
+
                 return connection;
             },
             logger,
             startKey,
             RoleQuery,
             ct);
+
+        Checked.GetValue(startKey, _ => new StrongBox<int>(1));
+    }
 
     internal static async Task AssertAsync(
         IConfiguration configuration,
@@ -126,6 +169,13 @@ internal static class DatabaseRoleGuard
         }
 
         var (allowed, recognised) = ReadAllow(configuration[AllowKey]);
+        if (!recognised && Interlocked.Exchange(ref WarnedUnrecognised.GetOrCreateValue(startKey).Value, 1) == 0)
+        {
+            logger.LogWarning(
+                "The value of {Key} is not recognised, so it is ignored: only true allows a superuser, in any letter case.",
+                AllowKey);
+        }
+
         if (allowed)
         {
             if (Interlocked.Exchange(ref Warned.GetOrCreateValue(startKey).Value, 1) == 0)
@@ -176,7 +226,8 @@ internal static class DatabaseRoleGuard
             reader.GetString(0),
             reader.GetBoolean(1),
             reader.GetBoolean(2),
-            reader.FieldCount > 3 && !reader.IsDBNull(3) ? reader.GetString(3) : null);
+            reader.FieldCount > 3 && !reader.IsDBNull(3) ? reader.GetString(3) : null,
+            reader.FieldCount > 4 && !reader.IsDBNull(4) ? reader.GetString(4) : null);
     }
 
     /// <summary>What makes the role privileged, or null when nothing does.</summary>
@@ -191,6 +242,11 @@ internal static class DatabaseRoleGuard
         if (facts.BypassRls)
         {
             parts.Add("has BYPASSRLS");
+        }
+
+        if (!facts.Superuser && facts.PrivilegedMembership is not null)
+        {
+            parts.Add($"is a member of '{facts.PrivilegedMembership}', a role that is a superuser or has BYPASSRLS");
         }
 
         if (facts.AdminRole is not null)

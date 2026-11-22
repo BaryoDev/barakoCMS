@@ -1,7 +1,10 @@
 using System.Data.Common;
 using barakoCMS.Infrastructure.Security;
 using FluentAssertions;
+using Marten;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
@@ -133,6 +136,118 @@ public sealed class DatabaseRoleGuardTests(DatabaseRoleGuardTests.Postgres postg
 
         (await refusing.Should().ThrowAsync<InvalidOperationException>()).Which.Message
             .Should().Contain($"'{role}'").And.Contain("'rds_superuser'");
+    }
+
+    [Fact]
+    public async Task A_plain_role_in_a_BYPASSRLS_role_is_refused_and_the_role_is_named()
+    {
+        var group = NewRole();
+        await postgres.ExecuteAsync($"create role {group} nologin nosuperuser bypassrls");
+        var (role, password) = await NewLoginAsync("nosuperuser nobypassrls inherit");
+        await postgres.ExecuteAsync($"grant {group} to {role}");
+
+        var refusing = () => AssertAsAsync(allow: null, role, password);
+
+        var thrown = (await refusing.Should().ThrowAsync<InvalidOperationException>()).Which;
+
+        thrown.Message.Should().Contain($"'{role}'").And.Contain($"member of '{group}'")
+            .And.Contain("superuser or has BYPASSRLS");
+        thrown.Message.Should().NotContain("is a superuser");
+    }
+
+    [Fact]
+    public async Task A_member_of_a_role_with_no_privileges_starts()
+    {
+        var group = NewRole();
+        await postgres.ExecuteAsync($"create role {group} nologin nosuperuser nobypassrls");
+        var (role, password) = await NewLoginAsync("nosuperuser nobypassrls");
+        await postgres.ExecuteAsync($"grant {group} to {role}");
+
+        var starting = () => AssertAsAsync(allow: null, role, password);
+
+        await starting.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task An_unrecognised_value_warns_once_even_when_the_role_passes()
+    {
+        var (role, password) = await NewLoginAsync("nosuperuser nobypassrls");
+        var logger = new ListLogger();
+        var start = new object();
+        Func<CancellationToken, Task<DbConnection>> open = OpenAs(role, password);
+
+        await DatabaseRoleGuard.AssertAsync(Config("yes"), false, open, logger, start, DatabaseRoleGuard.RoleQuery, Ct);
+        await DatabaseRoleGuard.AssertAsync(Config("yes"), false, open, logger, start, DatabaseRoleGuard.RoleQuery, Ct);
+
+        logger.Warnings.Should().ContainSingle().Which.Should().Contain("not recognised")
+            .And.Contain("Database:AllowSuperuser").And.NotContain("yes");
+    }
+
+    [Fact]
+    public async Task A_recognised_value_logs_no_unrecognised_warning()
+    {
+        var (role, password) = await NewLoginAsync("nosuperuser nobypassrls");
+        var logger = new ListLogger();
+
+        await DatabaseRoleGuard.AssertAsync(Config("false"), false, OpenAs(role, password), logger, new object(), DatabaseRoleGuard.RoleQuery, Ct);
+
+        logger.Warnings.Should().BeEmpty();
+    }
+
+    private IHost ProductionHostAs(string? user, string? password, string? allow)
+    {
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { EnvironmentName = Environments.Production });
+        if (allow is not null)
+        {
+            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { [DatabaseRoleGuard.AllowKey] = allow });
+        }
+
+        builder.Services.AddMarten(postgres.ConnectionString(user, password));
+        builder.Services.AddSingleton<DatabaseRoleGuardKey>();
+        builder.Services.AddSingleton<IHostedService, DatabaseRoleBackstop>();
+        return builder.Build();
+    }
+
+    [Fact]
+    public async Task A_production_superuser_host_that_never_applies_the_schema_fails_to_start()
+    {
+        using var host = ProductionHostAs(user: null, password: null, allow: null);
+
+        var starting = () => host.StartAsync(Ct);
+
+        (await starting.Should().ThrowAsync<InvalidOperationException>()).Which.Message
+            .Should().Contain("'postgres'").And.Contain("is a superuser");
+    }
+
+    [Fact]
+    public async Task The_allow_key_lets_the_backstop_host_start()
+    {
+        using var host = ProductionHostAs(user: null, password: null, allow: "true");
+
+        await host.StartAsync(Ct);
+        await host.StopAsync(Ct);
+    }
+
+    [Fact]
+    public async Task The_backstop_skips_when_the_check_already_ran_for_the_host()
+    {
+        var (role, password) = await NewLoginAsync("nosuperuser nobypassrls");
+        using var host = ProductionHostAs(role, password, allow: null);
+        var services = host.Services;
+
+        await DatabaseRoleGuard.AssertAsync(
+            services.GetRequiredService<IConfiguration>(),
+            isDevelopment: false,
+            services.GetRequiredService<IDocumentStore>(),
+            NullLogger.Instance,
+            services.GetRequiredService<DatabaseRoleGuardKey>(),
+            Ct);
+
+        // A second check would now refuse. Only a skipped one lets the host start.
+        await postgres.ExecuteAsync($"alter role {role} bypassrls");
+
+        await host.StartAsync(Ct);
+        await host.StopAsync(Ct);
     }
 
     [Fact]
