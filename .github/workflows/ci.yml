@@ -958,6 +958,12 @@ jobs:
           fi
           echo "The known-bad manifests were rejected. The gate is live."
 
+      # Applying is not starting. This runs Postgres with a read-only root and five capabilities and
+      # the backup job as uid 70, and takes one backup, so a hardening field that stops the image
+      # from booting fails here and not on an operator's cluster.
+      - name: Postgres and the backup job start
+        run: bash scripts/check-k8s-start.sh k8s
+
   # The release workflow refuses to publish an image that does not serve both architectures. It had
   # only ever passed, which is not evidence it can fail (#394). 3.21.0 predates the gate and is
   # amd64 only, so it is the red case: the script must reject it for the reason it exists, and must

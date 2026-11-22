@@ -50,6 +50,15 @@ spec:
       backoffLimit: 2
       template:
         spec:
+          # No crond in a CronJob pod, so this runs fully non-root. 70 is the postgres user of the
+          # postgres:16-alpine image. fsGroup makes the barako-backups volume writable by it.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            fsGroup: 70
+            seccompProfile:
+              type: RuntimeDefault
           containers:
             - name: backup
               image: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d # postgres:16-alpine
@@ -77,7 +86,8 @@ spec:
                   pg_dump -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
                       --no-owner --no-acl > "$TMP" || fail "pg_dump exited non-zero"
 
-                  # A dump of an empty schema is comfortably over 1KB.
+                  # An empty database dumps to about 650 bytes, so anything under 1KB holds no data:
+                  # the app has not created its tables yet, or something went wrong upstream.
                   SIZE=$(wc -c < "$TMP")
                   [ "$SIZE" -ge "$MIN_BYTES" ] || fail "dump is only ${SIZE} bytes"
 
@@ -107,6 +117,12 @@ spec:
                     secretKeyRef:
                       name: barako-secrets
                       key: POSTGRES_PASSWORD
+              # Everything the script writes is under /backups, so the root can be read-only.
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
               volumeMounts:
                 - name: backup-volume
                   mountPath: /backups

@@ -160,6 +160,103 @@ public class KubernetesManifestTests
         return probes;
     }
 
+    [Fact]
+    public void The_Ingress_hosts_and_every_probe_Host_header_are_in_AllowedHosts()
+    {
+        var allowed = AllowedHosts();
+        allowed.Should().NotBeEmpty("Production refuses an empty AllowedHosts");
+        barakoCMS.Infrastructure.Security.CanonicalHost.IsHostFilteringConstrained(string.Join(';', allowed))
+            .Should().BeTrue("Production refuses an AllowedHosts of *, 0.0.0.0 or [::], which turn host filtering off");
+
+        var ingressHosts = IngressHosts();
+        ingressHosts.Should().NotBeEmpty("an Ingress with no host routes nothing");
+        ingressHosts.Where(h => !allowed.Contains(h, StringComparer.OrdinalIgnoreCase))
+            .Should().BeEmpty("a request for an Ingress host that is not in AllowedHosts gets a 400");
+
+        var probes = ProbeHostHeaders(Deployment());
+        probes.Keys.Should().BeEquivalentTo(new[] { "startupProbe", "livenessProbe", "readinessProbe" });
+
+        foreach (var (probe, host) in probes)
+        {
+            host.Should().NotBeNull($"{probe} must send a Host header, the pod address is not in AllowedHosts");
+            allowed.Should().Contain(host!, $"the {probe} Host header has to be one AllowedHosts accepts");
+        }
+    }
+
+    private static string[] AllowedHosts()
+    {
+        var line = Lines(Path.Combine(ManifestDir(), "01-configmap.yaml"))
+            .Select(l => l.Trim())
+            .FirstOrDefault(l => l.StartsWith("AllowedHosts:", StringComparison.Ordinal));
+
+        line.Should().NotBeNull("01-configmap.yaml sets AllowedHosts");
+
+        return line!["AllowedHosts:".Length..].Trim().Trim('"', '\'')
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    private static string[] IngressHosts()
+    {
+        var hosts = new List<string>();
+        var inTlsHosts = false;
+
+        foreach (var raw in Lines(Path.Combine(ManifestDir(), "08-ingress.yaml")))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith('#')) continue;
+
+            if (line is "hosts:" or "- hosts:") { inTlsHosts = true; continue; }
+
+            if (inTlsHosts && line.StartsWith("- ", StringComparison.Ordinal))
+            {
+                hosts.Add(line[2..].Trim());
+                continue;
+            }
+
+            inTlsHosts = false;
+
+            var rule = line.StartsWith("- host:", StringComparison.Ordinal) ? line[2..] : line;
+            if (rule.StartsWith("host:", StringComparison.Ordinal))
+                hosts.Add(rule["host:".Length..].Trim());
+        }
+
+        return hosts.ToArray();
+    }
+
+    /// <summary>The Host header value each probe sends, or null for a probe with none.</summary>
+    private static Dictionary<string, string?> ProbeHostHeaders(string file)
+    {
+        var probes = new Dictionary<string, string?>(StringComparer.Ordinal);
+        string? current = null;
+        var sawHostName = false;
+
+        foreach (var raw in Lines(file))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith('#')) continue;
+
+            if (line is "livenessProbe:" or "readinessProbe:" or "startupProbe:")
+            {
+                current = line.TrimEnd(':');
+                probes[current] = null;
+                sawHostName = false;
+                continue;
+            }
+
+            if (current is null) continue;
+
+            if (line.EndsWith("name: Host", StringComparison.Ordinal))
+                sawHostName = true;
+            else if (sawHostName && line.StartsWith("value:", StringComparison.Ordinal))
+            {
+                probes[current] = line["value:".Length..].Trim().Trim('"', '\'');
+                sawHostName = false;
+            }
+        }
+
+        return probes;
+    }
+
     /// <summary>The hardening fields the app Deployment must carry, as text a plain check can find.</summary>
     private static string[] MissingHardening(string manifest)
     {
@@ -182,6 +279,52 @@ public class KubernetesManifestTests
     public void The_app_Deployment_runs_non_root_read_only_with_no_capabilities()
     {
         MissingHardening(File.ReadAllText(Deployment())).Should().BeEmpty();
+    }
+
+    private static string[] MissingContainerHardening(string manifest)
+    {
+        var text = manifest.Replace("\r", "");
+        var required = new Dictionary<string, string>
+        {
+            ["pod seccompProfile RuntimeDefault"] = @"(?ms)^\s*seccompProfile:\s*\n\s*type:\s*RuntimeDefault\s*$",
+            ["readOnlyRootFilesystem"] = @"(?m)^\s*readOnlyRootFilesystem:\s*true\s*$",
+            ["allowPrivilegeEscalation false"] = @"(?m)^\s*allowPrivilegeEscalation:\s*false\s*$",
+            ["capabilities drop ALL"] = @"(?m)^\s*drop:\s*\[\s*""?ALL""?\s*\]\s*$",
+        };
+
+        return required.Where(r => !Regex.IsMatch(text, r.Value)).Select(r => r.Key).ToArray();
+    }
+
+    [Fact]
+    public void Postgres_and_the_backup_job_keep_their_hardening()
+    {
+        var postgres = File.ReadAllText(Path.Combine(ManifestDir(), "03-postgres.yaml"));
+        var backup = File.ReadAllText(Path.Combine(ManifestDir(), "07-backup-cronjob.yaml"));
+
+        MissingContainerHardening(postgres).Should().BeEmpty();
+        MissingContainerHardening(backup).Should().BeEmpty();
+
+        var postgresNoComments = string.Join('\n', postgres.Replace("\r", "").Split('\n').Select(l => l.Split('#')[0].TrimEnd()));
+        var addBlock = Regex.Match(postgresNoComments, @"(?ms)^\s*add:\s*\n(?<list>(?:\s*-\s*[A-Z_]+[^\n]*\n)+)");
+        addBlock.Success.Should().BeTrue("Postgres adds back the capabilities its entrypoint needs");
+        Regex.Matches(addBlock.Groups["list"].Value, @"-\s*([A-Z_]+)").Select(m => m.Groups[1].Value)
+            .Should().BeEquivalentTo(new[] { "CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID" },
+                "the entrypoint starts as root and drops to the postgres user, and needs exactly these");
+
+        Regex.IsMatch(backup, @"(?m)^\s*runAsNonRoot:\s*true\s*$").Should().BeTrue("the backup job has no reason to run as root");
+        Regex.IsMatch(backup, @"(?m)^\s*runAsGroup:\s*70\s*$").Should().BeTrue("the group is 70 too");
+        Regex.IsMatch(backup, @"(?m)^\s*fsGroup:\s*70\s*$").Should().BeTrue("fsGroup makes the barako-backups volume writable by uid 70");
+        Regex.IsMatch(backup, @"(?m)^\s*runAsUser:\s*70\s*$").Should().BeTrue("70 is the postgres user of postgres:16-alpine");
+    }
+
+    [Fact]
+    public void The_Postgres_readiness_probe_asks_over_TCP()
+    {
+        var postgres = File.ReadAllText(Path.Combine(ManifestDir(), "03-postgres.yaml"));
+
+        postgres.Should().MatchRegex(@"command:\s*\[""pg_isready"",\s*""-h"",\s*""127\.0\.0\.1""",
+            "the image's temporary init server listens on the socket only, so a probe over the socket "
+          + "marks the pod ready while TCP still refuses and the Service sends the app to it");
     }
 
     [Fact]

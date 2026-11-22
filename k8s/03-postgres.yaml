@@ -14,6 +14,9 @@ spec:
       labels:
         app: postgres
     spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres
           image: pgvector/pgvector:pg16@sha256:484e838076e04939d27d3e176e91c86eea96236126023be8d3059761122e579f # pgvector/pgvector:pg16
@@ -35,14 +38,38 @@ spec:
                 secretKeyRef:
                   name: barako-secrets
                   key: POSTGRES_PASSWORD
+          # Starts as root, so no runAsNonRoot here: the image entrypoint prepares the data directory
+          # and then drops to the postgres user. It keeps only the five capabilities that needs.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add:
+                - CHOWN # the entrypoint fixes the data directory's owner on a fresh volume
+                - DAC_OVERRIDE # initdb and the entrypoint write into directories they do not own
+                - FOWNER # initdb sets modes on files it created as root
+                - SETGID # gosu drops to the postgres group
+                - SETUID # gosu drops to the postgres user
           volumeMounts:
             - name: postgres-data
               mountPath: /var/lib/postgresql/data
+            - name: tmp
+              mountPath: /tmp
+            - name: run
+              mountPath: /var/run/postgresql
           readinessProbe:
             exec:
-              command: ["pg_isready", "-U", "postgres"]
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", "postgres"]
             initialDelaySeconds: 5
             periodSeconds: 10
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: run
+          emptyDir:
+            sizeLimit: 8Mi
   volumeClaimTemplates:
     - metadata:
         name: postgres-data
