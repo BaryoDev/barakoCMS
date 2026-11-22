@@ -110,16 +110,26 @@ repo=$(jq -rn --arg i "$image" '$i | sub("@.*$"; "") | sub("(?<=[^/]):[^:/]*$"; 
 live=$(jq -c --arg today "$today" --arg repo "$repo" '[.[] | select(.expires >= $today)
     | select((has("images") | not) or ($repo != "" and (.images | index($repo) != null)))]' "$allowlist")
 
-# Every finding once, as "severity<TAB>id<TAB>package<TAB>fixed<TAB>accepted".
-rows=$(jq -r --argjson live "$live" "$findings"' | unique[]
+# Every finding once, as severity, id, package, fixed and accepted split by the unit separator. The shape check above
+# does not look inside each finding, so a finding jq cannot read fails here instead of vanishing.
+# A High or Critical finding whose id or package is empty, not a string, or holds a tab, newline or
+# the row separator is an error, so it fails the gate instead of shifting columns in the rows below.
+if ! rows=$(jq -r --argjson live "$live" "$findings"' | unique
+    | map(if (.id | type == "string" and length > 0 and (test("[\t\n\r\u001f]") | not))
+             and (.package | type == "string" and length > 0 and (test("[\t\n\r\u001f]") | not))
+          then . else error("finding with an empty or unreadable id or package") end)
+    | .[]
     | . as $f
-    | "\(.severity)\t\(.id)\t\(.package)\t\(.fixed)\t\(
+    | "\(.severity)\u001f\(.id)\u001f\(.package)\u001f\(.fixed)\u001f\(
         [$live[] | select(.id == $f.id and (.package == $f.package or .package == "*"))] | length > 0)"' \
-    "$report")
+    "$report"); then
+    echo "::error::could not read the findings in the $kind report (an id or package is empty or holds a tab or newline), failing closed"
+    exit 1
+fi
 
 sarif_rows=""
 reported=0
-while IFS=$'\t' read -r severity id package fixed accepted; do
+while IFS=$'\x1f' read -r severity id package fixed accepted; do
     [ -n "$id" ] || continue
     if [ "$accepted" = "true" ]; then
         echo "accepted until its expiry: $severity $id ($package)"
