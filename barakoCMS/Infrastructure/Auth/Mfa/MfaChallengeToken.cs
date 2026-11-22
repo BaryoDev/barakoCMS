@@ -90,7 +90,7 @@ public static class MfaChallengeToken
         var parameters = new TokenValidationParameters
         {
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
+            IssuerSigningKey = new SymmetricSecurityKey(JwtKeySource.Bytes(key)),
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromSeconds(30),
             ValidateIssuer = !string.IsNullOrEmpty(config["JWT:Issuer"]),

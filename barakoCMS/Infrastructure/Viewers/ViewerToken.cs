@@ -39,7 +39,7 @@ internal static class ViewerToken
     private static SymmetricSecurityKey KeyFor(string raw)
     {
         if (_key is { } cached && cached.Raw == raw) return cached.Key;
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(raw));
+        var key = new SymmetricSecurityKey(JwtKeySource.Bytes(raw));
         _key = new CachedKey(raw, key);
         return key;
     }

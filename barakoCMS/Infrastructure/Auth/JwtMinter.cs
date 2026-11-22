@@ -49,7 +49,7 @@ public sealed class JwtMinter(IConfiguration config, TimeProvider clock) : IJwtM
             Subject = new ClaimsIdentity(claims.ToList()),
             Expires = expiresAt,
             SigningCredentials = new SigningCredentials(
-                new SymmetricSecurityKey(Encoding.ASCII.GetBytes(key)), SecurityAlgorithms.HmacSha256),
+                new SymmetricSecurityKey(JwtKeySource.Bytes(key)), SecurityAlgorithms.HmacSha256),
         };
         return new JsonWebTokenHandler().CreateToken(descriptor);
     }

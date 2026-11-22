@@ -49,4 +49,15 @@ internal static class JwtKeyGuard
 
         return key;
     }
+
+    /// <summary>
+    /// A warning when the key holds a non-ASCII character, otherwise null. Never an error: tokens
+    /// are signed and validated with the key read as ASCII, so such a site works, but the key is
+    /// weaker than it looks and changing the encoding later would invalidate every token.
+    /// </summary>
+    public static string? NonAsciiWarning(string key) =>
+        key.Any(c => c > 127)
+            ? "JWT:Key contains characters outside ASCII. Tokens read the key as ASCII, so each such "
+            + "character becomes a question mark. Use an ASCII key, such as a random base64 or hex string."
+            : null;
 }

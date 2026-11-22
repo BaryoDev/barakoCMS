@@ -543,11 +543,12 @@ public static class ServiceCollectionExtensions
 
                 o.TokenValidationParameters.IssuerSigningKeyResolver = null;
                 o.TokenValidationParameters.IssuerSigningKey =
-                    new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(System.Text.Encoding.ASCII.GetBytes(key));
+                    new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(barakoCMS.Infrastructure.Auth.JwtKeySource.Bytes(key));
             });
 
         // The one place this host's tokens are signed. See IJwtMinter.
         services.TryAddSingleton(TimeProvider.System);
+        services.AddHostedService<barakoCMS.Infrastructure.Security.JwtKeyWarningCheck>();
         services.AddSingleton<barakoCMS.Infrastructure.Auth.IJwtMinter, barakoCMS.Infrastructure.Auth.JwtMinter>();
     }
 
