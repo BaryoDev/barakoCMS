@@ -28,18 +28,6 @@ ICONS["BarakoCMS.AI"] = ("BarakoCMS.AI", "#6A2C8F", f'''  <g fill="{WHITE}">
   <rect x="40" y="40" width="48" height="48" rx="12" fill="{WHITE}"/>
   <rect x="54" y="54" width="20" height="20" rx="6" fill="{GOLD}"/>''')
 
-# Accounting: balance scale, white frame, gold pans.
-ICONS["BarakoCMS.Accounting"] = ("BarakoCMS.Accounting", "#7A5230", f'''  <g fill="{WHITE}">
-    <rect x="60" y="30" width="8" height="66" rx="4"/>
-    <rect x="34" y="40" width="60" height="8" rx="4"/>
-    <rect x="44" y="94" width="40" height="9" rx="4"/>
-    <circle cx="64" cy="32" r="7"/>
-  </g>
-  <path d="M34 44 L22 68 H46 Z" fill="{GOLD}"/>
-  <path d="M94 44 L82 68 H106 Z" fill="{GOLD}"/>''')
-
-
-
 # Diagnostics: card with heartbeat.
 ICONS["BarakoCMS.Diagnostics"] = ("BarakoCMS.Diagnostics", "#455A64", f'''  <rect x="26" y="40" width="76" height="48" rx="12" fill="{WHITE}"/>
   <path d="M36 64 H50 L57 48 L71 80 L78 64 H92" fill="none" stroke="{GOLD}" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>''')

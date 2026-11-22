@@ -10,7 +10,7 @@ If you are deciding whether your idea is a module or a change to core, the tests
 Never built one? [docs/your-first-module.md](docs/your-first-module.md) walks from a fresh clone to a
 working module with tests, and links back here for each rule.
 
-barakoCMS has an optional **module system** for layering self-contained features (accounting, import,
+barakoCMS has an optional **module system** for layering self-contained features (import,
 files, email providers, …) on top of the generic core, without forking it. Core stays lean; a host
 opts into exactly the modules it wants.
 
@@ -19,7 +19,7 @@ opts into exactly the modules it wants.
 Reference the package and restart. That is the whole install:
 
 ```sh
-dotnet add package BarakoCMS.Accounting
+dotnet add package BarakoCMS.Files
 ```
 
 ```csharp
@@ -70,7 +70,7 @@ skips a type the host already added:
 builder.Services.AddBarakoCMS(builder.Configuration, modules =>
 {
     modules.Discover = false;                          // explicit list only; the default is true
-    modules.Add(new BarakoCMS.Accounting.AccountingModule());
+    modules.Add(new BarakoCMS.Import.ImportModule());
     modules.Add(new BarakoCMS.Files.FilesModule());
 });
 ```
@@ -89,11 +89,11 @@ an array or as one comma-separated string, matched against `IBarakoModule.Name` 
 case:
 
 ```json
-{ "BarakoCMS": { "Modules": { "Enabled": ["Accounting", "Files"] } } }
+{ "BarakoCMS": { "Modules": { "Enabled": ["Import", "Files"] } } }
 ```
 
 ```sh
-BarakoCMS__Modules__Enabled=Accounting,Files
+BarakoCMS__Modules__Enabled=Import,Files
 ```
 
 Three states, and they are different on purpose:
@@ -998,7 +998,6 @@ template ships a placeholder.
 
 | Package | What it adds |
 |---|---|
-| [BarakoCMS.Accounting](BarakoCMS.Accounting) | Deprecated, removed in a later release (#1285). Double-entry ledger: accounts, balanced journal entries, reporting |
 | [BarakoCMS.Import](BarakoCMS.Import) | Bulk import: analyze `.xlsx`/CSV uploads and create content |
 | [BarakoCMS.Files](BarakoCMS.Files) | File attachments (upload/download) stored in Postgres |
 | [BarakoCMS.Email.Smtp](BarakoCMS.Email.Smtp) | SMTP email provider (`IEmailService`), inert until a host is configured |

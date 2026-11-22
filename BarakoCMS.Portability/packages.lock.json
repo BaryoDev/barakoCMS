@@ -656,13 +656,13 @@
         "resolved": "16.3.0",
         "contentHash": "SgMOdxbz8X65z8hraIs6hOEdnkH6hESTAIUa7viEngHOYaH+6q5XJmwr1+yb9vJpNQ19hCQY69xbFsLtXpobQA=="
       },
-      "BarakoCMS": {
+      "barakocms": {
         "type": "Project",
         "dependencies": {
           "AspNetCore.HealthChecks.Npgsql": "[9.0.0, )",
           "AspNetCore.HealthChecks.System": "[9.0.0, )",
           "BCrypt.Net-Next": "[4.2.0, )",
-          "BarakoCMS.Abstractions": "[5.9.0, )",
+          "BarakoCMS.Abstractions": "[5.9.1, )",
           "Carom": "[2.1.0, )",
           "Carom.Extensions": "[2.1.0, )",
           "Cronos": "[0.13.0, )",

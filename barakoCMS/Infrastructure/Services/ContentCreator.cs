@@ -321,8 +321,8 @@ public sealed class ContentCreator(
         // Stored as the caller spelled it, deliberately, and the rebuild is what compares
         // case-insensitively. Normalising here looks like the tidier fix and is not: the type name
         // lands on the Content document via the projection, and modules match it exactly.
-        // BarakoCMS.Accounting queries ContentType == "journalEntry", so lowercasing the write turned
-        // every ledger and trial balance into zero rows, silently, with the postings still in place.
+        // A module that queries ContentType == "journalEntry" would get zero rows from a lowercased
+        // write, silently, with the entries still in place.
         var @event = new Events.ContentCreated(
             entryId, request.ContentType, request.Data, request.Status, userId, searchText,
             request.Sensitivity, DateTime.UtcNow);

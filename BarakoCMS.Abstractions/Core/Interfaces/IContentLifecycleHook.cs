@@ -132,7 +132,7 @@ public sealed record ContentTransition(string Name, string? FromState, string To
 /// invariants doesn't need its own bespoke endpoint to be modelled as a content type.
 ///
 /// This is the mechanism that makes "if it can be a content type, it should be" hold for domains
-/// like accounting: the schema validator can express "Amount is a decimal", but not "total debits
+/// like a ledger: the schema validator can express "Amount is a decimal", but not "total debits
 /// must equal total credits" or "assign the next sequential entry number". Those live here, next to
 /// the module that owns them, while the entry itself stays ordinary content — queryable, permissioned
 /// and delivered through the same generic endpoints as everything else.

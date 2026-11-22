@@ -46,7 +46,7 @@ public class SuiteCompositionTests
         services.Where(d => d.ServiceType == typeof(TService)).ToList();
 
     /// <summary>
-    /// The modules the Suite project references, plus Accounting, the Testing fixture module and this
+    /// The modules the Suite project references, plus the Testing fixture module and this
     /// project's own probes (one reaches core, one is contract-only), which the test process references too. A module project added to
     /// the Suite without being added here fails this test, which is the point: the set is pinned.
     /// </summary>
@@ -59,7 +59,6 @@ public class SuiteCompositionTests
 
         names.Should().BeEquivalentTo(
         [
-            "Accounting",
             "AI",
             "Diagnostics",
             "Email.Smtp",

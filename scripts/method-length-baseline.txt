@@ -2,7 +2,6 @@
 # Written by scripts/check-method-length.py --update. A number here may only go down;
 # raising one, or adding a line, is a reviewed decision the pull request explains.
 99 BarakoCMS.AI/Features/SemanticSearchEndpoint.cs::SemanticSearchEndpoint.HandleAsync
-75 BarakoCMS.Accounting/AccountingMigration.cs::AccountingMigration.RunAsync
 82 BarakoCMS.ExternalAuth/GitHubAuthEndpoints.cs::GitHubCallbackEndpoint.HandleAsync
 104 BarakoCMS.ExternalAuth/OidcAuthEndpoints.cs::OidcCallback.CompleteAsync
 150 BarakoCMS.ExternalAuth/OidcIdToken.cs::OidcIdToken.ValidateAsync

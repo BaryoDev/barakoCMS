@@ -49,7 +49,5 @@ Changing the strategy keeps the series' count.
 
 The same primitive is `INumberStrategies.For(strategy)`, which returns an `INumberAllocator`. Its
 `NextAsync` overload taking a date counts in that date's period, for a number that belongs to
-another day than today. The Accounting module numbers journal entries this way: series
-`accounting.je`, gapless, `JE-<year of the entry's date>-<six digits>`, the format it always used.
-`migrations/5.0.0/accounting-number-sequences.sql` carries each tenant's yearly count over from
-the module's own `NumberSequence` rows, so numbering continues where it stopped.
+another day than today. A module numbering documents by the year of their date can use a gapless series
+and a format such as `JE-<year>-<six digits>`.

@@ -260,8 +260,6 @@ it with `context.Reader`.
 The older `OnBeforeSaveAsync(ContentLifecycleContext, ...)` and its `context.Session` are obsolete
 and removed in 6.0.0. `BarakoCMS.Pages` has moved off them: its `PageTreeHook` reads its settings
 with `LoadAsync` and the page type's definition with `context.Reader.GetContentTypeAsync`.
-[`BarakoCMS.Accounting/JournalEntryHook.cs`](../BarakoCMS.Accounting/JournalEntryHook.cs) still uses
-`context.Session` until that module leaves this repository.
 
 One rule ships ready made. A reference to the entry's own type is not a parent just because it
 points at its own type (a related post pointing back is fine), so core cannot refuse loops for every

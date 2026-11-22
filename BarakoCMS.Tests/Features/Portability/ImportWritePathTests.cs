@@ -258,6 +258,15 @@ public class ImportWritePathTests
             if (title == "refuse")
                 return ["The probe hook refused this entry."];
 
+            // Reads the entries stored before this one, the way a module rule that looks at its own
+            // type does. In an import those include the earlier entries of the same bundle.
+            if (title.StartsWith("once-", StringComparison.Ordinal))
+            {
+                var earlier = await ((IContentHookContext)context).Reader.ListAsync(HookType, 0, 1000, ct);
+                if (earlier.Any(c => c.Data.TryGetValue("Title", out var other) && other?.ToString() == title))
+                    return [$"Title '{title}' is already in use."];
+            }
+
             context.Data["Stamp"] = "hooked";
             return [];
         }
@@ -330,6 +339,24 @@ public class ImportWritePathTests
         status.Should().Be(HttpStatusCode.BadRequest, body);
         body.Should().Contain("The probe hook refused this entry.");
         (await StoredEntriesAsync(HookType)).Should().NotContain(c => c.Data["Title"].ToString() == "refuse");
+    }
+
+    [Fact]
+    public async Task An_entry_a_hook_refuses_because_of_an_earlier_entry_in_the_bundle_refuses_the_import()
+    {
+        var admin = await AdminAsync(HookHost());
+        var title = $"once-{Guid.NewGuid():n}";
+
+        var (status, body) = await ImportAsync(admin, [HookTypeWithLifecycle()],
+        [
+            Record(HookType, new() { ["Title"] = title }),
+            Record(HookType, new() { ["Title"] = title }),
+        ]);
+
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("contents[1]").And.Contain($"Title '{title}' is already in use.");
+        (await StoredEntriesAsync(HookType)).Should().NotContain(c => c.Data["Title"].ToString() == title,
+            "the import is all or nothing");
     }
 
     /// <summary>
@@ -741,89 +768,6 @@ public class ImportWritePathTests
 
         status.Should().Be(HttpStatusCode.OK, body);
         (await StoredTypeAsync(type))!.Lifecycle!.Transitions.Single().RequiredFields.Should().Equal("Verdict");
-    }
-
-    // Hooks see earlier entries of the same bundle --------------------------------------------
-
-    private async Task EnsureAccountingTypesAsync()
-    {
-        using var scope = _fixture.Services.CreateScope();
-        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        foreach (var def in new[]
-                 {
-                     BarakoCMS.Accounting.AccountingContentTypes.AccountDefinition(),
-                     BarakoCMS.Accounting.AccountingContentTypes.JournalEntryDefinition(),
-                 })
-        {
-            if (!await session.Query<ContentTypeDefinition>().AnyAsync(t => t.Name == def.Name, Ct))
-                session.Store(def);
-        }
-
-        await session.SaveChangesAsync(Ct);
-    }
-
-    private static object Account(string code, string? parent = null) => Record(
-        BarakoCMS.Accounting.AccountingContentTypes.Account,
-        parent is null
-            ? new() { ["Code"] = code, ["Name"] = $"Account {code}", ["Type"] = "Asset", ["IsActive"] = true }
-            : new() { ["Code"] = code, ["Name"] = $"Account {code}", ["Type"] = "Asset", ["IsActive"] = true, ["ParentCode"] = parent });
-
-    private static object Journal(string memo, string debit, string credit) => Record(
-        BarakoCMS.Accounting.AccountingContentTypes.JournalEntry,
-        new()
-        {
-            ["Date"] = "2031-03-01",
-            ["Memo"] = memo,
-            ["Lines"] = new object[]
-            {
-                new Dictionary<string, object> { ["AccountCode"] = debit, ["Debit"] = 10m, ["Credit"] = 0m },
-                new Dictionary<string, object> { ["AccountCode"] = credit, ["Debit"] = 0m, ["Credit"] = 10m },
-            },
-        });
-
-    [Fact]
-    public async Task Journal_entries_in_one_bundle_are_numbered_in_sequence_against_accounts_from_the_same_bundle()
-    {
-        await EnsureAccountingTypesAsync();
-        var admin = await AdminAsync();
-        var cash = $"C{Guid.NewGuid():N}"[..12];
-        var income = $"I{Guid.NewGuid():N}"[..12];
-        var memo = $"batch-{Guid.NewGuid():n}";
-
-        var (status, body) = await ImportAsync(admin, [],
-        [
-            Account(cash),
-            Account(income, parent: cash),
-            Journal(memo, cash, income),
-            Journal(memo, cash, income),
-            Journal(memo, cash, income),
-        ]);
-
-        status.Should().Be(HttpStatusCode.OK, body);
-        var numbers = (await StoredEntriesAsync(BarakoCMS.Accounting.AccountingContentTypes.JournalEntry))
-            .Where(c => c.Data.TryGetValue("Memo", out var m) && m?.ToString() == memo)
-            .Select(c => c.Data["EntryNumber"].ToString()!)
-            .ToList();
-        numbers.Should().HaveCount(3);
-        numbers.Should().OnlyHaveUniqueItems("each entry's hook sees the entries numbered before it");
-        var sequence = numbers.Select(n => int.Parse(n[^6..])).Order().ToList();
-        (sequence[2] - sequence[0]).Should().Be(2, "three entries take three consecutive numbers");
-    }
-
-    [Fact]
-    public async Task An_entry_a_hook_refuses_because_of_an_earlier_entry_in_the_bundle_refuses_the_import()
-    {
-        await EnsureAccountingTypesAsync();
-        var admin = await AdminAsync();
-        var code = $"D{Guid.NewGuid():N}"[..12];
-
-        var (status, body) = await ImportAsync(admin, [], [Account(code), Account(code)]);
-
-        status.Should().Be(HttpStatusCode.BadRequest, body);
-        body.Should().Contain("contents[1]").And.Contain($"Account code '{code}' is already in use.");
-        (await StoredEntriesAsync(BarakoCMS.Accounting.AccountingContentTypes.Account))
-            .Where(c => c.Data.TryGetValue("Code", out var stored) && stored?.ToString() == code)
-            .Should().BeEmpty("the import is all or nothing");
     }
 
     private const string PageType = "pagetreeprobe";

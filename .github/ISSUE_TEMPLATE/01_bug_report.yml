@@ -35,7 +35,7 @@ body:
     attributes:
       label: barakoCMS version
       description: The `BarakoCMS` package version, plus any module versions involved.
-      placeholder: "BarakoCMS 3.19.0, BarakoCMS.Accounting 0.2.1"
+      placeholder: "BarakoCMS 3.19.0, BarakoCMS.Files 0.2.1"
     validations:
       required: true
 

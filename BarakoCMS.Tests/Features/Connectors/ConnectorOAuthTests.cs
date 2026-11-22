@@ -52,7 +52,7 @@ public class ConnectorOAuthTests : IAsyncLifetime
         {
             [ConnectorSettingKeys.TokenUrl] = provider.TokenUrl,
             [ConnectorSettingKeys.ClientId] = OAuthConnectors.ClientIdOf(provider),
-            [ConnectorSettingKeys.Scope] = "accounting.read",
+            [ConnectorSettingKeys.Scope] = "records.read",
             [ConnectorSettingKeys.Audience] = "https://api.example",
         });
 
@@ -70,7 +70,7 @@ public class ConnectorOAuthTests : IAsyncLifetime
         tokenCalls[0].Authorization.Should().Be(OAuthConnectors.BasicFor(provider, Secret),
             "HTTP Basic is the default way a client authenticates to the token endpoint");
         tokenCalls[0].Body.Should().Contain("grant_type=client_credentials");
-        tokenCalls[0].Body.Should().Contain("scope=accounting.read");
+        tokenCalls[0].Body.Should().Contain("scope=records.read");
         tokenCalls[0].Body.Should().Contain("audience=https%3A%2F%2Fapi.example");
         tokenCalls[0].Body.Should().NotContain("client_secret", "with Basic the secret is in the header only");
 

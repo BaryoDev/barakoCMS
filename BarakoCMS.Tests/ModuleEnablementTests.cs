@@ -102,7 +102,7 @@ public class ModuleEnablementTests
         var message = warnings[0].RenderMessage();
         message.Should().Contain("is not set");
         message.Should().Contain("Alpha, Bravo", "it says what is running unfiltered");
-        message.Should().Contain("BarakoCMS__Modules__Enabled=Accounting,Files", "and how to set it");
+        message.Should().Contain("BarakoCMS__Modules__Enabled=Pages,Files", "and how to set it");
         message.Should().Contain("empty string for core only");
     }
 
@@ -155,10 +155,10 @@ public class ModuleEnablementTests
     [Fact]
     public void A_name_that_matches_nothing_refuses_startup_and_lists_what_is_available()
     {
-        var act = () => Build([(EnabledKey, "Alpha,Accounting")], new Alpha(), new Bravo());
+        var act = () => Build([(EnabledKey, "Alpha,Missing")], new Alpha(), new Bravo());
 
         act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*'Accounting'*", "the offending name, so a typo is visible")
+            .WithMessage("*'Missing'*", "the offending name, so a typo is visible")
             .WithMessage("*Alpha, Bravo*", "and the names that would have worked")
             .WithMessage($"*{EnabledKey}*", "and the key to fix");
     }

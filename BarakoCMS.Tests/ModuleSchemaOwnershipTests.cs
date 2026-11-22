@@ -1,4 +1,3 @@
-#pragma warning disable CS0618 // Accounting is obsolete in 5.5 and is removed in #1285
 using barakoCMS.Models;
 using barakoCMS.Modules;
 using Marten;
@@ -41,7 +40,6 @@ public class ModuleSchemaOwnershipTests
     {
         var builder = new BarakoModuleBuilder();
         builder.DiscoverFrom(
-            typeof(BarakoCMS.Accounting.AccountingModule).Assembly,
             typeof(BarakoCMS.AI.AiModule).Assembly,
             typeof(BarakoCMS.Diagnostics.DiagnosticsModule).Assembly,
             typeof(BarakoCMS.Files.S3.S3FilesModule).Assembly);

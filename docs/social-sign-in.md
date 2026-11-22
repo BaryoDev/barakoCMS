@@ -173,7 +173,7 @@ issued stop working through the session epoch and the unique username and email 
   revoked (rows stay revoked, they hold no plaintext token).
 - Kept: revoked token ids, audit events that name the user (the audit chain is tamper-evident), and
   plain id references in other modules (`CreatedBy` on content, stations, share links, files,
-  accounting entries, diagnostics client errors).
+  diagnostics client errors).
 - Added: one `user.erased` audit entry with the user id and a reason, and no Facebook user id.
 - When a request removes a Facebook link, a `user.external_identity.removed` audit entry is written
   with no actor and the provider and reason `facebook_data_deletion` as metadata, and no Facebook
