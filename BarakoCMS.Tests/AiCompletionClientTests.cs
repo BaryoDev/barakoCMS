@@ -243,6 +243,18 @@ public class AiCompletionClientTests
         return services.BuildServiceProvider();
     }
 
+    [Fact]
+    public void The_embedding_client_has_a_timeout_and_a_response_buffer_cap()
+    {
+        using var sp = ServicesWith(new());
+
+        // A typed client is registered under its service type's name.
+        var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(IEmbeddingClient));
+
+        http.Timeout.Should().Be(TimeSpan.FromSeconds(30), "the framework default is 100 seconds");
+        http.MaxResponseContentBufferSize.Should().Be(1_000_000, "the framework default is 2 GB");
+    }
+
     [Theory]
     [InlineData("Completion:TimeoutSeconds", "2147483647")]
     [InlineData("Completion:TimeoutSeconds", "601")]
