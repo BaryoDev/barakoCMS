@@ -139,9 +139,12 @@ assert_extensions_and_no_extension_errors() {
   printf '%s\n' "$names" | grep -qx 'pg_stat_statements' || fail "pg_stat_statements is not installed"
   logs="$(mktemp)"
   dc logs --no-color "$CHECK_API" > "$logs" 2>&1 || true
-  if grep -qE 'permission denied for database|must be owner of extension' "$logs"; then
+  if grep -qE 'permission denied for database|permission denied to create extension|must be owner of extension' "$logs"; then
+    # Name the extension only. Postgres 13 and later say: permission denied to create extension "NAME".
+    ext="$(grep -oE 'permission denied to create extension "[^"]{1,63}"|must be owner of extension [A-Za-z0-9_-]{1,63}' "$logs" \
+      | head -1 | sed -e 's/.*extension //' -e 's/"//g')"
     rm -f "$logs"
-    fail "the $CHECK_API log shows the app role asked for an extension it may not create; add it to the owner script"
+    fail "the $CHECK_API log shows the app role asked for an extension it may not create (${ext:-name not in the log}); add it to the owner script"
   fi
   rm -f "$logs"
 }
@@ -209,8 +212,14 @@ assert_hand_made_table_reaches_app_role() {
     | app_psql "$APP_PASSWORD" 2>&1)" || fail "the app role could not write and read the table the owner made"
   [ "$out" = "$note" ] || fail "the app role read '$out' from the table, expected what it wrote"
   wrong="not-$(openssl rand -hex 8)"
-  if printf '%s\n' "select 1;" | app_psql "$wrong" > /dev/null 2>&1; then
-    fail "the app role signed in over the network with a wrong password, so the check above proves nothing"
+  local refusal rc=0
+  refusal="$(printf '%s\n' "select 1;" | app_psql "$wrong" 2>&1 > /dev/null)" || rc=$?
+  [ "$rc" -ne 0 ] || fail "the app role signed in over the network with a wrong password, so the check above proves nothing"
+  # Only the expected refusal counts: a docker or network failure would also exit non-zero.
+  if printf '%s' "$refusal" | grep -q 'password authentication failed'; then
+    printf 'a wrong password was refused with the expected authentication failure\n'
+  else
+    fail "the wrong password failed, but not with 'password authentication failed' (docker or network error?)"
   fi
 }
 

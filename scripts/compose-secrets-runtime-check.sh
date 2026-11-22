@@ -169,8 +169,9 @@ for svc in postgres postgres-extensions app db-backup; do
   for v in "${SECRET_VALUES[@]}"; do
     # grep -qF on a captured file: nothing but the service's name is printed on a hit.
     if [ -n "$v" ] && grep -qF -- "$v" "$LOGS"; then
-      printf 'found in %s\n' "$svc" >&2
-      fail "a password is in the $svc log"
+      # No log tail here: the line holds a password. Only the service's name is printed.
+      printf '\nFAILED: a password is in a service log\nfound in %s\n' "$svc" >&2
+      exit 1
     fi
   done
 done

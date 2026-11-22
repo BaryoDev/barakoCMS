@@ -78,7 +78,8 @@ oldest="$(printf '%s\n%s\n' "2.24.0" "${compose_version#v}" | sort -V | head -1)
 
 step "the copied quickstart resolves and publishes no host port"
 dc config --quiet || fail "the copied compose file does not resolve"
-if dc config | grep -q 'published:'; then
+# grep reads all of the config (no -q), so dc config is never cut off by a closed pipe.
+if dc config | grep 'published:' > /dev/null; then
   fail "the api still publishes a host port after the override"
 fi
 

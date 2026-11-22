@@ -33,11 +33,14 @@ PROJECT="compose-runtime-$$"
 ENVFILE="$(mktemp)"
 LOGS="$(mktemp)"
 
+# Generated once and used for the env file and the checks. .env.prod.example already has an empty
+# DB_APP_PASSWORD= line, so reading the value back from the file would not give this one.
+APP_PASSWORD="$(openssl rand -hex 16)"
 cat .env.prod.example > "$ENVFILE"
 cat >> "$ENVFILE" <<ENV
 BARAKO_TAG=$TAG
 DB_PASSWORD=$(openssl rand -hex 16)
-DB_APP_PASSWORD=$(openssl rand -hex 16)
+DB_APP_PASSWORD=$APP_PASSWORD
 JWT_KEY=$(openssl rand -hex 32)
 ADMIN_PASSWORD=Ci-$(openssl rand -hex 8)-Aa1!
 BACKUP_CRON_SCHEDULE=* * * * *
@@ -48,7 +51,6 @@ DC=(docker compose -p "$PROJECT" --env-file "$ENVFILE" -f docker-compose.prod.ym
 dc() { "${DC[@]}" "$@"; }
 CHECK_DB=barako_cms
 CHECK_API=app
-APP_PASSWORD="$(sed -n 's/^DB_APP_PASSWORD=//p' "$ENVFILE")"
 
 cleanup() {
   dc down -v --remove-orphans >/dev/null 2>&1 || true
