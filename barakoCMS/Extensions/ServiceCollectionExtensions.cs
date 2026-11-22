@@ -52,7 +52,7 @@ public static class ServiceCollectionExtensions
 
         AddJobQueue(services);
 
-        AddRequestLimits(services, configuration);
+        AddRequestLimits(services);
         AddOpenApiDocument(services, configuration);
 
         AddHealthProbes(services, configuration);
@@ -458,21 +458,168 @@ public static class ServiceCollectionExtensions
         services.AddJobQueues<barakoCMS.Models.JobRecord, barakoCMS.Infrastructure.Jobs.MartenJobStorageProvider>();
     }
 
-    private static void AddRequestLimits(IServiceCollection services, IConfiguration configuration)
+    internal static void AddRequestLimits(IServiceCollection services)
     {
         // Request body size limit (defends against large-payload memory pressure / DoS on the
         // arbitrary-JSON content endpoints). Configurable via RequestLimits:MaxBodyBytes; default 10 MB.
-        var maxBodyBytes = configuration.GetValue<long?>("RequestLimits:MaxBodyBytes") ?? 10L * 1024 * 1024;
-        services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>(o =>
+        // It is the one body size setting: Kestrel's limit and the multipart form limit both read it.
+        // Read when the options are first built, not at registration, so a setting a test host or the
+        // environment adds after this method has run still counts.
+        services.AddOptions<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>()
+            .Configure<IConfiguration>((o, root) =>
+            {
+                o.Limits.MaxRequestBodySize = MaxBodyBytesOf(root);
+                // "Server: Kestrel" tells a scanner what it is talking to and tells a client nothing.
+                o.AddServerHeader = false;
+                ApplyKestrelLimits(o.Limits, root.GetSection("Kestrel:Limits"));
+            });
+        services.AddOptions<Microsoft.AspNetCore.Http.Features.FormOptions>()
+            .Configure<IConfiguration>((o, root) => o.MultipartBodyLengthLimit = MaxBodyBytesOf(root));
+    }
+
+    private static long MaxBodyBytesOf(IConfiguration configuration)
+    {
+        var bytes = configuration.GetValue<long?>("RequestLimits:MaxBodyBytes") ?? 10L * 1024 * 1024;
+        if (bytes <= 0)
         {
-            o.Limits.MaxRequestBodySize = maxBodyBytes;
-            // "Server: Kestrel" tells a scanner what it is talking to and tells a client nothing.
-            o.AddServerHeader = false;
-        });
-        services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
+            throw new InvalidOperationException("RequestLimits:MaxBodyBytes must be a positive number.");
+        }
+
+        return bytes;
+    }
+
+    /// <summary>
+    /// Sets the limits Kestrel starts with: the request headers timeout, the header size and count,
+    /// the keep-alive timeout, the two connection caps and the minimum request body data rate. The
+    /// framework's own values stand for everything else, among them the minimum response data rate,
+    /// the request line size and the HTTP/2 limits. <c>Kestrel:Limits:*</c> overrides each of these
+    /// (the host does not bind that section by itself, this method does), and the two data rates
+    /// are read from <c>:BytesPerSecond</c> and <c>:GracePeriod</c> because the configuration binder
+    /// cannot build a <see cref="Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate"/>.
+    /// <c>RequestLimits:MaxBodyBytes</c> is the one body size setting, so
+    /// <c>Kestrel:Limits:MaxRequestBodySize</c> is refused. See docs/deploy-in-production.md.
+    /// </summary>
+    /// <exception cref="InvalidOperationException"><c>Kestrel:Limits:MaxRequestBodySize</c> is set.</exception>
+    internal static void ApplyKestrelLimits(
+        Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerLimits limits, IConfiguration section)
+    {
+        // Two keys for one limit would let the one bound last win for Kestrel while the multipart
+        // form limit kept the other. An empty value is refused too, since it binds to no limit at all.
+        if (section.GetSection("MaxRequestBodySize").Exists())
         {
-            o.MultipartBodyLengthLimit = maxBodyBytes;
-        });
+            throw new InvalidOperationException(
+                "Kestrel:Limits:MaxRequestBodySize is not supported. Set RequestLimits:MaxBodyBytes, "
+                + "which sets the request body limit and the multipart form limit together.");
+        }
+
+        // A client that opens a connection and dribbles its headers holds a slot until this runs out.
+        limits.RequestHeadersTimeout = TimeSpan.FromSeconds(15);
+        // The framework values, now written down.
+        limits.MaxRequestHeadersTotalSize = 32 * 1024;
+        limits.MaxRequestHeaderCount = 100;
+        // Longer than the 120 second idle timeout a reverse proxy usually has, so the proxy closes an
+        // idle connection first and never reuses one Kestrel has just closed.
+        limits.KeepAliveTimeout = TimeSpan.FromSeconds(130);
+        // One node behind a proxy holds roughly one connection per proxy worker and active client, a
+        // few hundred in normal use. 10000 is far above that and still stops a connection flood from
+        // exhausting file descriptors. Upgraded connections (WebSockets) are held open for a long
+        // time, so their bound is lower.
+        limits.MaxConcurrentConnections = 10_000;
+        limits.MaxConcurrentUpgradedConnections = 1_000;
+        // The framework value (240 bytes per second, 5 second grace), now explicit.
+        limits.MinRequestBodyDataRate = new Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate(
+            bytesPerSecond: 240, gracePeriod: TimeSpan.FromSeconds(5));
+
+        BindKestrelLimits(limits, section);
+
+        limits.MinRequestBodyDataRate = DataRateFrom(section.GetSection("MinRequestBodyDataRate"), limits.MinRequestBodyDataRate);
+        limits.MinResponseDataRate = DataRateFrom(section.GetSection("MinResponseDataRate"), limits.MinResponseDataRate);
+    }
+
+    /// <summary>
+    /// Binds <c>Kestrel:Limits:*</c> over the defaults and keeps a blank or non-positive value from
+    /// removing a limit. A blank value is skipped like a key that is left out, so a blank connection
+    /// cap keeps its default (the binder would read it as no cap). A cap or timeout of zero or less, or a timeout Kestrel reads as none, is refused with a message naming the key. There is
+    /// no way to ask for no cap other than a very large number such as 9223372036854775807.
+    /// </summary>
+    private static void BindKestrelLimits(
+        Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerLimits limits, IConfiguration section)
+    {
+        // A blank value is the same as a key that is left out, so it never reaches the binder.
+        var set = new ConfigurationBuilder()
+            .AddInMemoryCollection(section.AsEnumerable(makePathsRelative: true)
+                .Where(pair => !string.IsNullOrWhiteSpace(pair.Value)))
+            .Build();
+
+        // Bind each leaf key alone on a scratch copy, nested ones such as Http2:* included, so a bad
+        // value names its full key. The value itself is left out of the message.
+        foreach (var child in set.AsEnumerable(makePathsRelative: true))
+        {
+            if (child.Value is null || child.Key.Contains("DataRate:", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            try
+            {
+                new ConfigurationBuilder()
+                    .AddInMemoryCollection(new Dictionary<string, string?> { [child.Key] = child.Value })
+                    .Build()
+                    .Bind(new Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerLimits());
+            }
+            catch (Exception)
+            {
+                throw new InvalidOperationException(
+                    $"Kestrel:Limits:{child.Key} is not valid. It must be a positive number or a positive time span (hh:mm:ss).");
+            }
+        }
+
+        set.Bind(limits);
+
+        RefuseNonPositive(limits.MaxConcurrentConnections, "MaxConcurrentConnections", "number");
+        RefuseNonPositive(limits.MaxConcurrentUpgradedConnections, "MaxConcurrentUpgradedConnections", "number");
+        // Kestrel reads -00:00:00.001 (Timeout.InfiniteTimeSpan) as no timeout and stores MaxValue.
+        RefuseNonPositive(limits.RequestHeadersTimeout > TimeSpan.Zero && limits.RequestHeadersTimeout != TimeSpan.MaxValue, "RequestHeadersTimeout", "time span");
+        RefuseNonPositive(limits.KeepAliveTimeout > TimeSpan.Zero && limits.KeepAliveTimeout != TimeSpan.MaxValue, "KeepAliveTimeout", "time span");
+    }
+
+    private static void RefuseNonPositive(long? value, string key, string kind) =>
+        RefuseNonPositive(value is null or > 0, key, kind);
+
+    private static void RefuseNonPositive(bool positive, string key, string kind)
+    {
+        if (!positive)
+        {
+            throw new InvalidOperationException($"Kestrel:Limits:{key} must be a positive {kind}.");
+        }
+    }
+
+    /// <summary>
+    /// The rate the section names, a key it leaves out keeping the value of <paramref name="current"/>.
+    /// The binder leaves a rate untouched, so without this the section would be ignored.
+    /// </summary>
+    private static Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate? DataRateFrom(
+        IConfigurationSection rate, Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate? current)
+    {
+        if (!rate.Exists())
+        {
+            return current;
+        }
+
+        var bytesPerSecond = rate.GetValue<double?>("BytesPerSecond") ?? current?.BytesPerSecond ?? 240;
+        var gracePeriod = rate.GetValue<TimeSpan?>("GracePeriod") ?? current?.GracePeriod ?? TimeSpan.FromSeconds(5);
+        // Zero turns the slow-body guard off, and Kestrel refuses a grace period of a second or less.
+        if (bytesPerSecond <= 0)
+        {
+            throw new InvalidOperationException($"Kestrel:Limits:{rate.Key}:BytesPerSecond must be a positive number.");
+        }
+
+        if (gracePeriod <= TimeSpan.FromSeconds(1))
+        {
+            throw new InvalidOperationException($"Kestrel:Limits:{rate.Key}:GracePeriod must be a time span longer than 1 second.");
+        }
+
+        return new Microsoft.AspNetCore.Server.Kestrel.Core.MinDataRate(bytesPerSecond, gracePeriod);
     }
 
     private static void AddOpenApiDocument(IServiceCollection services, IConfiguration configuration)

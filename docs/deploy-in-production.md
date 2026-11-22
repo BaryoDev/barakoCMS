@@ -555,6 +555,43 @@ seen. There is no fixed cap on that number.
 policy, a forged `X-Forwarded-For`, the delivery limit and the key quota. `RateLimitStartupCheckTests`
 covers a route naming a missing policy and the reserved names, on a real host.
 
+## Connection and header limits
+
+Kestrel runs with these limits on purpose. Each is a default in code, and the application reads
+`Kestrel:Limits:*` to override it (the host does not read that section by itself). For example,
+set `Kestrel__Limits__KeepAliveTimeout=00:03:00` in compose. A duration is `hh:mm:ss`. A blank value
+keeps the default, and a zero or negative value stops the host at startup with a message naming the
+key. To lift a connection cap on purpose, set it to a very large number.
+
+| Setting | Default | Why |
+| --- | --- | --- |
+| `Kestrel:Limits:RequestHeadersTimeout` | 15 seconds | a client that dribbles its headers holds a connection until this runs out |
+| `Kestrel:Limits:MaxRequestHeadersTotalSize` | 32768 bytes | the framework value, large enough for big cookies |
+| `Kestrel:Limits:MaxRequestHeaderCount` | 100 | the framework value |
+| `Kestrel:Limits:KeepAliveTimeout` | 130 seconds | longer than a proxy's usual 120 second idle timeout, so the proxy never reuses a connection Kestrel just closed |
+| `Kestrel:Limits:MaxConcurrentConnections` | 10000 | far above one node behind a proxy in normal use, and still stops a connection flood |
+| `Kestrel:Limits:MaxConcurrentUpgradedConnections` | 1000 | WebSockets stay open, so they are bounded lower |
+
+`RequestLimits:MaxBodyBytes` (10 MB) is the one request body size setting. It sets Kestrel's body
+limit and the multipart form limit together. `Kestrel:Limits:MaxRequestBodySize` is refused: the host
+fails to start and the message names `RequestLimits:MaxBodyBytes`.
+
+The minimum data rates are read from two keys each, `Kestrel:Limits:MinRequestBodyDataRate:BytesPerSecond`
+and `:GracePeriod`, and the same for `MinResponseDataRate`. The configuration binder cannot build the
+rate object itself, so only these keys work. The request body rate is 240 bytes per second with a 5
+second grace period, and the response rate is the framework's, the same values. A key left out keeps
+that value. A rate of zero bytes per second, a grace period of one second or less, and a
+`RequestLimits:MaxBodyBytes` of zero or less stop the host at startup, naming the key. The request line size, the HTTP/2 limits and the other limits not in the table are the
+framework's.
+
+The caps count per process, and behind a proxy such as Caddy they count the proxy's connections to
+Kestrel, not users. Ten thousand connections is far more than one proxy opens. Upgraded connections
+(WebSockets) are counted apart from the others, and once past 1000 realtime clients connected at
+once, raise `Kestrel:Limits:MaxConcurrentUpgradedConnections`.
+
+`KestrelLimitsTests` covers the defaults, configuration winning, the data rate keys, the refusal and
+that the body and form limits follow `RequestLimits:MaxBodyBytes`.
+
 ## Content type field limit
 
 A content type may hold at most 200 fields. Creating one with more, or adding a field that would take

@@ -17,6 +17,25 @@ public interface IEmbeddingClient
 /// </summary>
 public sealed class OllamaEmbeddingClient : IEmbeddingClient
 {
+    /// <summary>
+    /// How long one embedding call may take, body included. The default HttpClient timeout is 100
+    /// seconds, far past what a vector for one piece of text needs.
+    /// </summary>
+    internal static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// The most of a response held in memory. A vector of a few thousand floats is tens of
+    /// kilobytes, and the default buffer is 2 GB.
+    /// </summary>
+    internal const long MaxResponseBytes = 1_000_000;
+
+    /// <summary>Applies <see cref="RequestTimeout"/> and <see cref="MaxResponseBytes"/> to the registered client.</summary>
+    internal static void Configure(HttpClient http)
+    {
+        http.Timeout = RequestTimeout;
+        http.MaxResponseContentBufferSize = MaxResponseBytes;
+    }
+
     private readonly HttpClient _http;
     private readonly AiOptions _opts;
 

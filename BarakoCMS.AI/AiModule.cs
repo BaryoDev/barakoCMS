@@ -69,7 +69,7 @@ public sealed class AiModule : IBarakoModule
                 barakoCMS.Infrastructure.Security.RateLimitSetup.RendererAwarePartition(
                     context, AiOptions.SemanticSearchRateLimitPolicy, window, rendererKeyHash));
         });
-        services.AddHttpClient<IEmbeddingClient, OllamaEmbeddingClient>();
+        services.AddHttpClient<IEmbeddingClient, OllamaEmbeddingClient>(OllamaEmbeddingClient.Configure);
         // Nothing calls this yet. It is an extension point, off until Modules:AI:Completion:Enabled is true.
         services.AddHttpClient<ICompletionClient, CompletionClient>(c => c.MaxResponseContentBufferSize = 1_000_000);
     }

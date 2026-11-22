@@ -70,6 +70,9 @@ internal class WebhookAction : IWorkflowAction
         _allowInsecureSignedUrls = WebhookSigning.AllowsInsecureSignedUrls(configuration);
     }
 
+    /// <summary>How long the response body may take to arrive once the headers have.</summary>
+    internal TimeSpan BodyTimeout { get; init; } = OutboundResilienceOptions.ResponseBodyAllowance;
+
     /// <inheritdoc />
     public string Type => "Webhook";
 
@@ -169,19 +172,7 @@ internal class WebhookAction : IWorkflowAction
                 },
             };
 
-            // The key the runner computed for this attempt, sent so the receiver can recognise a
-            // duplicate. It is stable across retries of the same action, which is what makes a
-            // retry safe to make: without the header the receiver has no way to tell a retry from a
-            // second publish, and the retry policy's whole premise is that it can.
-            //
-            // The runner has always put this in the parameters and nothing read it. That made the
-            // key dead: the retries happened, the header did not, and every comment claiming a
-            // duplicate would be absorbed downstream was describing something that was not sent.
-            if (parameters.TryGetValue("IdempotencyKey", out var idempotencyKey)
-                && !string.IsNullOrWhiteSpace(idempotencyKey))
-            {
-                request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey);
-            }
+            AddIdempotencyKey(request, parameters);
 
             var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             request.Headers.TryAddWithoutValidation(WebhookSigning.DeliveryHeader, delivery.Id.ToString());
@@ -217,7 +208,9 @@ internal class WebhookAction : IWorkflowAction
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
 
             delivery.ResponseStatus = (int)response.StatusCode;
-            delivery.ResponseBody = await ReadBoundedAsync(response.Content, ct);
+            var late = await ReadBodyWithinAllowanceAsync(response, delivery, url, timer, ct);
+            if (late is not null) return late;
+
             timer.Stop();
             delivery.DurationMs = timer.ElapsedMilliseconds;
             await RecordAsync(delivery, ct);
@@ -463,6 +456,53 @@ internal class WebhookAction : IWorkflowAction
         }
 
         return headers;
+    }
+
+    private static void AddIdempotencyKey(HttpRequestMessage request, Dictionary<string, string> parameters)
+    {
+        // The key the runner computed for this attempt, sent so the receiver can recognise a
+        // duplicate. It is stable across retries of the same action, which is what makes a
+        // retry safe to make: without the header the receiver has no way to tell a retry from a
+        // second publish, and the retry policy's whole premise is that it can.
+        //
+        // The runner has always put this in the parameters and nothing read it. That made the
+        // key dead: the retries happened, the header did not, and every comment claiming a
+        // duplicate would be absorbed downstream was describing something that was not sent.
+        if (parameters.TryGetValue("IdempotencyKey", out var idempotencyKey)
+            && !string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey);
+        }
+    }
+
+    /// <summary>
+    /// Reads the response body under its own deadline. The client's timeout ends at the headers, so
+    /// a receiver that sends them and then drips the body would hold this run until its lease
+    /// lapsed. Returns the failure to hand back when the body did not arrive in time, else null.
+    /// </summary>
+    private async Task<WorkflowActionResult?> ReadBodyWithinAllowanceAsync(
+        HttpResponseMessage response, WebhookDelivery delivery, string url, Stopwatch timer, CancellationToken ct)
+    {
+        using var allowance = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        allowance.CancelAfter(BodyTimeout);
+        try
+        {
+            delivery.ResponseBody = await ReadBoundedAsync(response.Content, allowance.Token);
+            return null;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            timer.Stop();
+            _logger.LogWarning("Webhook to {Url} answered {StatusCode} but its body did not arrive in time", Redact(url), response.StatusCode);
+
+            delivery.DurationMs = timer.ElapsedMilliseconds;
+            delivery.Error = "The response body did not arrive in time.";
+            await RecordAsync(delivery, ct);
+
+            return WorkflowActionResult.Failure(
+                $"Webhook to {Redact(url)} answered {(int)response.StatusCode} but its response body did not arrive in time.")
+                with { ResponseStatus = (int)response.StatusCode };
+        }
     }
 
     /// <summary>The first <see cref="WebhookDelivery.ResponseBodyLimit"/> bytes of the body, or null when there were none.</summary>

@@ -47,7 +47,7 @@ internal sealed record OidcEndpoints(
 internal sealed class OidcBackchannel(
     IHttpClientFactory httpFactory, ILogger<OidcBackchannel> logger, OidcClientSecrets secrets)
 {
-    public const string HttpClientName = "ExternalApi";
+    public const string HttpClientName = barakoCMS.Infrastructure.Http.HttpClientNames.ExternalApi;
 
     internal static readonly TimeSpan Lifetime = TimeSpan.FromHours(1);
     internal static readonly TimeSpan KeyRefreshInterval = TimeSpan.FromMinutes(5);
