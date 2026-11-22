@@ -15,6 +15,9 @@ puts `ghcr.io/baryodev/barako-brew` in front of it.
 - A **nightly backup** container running the same script the production stack uses. The folder
   carries its own copy in `scripts/backup-cron.sh`, so copy the whole folder, not just the compose
   file.
+- A one-shot job that runs `scripts/db-app-role.sql` before the API starts. It creates the database
+  role the API connects as, which has no superuser. After a restore, run `docker compose up -d` so
+  it runs again and gives that role the tables back.
 
 Every module is already in the image. Each one stays **off or on a safe mock** until you provide its
 keys, so an empty-but-valid `.env` boots a working CMS you can grow into.
@@ -24,7 +27,7 @@ keys, so an empty-but-valid `.env` boots a working CMS you can grow into.
 ```bash
 # from this quickstart/ folder
 cp .env.example .env
-#   edit .env, at minimum: DB_PASSWORD, JWT_KEY, ADMIN_PASSWORD (the example values are refused,
+#   edit .env, at minimum: DB_PASSWORD, DB_APP_PASSWORD, JWT_KEY, ADMIN_PASSWORD (the example values are refused,
 #   the API will not start on them), and check BARAKO_TAG, the release to run
 docker compose up -d
 ```
@@ -53,6 +56,7 @@ Full reference is in [`.env.example`](.env.example). The essentials:
 | --- | --- |
 | `BARAKO_TAG` | The release to run, for example `5.9.0`. No default, so a pull never upgrades you by surprise. |
 | `DB_PASSWORD` | Postgres password. The example value in `.env.example` is refused outside Development. |
+| `DB_APP_PASSWORD` | Password of the role the API connects as (`DB_APP_USER`, default `barako_app`), which has no superuser. A job runs `scripts/db-app-role.sql` before the API starts and creates the role. Keep it different from `DB_PASSWORD`. The example value is refused. |
 | `JWT_KEY` | Token signing key. **Must be 32+ characters** or the API won't start. The example value is refused. |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | The first admin account, seeded on first boot. |
 
@@ -202,7 +206,7 @@ created its tables, so `docker compose logs db-backup` shows `Backup OK` within 
 first `up`. If it does not, the stack has no recovery point. For a one-off dump:
 
 ```bash
-docker compose exec postgres pg_dump -U postgres barakocms > backup.sql
+docker compose exec postgres pg_dump --no-owner --no-privileges -U postgres barakocms > backup.sql
 ```
 
 ## Lean core instead of the full suite

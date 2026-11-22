@@ -134,6 +134,13 @@ last good copy.
 Stop the application first. A restore into a database the app is writing to will not be the database
 you backed up.
 
+The dump is taken with `--no-owner --no-privileges`, so it names no role and a restore needs none of
+them. The restored tables belong to the role that ran the restore, which is the owner (a superuser),
+not the app role the API connects as. In the production and quickstart stacks, run
+`docker compose up -d` after the restore: it runs the app role job again, and the job makes the app
+role owner of the tables. Until then the API cannot read them. Use `up -d`, not `start`: `up` is the
+command that runs the job.
+
 **docker compose, development stack**
 
 ```bash
@@ -159,7 +166,8 @@ docker compose -f docker-compose.prod.yml exec -T db-backup \
   | docker compose -f docker-compose.prod.yml exec -T postgres \
       psql -U "${DB_USER:-postgres}" -d "${DB_NAME:-barako_cms}" -v ON_ERROR_STOP=1
 
-docker compose -f docker-compose.prod.yml start app
+# Not `start app`. Up runs the app role job again, which hands the restored tables back to the app role.
+docker compose -f docker-compose.prod.yml up -d
 ```
 
 **quickstart stack**
@@ -173,7 +181,8 @@ docker compose stop api
 docker compose exec -T db-backup sh -c 'gunzip -c /backups/barako_backup_2026-08-30_02-00-00.sql.gz' \
   | docker compose exec -T postgres psql -U "${DB_USER:-postgres}" -d "${DB_NAME:-barakocms}" -v ON_ERROR_STOP=1
 
-docker compose start api
+# Not `start api`. Up runs the app role job again, which hands the restored tables back to the app role.
+docker compose up -d
 ```
 
 **Kubernetes**
