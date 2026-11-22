@@ -498,8 +498,8 @@ public static class ServiceCollectionExtensions
 
     /// <summary>
     /// Binds <c>Kestrel:Limits:*</c> over the defaults and keeps a blank or non-positive value from
-    /// removing a limit. A blank connection cap goes back to the default (the binder reads it as no
-    /// cap), and a cap or timeout of zero or less is refused with a message naming the key. There is
+    /// removing a limit. A blank value is skipped like a key that is left out, so a blank connection
+    /// cap keeps its default (the binder would read it as no cap). A cap or timeout of zero or less is refused with a message naming the key. There is
     /// no way to ask for no cap other than a very large number such as 9223372036854775807.
     /// </summary>
     private static void BindKestrelLimits(
@@ -508,9 +508,15 @@ public static class ServiceCollectionExtensions
         var maxConnections = limits.MaxConcurrentConnections;
         var maxUpgraded = limits.MaxConcurrentUpgradedConnections;
 
+        // A blank value is the same as a key that is left out, so it never reaches the binder.
+        var set = new ConfigurationBuilder()
+            .AddInMemoryCollection(section.AsEnumerable(makePathsRelative: true)
+                .Where(pair => !string.IsNullOrWhiteSpace(pair.Value)))
+            .Build();
+
         // Bind each plain key alone on a scratch copy, so a bad value names its key. The value itself
         // is left out of the message.
-        foreach (var child in section.GetChildren())
+        foreach (var child in set.GetChildren())
         {
             if (child.Value is null || child.Key.EndsWith("DataRate", StringComparison.Ordinal))
             {
@@ -531,7 +537,7 @@ public static class ServiceCollectionExtensions
             }
         }
 
-        section.Bind(limits);
+        set.Bind(limits);
 
         limits.MaxConcurrentConnections ??= maxConnections;
         limits.MaxConcurrentUpgradedConnections ??= maxUpgraded;

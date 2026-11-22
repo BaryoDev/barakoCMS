@@ -137,6 +137,23 @@ public class KestrelLimitsTests
     }
 
     [Theory]
+    [InlineData("Kestrel:Limits:RequestHeadersTimeout")]
+    [InlineData("Kestrel:Limits:KeepAliveTimeout")]
+    [InlineData("Kestrel:Limits:MaxRequestHeaderCount")]
+    [InlineData("Kestrel:Limits:MaxRequestHeadersTotalSize")]
+    [InlineData("Kestrel:Limits:MaxRequestLineSize")]
+    public void Kestrel_ABlankValueIsTheSameAsAKeyLeftOut(string key)
+    {
+        var limits = Limits((key, ""), (key + "x", " "))();
+
+        limits.RequestHeadersTimeout.Should().Be(TimeSpan.FromSeconds(15));
+        limits.KeepAliveTimeout.Should().Be(TimeSpan.FromSeconds(130));
+        limits.MaxRequestHeaderCount.Should().Be(100);
+        limits.MaxRequestHeadersTotalSize.Should().Be(32 * 1024);
+        limits.MaxRequestLineSize.Should().Be(8 * 1024);
+    }
+
+    [Theory]
     [InlineData("Kestrel:Limits:MaxConcurrentConnections", "0")]
     [InlineData("Kestrel:Limits:MaxConcurrentConnections", "-5")]
     [InlineData("Kestrel:Limits:MaxConcurrentUpgradedConnections", "0")]
