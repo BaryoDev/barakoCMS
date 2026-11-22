@@ -308,7 +308,9 @@ The JWT key, the admin password and the database password can live in files inst
 (Docker secrets, or a Kubernetes secret volume). The API reads a directory of files as configuration:
 `BARAKO_SECRETS_DIR`, default `/run/secrets`, blank means the default. A file name is the
 configuration key with `__` for the section separator, so `/run/secrets/JWT__Key` is `JWT:Key`. A
-missing directory is fine. A file the API cannot read, or a directory it cannot list, stops startup with a message that names
+missing directory is fine. Both shipped images read the directory. A custom host calls
+`builder.Configuration.AddSecretFilesFromEnvironment()` right after `WebApplication.CreateBuilder`,
+before anything reads configuration. A file the API cannot read, or a directory it cannot list, stops startup with a message that names
 the file or directory and never a content.
 
 Secret files are read after every other source, so a file wins over an environment variable, a

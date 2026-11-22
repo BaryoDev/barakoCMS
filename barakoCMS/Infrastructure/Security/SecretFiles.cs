@@ -19,20 +19,24 @@ namespace barakoCMS.Infrastructure.Security;
 /// here. A file's UTF-8 byte order mark is dropped, and an empty file sets an empty value. Nothing else is
 /// trimmed.
 /// </remarks>
-internal static class SecretFiles
+public static class SecretFiles
 {
-    public const string DirectorySetting = "BARAKO_SECRETS_DIR";
+    internal const string DirectorySetting = "BARAKO_SECRETS_DIR";
 
-    public const string DefaultDirectory = "/run/secrets";
+    internal const string DefaultDirectory = "/run/secrets";
 
     /// <summary>
     /// Adds the secret files named by <c>BARAKO_SECRETS_DIR</c> (default <c>/run/secrets</c>). A blank
-    /// value means the default.
+    /// value means the default. Call it right after <c>WebApplication.CreateBuilder</c> and before
+    /// anything reads configuration, so a secret file wins over every other source and the startup
+    /// guards see it. A file that cannot be read, or a directory that cannot be listed, throws an
+    /// <see cref="InvalidOperationException"/> naming it, never a content. A custom host built on the
+    /// package calls this to opt in.
     /// </summary>
     public static IConfigurationBuilder AddSecretFilesFromEnvironment(
         this IConfigurationBuilder builder,
         Func<string, string?>? environment = null,
-        string defaultDirectory = DefaultDirectory)
+        string defaultDirectory = "/run/secrets")
     {
         var configured = (environment ?? Environment.GetEnvironmentVariable)(DirectorySetting);
         var directory = string.IsNullOrWhiteSpace(configured) ? defaultDirectory : configured.Trim();
@@ -44,7 +48,7 @@ internal static class SecretFiles
     /// not exist adds nothing. A file that cannot be read, or a directory that cannot be listed, throws and names the file or
     /// the directory, never a content.
     /// </summary>
-    public static IConfigurationBuilder AddSecretFiles(this IConfigurationBuilder builder, string directory)
+    internal static IConfigurationBuilder AddSecretFiles(this IConfigurationBuilder builder, string directory)
     {
         if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
         {

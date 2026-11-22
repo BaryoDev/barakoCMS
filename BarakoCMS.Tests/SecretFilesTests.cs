@@ -286,30 +286,57 @@ public class SecretFilesShippedFilesTests
         passwords.Should().OnlyContain(l => l.EndsWith("${DB_PASSWORD:-}"));
     }
 
-    [Fact]
-    public void Program_adds_the_secret_files_once_after_the_builder_and_before_configuration_is_read()
+    private static void AssertWiredOnce(string programPath)
     {
-        var code = string.Join('\n', Read("barakoCMS/Program.cs").Split('\n').Select(l =>
+        var code = string.Join('\n', Read(programPath).Split('\n').Select(l =>
         {
             var i = l.IndexOf("//", StringComparison.Ordinal);
             return i >= 0 ? l[..i] : l;
         }));
 
         const string call = "AddSecretFilesFromEnvironment";
-        Regex.Matches(code, call).Should().HaveCount(1);
+        Regex.Matches(code, call).Should().HaveCount(1, "{0} adds the secret files once", programPath);
         var at = code.IndexOf(call, StringComparison.Ordinal);
 
-        var created = code.IndexOf("WebApplication.CreateBuilder", StringComparison.Ordinal);
+        var created = code.IndexOf("CreateBuilder", StringComparison.Ordinal);
         created.Should().BeGreaterThanOrEqualTo(0);
-        at.Should().BeGreaterThan(created, "the builder has to exist first");
+        at.Should().BeGreaterThan(created, "the builder has to exist first in {0}", programPath);
 
         foreach (var read in new[] { "ReadFrom.Configuration", "builder.Configuration[", "GetSection", "Get<", "GetValue" })
         {
             var first = code.IndexOf(read, StringComparison.Ordinal);
             if (first >= 0)
             {
-                at.Should().BeLessThan(first, "a secret file has to be in configuration before {0} reads it", read);
+                at.Should().BeLessThan(first, "a secret file has to be in configuration before {0} reads it in {1}", read, programPath);
             }
+        }
+    }
+
+    [Theory]
+    [InlineData("barakoCMS/Program.cs")]
+    [InlineData("BarakoCMS.Suite/Program.cs")]
+    public void Program_adds_the_secret_files_once_after_the_builder_and_before_configuration_is_read(string programPath)
+        => AssertWiredOnce(programPath);
+
+    [Fact]
+    public void Every_image_host_adds_the_secret_files()
+    {
+        var dockerfiles = Directory.GetFiles(RepoPaths.Root, "Dockerfile*", SearchOption.TopDirectoryOnly);
+        dockerfiles.Length.Should().BeGreaterThanOrEqualTo(2, "an empty glob must not pass");
+
+        foreach (var dockerfile in dockerfiles)
+        {
+            var publish = Regex.Match(File.ReadAllText(dockerfile), @"dotnet publish\s+""?([^\s""]+\.csproj)""?");
+            publish.Success.Should().BeTrue("{0} has a dotnet publish line", Path.GetFileName(dockerfile));
+
+            var projectName = Path.GetFileName(publish.Groups[1].Value);
+            var projects = Directory.GetFiles(RepoPaths.Root, projectName, SearchOption.AllDirectories)
+                .Where(f => !f.Split(Path.DirectorySeparatorChar).Any(d => d is "bin" or "obj"))
+                .ToArray();
+            projects.Should().HaveCount(1, "{0} names {1}", Path.GetFileName(dockerfile), projectName);
+
+            var program = Path.Combine(Path.GetDirectoryName(projects[0])!, "Program.cs");
+            AssertWiredOnce(Path.GetRelativePath(RepoPaths.Root, program).Replace(Path.DirectorySeparatorChar, '/'));
         }
     }
 
