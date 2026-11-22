@@ -107,8 +107,9 @@ public sealed class ManagedAdminRoleStepsTests(ManagedAdminRoleStepsTests.Postgr
         await postgres.WriteAsync("/work/steps/move.sql", blocks[1]);
 
         var admin = await postgres.RunAsync(
-            "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres", "-c",
-            $"CREATE ROLE mgr LOGIN CREATEROLE CREATEDB NOSUPERUSER; CREATE DATABASE {Database} OWNER mgr");
+            "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres",
+            "-c", "CREATE ROLE mgr LOGIN CREATEROLE CREATEDB NOSUPERUSER",
+            "-c", $"CREATE DATABASE {Database} OWNER mgr");
         admin.ExitCode.Should().Be(0, admin.Stderr);
         var extension = await postgres.PsqlAsync("postgres", Database, "-c", "CREATE EXTENSION pg_stat_statements");
         extension.ExitCode.Should().Be(0, extension.Stderr);
