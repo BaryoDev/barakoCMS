@@ -302,6 +302,47 @@ so check `ip route` before you pick.
 `ForwardedHeadersTests` reads these defaults out of the compose file and checks that a request from
 Caddy's address has its `X-Forwarded-For` honoured and a request from another container does not.
 
+## Secrets as files
+
+The JWT key, the admin password and the database password can live in files instead of `.env`
+(Docker secrets, or a Kubernetes secret volume). The API reads a directory of files as configuration:
+`BARAKO_SECRETS_DIR`, default `/run/secrets`, blank means the default. A file name is the
+configuration key with `__` for the section separator, so `/run/secrets/JWT__Key` is `JWT:Key`. A
+missing directory is fine. A file the API cannot read stops startup with a message that names the
+file and never its content.
+
+Secret files are read after every other source, so a file wins over an environment variable or an
+`appsettings` value for the same key. The startup guards read the same configuration, so an example
+key or password in a file is refused outside Development exactly as it is in `.env`. Trailing
+carriage returns and line feeds are removed from the value, so `echo key > file` and an editor that
+adds a final newline both give the key you typed. Nothing else is trimmed.
+
+To use it with the production stack, add the override with a second `-f` and set
+`SECRETS_AS_FILES=true`, in `.env` or the shell. That variable only lets the required `JWT_KEY`,
+`ADMIN_PASSWORD` and `DB_PASSWORD` checks in `docker-compose.prod.yml` pass while those three are
+unset; the override blanks them in the containers. Everything else in `.env` still applies.
+
+```bash
+mkdir secrets
+openssl rand -base64 48 | tr -d '\n' > secrets/jwt_key
+printf '%s' 'a-long-admin-password' > secrets/admin_password
+printf '%s' 'a-long-database-password' > secrets/db_password
+printf '%s' 'Host=postgres;Database=barako_cms;Username=postgres;Password=a-long-database-password' > secrets/db_connection_string
+sudo chown 1654:1654 secrets/*
+sudo chmod 0440 secrets/*
+SECRETS_AS_FILES=true docker compose -f docker-compose.prod.yml -f docker-compose.secrets.yml up -d
+```
+
+The API runs as uid 1654 in a read-only container, so the files are owned by `1654:1654` with mode
+`0440`. The same files are mounted into Postgres (as `POSTGRES_PASSWORD_FILE`), the extensions job
+and the backup job, which join group 1654 to read them. `secrets/` is in `.gitignore`.
+
+The API takes its database password inside `ConnectionStrings:DefaultConnection` and has no separate
+password key, so the connection string is the secret (`db_connection_string`, mounted as
+`ConnectionStrings__DefaultConnection`). Keep its password the same as `db_password`, which is the
+one Postgres sets. Without the override nothing changes: `docker-compose.prod.yml` declares no
+secrets, because compose refuses to start when a declared secret file is missing.
+
 ## Postgres image
 
 The database service runs `pgvector/pgvector:pg16` in `docker-compose.yml`, `docker-compose.prod.yml`,
