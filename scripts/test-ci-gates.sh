@@ -292,6 +292,15 @@ bash "$here/check-action-pins.sh" "$d/gn/workflows" > /dev/null; check "nested a
 bash "$here/check-action-pins.sh" "$d/gm/workflows" > /dev/null; check "nested action.yaml with a tag"        fail $?
 bash "$here/check-action-pins.sh" "$d/gc/workflows" > /dev/null; check "comments and run text are not steps"  pass $?
 
+# Every uses key on a line is checked, not only the first.
+mkdir -p "$d/gx/workflows" "$d/gy/workflows"
+printf 'jobs:\n  a:\n    steps: [{uses: actions/checkout@%s}, {uses: actions/setup-node@v7}]\n' "$sha" > "$d/gx/workflows/a.yml"
+printf 'jobs:\n  a:\n    steps: [{uses: actions/checkout@%s}, {uses: actions/setup-node@%s}]\n' "$sha" "$sha" > "$d/gy/workflows/a.yml"
+out=$(bash "$here/check-action-pins.sh" "$d/gx/workflows"); check "later tag on a flow line fails"            fail $?
+case "$out" in *actions/setup-node@v7*) check "the later tag is named" pass 0 ;; *) check "the later tag is named" pass 1 ;; esac
+out=$(bash "$here/check-action-pins.sh" "$d/gy/workflows"); check "two SHA-pinned flow maps pass"             pass $?
+case "$out" in *"2 checked, 0 not pinned"*) check "two flow maps count 2 checked" pass 0 ;; *) check "two flow maps count 2 checked" pass 1 ;; esac
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

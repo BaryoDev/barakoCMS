@@ -25,27 +25,43 @@ fi
 q='["'"'"']?'
 key_re="(^[[:space:]-]*|[{,][[:space:]]*)${q}uses${q}[[:space:]]*:[[:space:]]*(.*)\$"
 
+check_ref() {
+    local ref=$1 f=$2
+    case "$ref" in ./*) return ;; esac
+    checked=$((checked + 1))
+    if [[ "$ref" == docker://* ]]; then
+        [[ "$ref" =~ @sha256:[0-9a-f]{64}$ ]] && return
+    elif [[ "$ref" =~ @[0-9a-f]{40}$ ]]; then
+        return
+    fi
+    echo "::error file=$f::not pinned by a full commit SHA: $ref"
+    bad=$((bad + 1))
+}
+
 for f in "${files[@]}"; do
     while IFS= read -r line; do
         [[ "$line" =~ ^[[:space:]]*# ]] && continue
-        [[ "$line" =~ $key_re ]] || continue
-        ref=${BASH_REMATCH[2]}
-        if [[ "$ref" =~ ^\"([^\"]*)\" ]]; then
-            ref=${BASH_REMATCH[1]}
-        elif [[ "$ref" =~ ^\'([^\']*)\' ]]; then
-            ref=${BASH_REMATCH[1]}
-        else
-            ref=$(printf '%s' "$ref" | sed -E 's/[[:space:]]*(#.*|[,}].*)?$//')
-        fi
-        case "$ref" in ./*) continue ;; esac
-        checked=$((checked + 1))
-        if [[ "$ref" == docker://* ]]; then
-            [[ "$ref" =~ @sha256:[0-9a-f]{64}$ ]] && continue
-        elif [[ "$ref" =~ @[0-9a-f]{40}$ ]]; then
-            continue
-        fi
-        echo "::error file=$f::not pinned by a full commit SHA: $ref"
-        bad=$((bad + 1))
+        # A flow sequence can hold several uses keys on one line, so match again on what follows
+        # each value until none is left.
+        rest=$line
+        while [[ "$rest" =~ $key_re ]]; do
+            val=${BASH_REMATCH[2]}
+            if [[ "$val" =~ ^\"([^\"]*)\" ]]; then
+                ref=${BASH_REMATCH[1]}
+                rest=${val:${#BASH_REMATCH[0]}}
+            elif [[ "$val" =~ ^\'([^\']*)\' ]]; then
+                ref=${BASH_REMATCH[1]}
+                rest=${val:${#BASH_REMATCH[0]}}
+            else
+                [[ "$val" =~ ^([^#,}]*)(.*)$ ]]
+                ref=${BASH_REMATCH[1]}
+                rest=${BASH_REMATCH[2]}
+                # A comment ends the line; a , or } leaves the next flow entry to match.
+                [[ "$rest" == "#"* ]] && rest=""
+                ref=${ref%"${ref##*[![:space:]]}"}
+            fi
+            check_ref "$ref" "$f"
+        done
     done < "$f"
 done
 
