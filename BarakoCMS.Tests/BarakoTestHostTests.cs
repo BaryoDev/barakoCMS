@@ -257,6 +257,7 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
         await using var production = new BarakoTestHost(o =>
         {
             o.EnvironmentName = "Production";
+            o.Modules.Add(new PortabilityModule());
             o.Settings["JWT:Key"] = SharedJwtKey;
         });
         await production.InitializeAsync();
