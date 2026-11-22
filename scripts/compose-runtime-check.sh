@@ -7,10 +7,10 @@
 # The image has to exist already (CI builds it first). Caddy is left out because it needs ACME.
 #
 #   1. postgres starts on a fresh volume and reports healthy (up --wait)
-#   2. postgres-extensions, the job that runs scripts/db-app-role.sql, runs to completion on its
-#      own, because an exited one-shot counts as a failure for --wait
-#   3. app and db-backup start and report healthy, and the app's sessions in pg_stat_activity use
-#      the app role, not the owner
+#   2. a plain up of app and db-backup (no --no-deps, no --wait) makes compose run
+#      postgres-extensions, the job that runs scripts/db-app-role.sql, through depends_on. Health is
+#      polled, and the job's container must have exited 0
+#   3. the app's sessions in pg_stat_activity use the app role, not the owner
 #   4. the probe built into the binary answers on /health/ready, inside the container
 #   5. the backup's cron job runs once a minute and writes an archive with the root file system
 #      read-only
@@ -54,12 +54,24 @@ fail() { printf '\nFAILED: %s\n' "$1" >&2; dc logs --no-color --tail 60 app db-b
 step "starting postgres on a fresh volume"
 dc up -d --wait --wait-timeout 240 postgres || fail "postgres did not become healthy"
 
-step "running the app role job, which the app waits for"
-dc run --rm --no-deps postgres-extensions || fail "postgres-extensions did not finish cleanly"
+step "starting app and db-backup, so compose runs the app role job through depends_on"
+# A plain up, not --no-deps: this is the path an operator takes. No --wait either, because a
+# dependency that finished and exited may be reported as a failure by --wait (it depends on the
+# compose version), so health is polled below.
+dc up -d app db-backup || fail "compose could not start app and db-backup"
+for svc in app db-backup; do
+  healthy=0
+  for _ in $(seq 1 80); do
+    status="$(docker inspect -f '{{.State.Health.Status}}' "$(dc ps -q "$svc")" 2>/dev/null || true)"
+    if [ "$status" = "healthy" ]; then healthy=1; break; fi
+    sleep 3
+  done
+  [ "$healthy" = 1 ] || fail "$svc did not become healthy"
+done
 
-step "starting app and db-backup"
-# --no-deps: the job has already run and exited, and an exited one-shot fails --wait.
-dc up -d --no-deps --wait --wait-timeout 240 app db-backup || fail "the stack did not become healthy"
+step "the app role job exited 0"
+job_state="$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$(dc ps -aq postgres-extensions)" 2>/dev/null || true)"
+[ "$job_state" = "exited 0" ] || fail "the postgres-extensions container is '$job_state', not 'exited 0'"
 
 step "the probe answers on /health/ready"
 dc exec -T app dotnet barakoCMS.dll --health-probe /health/ready || fail "the readiness probe failed"
@@ -67,7 +79,8 @@ dc exec -T app dotnet barakoCMS.dll --health-probe /health/ready || fail "the re
 step "the API's sessions use the app role"
 # Not the owner: a superuser session would bypass row level security. The API is found by its
 # address on the project network, so the other services' sessions are not counted.
-api_ips="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$(dc ps -q app)")"
+api_ips="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$(dc ps -q app)")" \
+  || fail "could not inspect the app container"
 [ -n "${api_ips// /}" ] || fail "could not find the API's address"
 roles="$(dc exec -T postgres psql -X -At -U postgres -d barako_cms -v ips="$api_ips" -c \
   "select distinct usename from pg_stat_activity where client_addr = any(string_to_array(btrim(:'ips'), ' ')::inet[])")" \

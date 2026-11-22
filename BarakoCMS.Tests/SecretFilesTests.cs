@@ -301,6 +301,19 @@ public class SecretFilesShippedFilesTests
     }
 
     [Fact]
+    public void The_quickstart_api_connects_as_the_app_role_and_requires_its_password()
+    {
+        var lines = Read("quickstart/docker-compose.yml").Split('\n').Select(l => l.Trim()).Where(l => !l.StartsWith('#')).ToList();
+
+        var connection = lines.Single(l => l.StartsWith("ConnectionStrings__DefaultConnection:"));
+        connection.Should().Contain("Username=${DB_APP_USER:-barako_app}");
+        connection.Should().Contain("${DB_APP_PASSWORD:?");
+
+        var job = lines.Where(l => l.StartsWith("DB_APP_PASSWORD:")).ToList();
+        job.Should().ContainSingle().Which.Should().Contain("${DB_APP_PASSWORD:?");
+    }
+
+    [Fact]
     public void The_secrets_override_gives_the_role_job_its_own_app_password_file()
     {
         var text = Read("docker-compose.secrets.yml");

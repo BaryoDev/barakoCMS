@@ -25,7 +25,7 @@ services:
     # defaults for 4 GB and 8 GB, and the stock values to go back to, are in
     # docs/deploy-in-production.md in the barakoCMS repository, "Postgres on a small server". max_connections stays at the stock
     # 100 so an existing deployment's connection pool keeps fitting. pg_stat_statements is loaded so
-    # slow queries can be found; the postgres-extensions job below installs the extension.
+    # slow queries can be found; the postgres-extensions job below installs it and creates the app role the API connects as.
     command:
       - postgres
       - -c

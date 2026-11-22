@@ -28,6 +28,18 @@ cd "${COMPOSE_DIR}"
 
 echo "==> db-assert against the ${SERVICE} service's database"
 
+# From 6.0 the API connects as the app role, which the postgres-extensions job creates and hands the
+# tables to. On a 5.x volume the role does not exist yet, and until the job reruns, a migration's DDL
+# fails as a non-owner. So the job runs first, where the compose file has one. It starts postgres.
+if docker compose config --services | grep -qx postgres-extensions; then
+    echo "==> running the postgres-extensions job (creates or updates the app role)"
+    if ! docker compose run --rm postgres-extensions; then
+        echo "!! the postgres-extensions job did not exit 0, so the ${SERVICE} service cannot connect as the app role." >&2
+        echo "!! Check DB_PASSWORD and DB_APP_PASSWORD in .env, and docker compose logs postgres-extensions. Stopped before db-assert." >&2
+        exit 1
+    fi
+fi
+
 # --no-deps so this does not start postgres if it is down: a database that is not there is a
 # different failure and should read as one. `run` gives the command the service's own environment,
 # so it checks the connection string the deploy will use and nothing has to be passed in here.
@@ -48,6 +60,7 @@ AutoCreate.CreateOnly will not apply these. Run the migrations for the version b
 first: a migration must not run under a serving API.
 
     docker compose stop <service>
+    docker compose run --rm postgres-extensions    (6.0 and later, before any db-migrate)
     docker compose run --rm --no-deps <service> db-migrate
 
 With an older image, apply each file by hand:

@@ -68,12 +68,24 @@ without_override down -v --remove-orphans > /dev/null 2>&1 || true
 step "with the override, postgres starts on a fresh volume and reports healthy"
 with_override up -d --wait --wait-timeout 240 postgres || fail "postgres did not become healthy"
 
-step "running the app role job, which reads both passwords from files"
-with_override run --rm --no-deps postgres-extensions || fail "postgres-extensions did not finish cleanly"
+step "app and db-backup start, compose runs the app role job through depends_on, and they report healthy"
+# A plain up, not --no-deps: this is the path an operator takes. No --wait either, because a
+# dependency that finished and exited may be reported as a failure by --wait (it depends on the
+# compose version), so health is polled.
+with_override up -d app db-backup || fail "compose could not start app and db-backup"
+for svc in app db-backup; do
+  healthy=0
+  for _ in $(seq 1 80); do
+    status="$(docker inspect -f '{{.State.Health.Status}}' "$(with_override ps -q "$svc")" 2>/dev/null || true)"
+    if [ "$status" = "healthy" ]; then healthy=1; break; fi
+    sleep 3
+  done
+  [ "$healthy" = 1 ] || fail "$svc did not become healthy"
+done
 
-step "app and db-backup start and report healthy"
-# --no-deps: the job has already run and exited, and an exited one-shot fails --wait.
-with_override up -d --no-deps --wait --wait-timeout 240 app db-backup || fail "the stack did not become healthy"
+step "the app role job, which reads both passwords from files, exited 0"
+job_state="$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$(with_override ps -aq postgres-extensions)" 2>/dev/null || true)"
+[ "$job_state" = "exited 0" ] || fail "the postgres-extensions container is '$job_state', not 'exited 0'"
 
 step "the initial admin signs in with the password from secrets/admin_password"
 # An empty admin password makes the seeder generate one, so a healthy app proves nothing about the
@@ -92,7 +104,8 @@ login() {
 step "the API's sessions use the app role"
 # Not the owner: a superuser session would bypass row level security. The API is found by its
 # address on the project network, so the other services' sessions are not counted.
-api_ips="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$(with_override ps -q app)")"
+api_ips="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$(with_override ps -q app)")" \
+  || fail "could not inspect the app container"
 [ -n "${api_ips// /}" ] || fail "could not find the API's address"
 roles="$(with_override exec -T postgres psql -X -At -U postgres -d barako_cms -v ips="$api_ips" -c \
   "select distinct usename from pg_stat_activity where client_addr = any(string_to_array(btrim(:'ips'), ' ')::inet[])")" \
