@@ -80,6 +80,33 @@ $ echo $?
 `config` is worth running before `up` for exactly this: it resolves every variable and exits
 non-zero on the first one you have not set.
 
+## Verify the image
+
+Every release image is signed with cosign (keyless, from the release workflow) and has a build
+provenance attestation. Verify the image before you run it. You need `cosign` and `docker`.
+
+```bash
+bash scripts/verify-image-signature.sh ghcr.io/baryodev/barako-cms:$BARAKO_TAG
+bash scripts/verify-image-signature.sh ghcr.io/baryodev/barako-cms-decaf:$BARAKO_TAG
+```
+
+It resolves the tag to a digest, checks the signature and the provenance against
+`BaryoDev/barakoCMS` `release.yml`, and exits non-zero if either fails. Do not run an image that
+fails. To be sure you run exactly what was verified, pin the digest it prints in the compose file.
+
+The same check by hand:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/BaryoDev/barakoCMS/.github/workflows/release.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/baryodev/barako-cms@sha256:<digest>
+```
+
+The `:master` image is signed by `publish-master-image.yml` and has no provenance attestation. Verify
+it with `VERIFY_WORKFLOW=publish-master-image.yml bash scripts/verify-image-signature.sh ghcr.io/baryodev/barako-cms:master`.
+Images published before signing was added carry no signature and will not verify.
+
 ## Check it came up
 
 ```bash

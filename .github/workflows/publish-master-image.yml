@@ -66,6 +66,11 @@ jobs:
     if: github.ref == 'refs/heads/master'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # Keyless signing asks GitHub for an OIDC token.
+      id-token: write
     steps:
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
         with:
@@ -74,10 +79,12 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Merge the two builds into :master and :master-<sha>
+        env:
+          SHA: ${{ github.sha }}
         run: |
           docker buildx imagetools create \
             -t ghcr.io/baryodev/barako-cms:master \
-            -t ghcr.io/baryodev/barako-cms:master-${{ github.sha }} \
+            -t "ghcr.io/baryodev/barako-cms:master-$SHA" \
             ghcr.io/baryodev/barako-cms:master-amd64 \
             ghcr.io/baryodev/barako-cms:master-arm64
 
@@ -88,3 +95,27 @@ jobs:
           docker buildx imagetools inspect ghcr.io/baryodev/barako-cms:master > manifest.txt
           grep -q 'linux/amd64' manifest.txt
           grep -q 'linux/arm64' manifest.txt
+
+      # :master is a public tag that other repositories pull, so it is signed like a release image,
+      # by digest, after the platform check above. The identity names this workflow file, so a
+      # master build verifies against publish-master-image.yml and never against release.yml.
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+
+      - name: Sign the :master image and verify the signature
+        env:
+          IDENTITY_REGEXP: '^https://github.com/BaryoDev/barakoCMS/.github/workflows/publish-master-image.yml@'
+          OIDC_ISSUER: https://token.actions.githubusercontent.com
+        run: |
+          set -euo pipefail
+          DIGEST=$(docker buildx imagetools inspect --format '{{json .Manifest}}' ghcr.io/baryodev/barako-cms:master | jq -r '.digest')
+          case "$DIGEST" in
+            sha256:*) ;;
+            *) echo "::error::no digest for :master, got '$DIGEST'"; exit 1 ;;
+          esac
+          cosign sign --yes "ghcr.io/baryodev/barako-cms@$DIGEST"
+          cosign verify \
+            --certificate-identity-regexp "$IDENTITY_REGEXP" \
+            --certificate-oidc-issuer "$OIDC_ISSUER" \
+            "ghcr.io/baryodev/barako-cms@$DIGEST" > /dev/null
