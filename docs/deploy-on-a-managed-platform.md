@@ -59,7 +59,7 @@ special characters in the password. If both are set, `DATABASE_URL` wins.
 
 | Variable | Why |
 | --- | --- |
-| `Database__AllowSuperuser` | The API refuses to start when its database role is a superuser, has `BYPASSRLS`, or is a member of `rds_superuser` (Amazon RDS), `azure_pg_admin` (Azure Database for PostgreSQL) or `cloudsqlsuperuser` (Cloud SQL), the roles the admin user of those services holds. Connect as a role without superuser: run `scripts/db-app-role.sql` once as the admin user and put that role in `DATABASE_URL`. Set this to `true` to run as the admin on purpose; the API logs one warning at each start. Blank or `false` keeps the refusal, and any other value is refused as not recognised. See [Tenancy at the database](tenancy-at-the-database.md). |
+| `Database__AllowSuperuser` | The API refuses to start when its database role is a superuser, has `BYPASSRLS`, or is a member of `rds_superuser` (Amazon RDS), `azure_pg_admin` (Azure Database for PostgreSQL) or `cloudsqlsuperuser` (Cloud SQL), the roles the admin user of those services holds. Connect as a role without superuser: [the app role on a managed database](#the-app-role-on-a-managed-database) has the steps. Set this to `true` to run as the admin on purpose; the API logs one warning at each start. Blank or `false` keeps the refusal. Any other value counts as false: the refusal says it is not recognised, and a role that passes gets one warning. See [Tenancy at the database](tenancy-at-the-database.md). |
 | `CORS__AllowedOrigins` | Comma-separated origins of the console and your site. The default is localhost only, so a browser on any real origin fails CORS. |
 | `InitialAdmin__Username` | Defaults to `admin`. |
 | `App__BaseUrl` | The public origin the API puts in links it hands out. |
@@ -107,6 +107,64 @@ create tables in it: on a fresh database the first boot creates the whole schema
 Backups are the managed database's point-in-time recovery. `db-backup` in the compose file does not
 run on this path. [backup-and-restore.md](backup-and-restore.md) still applies to a restore, and
 nothing is written outside the database unless you turn on S3 file storage.
+
+### The app role on a managed database
+
+The API refuses to start as the platform's admin user (see the `Database__AllowSuperuser` row above).
+`scripts/db-app-role.sql` needs a superuser, which these platforms do not give, so create the role by
+hand. Connect with `psql` as the admin user to the API's database and run:
+
+```sql
+SET search_path = pg_catalog, pg_temp;
+CREATE ROLE barako_app LOGIN;
+\password barako_app
+GRANT barako_app TO CURRENT_USER;
+GRANT CONNECT ON DATABASE :"DBNAME" TO barako_app;
+ALTER SCHEMA public OWNER TO barako_app;
+```
+
+`\password` asks for the password and sends only its hash, so the password never reaches the server
+log. `GRANT ... TO CURRENT_USER` is what lets the admin hand objects to the role, because
+`ALTER ... OWNER TO` needs membership in the new owner. Put `barako_app` and that password in
+`DATABASE_URL`. On a new database that is all: the API creates its tables as `barako_app` on first
+start.
+
+If the API already ran on this database as the admin, stop it, run this in the same kind of session,
+then start it with the new `DATABASE_URL`. It skips what an extension owns, and running it again
+changes nothing.
+
+```sql
+SET search_path = pg_catalog, pg_temp;
+DO $move$
+DECLARE r record;
+BEGIN
+    FOR r IN
+        SELECT format('ALTER %s %s OWNER TO barako_app',
+                      CASE c.relkind WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW'
+                                     WHEN 'S' THEN 'SEQUENCE' WHEN 'f' THEN 'FOREIGN TABLE' ELSE 'TABLE' END,
+                      c.oid::regclass) AS stmt
+        FROM pg_class c
+        WHERE c.relnamespace = 'public'::regnamespace
+          AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+          AND pg_get_userbyid(c.relowner) <> 'barako_app'
+          AND NOT EXISTS (SELECT 1 FROM pg_depend d
+                          WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid
+                            AND (d.deptype = 'e' OR (c.relkind = 'S' AND d.deptype IN ('a', 'i'))))
+        UNION ALL
+        SELECT format('ALTER ROUTINE %s OWNER TO barako_app', p.oid::regprocedure)
+        FROM pg_proc p
+        WHERE p.pronamespace = 'public'::regnamespace
+          AND pg_get_userbyid(p.proowner) <> 'barako_app'
+          AND NOT EXISTS (SELECT 1 FROM pg_depend d
+                          WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')
+    LOOP
+        EXECUTE r.stmt;
+    END LOOP;
+END
+$move$;
+```
+
+**(tested on PostgreSQL 16 with an admin that has CREATEROLE and no superuser, not on the platforms)**
 
 ## Health probes
 

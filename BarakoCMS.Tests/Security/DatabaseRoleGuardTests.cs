@@ -105,7 +105,7 @@ public sealed class DatabaseRoleGuardTests(DatabaseRoleGuardTests.Postgres postg
         var thrown = (await refusing.Should().ThrowAsync<InvalidOperationException>()).Which;
 
         thrown.Message.Should().Contain("'postgres'").And.Contain("is a superuser")
-            .And.Contain("scripts/db-app-role.sql").And.Contain("Database:AllowSuperuser")
+            .And.Contain("scripts/db-app-role.sql").And.Contain("docs/deploy-on-a-managed-platform.md").And.Contain("Database:AllowSuperuser")
             .And.Contain("Database__AllowSuperuser");
         thrown.Message.Should().NotContain("not recognised");
     }

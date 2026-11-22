@@ -267,7 +267,8 @@ internal static class DatabaseRoleGuard
 
         return subject
             + " Outside Development the API refuses to start as a role that bypasses row level security. "
-            + "Connect as a role without superuser: scripts/db-app-role.sql creates one. "
+            + "Connect as a role without superuser: scripts/db-app-role.sql creates one, and "
+            + "docs/deploy-on-a-managed-platform.md has the steps for a managed database. "
             + $"A deployment that has decided to run this way sets {AllowKey}=true "
             + $"(environment variable {AllowKey.Replace(":", "__")})."
             + (recognised
