@@ -20,7 +20,7 @@
 services:
   # 1. Reverse Proxy (Caddy) - Handles HTTPS & Routing
   caddy:
-    image: caddy:alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f # caddy:alpine
+    image: caddy:alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 # caddy:alpine
     container_name: barako-caddy
     restart: always
     ports:
@@ -44,7 +44,7 @@ services:
 
   # 2. Database (PostgreSQL)
   postgres:
-    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a # pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:484e838076e04939d27d3e176e91c86eea96236126023be8d3059761122e579f # pgvector/pgvector:pg16
     container_name: barako-postgres
     restart: always
     environment:
