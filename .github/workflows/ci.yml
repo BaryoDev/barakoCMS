@@ -393,6 +393,7 @@ jobs:
   compose:
     name: Compose files resolve
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -406,6 +407,7 @@ jobs:
       # repository ships gets checked on every change to it.
       - name: The development and try-out files parse
         env:
+          BARAKO_TAG: ci
           DB_PASSWORD: ci-not-a-real-password
           JWT_SECRET: ci-not-a-real-key-at-least-32-characters
         run: |
@@ -420,6 +422,7 @@ jobs:
       # contain, which is why the values are supplied here rather than from a file.
       - name: The quickstart file parses
         env:
+          BARAKO_TAG: ci
           DB_PASSWORD: ci-not-a-real-password
           JWT_KEY: ci-not-a-real-key-at-least-32-characters
           ADMIN_PASSWORD: ci-not-a-real-password
@@ -451,6 +454,7 @@ jobs:
           set -euo pipefail
           cp .env.prod.example /tmp/ci.env
           cat >> /tmp/ci.env <<'ENV'
+          BARAKO_TAG=ci
           DB_PASSWORD=ci-not-a-real-password
           JWT_KEY=ci-not-a-real-key-at-least-32-characters
           ADMIN_PASSWORD=ci-not-a-real-password
@@ -469,6 +473,7 @@ jobs:
           set -euo pipefail
           cp .env.prod.example /tmp/ci-nojwt.env
           cat >> /tmp/ci-nojwt.env <<'ENV'
+          BARAKO_TAG=ci
           DB_PASSWORD=ci-not-a-real-password
           ADMIN_PASSWORD=ci-not-a-real-password
           ENV
@@ -477,6 +482,42 @@ jobs:
             exit 1
           fi
           echo "refused, as it should"
+
+      # Every service in the four shipped files keeps read_only, cap_drop ALL, no-new-privileges, a
+      # non-root user (or a stated reason), memory and process limits and a healthcheck. The script
+      # fails closed, and test-ci-gates.sh proves it fails on a file that loses each one.
+      - name: Every compose service stays hardened
+        run: |
+          bash scripts/check-compose-hardening.sh docker-compose.yml docker-compose.hub.yml \
+            docker-compose.prod.yml quickstart/docker-compose.yml
+
+      # Resolving and linting are not running. This starts the production services on fresh volumes
+      # with the root file system read-only: postgres initdb, the app, the cron backup, the built-in
+      # health probe, no read-only or permission error in the logs, and the example JWT key and
+      # database password refused at start.
+      #
+      # The image is the Suite build, because that is what release.yml publishes as
+      # ghcr.io/baryodev/barako-cms and what the compose files run. The decaf image (plain
+      # Dockerfile) shares Program.cs and the start guards, and its own start is exercised by the
+      # test jobs, so it gets no second run here; a second build would double the job time.
+      # The cache scope is the one the image-scan job uses.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Build the Suite image the release publishes
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: Dockerfile.suite
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ghcr.io/baryodev/barako-cms:ci
+          build-args: |
+            BARAKO_BUILD_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=barako-cms-amd64
+
+      - name: The hardened production stack starts and works
+        run: bash scripts/compose-runtime-check.sh ghcr.io/baryodev/barako-cms:ci
 
   security:
     name: Security scan

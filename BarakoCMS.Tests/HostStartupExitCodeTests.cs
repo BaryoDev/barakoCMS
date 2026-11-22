@@ -33,7 +33,7 @@ public class HostStartupExitCodeTests
     private static readonly string SuiteAssembly = SuiteAssemblyPath();
 
     private const string UnreachableDatabase =
-        "Server=127.0.0.1;Port=1;Database=nope;User Id=postgres;Password=postgres;Timeout=2;Command Timeout=2";
+        "Server=127.0.0.1;Port=1;Database=nope;User Id=postgres;Password=barako-test-db-not-an-example;Timeout=2;Command Timeout=2";
 
     private const string ValidJwtKey = "test-super-secret-key-that-is-at-least-32-chars-long";
 

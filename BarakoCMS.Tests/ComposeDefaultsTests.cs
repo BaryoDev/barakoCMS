@@ -34,9 +34,26 @@ public class ComposeDefaultsTests
         return File.ReadAllLines(path);
     }
 
-    /// <summary>A volume entry whose source is a path on the host rather than a named volume.</summary>
+    /// <summary>
+    /// A short-form volume entry whose source is a path on the host: SOURCE:/TARGET. A tmpfs entry
+    /// (/home/app:size=16m) names a path inside the container and has no target, so it does not match.
+    /// </summary>
     private static readonly Regex HostBindMount =
-        new(@"^-\s*[""']?(\$\{?HOME\}?|~|/(etc|root|home|var/run))", RegexOptions.Compiled);
+        new(@"^-\s*[""']?(\$\{?HOME\}?|~|/(etc|root|home|var/run))[^:\s]*:/", RegexOptions.Compiled);
+
+    [Theory]
+    [InlineData("- ~/.kube/config:/root/.kube/config:ro", true)]
+    [InlineData("- ${HOME}/.kube:/home/app/.kube", true)]
+    [InlineData("- \"$HOME/.aws:/root/.aws\"", true)]
+    [InlineData("- /var/run/docker.sock:/var/run/docker.sock", true)]
+    [InlineData("- /etc/ssl/private:/certs:ro", true)]
+    [InlineData("- /home/app:uid=1654,gid=1654,mode=0700,size=16m", false)]
+    [InlineData("- /var/run/postgresql:mode=1777,size=8m", false)]
+    [InlineData("- pgdata:/var/lib/postgresql/data", false)]
+    public void The_host_mount_pattern_catches_binds_and_skips_tmpfs(string line, bool isHostMount)
+    {
+        HostBindMount.IsMatch(line).Should().Be(isHostMount, line);
+    }
 
     [Theory]
     [MemberData(nameof(ComposeFiles))]
@@ -261,5 +278,84 @@ public class ComposeDefaultsTests
         production.Should().Contain("max_connections PG_MAX_CONNECTIONS", "100");
         production.Should().Contain("shared_buffers PG_SHARED_BUFFERS", "512MB");
         production.Should().Contain("jit PG_JIT", "off");
+    }
+
+    private static string Text(string composeFile) => string.Join('\n', Lines(composeFile));
+
+    /// <summary>
+    /// The image tag of a published-image stack is required, so a pull is never an unplanned upgrade.
+    /// </summary>
+    [Theory]
+    [InlineData("docker-compose.hub.yml")]
+    [InlineData("quickstart/docker-compose.yml")]
+    [InlineData("docker-compose.prod.yml")]
+    public void The_barako_image_tag_has_no_default(string composeFile)
+    {
+        var image = Lines(composeFile).Select(l => l.Trim())
+            .Single(l => l.StartsWith("image: ghcr.io/baryodev/barako-cms:", StringComparison.Ordinal));
+
+        image.Should().Contain("${BARAKO_TAG:?", "{0} must ask for a pinned version", composeFile);
+        image.Should().NotContain("latest");
+    }
+
+    [Fact]
+    public void The_development_API_port_is_published_on_loopback_only()
+    {
+        var ports = Lines("docker-compose.yml").Select(l => l.Trim()).Where(l => l.EndsWith(":8080\"", StringComparison.Ordinal)).ToArray();
+
+        ports.Should().ContainSingle().Which.Should().Be("- \"127.0.0.1:5005:8080\"");
+    }
+
+    [Fact]
+    public void The_quickstart_API_port_binds_to_API_BIND_which_defaults_to_loopback()
+    {
+        var ports = Lines("quickstart/docker-compose.yml").Select(l => l.Trim()).Where(l => l.EndsWith(":8080\"", StringComparison.Ordinal)).ToArray();
+
+        ports.Should().ContainSingle().Which.Should().Be("- \"${API_BIND:-127.0.0.1}:${API_PORT:-5005}:8080\"");
+    }
+
+    [Fact]
+    public void Only_the_proxy_and_the_loopback_database_port_are_published_in_the_production_stack()
+    {
+        var published = Lines("docker-compose.prod.yml").Select(l => l.Trim())
+            .Where(l => Regex.IsMatch(l, "^- \"[0-9.${}:A-Z_-]*[0-9]+:[0-9]+\"$")).ToArray();
+
+        published.Should().BeEquivalentTo(["- \"80:80\"", "- \"443:443\""]);
+    }
+
+    /// <summary>
+    /// Every limit variable a compose file reads is named in an env example, with its default, so an
+    /// operator can find the one to raise.
+    /// </summary>
+    [Theory]
+    [InlineData("docker-compose.prod.yml", ".env.prod.example")]
+    [InlineData("docker-compose.hub.yml", ".env.example")]
+    [InlineData("quickstart/docker-compose.yml", "quickstart/.env.example")]
+    public void Every_limit_variable_is_named_in_the_env_example(string composeFile, string envFile)
+    {
+        var variables = Regex.Matches(Text(composeFile), @"\$\{([A-Z_]+_(?:MEM_LIMIT|PIDS_LIMIT|TMP_SIZE)):-([^}]+)\}")
+            .Select(m => (Name: m.Groups[1].Value, Default: m.Groups[2].Value)).Distinct().ToArray();
+        var env = Text(envFile);
+
+        variables.Should().NotBeEmpty();
+        foreach (var (name, value) in variables)
+        {
+            env.Should().Contain($"{name}={value}", "{0} reads {1} with the default {2}", composeFile, name, value);
+        }
+    }
+
+    /// <summary>A limit left blank falls back to its default, and a default is never zero or negative.</summary>
+    [Theory]
+    [MemberData(nameof(ComposeFiles))]
+    public void No_limit_default_removes_the_limit(string composeFile)
+    {
+        var limits = Regex.Matches(Text(composeFile), @"^\s*(mem_limit|pids_limit):\s*(.+)$", RegexOptions.Multiline)
+            .Select(m => m.Groups[2].Value.Trim()).ToArray();
+
+        limits.Should().NotBeEmpty();
+        foreach (var limit in limits)
+        {
+            limit.Should().MatchRegex(@"^\$\{[A-Z_]+:-[1-9][0-9]*[mg]?\}$", "the limit is a variable with a positive default");
+        }
     }
 }

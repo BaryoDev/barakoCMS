@@ -286,6 +286,25 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
     }
 
     [Fact]
+    public async Task A_host_run_as_Production_on_the_example_database_password_does_not_start()
+    {
+        // The guard reads the connection string the host resolves, so this fails before any
+        // connection is tried. The same string starts a Development host.
+        await using var production = new BarakoTestHost(o =>
+        {
+            o.EnvironmentName = "Production";
+            o.Modules.Add(new PortabilityModule());
+            o.Settings["JWT:Key"] = SharedJwtKey;
+            o.Settings["ConnectionStrings:DefaultConnection"] =
+                "Host=127.0.0.1;Database=barako;Username=postgres;Password=postgres";
+        });
+
+        var act = () => production.InitializeAsync().AsTask();
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).WithMessage("*database password*");
+    }
+
+    [Fact]
     public async Task A_host_running_no_modules_does_not_serve_the_module_endpoint()
     {
         // Registration is what puts a module's endpoints in the host, so the same request on a host

@@ -242,11 +242,11 @@ dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/core" --nologo -v
 step "starting postgres"
 docker network create "$NETWORK" >/dev/null 2>&1 || true
 PG_ID=$(docker run -d --cidfile "$WORK/pg.cid" --name "$PG" --network "$NETWORK" \
-    -e POSTGRES_DB=barako_cms -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+    -e POSTGRES_DB=barako_cms -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=barako-ci-not-an-example \
     -p "$(publish_spec "$PG_PORT" 5432)" postgres:16-alpine 2>"$WORK/docker-run.err") \
     || fail "$(publish_failure "$WORK/docker-run.err" "$PG_PORT" postgres)"
 PG_PORT=$(published_port "$PG_ID" 5432) || fail "cannot tell which host port postgres was published on"
-CONN="Host=127.0.0.1;Port=${PG_PORT};Database=barako_cms;Username=postgres;Password=postgres"
+CONN="Host=127.0.0.1;Port=${PG_PORT};Database=barako_cms;Username=postgres;Password=barako-ci-not-an-example"
 # pg_isready over the Unix socket is satisfied by the WRONG server. The postgres image boots a
 # temporary initdb instance on the socket only, creates the database, shuts it down, and then starts
 # the real one listening on TCP. So a socket check succeeds during bootstrap, the wait breaks early,
@@ -264,7 +264,7 @@ fi
 
 step "creating a ${FROM_VERSION} database with data in it"
 OLD_ID=$(docker run -d --cidfile "$WORK/old.cid" --name "$OLD" --network "$NETWORK" \
-    -e ConnectionStrings__DefaultConnection="Host=${PG};Database=barako_cms;Username=postgres;Password=postgres" \
+    -e ConnectionStrings__DefaultConnection="Host=${PG};Database=barako_cms;Username=postgres;Password=barako-ci-not-an-example" \
     -e JWT__Key="$JWT_KEY" \
     -e InitialAdmin__Username=admin -e InitialAdmin__Password="$ADMIN_PASSWORD" \
     -e Kubernetes__Enabled=false \

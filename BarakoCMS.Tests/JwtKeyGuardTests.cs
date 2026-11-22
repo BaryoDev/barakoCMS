@@ -36,6 +36,49 @@ public class JwtKeyGuardTests
         JwtKeyGuard.Validate(composeKey, isDevelopment: true).Should().Be(composeKey);
     }
 
+    /// <summary>Every JWT key the repository shows as an example, and where it is shown.</summary>
+    public static TheoryData<string> ExampleKeys() => new()
+    {
+        "dev-only-key-minimum-32-chars-long",                  // docker-compose.yml and docker-compose.hub.yml
+        "change-me-to-at-least-32-characters-secret",          // quickstart/.env.example
+        "local-only-signing-key-at-least-32-characters",       // docs/your-first-module.md
+    };
+
+    [Theory]
+    [MemberData(nameof(ExampleKeys))]
+    public void Rejects_every_example_key_outside_Development_and_allows_it_in_Development(string example)
+    {
+        var production = () => JwtKeyGuard.Validate(example, isDevelopment: false);
+        var message = production.Should().Throw<InvalidOperationException>().WithMessage("*JWT:Key*").Which.Message;
+        message.Should().NotContain(example, "the message names the setting and the rule, never the value");
+
+        JwtKeyGuard.Validate(example, isDevelopment: true).Should().Be(example);
+    }
+
+    [Theory]
+    [MemberData(nameof(ExampleKeys))]
+    public void Reads_an_example_key_trimmed_and_without_regard_to_case(string example)
+    {
+        var act = () => JwtKeyGuard.Validate($"  {example.ToUpperInvariant()}\t", isDevelopment: false);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*example*");
+    }
+
+    [Fact]
+    public void Rejects_the_key_in_the_quickstart_env_example()
+    {
+        // The file people copy to .env and are told to edit. If it passes the guard, a copy that
+        // was never edited boots on a key printed in this repository.
+        var line = File.ReadAllLines(Path.Combine(RepoPaths.Root, "quickstart", ".env.example"))
+            .Single(l => l.StartsWith("JWT_KEY=", StringComparison.Ordinal));
+        var key = line["JWT_KEY=".Length..];
+        key.Length.Should().BeGreaterThanOrEqualTo(JwtKeyGuard.MinLength, "so only the example rule can refuse it");
+
+        var act = () => JwtKeyGuard.Validate(key, isDevelopment: false);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

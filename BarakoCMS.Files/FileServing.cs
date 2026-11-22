@@ -12,6 +12,15 @@ internal sealed record FileServe(string? RedirectUrl, byte[]? Bytes, string Cont
 /// <summary>The part of serving a stored file that the authenticated and the public download routes share.</summary>
 internal static class FileServing
 {
+    /// <summary>Lets a front end on another origin load the file.</summary>
+    public static void AllowCrossOrigin(HttpContext http)
+    {
+        // A front end on another origin loads these as images and media, so the global
+        // same-origin policy would break them. The security-headers middleware keeps a value set here.
+        // A 304 must carry it too: a browser merges its headers into the cached response.
+        http.Response.Headers["Cross-Origin-Resource-Policy"] = "cross-origin";
+    }
+
     /// <summary>
     /// Sets the safety headers, then decides between the object's public URL and the stored bytes.
     /// </summary>
@@ -22,15 +31,6 @@ internal static class FileServing
     /// which serves it without these headers; anything else is an old row, streamed from here as a
     /// plain download.
     /// </remarks>
-    public static void AllowCrossOrigin(HttpContext http)
-    {
-        // A front end on another origin loads these as images and media, so the global
-        // same-origin policy would break them. The security-headers middleware keeps a value set here.
-        // A 304 must carry it too: a browser merges its headers into the cached response.
-        http.Response.Headers["Cross-Origin-Resource-Policy"] = "cross-origin";
-    }
-
-    /// <summary>Sets the safety headers, then decides between the public URL and the stored bytes.</summary>
     public static async Task<FileServe> PrepareAsync(
         HttpContext http, StoredFile served, bool checkedType, FileStorageResolver storage, CancellationToken ct)
     {
