@@ -9,4 +9,13 @@
     # cache or CDN in front of it"). Self-hosting with only this reverse_proxy
     # reaches Postgres on every public read.
     reverse_proxy app:8080
+
+    # Proxied responses and the site's own errors carry a Server header and a Via header (added by
+    # reverse_proxy) that name the proxy software and help no client. Removed here. The port 80
+    # redirect Caddy adds on its own is outside this block and still sends Server. HSTS is not set
+    # here, the API sends it.
+    header {
+        -Server
+        -Via
+    }
 }

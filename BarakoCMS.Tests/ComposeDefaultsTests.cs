@@ -137,7 +137,7 @@ public class ComposeDefaultsTests
 
     /// <summary>The two acceptable shapes: an empty default, or a required variable.</summary>
     private static readonly Regex LiteralFreeAdminPassword =
-        new(@"\$\{[A-Za-z_][A-Za-z0-9_]*(:-\}|:\?|\})", RegexOptions.Compiled);
+        new(@"\$\{[A-Za-z_][A-Za-z0-9_]*(:-\}|:\?|\}|:-\$\{[A-Za-z_][A-Za-z0-9_]*:\?)", RegexOptions.Compiled);
 
     // The control for the test above. Without it the regex is a claim nobody has checked, and it
     // would go on reporting clean if it stopped matching anything at all.
@@ -154,6 +154,7 @@ public class ComposeDefaultsTests
     [InlineData("- InitialAdmin__Password=${ADMIN_PASSWORD:-}")]
     [InlineData("InitialAdmin__Password: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}")]
     [InlineData("InitialAdmin__Password: ${ADMIN_PASSWORD}")]
+    [InlineData("- InitialAdmin__Password=${ADMIN_PASSWORD:-${SECRETS_AS_FILES:?set ADMIN_PASSWORD in .env}}")]
     public void An_empty_or_required_admin_password_is_accepted(string line)
     {
         LiteralFreeAdminPassword.IsMatch(line).Should().BeTrue("{0} publishes no password", line);

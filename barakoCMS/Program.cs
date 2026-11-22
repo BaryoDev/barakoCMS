@@ -1,5 +1,6 @@
 using barakoCMS.Extensions;
 using barakoCMS.Infrastructure.Health;
+using barakoCMS.Infrastructure.Security;
 using JasperFx;
 using Serilog;
 using Serilog.Events;
@@ -20,6 +21,18 @@ if (HealthProbe.IsProbe(args))
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Secrets handed over as files (Docker or Kubernetes secrets) join configuration after every other
+// source. A file that cannot be read stops the host here, before anything is built from it.
+try
+{
+    builder.Configuration.AddSecretFilesFromEnvironment();
+}
+catch (InvalidOperationException ex)
+{
+    Console.Error.WriteLine(ex.Message);
+    Environment.Exit(1);
+}
 
 // 1. Configure Serilog
 Log.Logger = new LoggerConfiguration()

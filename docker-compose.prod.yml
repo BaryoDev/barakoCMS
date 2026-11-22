@@ -14,6 +14,11 @@
 # Caddy requests a TLS certificate on first start, so the domain must already resolve
 # here before you bring the stack up. See docs/deploy-in-production.md.
 #
+# To keep the JWT key, admin password and database password in files instead of .env, add
+# docker-compose.secrets.yml with a second -f and set SECRETS_AS_FILES=true. That variable only
+# lets those three required checks pass when the value comes from a file. See
+# docs/deploy-in-production.md, "Secrets as files".
+#
 # For local development use docker-compose.yml. For a local try-out of the published
 # images with no TLS use docker-compose.hub.yml.
 
@@ -70,7 +75,7 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-barako_cms}
       POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env, do not run production on the default}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-}
     volumes:
       - postgres_prod_data:/var/lib/postgresql/data
     # Sized for a 2 GB VM that also runs the API, and each value can be changed from .env. The
@@ -132,7 +137,7 @@ services:
       PGHOST: postgres
       PGDATABASE: ${DB_NAME:-barako_cms}
       PGUSER: ${DB_USER:-postgres}
-      PGPASSWORD: ${DB_PASSWORD}
+      PGPASSWORD: ${DB_PASSWORD:-}
     command: ["psql", "-v", "ON_ERROR_STOP=1", "-c", "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"]
     user: "70:70"
     read_only: true
@@ -157,15 +162,15 @@ services:
     restart: always
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - ConnectionStrings__DefaultConnection=Host=postgres;Database=${DB_NAME:-barako_cms};Username=${DB_USER:-postgres};Password=${DB_PASSWORD}
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=${DB_NAME:-barako_cms};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-${SECRETS_AS_FILES:?set DB_PASSWORD in .env, do not run production on the default}}
       # Refuses to start below 32 characters, deliberately.
-      - JWT__Key=${JWT_KEY:?set JWT_KEY in .env to at least 32 random characters}
+      - JWT__Key=${JWT_KEY:-${SECRETS_AS_FILES:?set JWT_KEY in .env to at least 32 random characters}}
       # The console's origin plus your own site. A browser request from an origin that is not
       # listed fails CORS, which reads as a broken API rather than a missing setting, so
       # FRONTEND_ORIGINS is asked for at deploy time instead of found later.
       - CORS__AllowedOrigins=${FRONTEND_ORIGINS:?set FRONTEND_ORIGINS in .env}
       - InitialAdmin__Username=${ADMIN_USER:-admin}
-      - InitialAdmin__Password=${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env, this is your first sign-in}
+      - InitialAdmin__Password=${ADMIN_PASSWORD:-${SECRETS_AS_FILES:?set ADMIN_PASSWORD in .env, this is your first sign-in}}
       - Kubernetes__Enabled=false
       # Caddy terminates TLS, so its X-Forwarded-For is what rate limiting and the audit log key on.
       # Only Caddy's own address is trusted. Any other container that can reach app:8080 is not, so
@@ -248,7 +253,7 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_DB: ${DB_NAME:-barako_cms}
       POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-}
       BACKUP_CRON_SCHEDULE: "${BACKUP_CRON_SCHEDULE:-0 2 * * *}"
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
       # An optional copy of each checked backup to S3-compatible storage, off this host. Off while

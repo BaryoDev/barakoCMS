@@ -1,6 +1,7 @@
 using JasperFx;
 using Serilog;
 using barakoCMS.Extensions;
+using barakoCMS.Infrastructure.Security;
 
 // "Barako" — the full-suite barakoCMS host: the core engine with every module on. Configure it with
 // just a DATABASE_URL (or ConnectionStrings__DefaultConnection) and a 32+ char JWT__Key; every
@@ -11,6 +12,18 @@ using barakoCMS.Extensions;
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Secrets handed over as files (Docker or Kubernetes secrets) join configuration after every other
+// source. A file that cannot be read stops the host here, before anything is built from it.
+try
+{
+    builder.Configuration.AddSecretFilesFromEnvironment();
+}
+catch (InvalidOperationException ex)
+{
+    Console.Error.WriteLine(ex.Message);
+    Environment.Exit(1);
+}
 
 // Before any registration, because core writes to Serilog's static Log during AddBarakoCMS and
 // during module seeding. Without a logger assigned here those calls reach Serilog's silent default

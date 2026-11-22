@@ -519,6 +519,9 @@ jobs:
       - name: The hardened production stack starts and works
         run: bash scripts/compose-runtime-check.sh ghcr.io/baryodev/barako-cms:ci
 
+      - name: The production stack starts with its secrets in files
+        run: bash scripts/compose-secrets-runtime-check.sh ghcr.io/baryodev/barako-cms:ci
+
   security:
     name: Security scan
     runs-on: ubuntu-latest
