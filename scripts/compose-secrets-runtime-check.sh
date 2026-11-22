@@ -39,7 +39,7 @@ cleanup() {
 trap cleanup EXIT
 
 step() { printf '\n=== %s\n' "$1"; }
-fail() { printf '\nFAILED: %s\n' "$1" >&2; with_override logs --no-color --tail 60 app db-backup postgres >&2 || true; exit 1; }
+fail() { printf '\nFAILED: %s\n' "$1" >&2; with_override logs --no-color --tail 60 app db-backup postgres postgres-extensions >&2 || true; exit 1; }
 
 step "writing the secret files, as docs/deploy-in-production.md says"
 mkdir secrets
@@ -72,7 +72,10 @@ step "app and db-backup start, compose runs the app role job through depends_on,
 # A plain up, not --no-deps: this is the path an operator takes. No --wait either, because a
 # dependency that finished and exited may be reported as a failure by --wait (it depends on the
 # compose version), so health is polled.
-with_override up -d app db-backup || fail "compose could not start app and db-backup"
+limit=""
+! command -v timeout > /dev/null || limit="timeout 300"
+# A hung job would otherwise wait for the CI job timeout. The deadline is only for the up itself.
+$limit docker compose -p "$PROJECT" --env-file "$ENVFILE" -f docker-compose.prod.yml -f docker-compose.secrets.yml up -d app db-backup || fail "compose could not start app and db-backup (or the job did not finish within 300 seconds)"
 for svc in app db-backup; do
   healthy=0
   for _ in $(seq 1 80); do
