@@ -28,6 +28,17 @@ fi
 echo "🛑 Stopping application..."
 docker compose stop app
 
+# Drop and recreate the database, owned by the same user. The dump creates objects, so it needs an
+# empty target, and ON_ERROR_STOP would stop at the first CREATE on a populated one.
+echo "Recreating the database barako_cms..."
+if ! docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
+    -c 'drop database if exists barako_cms with (force)' \
+    -c 'create database barako_cms owner postgres'; then
+  echo "Could not recreate the database. Nothing was restored."
+  docker compose start app
+  exit 1
+fi
+
 echo "📦 Restoring from $BACKUP_FILE..."
 gunzip -c "$BACKUP_FILE" | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d barako_cms
 
