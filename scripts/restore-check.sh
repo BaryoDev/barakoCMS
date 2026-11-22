@@ -103,10 +103,10 @@ dotnet publish barakoCMS/barakoCMS.csproj -c Release -o "$WORK/publish" --nologo
 
 step "starting postgres"
 PG_ID=$(docker run -d --cidfile "$WORK/pg.cid" --name "$PG" -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres \
-    -e POSTGRES_PASSWORD=postgres -p "$(publish_spec "$PG_PORT" 5432)" postgres:16-alpine 2>"$WORK/docker-run.err") \
+    -e POSTGRES_PASSWORD=barako-ci-not-an-example -p "$(publish_spec "$PG_PORT" 5432)" postgres:16-alpine 2>"$WORK/docker-run.err") \
     || fail "$(publish_failure "$WORK/docker-run.err" "$PG_PORT" postgres)"
 PG_PORT=$(published_port "$PG_ID" 5432) || fail "cannot tell which host port postgres was published on"
-CONN="Host=127.0.0.1;Port=${PG_PORT};Database=${DB};Username=postgres;Password=postgres"
+CONN="Host=127.0.0.1;Port=${PG_PORT};Database=${DB};Username=postgres;Password=barako-ci-not-an-example"
 # pg_isready over the Unix socket is satisfied by the WRONG server. The postgres image boots a
 # temporary initdb instance on the socket only, creates the database, shuts it down, and then starts
 # the real one listening on TCP. So a socket check succeeds during bootstrap, the wait breaks early,
@@ -152,14 +152,14 @@ fi
 
 step "taking a backup with the script the deployments run"
 docker exec -e POSTGRES_HOST=localhost -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres \
-    -e POSTGRES_PASSWORD=postgres -e BACKUP_CRON_SCHEDULE="0 2 * * *" -e BACKUP_KEEP_DAYS=7 \
+    -e POSTGRES_PASSWORD=barako-ci-not-an-example -e BACKUP_CRON_SCHEDULE="0 2 * * *" -e BACKUP_KEEP_DAYS=7 \
     "$PG" sh -c 'mkdir -p /backups /scripts' >/dev/null
 docker cp scripts/backup-cron.sh "$PG:/scripts/backup-cron.sh" >/dev/null
 
 # The daemon loops on a schedule, so run its job body once rather than starting it. The job body is
 # the part under test: everything that decides whether an archive is publishable.
 docker exec -e POSTGRES_HOST=localhost -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres \
-    -e POSTGRES_PASSWORD=postgres -e BACKUP_KEEP_DAYS=7 "$PG" sh -c '
+    -e POSTGRES_PASSWORD=barako-ci-not-an-example -e BACKUP_KEEP_DAYS=7 "$PG" sh -c '
         sed -n "/^cat <<.JOB. > \/backup_job.sh$/,/^JOB$/p" /scripts/backup-cron.sh \
             | sed "1d;\$d" > /run_backup.sh
         sh /run_backup.sh

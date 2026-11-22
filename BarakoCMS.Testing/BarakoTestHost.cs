@@ -114,7 +114,8 @@ public class BarakoTestHost : IAsyncLifetime
         .WithImage(_options.PostgresImage)
         .WithDatabase("barako_module_tests")
         .WithUsername("postgres")
-        .WithPassword("postgres")
+        // Not "postgres": a host run outside Development refuses that password (DatabasePasswordGuard).
+        .WithPassword("barako-test-db-not-an-example")
         .Build();
 
     private static bool IsHostPortBindFailure(Exception e) =>

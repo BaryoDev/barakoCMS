@@ -18,12 +18,24 @@ internal static class JwtKeyGuard
     /// <summary>The key docker-compose.yml and docker-compose.hub.yml fall back to. Public, so only Development may run on it.</summary>
     internal const string ComposeDevKey = "dev-only-key-minimum-32-chars-long";
 
+    /// <summary>
+    /// Every key this repository shows as an example: the compose development key, the quickstart
+    /// <c>.env.example</c> value, and the local run in docs/your-first-module.md. Public, so only
+    /// Development may run on one. Compared trimmed and case-insensitively.
+    /// </summary>
+    private static readonly string[] KnownExamples =
+    [
+        ComposeDevKey,
+        "change-me-to-at-least-32-characters-secret",
+        "local-only-signing-key-at-least-32-characters",
+    ];
+
     /// <summary>The prefix every placeholder secret in the shipped manifests starts with.</summary>
     private const string PlaceholderPrefix = "REPLACE_THIS";
 
     /// <summary>
     /// Throws <see cref="System.InvalidOperationException"/> when the key is missing, too short, or a
-    /// shipped placeholder, or the compose development key outside Development. Returns the key unchanged when it is acceptable.
+    /// shipped placeholder, or an example key from the repository outside Development. Returns the key unchanged when it is acceptable.
     /// </summary>
     public static string Validate(string? key, bool isDevelopment = false)
     {
@@ -40,11 +52,12 @@ internal static class JwtKeyGuard
               + "randomly generated key (at least 32 characters) before starting.");
         }
 
-        if (!isDevelopment && string.Equals(key, ComposeDevKey, System.StringComparison.Ordinal))
+        if (!isDevelopment && KnownExamples.Any(example =>
+                string.Equals(key.Trim(), example, System.StringComparison.OrdinalIgnoreCase)))
         {
             throw new System.InvalidOperationException(
-                "JWT:Key is the development key shipped in the compose files. Set a real, secret, "
-              + "randomly generated key (at least 32 characters) before starting outside Development.");
+                "JWT:Key is an example or development key from the compose files, the samples or the docs. Set a real, "
+              + "secret, randomly generated key (at least 32 characters) before starting outside Development.");
         }
 
         return key;

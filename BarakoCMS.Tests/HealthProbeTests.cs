@@ -1,201 +1,254 @@
-// Aliased: Microsoft.Extensions.DependencyInjection also ships a ServiceCollectionExtensions.
-using Host = barakoCMS.Extensions.ServiceCollectionExtensions;
 using System.Net;
-using FluentAssertions;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Options;
+using System.Net.Sockets;
+using System.Text;
 using barakoCMS.Infrastructure.Health;
+using FluentAssertions;
 using Xunit;
 
 namespace BarakoCMS.Tests;
 
 /// <summary>
-/// Liveness and readiness have to be different questions.
+/// <c>--health-probe</c> is the container healthcheck: the chiseled runtime image has no shell or
+/// curl. Tested against a small listener in this process, not the whole host.
 /// </summary>
-/// <remarks>
-/// Both probes pointed at <c>/health</c>, which runs every check including the database one. So a
-/// Postgres restart failed liveness on every replica at once and Kubernetes killed a whole
-/// deployment of healthy application processes, turning a database blip into an application outage
-/// plus a cold-start stampede. The <c>ready</c> tag was already on the database check and no
-/// endpoint filtered on it.
-///
-/// The interesting assertion is the negative one, that a failing database check leaves
-/// <c>/health/live</c> alone. It is paired with a check tagged <c>live</c> that can fail, because a
-/// liveness endpoint that runs nothing at all would pass the negative test on its own. Note that
-/// UseHealthChecks maps a path prefix, so a single <c>/health</c> mapping answers
-/// <c>/health/live</c> too: reverting the split does not 404 here, it returns the full report.
-///
-/// See issues #281 and #256.
-/// </remarks>
-[Collection("Integration1")]
 public class HealthProbeTests
 {
-    private readonly IntegrationTestFixture _fixture;
-
-    public HealthProbeTests(IntegrationTestFixture fixture) => _fixture = fixture;
-
-    private sealed class SwitchableCheck : IHealthCheck
+    /// <summary>Answers each request with a fixed status line, or never answers, and records the request head.</summary>
+    private sealed class FakeServer : IDisposable
     {
-        public bool IsHealthy { get; set; } = true;
+        private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
+        private readonly bool _silent;
+        private readonly string _status;
+        private readonly string _body;
 
-        public Task<HealthCheckResult> CheckHealthAsync(
-            HealthCheckContext context,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(IsHealthy
-                ? HealthCheckResult.Healthy()
-                : HealthCheckResult.Unhealthy("switched off by the test"));
-    }
-
-    private static readonly SwitchableCheck FakeDatabase = new();
-    private static readonly SwitchableCheck FakeProcess = new();
-    private static readonly object HostGate = new();
-    private static WebApplicationFactory<Program>? _host;
-
-    /// <summary>
-    /// One host for the whole class. Building it registers two checks the test can switch off: one
-    /// carrying the database tags, one carrying the liveness tag. Never disposed, per the note on
-    /// IntegrationTestFixture.WithSetting.
-    /// </summary>
-    private WebApplicationFactory<Program> ProbeHost()
-    {
-        lock (HostGate)
+        public FakeServer(string status = "200 OK", bool silent = false, string body = "")
         {
-            _host ??= _fixture.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
-                services.AddHealthChecks()
-                    .AddCheck("TestDatabase", FakeDatabase, tags: new[] { "db", "ready" })
-                    .AddCheck("TestProcess", FakeProcess, tags: new[] { "live" })));
+            _status = status;
+            _silent = silent;
+            _body = body;
+            _listener.Start();
+            Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+            _ = Task.Run(AcceptAsync);
         }
 
-        FakeDatabase.IsHealthy = true;
-        FakeProcess.IsHealthy = true;
-        return _host;
-    }
+        public int Port { get; }
 
-    private HttpClient ProbeClient() => ProbeHost().CreateClient();
+        public TaskCompletionSource<string> Request { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    private static async Task<HttpStatusCode> Get(HttpClient client, string path) =>
-        (await client.GetAsync(path, TestContext.Current.CancellationToken)).StatusCode;
-
-    [Fact]
-    public async Task A_failing_database_check_fails_readiness_and_leaves_liveness_healthy()
-    {
-        var client = ProbeClient();
-
-        (await Get(client, "/health/live")).Should().Be(Expect(healthy: true),
-            "the positive control: with nothing failing, liveness is healthy");
-        (await Get(client, "/health/ready")).Should().Be(Expect(healthy: true),
-            "the positive control: with nothing failing, readiness is healthy");
-
-        FakeDatabase.IsHealthy = false;
-
-        (await Get(client, "/health/ready")).Should().Be(Expect(healthy: false),
-            "a pod that cannot reach its database must come out of the Service");
-        (await Get(client, "/health")).Should().Be(Expect(healthy: false),
-            "the full report still shows the failure");
-        (await Get(client, "/health/live")).Should().Be(Expect(healthy: true),
-            "restarting the process does not bring Postgres back, and a shared database means "
-          + "every replica fails this probe at the same moment");
-    }
-
-    [Fact]
-    public async Task A_failing_process_check_fails_liveness_and_leaves_readiness_healthy()
-    {
-        var client = ProbeClient();
-
-        FakeProcess.IsHealthy = false;
-
-        (await Get(client, "/health/live")).Should().Be(Expect(healthy: false),
-            "liveness has to be able to fail, or the negative test above proves nothing");
-        (await Get(client, "/health/ready")).Should().Be(Expect(healthy: true),
-            "a check tagged live only must not drag readiness down with it");
-    }
-
-    [Fact]
-    public async Task The_readiness_probe_is_closed_while_the_startup_seed_is_pending()
-    {
-        var host = ProbeHost();
-        var client = host.CreateClient();
-        var gate = host.Services.GetRequiredService<StartupSeedGate>();
-
-        gate.State.Should().Be(StartupSeedState.Completed,
-            "the fixture host sets SKIP_SEEDER, so nothing declared a seed");
-
-        try
+        private async Task AcceptAsync()
         {
-            gate.MarkPending();
+            try
+            {
+                using var client = await _listener.AcceptTcpClientAsync();
+                var stream = client.GetStream();
+                var head = new StringBuilder();
+                var buffer = new byte[1024];
+                while (!head.ToString().Contains("\r\n\r\n"))
+                {
+                    var read = await stream.ReadAsync(buffer);
+                    if (read == 0)
+                    {
+                        break;
+                    }
 
-            (await Get(client, "/health/ready")).Should().Be(Expect(healthy: false),
-                "no traffic may reach a node whose roles and initial admin do not exist yet");
-            (await Get(client, "/health/live")).Should().Be(Expect(healthy: true),
-                "a slow seed must not get the pod killed while it runs");
+                    head.Append(Encoding.ASCII.GetString(buffer, 0, read));
+                }
 
-            gate.MarkCompleted();
+                Request.TrySetResult(head.ToString());
+                if (_silent)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(30));
+                    return;
+                }
 
-            (await Get(client, "/health/ready")).Should().Be(Expect(healthy: true));
+                var response = $"HTTP/1.1 {_status}\r\nContent-Length: {_body.Length}\r\nX-Secret: hidden\r\nConnection: close\r\n\r\n{_body}";
+                await stream.WriteAsync(Encoding.ASCII.GetBytes(response));
+            }
+            catch (Exception ex) when (ex is ObjectDisposedException or IOException or SocketException)
+            {
+                // The test ended first.
+            }
         }
-        finally
-        {
-            gate.MarkCompleted();
-        }
+
+        public void Dispose() => _listener.Stop();
     }
 
-    [Fact]
-    public void The_database_check_is_tagged_for_readiness_and_not_for_liveness()
+    private static Func<string, string?> Env(int port, string? allowedHosts = null, string? timeout = null) =>
+        name => name switch
+        {
+            "ASPNETCORE_URLS" => $"http://+:{port}",
+            "AllowedHosts" => allowedHosts,
+            HealthProbe.TimeoutVariable => timeout,
+            _ => null,
+        };
+
+    private static async Task<(int Exit, string Output)> RunAsync(
+        string[] args, Func<string, string?> env, TimeSpan? timeout = null)
     {
-        var registrations = _fixture.Services
-            .GetRequiredService<IOptions<HealthCheckServiceOptions>>()
-            .Value.Registrations;
-
-        var database = registrations.Single(r => r.Name == "Database");
-
-        database.Tags.Should().Contain("ready");
-        database.Tags.Should().NotContain("live",
-            "one Postgres restart would otherwise restart every replica at once");
-
-        registrations.Should().Contain(r => r.Tags.Contains("live"),
-            "a liveness endpoint that runs no checks cannot report a wedged process");
+        var output = new StringWriter();
+        var exit = await HealthProbe.RunAsync(args, env, output, timeout);
+        return (exit, output.ToString());
     }
 
     [Theory]
-    [InlineData("1", HealthStatus.Unhealthy)]
-    [InlineData("1048576", HealthStatus.Healthy)]
-    public async Task The_memory_check_fails_a_process_over_its_ceiling_and_is_on_both_probes(
-        string ceilingMegabytes, HealthStatus expected)
+    [InlineData("200 OK")]
+    [InlineData("204 No Content")]
+    public async Task A_2xx_answer_exits_zero(string status)
     {
-        // macOS reports a private memory size of 0 for every process, so no ceiling can be crossed
-        // there. The check itself is unchanged and runs on Linux, where the container does.
-        Assert.SkipWhen(
-            expected == HealthStatus.Unhealthy && System.Diagnostics.Process.GetCurrentProcess().PrivateMemorySize64 == 0,
-            "this platform reports 0 bytes of private memory, so the ceiling cannot be crossed");
+        using var server = new FakeServer(status);
 
-        // The ceiling is read while AddBarakoCMS registers the check, so it is given here the way a
-        // deployment gives it, and the registered check is run on its own.
-        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            ["ConnectionStrings:DefaultConnection"] = "Host=localhost;Database=none",
-            ["JWT:Key"] = "test-super-secret-key-that-is-at-least-32-chars-long",
-            ["HealthChecks:MaxPrivateMemoryMegabytes"] = ceilingMegabytes,
-        }).Build();
-        var services = new ServiceCollection();
-        Host.AddBarakoCMS(services, config, m => m.Discover = false);
-        await using var provider = services.BuildServiceProvider();
+        var (exit, _) = await RunAsync([HealthProbe.Flag], Env(server.Port));
 
-        var memory = provider.GetRequiredService<IOptions<HealthCheckServiceOptions>>()
-            .Value.Registrations.Single(r => r.Name == "Memory");
-
-        memory.Tags.Should().Contain("live", "a process past its private memory ceiling is what a restart clears");
-        memory.Tags.Should().Contain("ready", "and it should take no traffic meanwhile");
-
-        var result = await memory.Factory(provider).CheckHealthAsync(
-            new HealthCheckContext { Registration = memory }, TestContext.Current.CancellationToken);
-
-        result.Status.Should().Be(expected);
+        exit.Should().Be(0);
     }
 
-    private static HttpStatusCode Expect(bool healthy) =>
-        healthy ? HttpStatusCode.OK : HttpStatusCode.ServiceUnavailable;
+    [Theory]
+    [InlineData("500 Internal Server Error")]
+    [InlineData("503 Service Unavailable")]
+    [InlineData("400 Bad Request")]
+    [InlineData("302 Found")]
+    public async Task Any_other_answer_exits_one(string status)
+    {
+        using var server = new FakeServer(status);
+
+        var (exit, _) = await RunAsync([HealthProbe.Flag], Env(server.Port));
+
+        exit.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_refused_connection_exits_one()
+    {
+        int closedPort;
+        using (var probe = new TcpListener(IPAddress.Loopback, 0))
+        {
+            probe.Start();
+            closedPort = ((IPEndPoint)probe.LocalEndpoint).Port;
+        }
+
+        var (exit, _) = await RunAsync([HealthProbe.Flag], Env(closedPort));
+
+        exit.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_server_that_never_answers_exits_one_within_the_timeout()
+    {
+        using var server = new FakeServer(silent: true);
+        var started = DateTime.UtcNow;
+
+        var (exit, _) = await RunAsync([HealthProbe.Flag], Env(server.Port), TimeSpan.FromMilliseconds(300));
+
+        exit.Should().Be(1);
+        (DateTime.UtcNow - started).Should().BeLessThan(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task It_asks_for_the_live_path_unless_given_another()
+    {
+        using var live = new FakeServer();
+        await RunAsync([HealthProbe.Flag], Env(live.Port));
+        (await live.Request.Task).Should().StartWith("GET /health/live ");
+
+        using var ready = new FakeServer();
+        await RunAsync([HealthProbe.Flag, "/health/ready"], Env(ready.Port));
+        (await ready.Request.Task).Should().StartWith("GET /health/ready ");
+    }
+
+    [Theory]
+    [InlineData("health/ready")]
+    [InlineData("/health ready")]
+    public async Task A_path_that_is_not_an_absolute_path_exits_one_without_a_request(string path)
+    {
+        using var server = new FakeServer();
+
+        var (exit, _) = await RunAsync([HealthProbe.Flag, path], Env(server.Port));
+
+        exit.Should().Be(1);
+        server.Request.Task.IsCompleted.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("api.example.com;app", "api.example.com")]
+    [InlineData("*;api.example.com", "api.example.com")]
+    [InlineData("*.example.com; api.example.com", "api.example.com")]
+    [InlineData("localhost;127.0.0.1", "localhost")]
+    [InlineData("*", "localhost")]
+    [InlineData("", "localhost")]
+    [InlineData(null, "localhost")]
+    public async Task The_first_entry_that_is_not_a_wildcard_is_sent_as_the_Host_header(string? allowedHosts, string expected)
+    {
+        // A deployment listing real host names answers any other Host header with a 400, so a probe
+        // that sent its own address would report a healthy API as down.
+        using var server = new FakeServer();
+
+        await RunAsync([HealthProbe.Flag], Env(server.Port, allowedHosts));
+
+        (await server.Request.Task).Should().Contain($"Host: {expected}\r\n");
+    }
+
+    [Theory]
+    [InlineData("http://+:8080", 8080)]
+    [InlineData("http://*:9090", 9090)]
+    [InlineData("http://0.0.0.0:7000/", 7000)]
+    [InlineData("http://[::]:7001", 7001)]
+    [InlineData("https://+:8443;http://+:8081", 8081)]
+    [InlineData("http://+:0", 8080)]
+    [InlineData("http://+:notaport", 8080)]
+    [InlineData("", 8080)]
+    [InlineData(null, 8080)]
+    public void The_port_comes_from_the_first_http_entry_of_ASPNETCORE_URLS(string? urls, int expected)
+    {
+        HealthProbe.PortFrom(urls).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("5", 5)]
+    [InlineData("60", 60)]
+    [InlineData("0", HealthProbe.DefaultTimeoutSeconds)]
+    [InlineData("-1", HealthProbe.DefaultTimeoutSeconds)]
+    [InlineData("61", HealthProbe.DefaultTimeoutSeconds)]
+    [InlineData("soon", HealthProbe.DefaultTimeoutSeconds)]
+    [InlineData("", HealthProbe.DefaultTimeoutSeconds)]
+    [InlineData(null, HealthProbe.DefaultTimeoutSeconds)]
+    public void A_blank_or_malformed_timeout_keeps_the_default(string? configured, int expectedSeconds)
+    {
+        HealthProbe.TimeoutFrom(configured).Should().Be(TimeSpan.FromSeconds(expectedSeconds));
+    }
+
+    [Fact]
+    public async Task It_prints_the_status_code_and_nothing_the_server_sent()
+    {
+        using var server = new FakeServer("200 OK", body: "internal-detail-from-the-body");
+
+        var (_, output) = await RunAsync([HealthProbe.Flag], Env(server.Port));
+
+        output.Should().Contain("200");
+        output.Should().NotContain("internal-detail-from-the-body").And.NotContain("hidden");
+    }
+
+    [Fact]
+    public void Only_a_first_argument_of_the_flag_selects_the_probe()
+    {
+        HealthProbe.IsProbe([HealthProbe.Flag]).Should().BeTrue();
+        HealthProbe.IsProbe([HealthProbe.Flag, "/health/ready"]).Should().BeTrue();
+        HealthProbe.IsProbe([]).Should().BeFalse();
+        HealthProbe.IsProbe(["run", HealthProbe.Flag]).Should().BeFalse();
+        HealthProbe.IsProbe(["--urls", "http://127.0.0.1:0"]).Should().BeFalse();
+    }
+
+    [Fact]
+    public void The_probe_is_answered_before_the_web_host_is_built()
+    {
+        // The probe has to run on a container with no database, so nothing that builds the host,
+        // reads configuration or starts the seeder may come ahead of it in Program.cs.
+        var source = File.ReadAllText(Path.Combine(RepoPaths.Root, "barakoCMS", "Program.cs"));
+        var probe = source.IndexOf("HealthProbe.RunAsync", StringComparison.Ordinal);
+
+        probe.Should().BeGreaterThan(0);
+        foreach (var setup in new[] { "WebApplication.CreateBuilder", "AddBarakoCMS", "DataSeeder", "ApplyMartenSchemaAsync", "RunBarakoCommandsAsync", "Log.Logger" })
+        {
+            source.IndexOf(setup, StringComparison.Ordinal).Should().BeGreaterThan(probe, "{0} must come after the probe", setup);
+        }
+    }
 }

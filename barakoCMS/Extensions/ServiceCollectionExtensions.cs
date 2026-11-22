@@ -112,7 +112,8 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Runs before anything is registered, so a host that must not start never gets as far as the
     /// database. See <see cref="barakoCMS.Infrastructure.Security.HostFilteringGuard"/> and
-    /// <see cref="barakoCMS.Infrastructure.Security.InitialAdminGuard"/>.
+    /// <see cref="barakoCMS.Infrastructure.Security.InitialAdminGuard"/> and
+    /// <see cref="barakoCMS.Infrastructure.Security.DatabasePasswordGuard"/>.
     /// </summary>
     private static void ValidateStartupGuards(IConfiguration configuration)
     {
@@ -121,6 +122,24 @@ public static class ServiceCollectionExtensions
             configuration, developmentHost, message => Log.Warning("{OpenHostFiltering}", message));
         barakoCMS.Infrastructure.Security.InitialAdminGuard.Validate(
             configuration["InitialAdmin:Username"], configuration["InitialAdmin:Password"], developmentHost);
+        barakoCMS.Infrastructure.Security.DatabasePasswordGuard.Validate(
+            ResolvedConnectionStringOrNull(configuration, developmentHost), developmentHost);
+    }
+
+    /// <summary>
+    /// The connection string the app will use, or null when there is none or it cannot be read. The
+    /// real resolve runs later and reports those cases itself, so the guard stays out of their way.
+    /// </summary>
+    private static string? ResolvedConnectionStringOrNull(IConfiguration configuration, bool isDevelopment)
+    {
+        try
+        {
+            return ResolveConnectionString(configuration, isDevelopment);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            return null;
+        }
     }
 
     private static void AddCommitListeners(StoreOptions options, IServiceProvider sp)
