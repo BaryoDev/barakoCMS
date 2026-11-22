@@ -146,12 +146,22 @@ restore pipe in a shell with `set -o pipefail` so a failing `gunzip` fails the c
 restore fails after the drop, leave the application stopped and run the block again with the same
 file. Starting the application on an empty database makes new empty tables and a new admin.
 
-The dump is taken with `--no-owner --no-privileges`, so it names no role and a restore needs none of
-them. The restored tables belong to the role that ran the restore, which is the owner (a superuser),
-not the app role the API connects as. In the production and quickstart stacks, run
-`docker compose up -d` after the restore: it runs the app role job again, and the job makes the app
-role owner of the tables. Until then the API cannot read them. Use `up -d`, not `start`: `up` is the
-command that runs the job.
+The dump is taken with `--no-owner --no-privileges`, so it names no role, and whoever runs the
+restore owns what it creates. In the production and quickstart stacks the restore runs as the app
+role, in this order:
+
+1. Stop the API.
+2. Drop and create the database.
+3. Run only the owner job, `run --rm --no-deps postgres-extensions`. It creates the app role and the
+   extensions in the empty database.
+4. Restore as the app role: the stream drops the `CREATE EXTENSION` and `COMMENT ON EXTENSION` lines
+   (the job has done both), and `PGOPTIONS='-c role=<app role>'` makes every statement run as the
+   app role. The filter also covers archives made before this change. Comments on other objects stay.
+5. `docker compose up -d`, which starts the API.
+
+Run ad hoc SQL against the restored database as the app role too, never as the owner. The
+development stack has no owner job and no app role, so its block restores as the owner;
+`scripts/restore-db.sh` picks the right one for the stack it finds.
 
 **docker compose, development stack**
 
@@ -192,12 +202,17 @@ docker compose -f docker-compose.prod.yml exec -T postgres sh -c \
      -c "drop database if exists ${POSTGRES_DB} with (force)" \
      -c "create database ${POSTGRES_DB} owner ${POSTGRES_USER}"'
 
-docker compose -f docker-compose.prod.yml exec -T db-backup \
-    sh -c "gunzip -c $F" \
-  | docker compose -f docker-compose.prod.yml exec -T postgres \
+# The owner job creates the app role and the extensions. Only this job, not the API.
+docker compose -f docker-compose.prod.yml run --rm --no-deps postgres-extensions
+
+# Restore as the app role. The awk drops CREATE EXTENSION and COMMENT ON EXTENSION lines and
+# leaves the data blocks alone.
+docker compose -f docker-compose.prod.yml exec -T db-backup sh -c "gunzip -c $F" \
+  | awk 'c { print; if ($0 == "\\.") c = 0; next } /^COPY .* FROM stdin;$/ { c = 1 } /^(CREATE|COMMENT ON) EXTENSION / { next } { print }' \
+  | docker compose -f docker-compose.prod.yml exec -T -e PGOPTIONS="-c role=${DB_APP_USER:-barako_app}" postgres \
       psql -U "${DB_USER:-postgres}" -d "${DB_NAME:-barako_cms}" -v ON_ERROR_STOP=1
 
-# Not `start app`. Up runs the app role job again, which hands the restored tables back to the app role.
+# Not `start app`. Up starts the API, which waits for the job and connects as the app role.
 docker compose -f docker-compose.prod.yml up -d
 ```
 
@@ -221,10 +236,14 @@ docker compose exec -T postgres sh -c \
      -c "drop database if exists ${POSTGRES_DB} with (force)" \
      -c "create database ${POSTGRES_DB} owner ${POSTGRES_USER}"'
 
-docker compose exec -T db-backup sh -c "gunzip -c $F" \
-  | docker compose exec -T postgres psql -U "${DB_USER:-postgres}" -d "${DB_NAME:-barakocms}" -v ON_ERROR_STOP=1
+docker compose run --rm --no-deps postgres-extensions
 
-# Not `start api`. Up runs the app role job again, which hands the restored tables back to the app role.
+docker compose exec -T db-backup sh -c "gunzip -c $F" \
+  | awk 'c { print; if ($0 == "\\.") c = 0; next } /^COPY .* FROM stdin;$/ { c = 1 } /^(CREATE|COMMENT ON) EXTENSION / { next } { print }' \
+  | docker compose exec -T -e PGOPTIONS="-c role=${DB_APP_USER:-barako_app}" postgres \
+      psql -U "${DB_USER:-postgres}" -d "${DB_NAME:-barakocms}" -v ON_ERROR_STOP=1
+
+# Not `start api`. Up starts the API, which waits for the job and connects as the app role.
 docker compose up -d
 ```
 

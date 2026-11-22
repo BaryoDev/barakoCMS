@@ -381,313 +381,35 @@ development and stay on the owner role with no job.
   database that uses it.
 - Several databases in one cluster that use the same app role name run their jobs one at a time. The
   script takes a lock per database, and that does not cover a second database.
-- Run these hand-run migrations as the owner, not the app role, because each one checks for a role
-  that can bypass row level security and stops otherwise: `migrations/4.6.0/sensitivity-by-capability.sql`,
-  `migrations/4.6.0/rollback-sensitivity-by-capability.sql`, `migrations/5.0.0/role-tenancy.sql` and
-  `migrations/5.0.0/rollback-role-tenancy.sql`.
-
-Backups are taken with `pg_dump --no-owner --no-privileges`, so a restore leaves the tables owned by
-whoever restores. After a restore, run `docker compose up -d`: it runs the job again, which hands
-the tables back to the app role. See [Backup and restore](backup-and-restore.md).
-
-## Postgres image
-
-The database service runs `pgvector/pgvector:pg16` in `docker-compose.yml`, `docker-compose.prod.yml`,
-`docker-compose.hub.yml` and `k8s/03-postgres.yaml`. It is stock Postgres 16 with the pgvector
-extension available, which a later release uses to rank semantic search in the database. Nothing
-creates the extension yet, so the swap changes no behaviour.
-
-The data directory and the Postgres major version are the same, so an existing volume starts as
-before. The image is Debian based where the old one was Alpine, and the `postgres` user is uid 999
-instead of 70. On Kubernetes, if a volume was written by the Alpine image, set its owner to 999
-(or `fsGroup: 999`) before the pod starts. Pull the image on the host before you recreate the
-container so the swap is one restart.
-## Connection poolers and advisory locks
-
-Startup and the background sweeps take Postgres session advisory locks: one to apply the schema, one
-each for the scheduled-content sweep, the workflow run retention sweep and the webhook delivery
-retention sweep. A session lock lives on
-one server connection. Connect barakoCMS to Postgres directly or through a pooler in session mode.
-A pooler in transaction mode hands each statement to whichever server connection is free, so the
-lock can be taken on one and released on another, and a lock can be left held with no owner.
-
-The schema lock does not wait forever. A host that cannot get it within five minutes stops with an
-error naming the lock key (`8242026003`) and the Postgres pid holding it. Set
-`Schema__ApplyLockTimeoutSeconds` to change the wait. The sweeps skip a tick when they cannot
-get their lock, and their writes check state again before they act, so a second instance taking over
-mid-sweep does not repeat a transition. Each sweep (scheduled content, workflow run retention, webhook delivery retention) also asks Postgres whether it still owns its
-lock before every tenant, and stops if it does not.
-
-barakoCMS detects a transaction-mode pooler by running two statements on the lock connection and
-comparing the Postgres backend pid. This is best effort and can miss on a quiet pooler that hands
-both statements to the same backend. If they differ it logs an error naming the lock key, once per
-process. Nothing else changes by default. Set `Leadership__RefuseBehindPooler=true` to make the sweeps skip their
-ticks and the schema lock fail startup with the same message, instead of running with a lock that
-cannot hold.
-
-See [migrations.md](migrations.md) and [deploy-on-a-managed-platform.md](deploy-on-a-managed-platform.md).
-
-## Postgres on a small server
-
-Postgres ships with settings for a machine of unknown size: `shared_buffers` 128MB,
-`random_page_cost` 4 (a spinning disk), `jit` on. `docker-compose.prod.yml` and the quickstart set
-them for a 2 GB VM that also runs the API, and every value is a variable you can set in `.env`:
-
-| Variable | Default (2 GB) | 4 GB | 8 GB | Postgres stock |
-| --- | --- | --- | --- | --- |
-| `PG_SHARED_BUFFERS` | `512MB` | `1GB` | `2GB` | `128MB` |
-| `PG_EFFECTIVE_CACHE_SIZE` | `1GB` | `2GB` | `5GB` | `4GB` |
-| `PG_WORK_MEM` | `4MB` | `8MB` | `16MB` | `4MB` |
-| `PG_MAX_CONNECTIONS` | `100` | `100` | `100` | `100` |
-| `PG_RANDOM_PAGE_COST` | `1.1` | `1.1` | `1.1` | `4` |
-| `PG_JIT` | `off` | `off` | `off` | `on` |
-
-How the numbers are picked:
-
-- `shared_buffers` is about 25% of the machine's RAM.
-- `effective_cache_size` is a planner hint, not an allocation. It is about 50% of RAM on 2 GB, where
-  the API and console take roughly 400 MB, and closer to 60 to 75% on the larger sizes.
-- `work_mem` is per sort or hash, per connection, so `max_connections` times `work_mem` plus
-  `shared_buffers` has to fit in RAM with room to spare. On 2 GB that is 100 x 4MB + 512MB, about
-  900 MB at the worst case. `max_connections` stays at the stock 100 so the API's connection pool
-  keeps fitting; lowering it can turn a busy minute into `too many clients` errors.
-- `random_page_cost` 1.1 assumes an SSD, which every current cloud VM disk is. On a spinning disk
-  set it back to `4`.
-- `jit` off, because compiling a plan costs more than it saves on the small queries a CMS runs.
-
-None of these allocate at start except `shared_buffers`, and Postgres maps that lazily, so a
-container memory limit below it does not stop Postgres starting. It does let Postgres be killed
-once the buffers fill, so if you cap the container's memory, set `PG_SHARED_BUFFERS` to a quarter of
-that cap. On a server larger than 8 GB, or with other databases on it, size from the table rather
-than the defaults.
-
-These are starting values. The measured numbers for them are recorded in #798.
-
-### Finding slow queries
-
-Both files load `pg_stat_statements`, and the one-shot `postgres-extensions` service (see
-[Database roles](#database-roles)) installs the extension each time the stack starts (a no-op after
-the first). It runs on an existing volume too,
-which a script in `docker-entrypoint-initdb.d` would not. It exits once done, so `docker compose ps`
-shows it only with `-a`. To see the slowest queries:
-
-```bash
-docker compose -f docker-compose.prod.yml exec postgres psql -U postgres -d barako_cms -c \
-  "SELECT round(mean_exec_time::numeric, 1) AS mean_ms, calls, left(query, 80) AS query
-   FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT 10;"
-```
-
-Use your `DB_USER` and `DB_NAME` if you changed them. `SELECT pg_stat_statements_reset();` starts
-the counts again, which is worth doing before a measurement.
-
-### Upgrading to these settings
-
-The next `docker compose -f docker-compose.prod.yml up -d` recreates the `postgres` container with
-the new settings, which is a restart of a few seconds. The data volume is not touched. To keep the
-stock values, set the variables to the "Postgres stock" column in `.env`.
-
-### Measuring delivery
-
-`scripts/delivery-load.py` sends a fixed rate of requests for a fixed time to the list, one entry by
-slug and `GET /api/public/site`, and prints p50, p95 and errors for each. It needs only `python3`:
-
-```bash
-python3 scripts/delivery-load.py --base-url https://$DOMAIN_API --type post --slug hello-world \
-  --rate 1.5 --duration 60
-docker stats --no-stream   # in a second shell while it runs, and again at rest
-```
-
-The API allows 100 requests a minute per client address by default (`RateLimiting:Global`, see "Rate
-limits" below), so from one address a rate above about 1.6 a second measures the limiter instead: requests queue, then come
-back as 429, and the script says so. The default rate of 1.5 stays under it.
-
-`--type` must be publicly deliverable with a published entry at `--slug`, and the site must have a
-published `site` entry; the script checks all three answer 200 before it starts. It exits 1 if any
-request failed. Run it from the VM itself to measure the stack, or from outside to include the
-network and Caddy.
-
-## Rate limits
-
-Every limit is a setting. The defaults are the limits earlier releases hard coded, so an upgrade
-changes nothing until you set one. Each has `PermitLimit` (requests), `WindowSeconds` and
-`QueueLimit` (requests that wait for the next window instead of getting 429):
-
-| Section | Default | Applies to |
-| --- | --- | --- |
-| `RateLimiting:Global` | 100 in 60 seconds, queue 10 | every request, per client IP |
-| `RateLimiting:Auth` | 5 in 900 seconds, queue 0 | login, OTP and MFA, per client IP |
-| `RateLimiting:Refresh` | 60 in 900 seconds, queue 0 | token refresh, per client IP |
-| `RateLimiting:Batch` | 20 in 60 seconds, queue 0 | anonymous telemetry batches, per client IP |
-| `RateLimiting:Registration` | 5 in 3600 seconds, queue 0 | registration and its verification, each counted separately, per client IP |
-| `RateLimiting:SiteShare` | 10 in 60 seconds, queue 0 | anonymous share link redemption, per tenant and visitor |
-| `RateLimiting:Lookup` | 10 in 60 seconds, queue 0 | anonymous lookups (`POST /api/public/{type}/lookup`), per tenant and visitor |
-| `RateLimiting:LookupReference` | 5 in 900 seconds | anonymous lookups of one reference, from any address |
-
-As environment variables on the `app` service, the colon becomes a double underscore:
-
-```yaml
-- RateLimiting__Global__PermitLimit=600
-- RateLimiting__Global__WindowSeconds=60
-```
-
-A zero or negative `PermitLimit` or `WindowSeconds`, a negative `QueueLimit`, or a value that is not
-a whole number stops the host at startup with the setting named. There is no way to turn a limit off.
-Setting `Auth` or `Registration` looser than its default is allowed and logs a warning at startup,
-since those two exist to slow down guessing.
-
-The client IP is the one described in "Client IPs behind Caddy" above. Get that right first, or every
-client shares Caddy's bucket.
-
-### A renderer serving many sites
-
-One barakoPress container renders every site it serves, so all of their reads come from one IP and
-share one global bucket. Give it a key instead:
-
-| Setting | Default | What it does |
-| --- | --- | --- |
-| `RateLimiting__Renderer__Key` | unset | a secret of at least 32 characters. Unset means no renderer partition |
-| `RateLimiting__Renderer__PermitLimit` | `1000` | requests in the renderer's own bucket |
-| `RateLimiting__Renderer__WindowSeconds` | `60` | the window for that bucket |
-| `RateLimiting__Renderer__QueueLimit` | `10` | requests that wait for the next window |
-
-A request with the header `X-Barako-Renderer-Key` equal to the key is counted in one renderer bucket
-instead of its IP's bucket. A missing or wrong key is an ordinary request, counted against its IP. The
-key moves a request to the renderer bucket of the global limit, and such a request is not counted by
-the delivery limit below when one is set. `Auth`, `Batch` and `Registration` stay per IP with or
-without it.
-The key is compared in constant time and never logged. Keep it in `.env` like the JWT key, and set the
-same value in barakoPress (`CMS_RENDERER_KEY`).
-
-Share link redemption (`POST /api/public/site/share-links/redeem`, and `.../open` for a link to one
-entry or page, which shares the same budget) is limited per tenant and per
-visitor by `RateLimiting__SiteShare__*` (10 a minute by default). barakoPress redeems server side,
-so every visitor arrives from its IP. A redeem carrying the renderer key may also send
-`X-Barako-Visitor-IP` with the visitor's address, and that address is then the visitor. The header
-must be one IPv4 or IPv6 literal; anything else, or the header without a matching key, is ignored
-and the socket IP is used. The tenant in that bucket is what the request names, `X-Tenant` or else
-the host, because the limiter runs before the tenant is resolved. A caller sending many hosts that
-resolve to one tenant gets a bucket per host, so for that caller the ceiling is the global limit.
-
-A renderer behind a proxy should use the key rather than rely on `X-Forwarded-For`. Trusting another
-proxy's forwarded header widens who can choose the client IP; the key is a secret only the renderer
-holds.
-
-`RateLimitSetupTests` covers the defaults, the startup failures, the renderer bucket and a wrong key.
-
-### Limits that are off until you set them
-
-Three more limits have no default. Unset, nothing changes: the routes they cover stay on the limits
-in the table above. Each is on once its `PermitLimit` is set. `WindowSeconds` defaults to `60` and
-`QueueLimit` to `0`. Setting `WindowSeconds` or `QueueLimit` without `PermitLimit` stops the host at
-startup, since it would read as a limit that is on while it is off.
-
-| Section | Counts | Applies to |
-| --- | --- | --- |
-| `RateLimiting:Delivery` | per client IP | `GET /api/public/{type}`, its `/search`, `/{slug}` and `/feed.xml`, and `/api/public/sitemap.xml` |
-| `RateLimiting:ApiKey` | per API key | every request an API key authenticated, on any route |
-| `RateLimiting:Policies:{name}` | per client IP, user or API key | the routes that name the policy |
-
-```yaml
-- RateLimiting__Delivery__PermitLimit=300
-- RateLimiting__ApiKey__PermitLimit=1000
-- RateLimiting__ApiKey__WindowSeconds=3600
-```
-
-All of these are counted on top of the global limit, never instead of it. A delivery limit above
-the global one (100 a minute per client IP by default) therefore never refuses anything until
-`RateLimiting:Global` is raised too. A request carrying the renderer key is not counted by the
-delivery limit. It stays in the renderer bucket.
-
-The API key quota is counted against the key the API verified, not against what the request
-presents, so it follows the key across addresses and a made-up key opens no bucket: that request is
-not authenticated and is counted against its IP like any other. A signed-in session is not on the
-quota. One number applies to every key; a key cannot be given its own.
-
-#### Named policies
-
-A policy is a name, numbers and what it counts against:
-
-```yaml
-- RateLimiting__Policies__lookup__PermitLimit=20
-- RateLimiting__Policies__lookup__WindowSeconds=60
-- RateLimiting__Policies__lookup__Partition=Ip
-```
-
-A route in a module or in the host names it in code, `RequireRateLimiting("lookup")`, so
-its numbers can change without a build. `Partition` is `Ip` (the default), `User` or `ApiKey`. With
-`User` or `ApiKey` a caller who has no such id, an anonymous one for instance, is counted in one
-bucket shared by every such caller.
-
-A name is up to 64 letters, digits, dashes, underscores and dots, and must be spelled on the route
-exactly as in configuration, case included. A name with a dash or a dot cannot be exported as an
-environment variable from a POSIX shell, so keep to letters, digits and underscores if that is how
-you set it.
-
-The core's own names are reserved: `auth`, `telemetry`, `registration`, `registration-verify`, `site-share`, `logout`,
-`tls-ask`, `delivery`, `domain-verify` (10 domain checks a minute per address, fixed), `by-host` (60 lookups a minute per address, fixed) and `email-preview` (30 email template previews a minute per signed-in user,
-fixed). They cannot be defined under `Policies`; the sections above set
-them. A host or a module that registers its own policy named `delivery` in code stops at startup
-with a message saying to rename it. A name under `Policies` that a module already registers in code
-(`forms`, with the Forms module on) stops the host the same way, naming the setting. Any route
-mapped by the time the API is set up that names a policy nobody defined stops the host at startup
-with the route and the policy named.
-
-#### What these counters are
-
-Every limit on this page is counted in the memory of one API process. With two instances behind a
-load balancer a client can spend each limit twice, and a restart starts every count again. A bucket
-is dropped about ten seconds after its window has passed with no request, so the number held at once
-is the number of distinct clients, users or keys seen in the last window, not all that were ever
-seen. There is no fixed cap on that number.
-
-`NamedRateLimitPolicyTests` covers the defaults, the settings that stop the host, a configured
-policy, a forged `X-Forwarded-For`, the delivery limit and the key quota. `RateLimitStartupCheckTests`
-covers a route naming a missing policy and the reserved names, on a real host.
-
-## Connection and header limits
-
-Kestrel runs with these limits on purpose. Each is a default in code, and the application reads
-`Kestrel:Limits:*` to override it (the host does not read that section by itself). For example,
-set `Kestrel__Limits__KeepAliveTimeout=00:03:00` in compose. A duration is `hh:mm:ss`. A blank value
-keeps the default, and a zero or negative value stops the host at startup with a message naming the
-key. To lift a connection cap on purpose, set it to a very large number.
-
-| Setting | Default | Why |
-| --- | --- | --- |
-| `Kestrel:Limits:RequestHeadersTimeout` | 15 seconds | a client that dribbles its headers holds a connection until this runs out |
-| `Kestrel:Limits:MaxRequestHeadersTotalSize` | 32768 bytes | the framework value, large enough for big cookies |
-| `Kestrel:Limits:MaxRequestHeaderCount` | 100 | the framework value |
-| `Kestrel:Limits:KeepAliveTimeout` | 130 seconds | longer than a proxy's usual 120 second idle timeout, so the proxy never reuses a connection Kestrel just closed |
-| `Kestrel:Limits:MaxConcurrentConnections` | 10000 | far above one node behind a proxy in normal use, and still stops a connection flood |
-| `Kestrel:Limits:MaxConcurrentUpgradedConnections` | 1000 | WebSockets stay open, so they are bounded lower |
-
-`RequestLimits:MaxBodyBytes` (10 MB) is the one request body size setting. It sets Kestrel's body
-limit and the multipart form limit together. `Kestrel:Limits:MaxRequestBodySize` is refused: the host
-fails to start and the message names `RequestLimits:MaxBodyBytes`.
-
-The minimum data rates are read from two keys each, `Kestrel:Limits:MinRequestBodyDataRate:BytesPerSecond`
-and `:GracePeriod`, and the same for `MinResponseDataRate`. The configuration binder cannot build the
-rate object itself, so only these keys work. The request body rate is 240 bytes per second with a 5
-second grace period, and the response rate is the framework's, the same values. A key left out keeps
-that value. A rate of zero bytes per second, a grace period of one second or less, and a
-`RequestLimits:MaxBodyBytes` of zero or less stop the host at startup, naming the key. The request line size, the HTTP/2 limits and the other limits not in the table are the
-framework's.
-
-The caps count per process, and behind a proxy such as Caddy they count the proxy's connections to
-Kestrel, not users. Ten thousand connections is far more than one proxy opens. Upgraded connections
-(WebSockets) are counted apart from the others, and once past 1000 realtime clients connected at
-once, raise `Kestrel:Limits:MaxConcurrentUpgradedConnections`.
-
-`KestrelLimitsTests` covers the defaults, configuration winning, the data rate keys, the refusal and
-that the body and form limits follow `RequestLimits:MaxBodyBytes`.
-
-## Content type field limit
-
-A content type may hold at most 200 fields. Creating one with more, or adding a field that would take
-it past the limit, is refused with 400. Raise or lower it with `ContentTypes:MaxFields`
-(`ContentTypes__MaxFields` in compose); a value below 1 is treated as 1. A type already stored with
-more fields than the limit keeps working, and only adding fields to it is refused.
-`FieldCountCapTests` covers this.
+- Run ad hoc SQL, DML and anything that calls an application function as the app role, never as the
+  owner: `docker compose exec postgres psql -U barako_app -d barako_cms` (or the names you set). The
+  owner runs the `postgres-extensions` job, the migrations below and nothing else.
+- These hand-run migrations run as the owner, because each one checks for a role that can bypass row
+  level security and stops otherwise, or says in its header to run as a superuser. Run each with the
+  search path pinned to the built in schema, so it uses only built in functions and operators, and
+  run them before the `postgres-extensions` job when the volume predates the app role:
+
+  ```bash
+  PGOPTIONS='-c search_path=pg_catalog,pg_temp' psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.0.0/role-tenancy.sql
+  ```
+
+  The files are `migrations/4.6.0/sensitivity-by-capability.sql`,
+  `migrations/4.6.0/rollback-sensitivity-by-capability.sql`, `migrations/4.6.0/tenant-profile-to-site.sql`,
+  `migrations/4.6.0/rollback-tenant-profile-to-site.sql`, `migrations/4.7.0/tenant-policy-restore.sql`,
+  `migrations/5.0.0/role-tenancy.sql`, `migrations/5.0.0/rollback-role-tenancy.sql`,
+  `migrations/5.0.0/site-field-schemas.sql`, `migrations/5.0.0/rollback-site-field-schemas.sql`,
+  `migrations/5.6.1/site-fonts-schema.sql` and `migrations/5.6.1/rollback-site-fonts-schema.sql`.
+  Each header gives the exact `psql` flags. Every name in these files resolves in `pg_catalog` or is
+  written as `public.<name>`, so they run the same with the pin on. `scripts/upgrade-check.sh` runs
+  them that way in CI. The two rollback files also set the pin themselves.
+- From 6.0 no new migration needs a superuser. See [Migrations](migrations.md).
+
+Backups are taken with `pg_dump --no-owner --no-privileges`, so whoever restores owns what the
+restore creates. Restores run as the app role: the `postgres-extensions` job creates the role and
+the extensions in the empty database first, the restore stream drops the `CREATE EXTENSION` and
+`COMMENT ON EXTENSION` lines, and the dump is loaded with `PGOPTIONS='-c role=barako_app'`. Then
+`docker compose up -d` starts the API. `scripts/restore-db.sh` does this, and
+[Backup and restore](backup-and-restore.md) has the commands.
 
 ## Upgrading
 
