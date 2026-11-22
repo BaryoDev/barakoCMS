@@ -27,6 +27,9 @@ internal static class FileServing
     {
         http.Response.Headers["X-Content-Type-Options"] = "nosniff";
         http.Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
+        // A front end on another origin loads these as images and media, so the global
+        // same-origin policy would break them. The security-headers middleware keeps a value set here.
+        http.Response.Headers["Cross-Origin-Resource-Policy"] = "cross-origin";
 
         var contentType = checkedType ? served.ContentType : "application/octet-stream";
         if (checkedType && !string.IsNullOrEmpty(served.PublicUrl))

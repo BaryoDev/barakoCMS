@@ -44,6 +44,13 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         Action<BarakoModuleBuilder>? configureModules)
     {
+        // Before anything is registered: a host that must not start should not get as far as the
+        // database. See HostFilteringGuard and InitialAdminGuard.
+        barakoCMS.Infrastructure.Security.HostFilteringGuard.Validate(
+            configuration, IsDevelopmentEnvironment(), message => Log.Warning("{OpenHostFiltering}", message));
+        barakoCMS.Infrastructure.Security.InitialAdminGuard.Validate(
+            configuration["InitialAdmin:Username"], configuration["InitialAdmin:Password"], IsDevelopmentEnvironment());
+
         var (seen, enabled, modules, unloadable) = AddModules(services, configuration, configureModules);
 
         AddModuleEndpoints(services, seen, enabled, modules, unloadable);
@@ -2214,6 +2221,9 @@ public static class ServiceCollectionExtensions
                 headers.TryAdd("X-Content-Type-Options", "nosniff");
                 headers.TryAdd("X-Frame-Options", "DENY");
                 headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
+                headers.TryAdd("Permissions-Policy", barakoCMS.Infrastructure.Security.SecurityHeaders.PermissionsPolicy);
+                headers.TryAdd("Cross-Origin-Opener-Policy", barakoCMS.Infrastructure.Security.SecurityHeaders.CrossOriginOpenerPolicy);
+                headers.TryAdd("Cross-Origin-Resource-Policy", barakoCMS.Infrastructure.Security.SecurityHeaders.CrossOriginResourcePolicy);
 
                 // X-XSS-Protection is deliberately not written. Every current browser ignores it, and
                 // the auditor it was there to satisfy is not a threat model. While it was honoured its

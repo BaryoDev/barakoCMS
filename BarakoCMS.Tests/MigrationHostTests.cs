@@ -345,6 +345,7 @@ public class MigrationHostTests
         // a full run on a small box sits close to the per-user limit already.
         start.Environment["DOTNET_USE_POLLING_FILE_WATCHER"] = "1";
         start.Environment["DOTNET_hostBuilder__reloadConfigOnChange"] = "false";
+        start.Environment["AllowedHosts"] = "localhost";
         start.Environment["SKIP_SEEDER"] = "true";
         start.Environment["Kubernetes__Enabled"] = "false";
         start.Environment["JWT__Key"] = IntegrationTestFixture.JwtKey;

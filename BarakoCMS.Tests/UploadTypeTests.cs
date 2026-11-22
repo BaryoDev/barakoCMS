@@ -116,6 +116,22 @@ public class UploadTypeTests
     }
 
     [Fact]
+    public async Task A_file_download_can_be_loaded_from_another_origin()
+    {
+        var (client, _) = await AdminAsync();
+        var created = await UploadAsync(client, "image/png", "cross.png", FileSamples.Image("image/png"));
+        created.StatusCode.Should().Be(HttpStatusCode.Created);
+        var id = (await created.Content.ReadFromJsonAsync<Uploaded>(TestContext.Current.CancellationToken))!.Id;
+
+        var served = await client.GetAsync($"/api/files/{id}", TestContext.Current.CancellationToken);
+
+        served.StatusCode.Should().Be(HttpStatusCode.OK);
+        served.Headers.GetValues("Cross-Origin-Resource-Policy").Should().ContainSingle().Which.Should().Be("cross-origin",
+            "a front end on another origin loads stored files as images and media");
+        served.Headers.GetValues("Cross-Origin-Opener-Policy").Should().ContainSingle().Which.Should().Be("same-origin");
+    }
+
+    [Fact]
     public async Task A_type_with_parameters_is_stored_bare_and_lower_case()
     {
         var (client, _) = await AdminAsync();

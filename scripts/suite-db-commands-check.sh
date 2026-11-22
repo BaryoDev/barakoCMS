@@ -61,6 +61,7 @@ run_suite() {
     # appsettings.json in it. See lib-ports.sh.
     env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
         ASPNETCORE_ENVIRONMENT=Production \
+        AllowedHosts="localhost;127.0.0.1" \
         ASPNETCORE_URLS="http://127.0.0.1:${APP_PORT}" \
         "$LISTEN_LOG_ENV" \
         ConnectionStrings__DefaultConnection="$CONN" \

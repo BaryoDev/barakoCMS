@@ -36,6 +36,17 @@ public class ResponseSecurityHeadersTests
           + "assertion below would pass on a response that never reached that middleware", header);
     }
 
+    [Fact]
+    public async Task The_cross_origin_and_permissions_headers_are_on_the_response()
+    {
+        var response = await _factory.CreateClient().GetAsync("/health", TestContext.Current.CancellationToken);
+
+        response.Headers.GetValues("Permissions-Policy").Should().ContainSingle()
+            .Which.Should().Contain("camera=()").And.Contain("microphone=()").And.Contain("geolocation=()");
+        response.Headers.GetValues("Cross-Origin-Opener-Policy").Should().ContainSingle().Which.Should().Be("same-origin");
+        response.Headers.GetValues("Cross-Origin-Resource-Policy").Should().ContainSingle().Which.Should().Be("same-origin");
+    }
+
     /// <summary>
     /// X-XSS-Protection was dropped in 4.0 (#271).
     /// </summary>

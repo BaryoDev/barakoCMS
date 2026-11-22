@@ -102,9 +102,11 @@ services:
       # because the alternative is the caller's own Host header. See README, "Behind a domain".
       App__BaseUrl: ${APP_BASE_URL:-}
 
-      # Which Host headers this API answers to. "*" accepts any, which is fine on localhost and is
-      # the reason App__BaseUrl has to be set once there is a real domain in front of it.
-      AllowedHosts: ${ALLOWED_HOSTS:-*}
+      # Which Host headers this API answers to, semicolon separated. The API refuses to start in
+      # Production with "*", so the default is the host the quickstart is reached on. Put your
+      # domain here once there is one in front of it. To accept any host on purpose, set
+      # Security__AllowAnyHost=true.
+      AllowedHosts: ${ALLOWED_HOSTS:-localhost;127.0.0.1}
 
       # Behind a reverse proxy, name it here or every client shares one rate-limit bucket and the
       # audit log records the proxy. Left unset the app ignores X-Forwarded-For, which is the safe

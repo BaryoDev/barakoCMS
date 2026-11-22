@@ -92,6 +92,7 @@ start=$(now)
 docker run -d --cidfile "$WORK/api.cid" --network "$NET" --cpus 2 --memory 1g \
     -p "$(publish_spec "" 8080)" \
     -e ASPNETCORE_ENVIRONMENT=Production \
+    -e AllowedHosts="localhost;127.0.0.1" \
     -e ConnectionStrings__DefaultConnection="Host=postgres;Database=barakocms;Username=postgres;Password=$DB_PASSWORD" \
     -e JWT__Key='perf-not-a-real-key-at-least-32-characters' \
     -e InitialAdmin__Username=admin -e InitialAdmin__Password="$ADMIN_PASSWORD" \

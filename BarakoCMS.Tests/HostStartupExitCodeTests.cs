@@ -122,6 +122,52 @@ public class HostStartupExitCodeTests
         output.Should().Contain("RateLimiting:Auth:PermitLimit");
     }
 
+    /// <summary>
+    /// A production host that accepts any Host header exits 1 and names the setting, unless
+    /// <c>Security:AllowAnyHost</c> is true. The unreachable database is the second reason a host
+    /// stops here, so the allowed case is read by what the output does not say.
+    /// </summary>
+    [Fact]
+    public async Task A_production_host_with_open_AllowedHosts_exits_1_and_names_the_setting()
+    {
+        var (exitCode, output) = await RunHostAsync(
+            HostAssembly, UnreachableDatabase, ValidJwtKey,
+            new Dictionary<string, string> { ["AllowedHosts"] = "*" });
+
+        exitCode.Should().Be(1, $"Output:\n{Truncate(output)}");
+        output.Should().Contain("AllowedHosts").And.Contain("Security:AllowAnyHost");
+    }
+
+    [Theory]
+    [InlineData("api.example.com", null)]
+    [InlineData("*", "true")]
+    public async Task A_production_host_with_real_or_allowed_hosts_gets_past_the_host_check(string hosts, string? allowAny)
+    {
+        var environment = new Dictionary<string, string> { ["AllowedHosts"] = hosts };
+        if (allowAny is not null)
+        {
+            environment["Security__AllowAnyHost"] = allowAny;
+        }
+
+        var (_, output) = await RunHostAsync(HostAssembly, UnreachableDatabase, ValidJwtKey, environment);
+
+        output.Should().NotContain("accepts any Host header");
+    }
+
+    [Fact]
+    public async Task A_production_host_with_a_weak_initial_admin_password_exits_1_without_printing_it()
+    {
+        const string weak = "changeme-in-production";
+
+        var (exitCode, output) = await RunHostAsync(
+            HostAssembly, UnreachableDatabase, ValidJwtKey,
+            new Dictionary<string, string> { ["InitialAdmin__Username"] = "admin", ["InitialAdmin__Password"] = weak });
+
+        exitCode.Should().Be(1, $"Output:\n{Truncate(output)}");
+        output.Should().Contain("InitialAdmin:Password");
+        output.Should().NotContain(weak);
+    }
+
     private static async Task<(int ExitCode, string Output)> RunHostAsync(
         string hostAssembly, string? connectionString, string? jwtKey,
         IReadOnlyDictionary<string, string>? extraEnvironment = null)
@@ -146,6 +192,7 @@ public class HostStartupExitCodeTests
         start.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
         start.Environment["ASPNETCORE_URLS"] = "http://127.0.0.1:0";
         start.Environment["SKIP_SEEDER"] = "true";
+        start.Environment["AllowedHosts"] = "localhost";
         if (jwtKey is not null)
         {
             start.Environment["JWT__Key"] = jwtKey;
@@ -307,6 +354,7 @@ public class HostStartupExitCodeTests
         start.Environment["HOME"] = Environment.GetEnvironmentVariable("HOME") ?? "/tmp";
         start.Environment["DOTNET_ROOT"] = Environment.GetEnvironmentVariable("DOTNET_ROOT") ?? string.Empty;
         start.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
+        start.Environment["AllowedHosts"] = "localhost";
         start.Environment["SKIP_SEEDER"] = "true";
         start.Environment["Kubernetes__Enabled"] = "false";
         start.Environment["JWT__Key"] = "test-super-secret-key-that-is-at-least-32-chars-long";
