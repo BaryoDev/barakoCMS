@@ -23,6 +23,7 @@ jobs:
   nuget:
     name: NuGet vulnerabilities on master
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
@@ -52,6 +53,7 @@ jobs:
   released-images:
     name: Released image (${{ matrix.image.name }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
@@ -88,6 +90,7 @@ jobs:
   pinned-images:
     name: Third-party images the repository pins
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
@@ -105,11 +108,11 @@ jobs:
           SARIF: "1"
         run: |
           set -uo pipefail
-          images=$(bash scripts/list-compose-images.sh)
+          images=$(bash scripts/list-compose-images.sh) || exit 1
           [ -n "$images" ] || { echo "::error::no third-party images found, the list script is broken"; exit 1; }
           failed=0
           while IFS= read -r image; do
-            label=$(printf '%s' "$image" | tr -c 'A-Za-z0-9.' '_' | cut -c1-80)
+            label="$(printf '%s' "$image" | tr -c 'A-Za-z0-9.' '_' | cut -c1-80)-$(printf '%s' "$image" | cksum | cut -d' ' -f1)"
             echo "::group::$image"
             bash scripts/scan-image.sh "$image" "$label" docker-compose.yml || failed=$((failed + 1))
             echo "::endgroup::"

@@ -568,29 +568,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Built once for the scan and kept out of the registry. A High or Critical finding with a fix
-      # fails the job here, so the push below never runs and no digest is recorded for the
-      # publish job to tag. The push build after it reuses these layers from the cache.
-      - name: Build for the scan
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
-        with:
-          context: ${{ matrix.image.context }}
-          file: ${{ matrix.image.file }}
-          platforms: ${{ matrix.platform }}
-          load: true
-          push: false
-          tags: scan/${{ matrix.image.name }}:release
-          build-args: |
-            BARAKO_BUILD_SHA=${{ github.sha }}
-          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.arch }}
-
-      - name: Install Trivy
-        run: bash scripts/install-trivy.sh
-
-      - name: Scan the image before it is pushed
-        run: bash scripts/scan-image.sh "scan/${{ matrix.image.name }}:release" "${{ matrix.image.name }}-${{ matrix.arch }}" "${{ matrix.image.file }}"
-
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
@@ -606,6 +583,20 @@ jobs:
           outputs: type=image,name=ghcr.io/baryodev/${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.arch }}
+
+      - name: Install Trivy
+        run: bash scripts/install-trivy.sh
+
+      # The scan reads the exact digest that was just pushed, from the registry, so what is scanned
+      # is what would be published. A High or Critical finding with a fix fails the job here, the
+      # digest is never recorded below, and publish-images never tags it. The digest stays in the
+      # registry untagged. Trivy reads the credentials docker/login-action wrote; the variables
+      # pass the same token explicitly in case it does not.
+      - name: Scan the pushed image
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/scan-image.sh "ghcr.io/baryodev/${{ matrix.image.name }}@${{ steps.build.outputs.digest }}" "${{ matrix.image.name }}-${{ matrix.arch }}" "${{ matrix.image.file }}"
 
       # An empty digest here would make the merge step below build a manifest out of nothing, so it
       # fails now rather than producing an image that resolves to no architectures.

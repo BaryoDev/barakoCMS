@@ -595,6 +595,7 @@ jobs:
   image-scan:
     name: Image scan (${{ matrix.image.name }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     strategy:
@@ -633,9 +634,15 @@ jobs:
   # The postgres, pgvector and caddy images the compose files and manifests pin are not ours, and
   # a digest pin keeps a vulnerable image in place until somebody moves it. Dependabot moves the
   # pins; this says when one needs moving.
+  #
+  # A new CVE in one of those images is not something a pull request caused. On pull_request and
+  # merge_group the job fails only when the change touches a file scripts/list-compose-images.sh
+  # reads; otherwise it still scans and writes the findings to the job summary, and passes. Any
+  # other event (workflow_dispatch, a push) fails on findings. The nightly run fails on them too.
   compose-image-scan:
     name: Image scan (compose and manifest images)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -643,22 +650,61 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Does the change touch a pinned image?
+        id: touch
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          QUEUE_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          set -uo pipefail
+          block=true
+          case "$EVENT" in
+            pull_request) base=$PR_BASE ;;
+            merge_group) base=$QUEUE_BASE ;;
+            *) base="" ;;
+          esac
+          if [ -n "$base" ]; then
+            # Cannot compare means block: the safe answer is the strict one.
+            if git fetch --no-tags --depth=1 origin "$base" 2>/dev/null \
+               && changed=$(git diff --name-only "$base" HEAD); then
+              if printf '%s\n' "$changed" | grep -qE '^(docker-compose[^/]*\.ya?ml|quickstart/docker-compose[^/]*\.ya?ml|k8s/.*\.ya?ml)$'; then
+                echo "the change touches a compose file or manifest"
+              else
+                block=false
+                echo "the change touches no compose file or manifest, so findings are reported and do not fail this job"
+              fi
+            else
+              echo "::warning::could not compare against $base, findings will fail this job"
+            fi
+          fi
+          echo "block=$block" >> "$GITHUB_OUTPUT"
+
       - name: Install Trivy
         run: bash scripts/install-trivy.sh
 
       - name: Scan every pinned third-party image
+        env:
+          BLOCK: ${{ steps.touch.outputs.block }}
         run: |
           set -uo pipefail
-          images=$(bash scripts/list-compose-images.sh)
+          images=$(bash scripts/list-compose-images.sh) || exit 1
           [ -n "$images" ] || { echo "::error::no third-party images found, the list script is broken"; exit 1; }
           failed=0
           while IFS= read -r image; do
-            label=$(printf '%s' "$image" | tr -c 'A-Za-z0-9.' '_' | cut -c1-80)
+            label="$(printf '%s' "$image" | tr -c 'A-Za-z0-9.' '_' | cut -c1-80)-$(printf '%s' "$image" | cksum | cut -d' ' -f1)"
             echo "::group::$image"
             bash scripts/scan-image.sh "$image" "$label" docker-compose.yml || failed=$((failed + 1))
             echo "::endgroup::"
           done <<< "$images"
-          [ "$failed" -eq 0 ] || { echo "::error::$failed image(s) failed the scan"; exit 1; }
+          if [ "$failed" -ne 0 ]; then
+            if [ "$BLOCK" = "true" ]; then
+              echo "::error::$failed image(s) failed the scan"
+              exit 1
+            fi
+            echo "::warning::$failed pinned image(s) have a High or Critical finding with a fix. This change does not touch them, so it does not fail here. The nightly run fails on it."
+            echo "$failed pinned image(s) have findings, listed above. Not blocking: this change touches no compose file or manifest." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   # The template and the test harness are what a third party starts from, and the solution build
   # exercises neither as they ship: the template's content is not in the solution, and

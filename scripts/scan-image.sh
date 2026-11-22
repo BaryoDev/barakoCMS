@@ -19,9 +19,21 @@ report="$out/$label.json"
 
 # The gate does the severity and fix filtering, so the report keeps everything High and above.
 # --exit-code is left at 0 on purpose: a scan that fails to run must be told apart from one that
-# found something, and the gate fails closed on a report it cannot read.
-trivy image --quiet --scanners vuln --severity HIGH,CRITICAL \
-    --format json --output "$report" "$image"
+# found something, and the gate fails closed on a report it cannot read. With it at 0 a non-zero
+# exit from trivy means the run itself failed (a registry rate limit, a hang, a database download),
+# never that the image has vulnerabilities, so that case is retried once after a pause. The image
+# goes after `--` so a reference that starts with a dash is not read as a flag.
+run_trivy() {
+    trivy image --quiet --scanners vuln --severity HIGH,CRITICAL \
+        --format json --output "$report" -- "$image"
+}
+rm -f "$report"
+if ! run_trivy; then
+    echo "::warning::trivy failed to run on $image, retrying once"
+    sleep "${SCAN_RETRY_PAUSE:-20}"
+    rm -f "$report"
+    run_trivy || { echo "::error::trivy failed to run on $image twice"; exit 1; }
+fi
 
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     {
@@ -38,4 +50,4 @@ fi
 if [ -n "${SARIF:-}" ]; then
     export VULN_GATE_SARIF="$out/$label.sarif"
 fi
-VULN_GATE_LOCATION="$location" bash "$(dirname "$0")/vuln-gate.sh" trivy "$report"
+VULN_GATE_IMAGE="$image" VULN_GATE_LOCATION="$location" bash "$(dirname "$0")/vuln-gate.sh" trivy "$report"
