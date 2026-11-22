@@ -17,6 +17,12 @@
 --
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.0.0/rollback-site-field-schemas.sql
 
+-- The file sets search_path to pg_catalog, pg_temp before its first statement and puts it back at the
+-- end, so a superuser session runs only built in functions and operators. Every table is named as
+-- public.<name>.
+
+SET search_path = pg_catalog, pg_temp;
+
 DO $rollback$
 DECLARE
     mode_options constant jsonb := '[{"Value":"Live","Label":"Live"},{"Value":"Holding","Label":"Holding"}]'::jsonb;
@@ -68,3 +74,5 @@ BEGIN
     END LOOP;
 END
 $rollback$;
+
+RESET search_path;

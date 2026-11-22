@@ -11,12 +11,12 @@ namespace BarakoCMS.Tests;
 /// only built in functions.
 /// </summary>
 /// <remarks>
-/// The file's content type step calls <c>to_jsonb(stored_role.id::text)</c>. The test has the app
-/// role create <c>public.to_jsonb(text)</c>, which matches that call's argument type exactly, and
-/// which records each call in a table. Run with the default search path the function is called, which
-/// shows the probe can see a call; run with the pin it is never called, and the file still does its
-/// work. The pin is passed as the connection's <c>Options</c>, which is what <c>PGOPTIONS</c> sets.
-/// Each run has its own database and role, since roles belong to the cluster.
+/// With <c>public</c> on the path, the file's <c>to_jsonb(stored_role.id::text)</c> call finds
+/// <c>public.to_jsonb(text)</c> (made by the app role, with an exact argument match) before the
+/// built in one, so the test records each call in a table. With the pin the file resolves
+/// <c>to_jsonb</c> in <c>pg_catalog</c> only: the table stays empty and the file does its work. The pin is
+/// passed as the connection's <c>Options</c>, which is what <c>PGOPTIONS</c> sets. Each run has its own
+/// database and role, since roles belong to the cluster.
 /// </remarks>
 [Collection("Integration1")]
 public sealed class OwnerMigrationSearchPathTests(OwnerMigrationSearchPathTests.Postgres postgres)
@@ -51,7 +51,7 @@ public sealed class OwnerMigrationSearchPathTests(OwnerMigrationSearchPathTests.
     }
 
     [Fact]
-    public async Task The_migration_run_with_the_search_path_pinned_never_calls_a_function_the_app_role_made_in_public()
+    public async Task The_pinned_migration_resolves_names_from_pg_catalog_only()
     {
         var control = await RunMigrationAsync(pinned: false);
         control.Calls.Should().BeGreaterThan(0,
@@ -109,7 +109,7 @@ public sealed class OwnerMigrationSearchPathTests(OwnerMigrationSearchPathTests.
             await owner.OpenAsync(Ct);
             await using var show = new NpgsqlCommand("SHOW search_path", owner);
             var path = (string?)await show.ExecuteScalarAsync(Ct);
-            (path == "pg_catalog, pg_temp").Should().Be(pinned, "the connection carries the search path this run is meant to have");
+            (path?.Replace(" ", "") == "pg_catalog,pg_temp").Should().Be(pinned, "the connection carries the search path this run is meant to have");
             await ExecuteAsync(owner, sql);
         }
 

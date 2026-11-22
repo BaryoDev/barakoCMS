@@ -159,6 +159,10 @@ role, in this order:
    app role. The filter also covers archives made before this change. Comments on other objects stay.
 5. `docker compose up -d`, which starts the API.
 
+The blocks below use `${DB_APP_USER:-barako_app}` and `${DB_USER:-postgres}`, which the shell reads,
+not `.env`. Export them first (`export DB_APP_USER=...`) if you changed them, or read them from `.env`
+the way `scripts/restore-db.sh` does.
+
 Run ad hoc SQL against the restored database as the app role too, never as the owner. The
 development stack has no owner job and no app role, so its block restores as the owner;
 `scripts/restore-db.sh` picks the right one for the stack it finds.

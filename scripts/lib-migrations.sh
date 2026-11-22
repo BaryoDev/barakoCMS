@@ -154,7 +154,7 @@ migration_plan() {
 
 # The plan as the psql lines an operator runs, under one heading for each part.
 migration_plan_psql() { # $1 = the version the database started on
-    local plan kind path flags heading=""
+    local plan kind path flags pin heading=""
     plan=$(migration_plan "$1") || return 1
     while read -r kind path; do
         [ -n "$kind" ] || continue
@@ -169,6 +169,9 @@ migration_plan_psql() { # $1 = the version the database started on
         fi
         flags="--single-transaction "
         migration_is_transactional "$path" || flags=""
-        echo "psql \"\$DATABASE_URL\" -v ON_ERROR_STOP=1 ${flags}-f $path"
+        pin=""
+        # an owner file runs with the search path pinned to the built in schema (docs/deploy-in-production.md, Database roles)
+        migration_needs_owner "$path" && pin="PGOPTIONS='-c search_path=pg_catalog,pg_temp' "
+        echo "${pin}psql \"\$DATABASE_URL\" -v ON_ERROR_STOP=1 ${flags}-f $path"
     done <<< "$plan"
 }

@@ -8,6 +8,14 @@
 # role. CREATE EXTENSION and COMMENT ON EXTENSION lines are dropped from the stream, which the owner
 # job has already covered. On a stack without that job (docker-compose.yml) the restore runs as the
 # owner, and the script says so.
+#
+# Every compose call uses one file, chosen the way docs/backup-and-restore.md has the operator run
+# it: COMPOSE_FILE if it is set (colon separated files are allowed), otherwise docker-compose.prod.yml
+# when it exists, otherwise docker-compose.yml. The script prints the file. It reads the service list
+# of that file once, before it asks or changes anything. If `config` fails (an unset required variable
+# such as DB_APP_PASSWORD, for example), it stops with "Nothing was changed": a failing config is never
+# read as "no postgres-extensions job". Only a config that succeeds without the service takes the
+# owner path.
 
 if [ -z "$1" ]; then
   echo "❌ Error: Please specify a backup file to restore."
@@ -36,14 +44,6 @@ if [ -z "$HEADER" ] || ! grep -q "PostgreSQL database dump" <<< "$HEADER"; then
   exit 1
 fi
 
-echo "WARNING: This will OVERWRITE the current database 'barako_cms'."
-read -p "Are you sure? (y/N) " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "Restore cancelled."
-    exit 1
-fi
-
 # Drops CREATE EXTENSION and COMMENT ON EXTENSION lines, and leaves COPY data blocks alone.
 EXT_FILTER='c { print; if ($0 == "\\.") c = 0; next } /^COPY .* FROM stdin;$/ { c = 1 } /^(CREATE|COMMENT ON) EXTENSION / { next } { print }'
 
@@ -58,7 +58,22 @@ if ! [[ "$APP_ROLE" =~ ^[a-z_][a-z0-9_]*$ ]]; then
   exit 1
 fi
 
-if docker compose config --services 2>/dev/null | grep -qx postgres-extensions; then
+if [ -n "${COMPOSE_FILE:-}" ]; then
+  IFS=: read -r -a FILES <<< "$COMPOSE_FILE"
+elif [ -f docker-compose.prod.yml ]; then
+  FILES=(docker-compose.prod.yml)
+else
+  FILES=(docker-compose.yml)
+fi
+DC=(docker compose)
+for f in "${FILES[@]}"; do DC+=(-f "$f"); done
+echo "Using compose file: ${FILES[*]}"
+
+if ! SERVICES="$("${DC[@]}" config --services)"; then
+  echo "docker compose config failed for ${FILES[*]}, so the stack's services are unknown. Fix that first (for example DB_APP_PASSWORD unset in .env). Nothing was changed."
+  exit 1
+fi
+if grep -qx postgres-extensions <<< "$SERVICES"; then
   AS_APP_ROLE=1
 else
   AS_APP_ROLE=0
@@ -74,22 +89,22 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 echo "Stopping application..."
-docker compose stop app
+"${DC[@]}" stop app
 
 # Drop and recreate the database, owned by the same user. The dump creates objects, so it needs an
 # empty target, and ON_ERROR_STOP would stop at the first CREATE on a populated one.
 echo "Dropping the database barako_cms..."
-if ! docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U "$OWNER" -d postgres \
+if ! "${DC[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -U "$OWNER" -d postgres \
     -c 'drop database if exists barako_cms with (force)'; then
   echo "Could not drop the database, so it is as it was. Restarting the application."
-  docker compose start app
+  "${DC[@]}" start app
   exit 1
 fi
 
 # From here the old data is gone. A failure leaves the application stopped, so it cannot start on an
 # empty or partial database and create fresh tables and a new admin over the loss.
 RETRY="Retry with the same file: ./restore-db.sh $BACKUP_FILE"
-if ! docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U "$OWNER" -d postgres \
+if ! "${DC[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -U "$OWNER" -d postgres \
     -c "create database barako_cms owner \"$OWNER\""; then
   echo "The database barako_cms was dropped and not created. It does not exist now."
   echo "The application is left stopped. $RETRY"
@@ -100,7 +115,7 @@ if [ "$AS_APP_ROLE" = 1 ]; then
   # Only the owner job: it creates the app role and the extensions in the empty database. The API
   # starts after the restore, so nothing else is brought up here.
   echo "Running the owner job..."
-  if ! docker compose run --rm --no-deps postgres-extensions; then
+  if ! "${DC[@]}" run --rm --no-deps -T postgres-extensions; then
     echo "The owner job failed. The application is left stopped. $RETRY"
     exit 1
   fi
@@ -111,9 +126,9 @@ set -o pipefail
 restore() {
   if [ "$AS_APP_ROLE" = 1 ]; then
     gunzip -c "$BACKUP_FILE" | awk "$EXT_FILTER" \
-      | docker compose exec -T -e PGOPTIONS="-c role=$APP_ROLE" postgres psql -v ON_ERROR_STOP=1 -U "$OWNER" -d barako_cms
+      | "${DC[@]}" exec -T -e PGOPTIONS="-c role=$APP_ROLE" postgres psql -v ON_ERROR_STOP=1 -U "$OWNER" -d barako_cms
   else
-    gunzip -c "$BACKUP_FILE" | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U "$OWNER" -d barako_cms
+    gunzip -c "$BACKUP_FILE" | "${DC[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -U "$OWNER" -d barako_cms
   fi
 }
 if restore; then
@@ -126,8 +141,8 @@ fi
 
 echo "Restarting application..."
 if [ "$AS_APP_ROLE" = 1 ]; then
-  docker compose up -d
+  "${DC[@]}" up -d
 else
-  docker compose start app
+  "${DC[@]}" start app
 fi
 echo "Done."

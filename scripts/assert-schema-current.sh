@@ -30,9 +30,9 @@ cd "${COMPOSE_DIR}"
 
 echo "==> db-assert against the ${SERVICE} service's database"
 
-# From 6.0 the API connects as the app role, which the postgres-extensions job creates and hands the
-# tables to. On a 5.x volume the role does not exist yet, and until the job reruns, a migration's DDL
-# fails as a non-owner. So the job runs first, where the compose file has one. It starts postgres.
+# From 6.0 the API connects as the app role. The postgres-extensions job runs as the owner: it creates
+# the role and makes it the owner of the tables. On a 5.x volume the role does not exist yet, and until
+# the job reruns, a migration's DDL fails as a non-owner. So the job runs first, where the compose file has one. It starts postgres.
 if ! SERVICES="$(docker compose config --services)"; then
     echo "!! docker compose config failed, so the compose file does not resolve. Fix that first (for example DB_APP_PASSWORD unset in .env)." >&2
     exit 1
@@ -74,6 +74,9 @@ first: a migration must not run under a serving API.
 With an older image, apply each file by hand:
 
     psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/<version>/<file>.sql
+
+A file that needs a superuser (docs/deploy-in-production.md, Database roles) takes the search path pin
+in front: PGOPTIONS='-c search_path=pg_catalog,pg_temp' psql ...
 
 Check the version's migrations directory for the order and for any file that must run outside a
 transaction (CREATE INDEX CONCURRENTLY cannot be wrapped in one). Then deploy again.

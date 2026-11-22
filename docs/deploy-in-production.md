@@ -386,22 +386,30 @@ development and stay on the owner role with no job.
   owner runs the `postgres-extensions` job, the migrations below and nothing else.
 - These hand-run migrations run as the owner, because each one checks for a role that can bypass row
   level security and stops otherwise, or says in its header to run as a superuser. Run each with the
-  search path pinned to the built in schema, so it uses only built in functions and operators, and
-  run them before the `postgres-extensions` job when the volume predates the app role:
+  search path pinned to the built in schema, so it uses only built in functions and operators:
 
   ```bash
   PGOPTIONS='-c search_path=pg_catalog,pg_temp' psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.0.0/role-tenancy.sql
   ```
 
+  A file whose header sets a scope (`barako.only_role` or `barako.only_tenant`) takes it in the same
+  variable: `PGOPTIONS='-c search_path=pg_catalog,pg_temp -c barako.only_role=<id>'`.
+
   The files are `migrations/4.6.0/sensitivity-by-capability.sql`,
   `migrations/4.6.0/rollback-sensitivity-by-capability.sql`, `migrations/4.6.0/tenant-profile-to-site.sql`,
-  `migrations/4.6.0/rollback-tenant-profile-to-site.sql`, `migrations/4.7.0/tenant-policy-restore.sql`,
-  `migrations/5.0.0/role-tenancy.sql`, `migrations/5.0.0/rollback-role-tenancy.sql`,
-  `migrations/5.0.0/site-field-schemas.sql`, `migrations/5.0.0/rollback-site-field-schemas.sql`,
-  `migrations/5.6.1/site-fonts-schema.sql` and `migrations/5.6.1/rollback-site-fonts-schema.sql`.
-  Each header gives the exact `psql` flags. Every name in these files resolves in `pg_catalog` or is
-  written as `public.<name>`, so they run the same with the pin on. `scripts/upgrade-check.sh` runs
-  them that way in CI. The two rollback files also set the pin themselves.
+  `migrations/4.6.0/rollback-tenant-profile-to-site.sql`, `migrations/5.0.0/role-tenancy.sql`,
+  `migrations/5.0.0/rollback-role-tenancy.sql`, `migrations/5.0.0/site-field-schemas.sql`,
+  `migrations/5.0.0/rollback-site-field-schemas.sql`, `migrations/5.6.1/site-fonts-schema.sql` and
+  `migrations/5.6.1/rollback-site-fonts-schema.sql`. Each header gives the exact `psql` flags. Every
+  name in these files resolves in `pg_catalog` or is written as `public.<name>`, so they run the same
+  with the pin on. `scripts/upgrade-check.sh` and the plan that `scripts/lib-migrations.sh` prints
+  use the pin for them. The rollback files also set it themselves.
+
+  One rule on order: these files are for a volume that has not run them yet, they run before the
+  `postgres-extensions` job, and once the job has run they are not run as the owner. To go back past
+  an upgrade, restore the backup taken before it (see [Backup and restore](backup-and-restore.md)).
+- `migrations/4.7.0/tenant-policy-restore.sql` is not on that list. Its header allows a superuser,
+  and it runs as the app role, which owns the tables.
 - From 6.0 no new migration needs a superuser. See [Migrations](migrations.md).
 
 Backups are taken with `pg_dump --no-owner --no-privileges`, so whoever restores owns what the
@@ -493,12 +501,12 @@ which a script in `docker-entrypoint-initdb.d` would not. It exits once done, so
 shows it only with `-a`. To see the slowest queries:
 
 ```bash
-docker compose -f docker-compose.prod.yml exec postgres psql -U postgres -d barako_cms -c \
+docker compose -f docker-compose.prod.yml exec postgres psql -U barako_app -d barako_cms -c \
   "SELECT round(mean_exec_time::numeric, 1) AS mean_ms, calls, left(query, 80) AS query
    FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT 10;"
 ```
 
-Use your `DB_USER` and `DB_NAME` if you changed them. `SELECT pg_stat_statements_reset();` starts
+Use your `DB_APP_USER` and `DB_NAME` if you changed them. `SELECT pg_stat_statements_reset();` starts
 the counts again, which is worth doing before a measurement.
 
 ### Upgrading to these settings

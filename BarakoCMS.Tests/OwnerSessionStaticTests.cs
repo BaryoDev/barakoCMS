@@ -28,7 +28,6 @@ public sealed partial class OwnerSessionStaticTests
         "4.6.0/rollback-sensitivity-by-capability.sql",
         "4.6.0/tenant-profile-to-site.sql",
         "4.6.0/rollback-tenant-profile-to-site.sql",
-        "4.7.0/tenant-policy-restore.sql",
         "5.0.0/role-tenancy.sql",
         "5.0.0/rollback-role-tenancy.sql",
         "5.0.0/site-field-schemas.sql",
@@ -36,6 +35,17 @@ public sealed partial class OwnerSessionStaticTests
         "5.6.1/site-fonts-schema.sql",
         "5.6.1/rollback-site-fonts-schema.sql",
     ];
+
+    /// <summary>
+    /// Files that match <see cref="NeedsOwner"/> because their header allows a superuser, and that run as
+    /// the app role, the role that owns the tables. The header of a released file cannot be edited (its
+    /// checksum is pinned), so the file stays in the match and out of the owner list.
+    /// </summary>
+    private static readonly string[] AppRoleFiles = ["4.7.0/tenant-policy-restore.sql"];
+
+    /// <summary>The line in Database roles that says when the owner files run.</summary>
+    private const string OrderRule =
+        "they run before the `postgres-extensions` job, and once the job has run they are not run as the owner";
 
     /// <summary>The same words scripts/lib-migrations.sh migration_needs_owner looks for.</summary>
     [GeneratedRegex("rolsuper|rolbypassrls|as a superuser|or a superuser", RegexOptions.IgnoreCase)]
@@ -62,24 +72,19 @@ public sealed partial class OwnerSessionStaticTests
     [Fact]
     public void Every_file_that_needs_a_superuser_is_in_the_released_list_and_no_new_one_is_added()
     {
-        var found = Migrations()
-            .Where(m => !m.Path.StartsWith("removed/", StringComparison.Ordinal) && NeedsOwner().IsMatch(m.Text))
-            .Select(m => m.Path)
-            .Order(StringComparer.Ordinal)
-            .ToList();
+        var all = Migrations().Where(m => !m.Path.StartsWith("removed/", StringComparison.Ordinal)).ToList();
+        all.Should().HaveCountGreaterThan(OwnerFiles.Length, "the scan sees the shipped migrations");
 
-        var unlisted = found.Except(OwnerFiles).ToList();
-        unlisted.Should().BeEmpty(
+        var found = all.Where(m => NeedsOwner().IsMatch(m.Text)).Select(m => m.Path).Order(StringComparer.Ordinal).ToList();
+        var expected = OwnerFiles.Concat(AppRoleFiles).Order(StringComparer.Ordinal).ToList();
+
+        found.Except(expected).Should().BeEmpty(
             "from 6.0 no new migration needs a superuser (it runs as the app role and lifts FORCE ROW LEVEL SECURITY in its own transaction, see docs/migrations.md), "
-            + "so migrations/{0} must not ask for one", string.Join(", migrations/", unlisted));
-        found.Should().Equal(OwnerFiles.Order(StringComparer.Ordinal),
+            + "so a new file must not ask for one");
+        found.Should().Equal(expected,
             "a file in the owner list that no longer asks for a superuser has to leave the list, and the docs, with it");
-    }
 
-    [Fact]
-    public void No_file_outside_the_released_list_checks_for_a_superuser()
-    {
-        var offenders = Migrations()
+        var offenders = all
             .Where(m => !OwnerFiles.Contains(m.Path) && ChecksForSuperuser().IsMatch(m.Text))
             .Select(m => "migrations/" + m.Path)
             .ToList();
@@ -89,48 +94,69 @@ public sealed partial class OwnerSessionStaticTests
     }
 
     [Fact]
-    public void The_rollback_files_that_check_for_a_superuser_pin_the_search_path_before_their_first_statement()
+    public void Every_rollback_file_in_the_owner_list_pins_the_search_path_and_puts_it_back()
     {
-        foreach (var file in OwnerFiles.Where(f => f.Contains("rollback-", StringComparison.Ordinal)))
-        {
-            var text = Read("migrations/" + file);
-            if (!ChecksForSuperuser().IsMatch(text)) continue;
+        var rollbacks = OwnerFiles.Where(f => Path.GetFileName(f).StartsWith("rollback-", StringComparison.Ordinal)).ToList();
+        rollbacks.Should().HaveCount(5, "five rollback files are on the owner list");
 
-            var first = text.Split('\n').Select(l => l.Trim()).First(l => l.Length > 0 && !l.StartsWith("--", StringComparison.Ordinal));
-            first.Should().Be("SET search_path = pg_catalog, pg_temp;",
+        var checkedFiles = 0;
+        foreach (var file in rollbacks)
+        {
+            var lines = Read("migrations/" + file).Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 && !l.StartsWith("--", StringComparison.Ordinal)).ToList();
+            lines.First().Should().Be("SET search_path = pg_catalog, pg_temp;",
                 "migrations/{0} runs as a superuser and its first statement sets the search path to pg_catalog, pg_temp", file);
+            lines.Last().Should().Be("RESET search_path;", "migrations/{0} puts the search path back at the end", file);
+            checkedFiles++;
         }
+        checkedFiles.Should().Be(rollbacks.Count);
     }
 
     [Fact]
-    public void The_docs_give_the_pinned_command_for_every_owner_file()
+    public void The_docs_give_the_pinned_command_for_every_owner_file_and_the_order_rule()
     {
         var roles = Section("docs/deploy-in-production.md", "Database roles");
         roles.Should().Contain(Pin, "the Database roles section gives the command that runs an owner file with the search path pinned");
+        roles.Should().Contain("-c barako.only_role=<id>'", "the Database roles section gives the combined form for a file that sets a scope");
+        var listed = 0;
         foreach (var file in OwnerFiles)
+        {
             roles.Should().Contain("migrations/" + file, "the Database roles section lists every file that runs as the owner, and migrations/{0} is missing", file);
+            listed++;
+        }
+        listed.Should().Be(OwnerFiles.Length);
+        foreach (var file in AppRoleFiles)
+            roles.Should().Contain("migrations/" + file + "` is not on that list",
+                "the Database roles section says migrations/{0} runs as the app role", file);
+        Regex.Replace(roles, @"\s+", " ").Should().Contain(OrderRule, "the Database roles section has the one rule on when the owner files run");
 
         var check = Read("scripts/upgrade-check.sh");
-        check.Should().Contain("PGOPTIONS='-c search_path=pg_catalog,pg_temp'", "scripts/upgrade-check.sh runs the owner files with the pin");
         check.Should().Contain("migration_needs_owner", "scripts/upgrade-check.sh picks the owner files with migration_needs_owner");
+        check.Should().Contain(
+            "docker exec ${pin[@]+\"${pin[@]}\"} \"$PG\" psql -U postgres -d barako_cms -v ON_ERROR_STOP=1 ${single[@]+\"${single[@]}\"} -f /tmp/migration.sql >/dev/null",
+            "scripts/upgrade-check.sh applies each file with the pin in front when it is an owner file");
+        check.Should().Contain("pin=(-e PGOPTIONS='-c search_path=pg_catalog,pg_temp')");
         Read("scripts/lib-migrations.sh").Should().Contain("migration_needs_owner()");
+        Read("scripts/lib-migrations.sh").Should().Contain("PGOPTIONS='-c search_path=pg_catalog,pg_temp' ", "the plan prints the pin in front of an owner file");
     }
 
     [Fact]
-    public void An_owner_migration_step_in_the_upgrade_docs_comes_before_the_role_job()
+    public void No_owner_migration_step_in_the_upgrade_docs_comes_after_the_role_job()
     {
         var upgrading = Section("docs/deploy-in-production.md", "Upgrading");
         var job = upgrading.IndexOf(RoleJob, StringComparison.Ordinal);
         job.Should().BeGreaterThanOrEqualTo(0, "the Upgrading section runs the role job ({0})", RoleJob);
 
-        var markers = OwnerFiles.Select(f => "migrations/" + f).Append(Pin);
+        var markers = OwnerFiles.Select(f => "migrations/" + f).Append(Pin).ToList();
+        var examined = 0;
         foreach (var marker in markers)
         {
             var at = upgrading.IndexOf(marker, StringComparison.Ordinal);
-            if (at < 0) continue;
-            at.Should().BeLessThan(job,
-                "docs/deploy-in-production.md Upgrading has the owner step {0} after the role job, and an owner migration runs before it, while nothing in public belongs to the app role yet", marker);
+            if (at >= 0)
+                at.Should().BeLessThan(job,
+                    "docs/deploy-in-production.md Upgrading has the owner step {0} after the role job, and an owner migration runs before it, while nothing in public belongs to the app role yet", marker);
+            examined++;
         }
+        examined.Should().Be(markers.Count);
     }
 
     [Fact]
@@ -142,6 +168,11 @@ public sealed partial class OwnerSessionStaticTests
         restoreDb.Should().Contain("PGOPTIONS=\"-c role=", "scripts/restore-db.sh loads the dump as the app role");
         restoreDb.Should().Contain(ExtensionFilter, "scripts/restore-db.sh drops the extension lines with the shared filter");
         restoreDb.Should().Contain("runs as the database owner", "on a stack without the job scripts/restore-db.sh says it restores as the owner");
+        restoreDb.Should().Contain("Nothing was changed", "scripts/restore-db.sh stops when compose config fails, before it changes anything");
+        restoreDb.Should().Contain("run --rm --no-deps -T postgres-extensions", "the owner job runs without a tty");
+        Regex.Count(restoreDb, @"^\s*read -p", RegexOptions.Multiline).Should().Be(1, "scripts/restore-db.sh asks once, after it knows which path it takes");
+        var bare = restoreDb.Split('\n').Where(l => Regex.IsMatch(l, @"^[^#]*\bdocker compose\b") && !l.TrimStart().StartsWith("echo", StringComparison.Ordinal) && !l.Contains("DC=(docker compose)")).ToList();
+        bare.Should().BeEmpty("every compose call in scripts/restore-db.sh goes through the one chosen file: {0}", string.Join(" | ", bare));
 
         var restoreCheck = Read("scripts/restore-check.sh");
         restoreCheck.Should().Contain("-c role=$APP_ROLE", "scripts/restore-check.sh restores as the app role");
@@ -154,7 +185,10 @@ public sealed partial class OwnerSessionStaticTests
 
         var offsite = Read("scripts/offsite-backup-check.sh");
         offsite.Should().Contain("-c role=$APP_ROLE", "scripts/offsite-backup-check.sh restores as a role that is not a superuser");
-        offsite.Should().Contain("(CREATE|COMMENT ON) EXTENSION");
+        var awk = Regex.Match(offsite, @"\| awk '(?<f>[^\n]*)' \\\n");
+        awk.Success.Should().BeTrue("scripts/offsite-backup-check.sh pipes the restore through awk");
+        awk.Groups["f"].Value.Replace(@"\\\\", @"\\").Replace(@"\$", "$").Replace("\\\"", "\"")
+            .Should().Be(ExtensionFilter, "scripts/offsite-backup-check.sh has the shared filter, escaped for its sh -c string");
 
         var docs = Read("docs/backup-and-restore.md");
         Regex.Count(docs, Regex.Escape(ExtensionFilter)).Should().BeGreaterThanOrEqualTo(2,

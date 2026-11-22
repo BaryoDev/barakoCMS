@@ -278,8 +278,11 @@ With `Tenancy:DatabaseEnforcement` on, the app connects as a role that is not a 
 - A file that says it needs a superuser (it refuses with an error otherwise) is applied by hand as
   that superuser and then recorded with `--record` as the app role. Run it with
   `PGOPTIONS='-c search_path=pg_catalog,pg_temp'`, so it uses only built in functions and operators.
-  [Deploy in production](deploy-in-production.md#database-roles) lists those files. The runner never
-  applies them. Do not run `db-migrate` itself as a different role than the app: the ledger table
+  [Deploy in production](deploy-in-production.md#database-roles) lists those files. `db-migrate`
+  does load them like any other file, so run as the app role it stops at the file's own refusal:
+  it prints `failed` with that error, keeps the rows of the files before it and leaves none for the
+  failed one. Apply the file by hand as described, record it, and run `db-migrate` again.
+  Do not run `db-migrate` itself as a different role than the app: the ledger table
   would be created owned by that role and the app could not read it.
 - From 6.0 no new migration needs a superuser or a role that bypasses row level security. A
   migration that must reach every tenant's rows runs as the app role, which owns the tables, and
