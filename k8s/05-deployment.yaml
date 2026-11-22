@@ -52,7 +52,7 @@ spec:
         - name: barako-cms
           # Pinned. With :latest plus IfNotPresent a node keeps whatever it cached, so two replicas
           # can run different builds and a rollback has nothing to roll back to.
-          image: ghcr.io/baryodev/barako-cms:4.0.0
+          image: ghcr.io/baryodev/barako-cms:5.9.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
