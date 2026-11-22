@@ -25,6 +25,12 @@
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.6.0/rollback-sensitivity-by-capability.sql
 --
 -- Safe to run twice.
+--
+-- The file sets search_path to pg_catalog, pg_temp before its first statement and puts it back at
+-- the end, and it names every table as public.<name>, so a superuser session runs only built in
+-- functions and operators.
+
+SET search_path = pg_catalog, pg_temp;
 
 DO $$
 BEGIN
@@ -90,3 +96,5 @@ WHERE stored_role.id = '00000000-0000-0000-0000-000000000003'
         SELECT 1
         FROM jsonb_array_elements(stored_role.data -> 'SystemCapabilities') AS held(name)
         WHERE lower(held.name #>> '{}') = 'view_sensitive');
+
+RESET search_path;

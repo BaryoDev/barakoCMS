@@ -15,6 +15,12 @@
 --
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.6.1/rollback-site-fonts-schema.sql
 
+-- The file sets search_path to pg_catalog, pg_temp before its first statement and puts it back at the
+-- end, so a superuser session runs only built in functions and operators. Every table is named as
+-- public.<name>.
+
+SET search_path = pg_catalog, pg_temp;
+
 DO $rollback$
 DECLARE
     old_schema   constant jsonb := '{"additionalProperties":{"type":"string"},"type":"object"}'::jsonb;
@@ -65,3 +71,5 @@ BEGIN
     END LOOP;
 END
 $rollback$;
+
+RESET search_path;

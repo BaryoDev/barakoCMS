@@ -201,6 +201,13 @@ else
     bad "a no-transaction file is printed without --single-transaction, and only that one"
 fi
 
+if grep -qxF "PGOPTIONS='-c search_path=pg_catalog,pg_temp' psql \"\$DATABASE_URL\" -v ON_ERROR_STOP=1 --single-transaction -f migrations/5.0.0/role-tenancy.sql" <<< "$out" \
+    && grep -qxF 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/site-share-links.sql' <<< "$out"; then
+    ok "an owner file is printed with the search path pinned, and a file that is not one is not"
+else
+    bad "an owner file is printed with the search path pinned, and a file that is not one is not"
+fi
+
 echo "== a new migration =="
 repo="$work/new-core"
 copy_repo "$repo"

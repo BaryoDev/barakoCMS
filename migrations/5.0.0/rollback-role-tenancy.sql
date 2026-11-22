@@ -40,6 +40,13 @@
 --
 -- Safe to run twice: the second run finds no copy, no shared name and no owner to remove.
 -- barako:rerunnable
+--
+-- The file sets search_path to pg_catalog, pg_temp before its first statement and puts it back at
+-- the end, and it names every table as public.<name>, so a superuser session runs only built in
+-- functions and operators. The two helper functions below are temporary and are called as
+-- pg_temp.<name>.
+
+SET search_path = pg_catalog, pg_temp;
 
 -- A role list with one entry swapped for another, keeping the first position of anything that is
 -- then listed twice. Temporary, so it goes when the session ends.
@@ -195,3 +202,5 @@ BEGIN
         folded, renamed, released;
 END
 $rollback_role_tenancy$;
+
+RESET search_path;

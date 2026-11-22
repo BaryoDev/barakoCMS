@@ -31,6 +31,12 @@
 --
 -- Safe to run twice: it only fills blanks, and the second run finds none it can fill.
 
+-- The file sets search_path to pg_catalog, pg_temp before its first statement and puts it back at the
+-- end, so a superuser session runs only built in functions and operators. Every table is named as
+-- public.<name>.
+
+SET search_path = pg_catalog, pg_temp;
+
 DO $rollback$
 DECLARE
     -- tenant document key, site field
@@ -150,3 +156,5 @@ BEGIN
         CASE WHEN only_tenant IS NULL THEN '' ELSE '. Only ' || only_tenant || ' was looked at' END;
 END
 $rollback$;
+
+RESET search_path;
