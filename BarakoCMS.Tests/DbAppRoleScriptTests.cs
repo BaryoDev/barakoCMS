@@ -72,6 +72,10 @@ public sealed class DbAppRoleScriptTests(DbAppRoleScriptTests.Postgres postgres)
                     "-c", "log_min_duration_sample=0",
                     "-c", "log_statement_sample_rate=1",
                     "-c", "log_transaction_sample_rate=1",
+                    // The query tree of an ALTER ROLE carries the password string.
+                    "-c", "debug_print_parse=on",
+                    "-c", "debug_print_rewritten=on",
+                    "-c", "debug_print_plan=on",
                     "-c", "auto_explain.log_min_duration=0")
                 .Build();
         }

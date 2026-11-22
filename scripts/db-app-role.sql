@@ -32,8 +32,11 @@
 -- The search_path is pg_catalog only for the run, because public belongs to the app role after the
 -- first run and a function it planted there could otherwise be called as the superuser.
 --
+-- Do not run it under psql --single-transaction (-1): that starts the transaction before the file
+-- can turn transaction sampling off.
+--
 -- The password never reaches a log or a stats view. Statement logging, slow statement and sampled
--- logging, auto_explain, the statement printed beside an error, activity tracking and utility
+-- logging, auto_explain, the parse and plan trees, the statement printed beside an error, activity tracking and utility
 -- tracking are off for this transaction, the password statement runs at top
 -- level with the psql variable (an error inside a DO block prints its dynamic SQL, password
 -- included), and psql prints no context or query text for an error.
@@ -47,6 +50,10 @@
 \if :{?app_password} \else \getenv app_password DB_APP_PASSWORD \endif
 \if :{?app_password} \else \set app_password '' \endif
 
+-- Whether a transaction is sampled for logging is decided when it starts, so this cannot wait for
+-- a SET LOCAL inside it.
+SET log_transaction_sample_rate = 0;
+
 BEGIN;
 
 -- Public belongs to the app role after the first run, so nothing it can plant there may be found by
@@ -59,7 +66,9 @@ SET LOCAL log_min_error_statement = panic;
 SET LOCAL pg_stat_statements.track_utility = off;
 SET LOCAL log_min_duration_statement = -1;
 SET LOCAL log_min_duration_sample = -1;
-SET LOCAL log_transaction_sample_rate = 0;
+SET LOCAL debug_print_parse = off;
+SET LOCAL debug_print_rewritten = off;
+SET LOCAL debug_print_plan = off;
 SET LOCAL auto_explain.log_min_duration = -1;
 SET LOCAL track_activities = off;
 -- So the stored verifier is never md5.
@@ -185,5 +194,7 @@ SELECT current_setting('barako.changed') AS changed,
        (SELECT rolsuper::text FROM pg_roles WHERE rolname = :'app_role') AS rolsuper \gset
 
 COMMIT;
+
+RESET log_transaction_sample_rate;
 
 \echo db-app-role: role :app_role, rolsuper :rolsuper, :changed objects changed owner
