@@ -111,7 +111,7 @@ nothing is written outside the database unless you turn on S3 file storage.
 ### The app role on a managed database
 
 The API refuses to start as the platform's admin user (see the `Database__AllowSuperuser` row above).
-`scripts/db-app-role.sql` needs a superuser, which these platforms do not give, so create the role by
+`scripts/db-app-role.sql` needs a superuser, which these platforms do not give. Run as the admin, it stops before it changes anything and points here. Create the role by
 hand. Connect with `psql` as the admin user to the API's database and run:
 
 ```sql

@@ -168,7 +168,7 @@ public sealed class ManagedAdminRoleStepsTests(ManagedAdminRoleStepsTests.Postgr
     }
 
     [Fact]
-    public async Task The_role_script_still_needs_a_superuser_so_the_doc_sends_a_managed_admin_to_the_steps()
+    public async Task The_role_script_refuses_a_managed_admin_before_it_changes_anything()
     {
         var admin = await postgres.RunAsync(
             "psql", "-X", "-U", "postgres", "-d", "postgres", "-c",
@@ -183,7 +183,17 @@ public sealed class ManagedAdminRoleStepsTests(ManagedAdminRoleStepsTests.Postgr
             "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-U", "mgr2", "-d", "managed_script_db",
             "-f", "/work/scripts/db-app-role.sql");
 
-        run.ExitCode.Should().NotBe(0, "scripts/db-app-role.sql needs a superuser; if this starts passing, update the doc");
-        run.Stderr.Should().Contain("permission denied", "the script stops on a privilege a managed admin lacks, not on anything else");
+        run.ExitCode.Should().NotBe(0, "the script refuses a role that is not a superuser");
+        run.Stderr.Should().Contain("is not a superuser");
+        run.Stderr.Should().Contain("deploy-on-a-managed-platform.md");
+
+        var role = await postgres.PsqlAsync(
+            "postgres", "postgres", "-c", "select count(*) from pg_roles where rolname = 'barako_script_role'");
+        role.ExitCode.Should().Be(0, role.Stderr);
+        role.Stdout.Trim().Should().Be("0", "the refusal created no role");
+        var owner = await postgres.PsqlAsync(
+            "postgres", "managed_script_db", "-c", "select pg_get_userbyid(nspowner) from pg_namespace where nspname = 'public'");
+        owner.ExitCode.Should().Be(0, owner.Stderr);
+        owner.Stdout.Trim().Should().Be("mgr2", "the refusal moved no ownership");
     }
 }
