@@ -135,7 +135,7 @@ docker exec "$BACKUP" sh -c 'touch -d "@$(( $(date +%s) - 30 * 86400 ))" /backup
 sleep 1
 before=$(docker exec "$BACKUP" sh -c 'ls -1 /backups/barako_backup_*.sql.gz | wc -l')
 set +e
-failed_output=$(docker exec -e BACKUP_S3_SECRET_KEY=wrong-secret "$BACKUP" /backup_job.sh 2>&1)
+failed_output=$(docker exec -e BACKUP_S3_SECRET_KEY=wrong-secret "$BACKUP" sh /tmp/backup_job.sh 2>&1)
 failed_exit=$?
 set -e
 printf '%s\n' "$failed_output" | tail -6

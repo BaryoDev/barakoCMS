@@ -41,6 +41,26 @@ services:
     networks:
       proxy:
         ipv4_address: ${PROXY_ADDRESS:-10.87.51.2}
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+    cap_drop: [ALL]
+    cap_add:
+      - NET_BIND_SERVICE # binds ports 80 and 443
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      org.barakocms.hardening.root: "the certificate and config volumes already exist owned by root on a running deployment, and a non-root user could not read them"
+    mem_limit: ${PROXY_MEM_LIMIT:-512m}
+    pids_limit: ${PROXY_PIDS_LIMIT:-256}
+    # The image has wget and no curl. The admin endpoint listens on loopback inside the container
+    # and answers as soon as Caddy is up, before any certificate is issued.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:2019/config/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   # 2. Database (PostgreSQL)
   postgres:
@@ -79,6 +99,23 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+      - /var/run/postgresql:mode=1777,size=8m
+    cap_drop: [ALL]
+    cap_add:
+      - CHOWN # the entrypoint fixes the data directory's owner on a fresh volume
+      - DAC_OVERRIDE # initdb and the entrypoint write into directories they do not own
+      - FOWNER # initdb sets modes on files it created as root
+      - SETGID # gosu drops to the postgres group
+      - SETUID # gosu drops to the postgres user
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      org.barakocms.hardening.root: "the image entrypoint starts as root to prepare the data directory, then drops to the postgres user"
+    mem_limit: ${DB_MEM_LIMIT:-2g}
+    pids_limit: ${DB_PIDS_LIMIT:-512}
 
   # Creates pg_stat_statements once Postgres is up, then exits. A separate one-shot rather than a
   # script in docker-entrypoint-initdb.d, because that only runs on an empty volume and an existing
@@ -97,6 +134,13 @@ services:
       PGUSER: ${DB_USER:-postgres}
       PGPASSWORD: ${DB_PASSWORD}
     command: ["psql", "-v", "ON_ERROR_STOP=1", "-c", "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"]
+    user: "70:70"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${EXTENSIONS_MEM_LIMIT:-128m}
+    pids_limit: ${EXTENSIONS_PIDS_LIMIT:-64}
 
   # 3. Backend API
   #
@@ -148,6 +192,26 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    user: "1654:1654"
+    read_only: true
+    tmpfs:
+      # Upload buffering and the runtime's scratch files. The image root is read-only, so this and
+      # the home directory are the only places the API can write.
+      - /tmp:mode=1777,size=${API_TMP_SIZE:-512m}
+      - /home/app:uid=1654,gid=1654,mode=0700,size=16m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${API_MEM_LIMIT:-1g}
+    pids_limit: ${API_PIDS_LIMIT:-512}
+    # The image has no shell or curl, so the probe is built into the app. It asks this container's own
+    # listener, so no host or database is involved.
+    healthcheck:
+      test: ["CMD", "dotnet", "barakoCMS.dll", "--health-probe"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # 4. Nightly backup
   #
@@ -194,6 +258,27 @@ services:
       BACKUP_S3_ACCESS_KEY: ${BACKUP_S3_ACCESS_KEY:-}
       BACKUP_S3_SECRET_KEY: ${BACKUP_S3_SECRET_KEY:-}
     entrypoint: ["/bin/sh", "/scripts/backup-cron.sh"]
+    read_only: ${BACKUP_READ_ONLY:-true}
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    cap_drop: [ALL]
+    cap_add:
+      - SETUID # crond switches to the crontab's user before it runs the job
+      - SETGID # crond sets the group list the same way
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      org.barakocms.hardening.root: "busybox crond has to start as root to run a job"
+    mem_limit: ${BACKUP_MEM_LIMIT:-512m}
+    pids_limit: ${BACKUP_PIDS_LIMIT:-128}
+    # The job is a shell script, so the check is that crond is running. A failed backup is reported in
+    # the log, which the health of the process cannot show.
+    healthcheck:
+      test: ["CMD-SHELL", "pidof crond >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 networks:
   default: {}

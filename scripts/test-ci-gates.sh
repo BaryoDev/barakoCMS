@@ -274,5 +274,29 @@ bash "$here/check-action-pins.sh" "$d/gh1/workflows" > /dev/null; check "composi
 bash "$here/check-action-pins.sh" "$d/gh2/workflows" > /dev/null; check "composite action pinned by a tag"   fail $?
 
 echo
+echo "Compose hardening (check-compose-hardening.sh):"
+chk="$here/check-compose-hardening.sh"
+fx="$here/testdata/compose-hardening"
+bash "$chk" "$fx/good.yml" > /dev/null 2>&1;                         check "every option present"                  pass $?
+err=$(bash "$chk" "$fx/bad.yml" 2>&1 > /dev/null); rc=$?
+eq "$rc" 1;                                                          check "a service missing options fails"       pass $?
+for want in "no-read-only: missing read_only" "no-cap-drop: missing cap_drop ALL" \
+            "no-new-privileges: missing no-new-privileges" "root-user: missing a non-root user" \
+            "no-mem-limit: missing mem_limit" "no-pids-limit: missing pids_limit" \
+            "no-healthcheck: missing a healthcheck" "one-shot-still-needs-read-only: missing read_only"; do
+  printf '%s' "$err" | grep -qF "bad.yml, service $want";           check "names the file, service and option: ${want%%:*}" pass $?
+done
+! printf '%s' "$err" | grep -q 'one-shot-exempt';                    check "a restart: no one-shot skips only the healthcheck" pass $?
+printf 'services:\n  a:\n    image: x:${NOT_SET_ANYWHERE:?must be set}\n' > "$d/ch-unresolved.yml"
+bash "$chk" "$d/ch-unresolved.yml" > /dev/null 2>&1;                  check "a file compose cannot resolve"         fail $?
+printf 'services: {}\n' > "$d/ch-empty.yml"
+bash "$chk" "$d/ch-empty.yml" > /dev/null 2>&1;                       check "a file with no services"               fail $?
+bash "$chk" "$d/ch-missing.yml" > /dev/null 2>&1;                     check "a file that does not exist"            fail $?
+bash "$chk" > /dev/null 2>&1;                                        check "no file given"                         fail $?
+bash "$chk" "$here/../docker-compose.yml" "$here/../docker-compose.hub.yml" \
+  "$here/../docker-compose.prod.yml" "$here/../quickstart/docker-compose.yml" > /dev/null 2>&1; check "the four shipped compose files" pass $?
+bash "$chk" "$fx/good.yml" "$fx/bad.yml" > /dev/null 2>&1;            check "one bad file among good ones"          fail $?
+
+echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -93,11 +93,11 @@ instead; it runs this same image.
 ```bash
 curl -O https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/quickstart/docker-compose.yml
 curl -O https://raw.githubusercontent.com/BaryoDev/barakoCMS/master/quickstart/.env.example
-cp .env.example .env      # then set DB_PASSWORD, JWT_KEY (32+ chars), ADMIN_PASSWORD
+cp .env.example .env      # then set DB_PASSWORD, JWT_KEY (32+ chars), ADMIN_PASSWORD, and check BARAKO_TAG
 docker compose up -d
 ```
 
-- **API** at <http://localhost:5005>, health at `/health`, Swagger at `/swagger` once `SWAGGER_ENABLED=true`
+- **API** at <http://localhost:5005> (this machine only, set `API_BIND` to open it up), health at `/health`, Swagger at `/swagger` once `SWAGGER_ENABLED=true`
 - Every module ships in the image and stays off/mock until you add its keys, so you grow into
   SMTP email, social sign-in, and the rest without touching the compose.
 

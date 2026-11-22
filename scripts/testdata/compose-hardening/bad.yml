@@ -1,0 +1,92 @@
+# Each service below misses exactly one option, and one-shot is exempt from the healthcheck only.
+# check-compose-hardening.sh must report every service except one-shot-exempt.
+services:
+  no-read-only:
+    image: alpine:3
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+  no-cap-drop:
+    image: alpine:3
+    read_only: true
+    cap_drop: [NET_RAW]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+  no-new-privileges:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+  root-user:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: root
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+  no-mem-limit:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "true"]
+  no-pids-limit:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    healthcheck:
+      test: ["CMD", "true"]
+  no-healthcheck:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+  one-shot-exempt:
+    image: alpine:3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    restart: "no"
+  one-shot-still-needs-read-only:
+    image: alpine:3
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    user: "1654:1654"
+    mem_limit: 64m
+    pids_limit: 64
+    restart: "no"

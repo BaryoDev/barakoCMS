@@ -160,7 +160,7 @@ docker cp scripts/backup-cron.sh "$PG:/scripts/backup-cron.sh" >/dev/null
 # the part under test: everything that decides whether an archive is publishable.
 docker exec -e POSTGRES_HOST=localhost -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres \
     -e POSTGRES_PASSWORD=barako-ci-not-an-example -e BACKUP_KEEP_DAYS=7 "$PG" sh -c '
-        sed -n "/^cat <<.JOB. > \/backup_job.sh$/,/^JOB$/p" /scripts/backup-cron.sh \
+        sed -n "/^cat <<.JOB. > \/tmp\/backup_job.sh$/,/^JOB$/p" /scripts/backup-cron.sh \
             | sed "1d;\$d" > /run_backup.sh
         sh /run_backup.sh
     ' || fail "the backup job failed"

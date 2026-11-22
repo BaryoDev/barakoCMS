@@ -24,7 +24,8 @@ keys, so an empty-but-valid `.env` boots a working CMS you can grow into.
 ```bash
 # from this quickstart/ folder
 cp .env.example .env
-#   edit .env, at minimum: DB_PASSWORD, JWT_KEY, ADMIN_PASSWORD
+#   edit .env, at minimum: DB_PASSWORD, JWT_KEY, ADMIN_PASSWORD (the example values are refused,
+#   the API will not start on them), and check BARAKO_TAG, the release to run
 docker compose up -d
 ```
 
@@ -50,9 +51,20 @@ Full reference is in [`.env.example`](.env.example). The essentials:
 ### Required
 | Variable | Notes |
 | --- | --- |
-| `DB_PASSWORD` | Postgres password. |
-| `JWT_KEY` | Token signing key. **Must be 32+ characters** or the API won't start. |
+| `BARAKO_TAG` | The release to run, for example `5.9.0`. No default, so a pull never upgrades you by surprise. |
+| `DB_PASSWORD` | Postgres password. The example value in `.env.example` is refused outside Development. |
+| `JWT_KEY` | Token signing key. **Must be 32+ characters** or the API won't start. The example value is refused. |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | The first admin account, seeded on first boot. |
+
+### Network and limits
+
+The API port is published on `127.0.0.1` only. To reach it from another machine, set
+`API_BIND=0.0.0.0` and put TLS in front of it first.
+
+Every container runs with a read-only root file system, no extra Linux capabilities, and a memory and
+process cap. The caps are generous. Before a large import or big uploads, raise `API_MEM_LIMIT` (for
+example `2g`) in `.env`. The full list of limit variables is at the end of `.env.example`. The backup
+container's off-host S3 copy installs `curl` at start, which needs `BACKUP_READ_ONLY=false`.
 
 ### Swagger
 
@@ -98,7 +110,7 @@ ASPNETCORE_ENVIRONMENT=Production
 APP_BASE_URL=https://cms.example.com        # what the API puts in links it hands out
 ALLOWED_HOSTS=cms.example.com               # the Host headers the API answers to
 ALLOWED_ORIGINS=https://admin.example.com   # where the console and your site are served
-BARAKO_TAG=3.21.0                           # pin a release rather than :latest
+BARAKO_TAG=5.9.0                            # required, there is no latest default
 ```
 
 `APP_BASE_URL` and `ALLOWED_HOSTS` are the pair that keeps a caller from choosing the origin of the
