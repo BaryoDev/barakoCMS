@@ -459,7 +459,7 @@ public class ContentSourcingTests
             var policy = new ContentSourcingPolicyService(session);
             await policy.DecideAsync(type, eventSourced: true, default);
 
-            var writer = new ContentWriter(session, policy);
+            var writer = new ContentWriter(session, policy, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
             await writer.CreateAsync(new ContentCreated(
                 id, type, new Dictionary<string, object> { ["Title"] = title },
                 ContentStatus.Published, Guid.NewGuid(), title, SensitivityLevel.Public), default);

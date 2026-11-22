@@ -8,20 +8,11 @@ namespace barakoCMS.Infrastructure.Services;
 
 public class ContentValidatorService(
     IQuerySession session,
-    barakoCMS.Core.Interfaces.IFileStore? files,
-    barakoCMS.Core.Interfaces.BlockDataSources? dataSources) : IContentValidatorService
+    barakoCMS.Core.Interfaces.IFileStore? files = null,
+    barakoCMS.Core.Interfaces.BlockDataSources? dataSources = null) : IContentValidatorService
 {
-    /// <summary>A validator with no file store, which refuses a new value in a <c>file</c> field.</summary>
-    public ContentValidatorService(IQuerySession session)
-        : this(session, null, null)
-    {
-    }
-
-    /// <summary>A validator with no data sources registered, so a block naming one is refused.</summary>
-    public ContentValidatorService(IQuerySession session, barakoCMS.Core.Interfaces.IFileStore? files)
-        : this(session, files, null)
-    {
-    }
+    // With no file store a new value in a file field is refused, and with no data sources a block
+    // naming one is refused.
 
     public Task<(bool IsValid, List<string> Errors)> ValidateAsync(
         string contentType,

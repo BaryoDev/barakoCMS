@@ -70,7 +70,7 @@ public class LedgerService
     [Obsolete("Use the constructor taking IContentWriter. Removal planned for barakoCMS 6.0.")]
     public LedgerService(IDocumentSession session)
         : this(session, new barakoCMS.Infrastructure.Services.ContentWriter(
-            session, new barakoCMS.Infrastructure.Services.ContentSourcingPolicyService(session)))
+            session, new barakoCMS.Infrastructure.Services.ContentSourcingPolicyService(session), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build()))
     {
     }
 

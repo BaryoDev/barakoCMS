@@ -44,7 +44,7 @@ public class UpdateFieldFileTests
             Fields = [new FieldDefinition { Name = "Cover", DisplayName = "Cover", Type = "file" }],
         });
 
-        var writer = new ContentWriter(seed, new ContentSourcingPolicyService(seed));
+        var writer = new ContentWriter(seed, new ContentSourcingPolicyService(seed), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         await writer.CreateAsync(
             new ContentCreated(
                 contentId, type, new Dictionary<string, object> { ["Cover"] = held }, ContentStatus.Draft,
@@ -58,7 +58,7 @@ public class UpdateFieldFileTests
     private static async Task<WorkflowActionResult> SetCoverAsync(Seeded seeded, string value, IFileStore? files)
     {
         await using var session = seeded.Store.LightweightSession(seeded.Tenant);
-        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
+        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         var action = new UpdateFieldAction(
             session, writer, new ContentLifecycleRunner([], session), NullLogger<UpdateFieldAction>.Instance, files);
 

@@ -20,7 +20,7 @@ public class TenantAccessMiddlewareTests
         public void Invalidate() { }
 
         public Task<TenantDomainMap> GetAsync(CancellationToken ct = default) =>
-            Task.FromResult(new TenantDomainMap([], active));
+            Task.FromResult(new TenantDomainMap([], active, []));
     }
 
     private static async Task<(bool Reached, int Status)> SendAsync(string path, bool multi = false)

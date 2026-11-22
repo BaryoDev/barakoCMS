@@ -16,31 +16,19 @@ namespace barakoCMS.Infrastructure.Multitenancy;
 /// </remarks>
 public sealed class TenantDomainMap
 {
-    public static readonly TenantDomainMap Empty = new(Array.Empty<(string, string)>());
+    public static readonly TenantDomainMap Empty = new(Array.Empty<(string, string)>(), [], []);
 
     private readonly Dictionary<string, string> _bySlug;
     private readonly HashSet<string> _activeSlugs;
     private readonly Dictionary<string, TenantStatus> _paused;
     private readonly Dictionary<string, string> _pausedByDomain;
 
-    public TenantDomainMap(IEnumerable<(string Domain, string Slug)> entries)
-        : this(entries, [])
-    {
-    }
-
-    /// <param name="entries">Each registered domain and the tenant it belongs to.</param>
+    /// <param name="entries">Each active tenant's registered domains.</param>
     /// <param name="activeSlugs">
     /// The slug of every active tenant, with or without a domain, exactly as stored. It rides in the
     /// same cached object so that whether a slug is a tenant and which domain names it are read
     /// from one snapshot and dropped together.
     /// </param>
-    public TenantDomainMap(IEnumerable<(string Domain, string Slug)> entries, IEnumerable<string> activeSlugs)
-        : this(entries, activeSlugs, [])
-    {
-    }
-
-    /// <param name="entries">Each active tenant's registered domains.</param>
-    /// <param name="activeSlugs">The slug of every active tenant.</param>
     /// <param name="paused">
     /// Every registered tenant that is not Active, with its status and domains. Its domains still
     /// resolve to it, so a request on one is refused as that tenant's instead of falling through to

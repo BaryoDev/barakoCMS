@@ -1,4 +1,5 @@
 using Marten;
+using Microsoft.Extensions.Configuration;
 using barakoCMS.Models;
 using barakoCMS.Events;
 
@@ -473,7 +474,8 @@ public class ScheduledContentService : BackgroundService
 
             // Constructed rather than injected: this sweep opens its own session per tenant, so there
             // is no scoped writer to resolve.
-            var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
+            var writer = new ContentWriter(
+                session, new ContentSourcingPolicyService(session), new ConfigurationBuilder().Build());
             var appliedInBatch = 0;
 
             foreach (var loaded in due)

@@ -74,7 +74,7 @@ public class CreateAccountEndpoint(
         // Stored around the content writer, so the type's uniqueness rules are applied here. A
         // refusal is answered 409 by the pipeline, like a create through /api/contents.
         await new barakoCMS.Infrastructure.Services.ContentWriter(
-                session, new barakoCMS.Infrastructure.Services.ContentSourcingPolicyService(session))
+                session, new barakoCMS.Infrastructure.Services.ContentSourcingPolicyService(session), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build())
             .CheckUniquenessAsync(account, ct);
 
         session.Store(account);

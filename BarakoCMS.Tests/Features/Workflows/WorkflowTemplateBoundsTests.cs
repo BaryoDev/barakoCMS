@@ -28,7 +28,8 @@ public class WorkflowTemplateBoundsTests : IAsyncLifetime
 
         var registry = new Mock<IWorkflowPluginRegistry>();
         registry.Setup(r => r.IsActionRegistered(It.IsAny<string>())).Returns(true);
-        _validator = new WorkflowSchemaValidator(registry.Object, Mock.Of<Marten.IQuerySession>());
+        _validator = new WorkflowSchemaValidator(registry.Object, Mock.Of<Marten.IQuerySession>(), null,
+            barakoCMS.Features.Workflows.WorkflowTriggerRegistry.BuiltIn, new barakoCMS.Features.Workflows.WorkflowExecutors([]));
     }
 
     public async ValueTask InitializeAsync() =>

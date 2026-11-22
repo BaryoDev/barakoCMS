@@ -17,7 +17,7 @@ namespace BarakoCMS.Tests;
 public class CustomDomainResolutionTests
 {
     private static TenantDomainMap Map(params (string Domain, string Slug)[] entries) =>
-        new(entries.Select(e => (e.Domain, e.Slug)));
+        new(entries.Select(e => (e.Domain, e.Slug)), [], []);
 
     [Fact]
     public void A_custom_domain_resolves_to_its_own_tenant()

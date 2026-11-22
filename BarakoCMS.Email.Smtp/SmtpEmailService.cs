@@ -28,22 +28,11 @@ public sealed class SmtpEmailService : IEmailService
     private readonly Func<SmtpClient> _newClient;
     private readonly ITenantSettings? _tenantSettings;
 
-    public SmtpEmailService(IOptionsSnapshot<SmtpOptions> options, IEmailSettingsProvider settings)
-        : this(options, settings, null)
-    {
-    }
-
-    public SmtpEmailService(IOptionsSnapshot<SmtpOptions> options, IEmailSettingsProvider settings, ILogger<SmtpEmailService>? logger)
-        : this(options, settings, logger, (ITenantSettings?)null)
-    {
-    }
-
-    [ActivatorUtilitiesConstructor]
     public SmtpEmailService(
         IOptionsSnapshot<SmtpOptions> options,
         IEmailSettingsProvider settings,
-        ILogger<SmtpEmailService>? logger,
-        ITenantSettings? tenantSettings)
+        ILogger<SmtpEmailService>? logger = null,
+        ITenantSettings? tenantSettings = null)
         : this(options, settings, logger, () => new SmtpClient())
     {
         _tenantSettings = tenantSettings;

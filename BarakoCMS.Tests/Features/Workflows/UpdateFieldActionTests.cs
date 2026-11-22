@@ -384,7 +384,7 @@ public class UpdateFieldActionTests
         // field genuinely would.
         await using (var editSession = store.LightweightSession(tenant))
         {
-            var editWriter = new ContentWriter(editSession, new ContentSourcingPolicyService(editSession));
+            var editWriter = new ContentWriter(editSession, new ContentSourcingPolicyService(editSession), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
             var beforeEdit = await editSession.LoadAsync<Content>(contentId, TestContext.Current.CancellationToken);
             var editEvent = new ContentUpdated(
                 contentId, new Dictionary<string, object> { { "Priority", "High" } }, Guid.NewGuid(), null, DateTime.UtcNow);
@@ -445,7 +445,7 @@ public class UpdateFieldActionTests
         var idempotencyKey = $"{Guid.NewGuid()}:0";
 
         await using var session = store.LightweightSession(tenant);
-        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
+        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         var targetContent = await session.LoadAsync<Content>(contentId, TestContext.Current.CancellationToken);
 
         // Staged exactly where UpdateFieldAction stages it: before the content write is attempted,
@@ -626,7 +626,7 @@ public class UpdateFieldActionTests
         Dictionary<string, object> data)
     {
         await using var seed = store.LightweightSession(tenant);
-        var writer = new ContentWriter(seed, new ContentSourcingPolicyService(seed));
+        var writer = new ContentWriter(seed, new ContentSourcingPolicyService(seed), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
 
         await writer.CreateAsync(
             new ContentCreated(contentId, contentType, data, status, Guid.NewGuid(), null, SensitivityLevel.Public, DateTime.UtcNow),
@@ -651,7 +651,7 @@ public class UpdateFieldActionTests
         params IContentLifecycleHook[] hooks)
     {
         await using var session = store.LightweightSession(tenant);
-        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
+        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         var action = new UpdateFieldAction(
             session, writer, new ContentLifecycleRunner(hooks, session), NullLogger<UpdateFieldAction>.Instance);
         var triggerContent = new Content { Id = contentId, LastModifiedBy = Guid.NewGuid() };
@@ -665,7 +665,7 @@ public class UpdateFieldActionTests
     /// </summary>
     private static async Task RunOnceAsync(IDocumentSession session, Guid contentId, Dictionary<string, string> parameters)
     {
-        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
+        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         var action = new UpdateFieldAction(
             session, writer, new ContentLifecycleRunner([], session), NullLogger<UpdateFieldAction>.Instance);
 

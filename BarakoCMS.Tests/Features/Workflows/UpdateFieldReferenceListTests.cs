@@ -50,7 +50,7 @@ public class UpdateFieldReferenceListTests
                 ],
             });
 
-            var seedWriter = new ContentWriter(seed, new ContentSourcingPolicyService(seed));
+            var seedWriter = new ContentWriter(seed, new ContentSourcingPolicyService(seed), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
             await seedWriter.CreateAsync(
                 new ContentCreated(
                     contentId, type, new Dictionary<string, object> { ["Speakers"] = new List<object> { kept } },
@@ -63,7 +63,7 @@ public class UpdateFieldReferenceListTests
         WorkflowActionResult result;
         await using (var session = store.LightweightSession(tenant))
         {
-            var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
+            var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
             var action = new UpdateFieldAction(
                 session, writer, new ContentLifecycleRunner([], session), NullLogger<UpdateFieldAction>.Instance);
 

@@ -97,11 +97,11 @@ public class UniquenessWritePathTests
         await StoreTypeAsync(store, tenant, Badges(type));
 
         await using var first = store.LightweightSession(tenant);
-        await new ContentWriter(first, new ContentSourcingPolicyService(first)).CreateAsync(Created(type, "B-7"), Ct);
+        await new ContentWriter(first, new ContentSourcingPolicyService(first), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build()).CreateAsync(Created(type, "B-7"), Ct);
 
         await using (var second = store.LightweightSession(tenant))
         {
-            var secondWriter = new ContentWriter(second, new ContentSourcingPolicyService(second));
+            var secondWriter = new ContentWriter(second, new ContentSourcingPolicyService(second), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
             var write = async () => await secondWriter.CreateAsync(Created(type, "B-7"), Ct);
 
             var refused = await write.Should().ThrowAsync<ContentUniquenessException>();
@@ -123,12 +123,12 @@ public class UniquenessWritePathTests
 
         await using (var first = store.LightweightSession(tenant))
         {
-            await new ContentWriter(first, new ContentSourcingPolicyService(first)).CreateAsync(Created(type, "B-6"), Ct);
+            await new ContentWriter(first, new ContentSourcingPolicyService(first), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build()).CreateAsync(Created(type, "B-6"), Ct);
             await first.SaveChangesAsync(Ct);
         }
 
         await using var second = store.LightweightSession(tenant);
-        var write = async () => await new ContentWriter(second, new ContentSourcingPolicyService(second))
+        var write = async () => await new ContentWriter(second, new ContentSourcingPolicyService(second), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build())
             .CreateAsync(Created(type, "B-6"), Ct);
 
         var refused = await write.Should().ThrowAsync<ContentUniquenessException>();
@@ -149,14 +149,14 @@ public class UniquenessWritePathTests
         await StoreTypeAsync(store, tenant, Badges(type));
 
         await using var longLived = store.LightweightSession(tenant);
-        var writer = new ContentWriter(longLived, new ContentSourcingPolicyService(longLived));
+        var writer = new ContentWriter(longLived, new ContentSourcingPolicyService(longLived), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         var moved = await writer.CreateAsync(Created(type, "Y-1"), Ct);
         await longLived.SaveChangesAsync(Ct);
 
         await using (var other = store.LightweightSession(tenant))
         {
             var entry = await other.LoadAsync<Content>(moved.Id, Ct);
-            await new ContentWriter(other, new ContentSourcingPolicyService(other)).AppendAsync(
+            await new ContentWriter(other, new ContentSourcingPolicyService(other), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build()).AppendAsync(
                 entry!, new ContentUpdated(entry!.Id, new Dictionary<string, object> { ["Badge"] = "X-1" }, Guid.NewGuid(), null, DateTime.UtcNow), Ct);
             await other.SaveChangesAsync(Ct);
         }
@@ -218,11 +218,11 @@ public class UniquenessWritePathTests
         await StoreTypeAsync(store, tenant, Badges(type));
 
         await using var first = store.LightweightSession(tenant);
-        await new ContentWriter(first, new ContentSourcingPolicyService(first)).CreateAsync(Created(type, "B-7"), Ct);
+        await new ContentWriter(first, new ContentSourcingPolicyService(first), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build()).CreateAsync(Created(type, "B-7"), Ct);
 
         await using (var second = store.LightweightSession(tenant))
         {
-            await new ContentWriter(second, new ContentSourcingPolicyService(second))
+            await new ContentWriter(second, new ContentSourcingPolicyService(second), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build())
                 .CreateAsync(Created(type, "B-8"), Ct)
                 .WaitAsync(TimeSpan.FromSeconds(10), Ct);
             await second.SaveChangesAsync(Ct);
@@ -241,7 +241,7 @@ public class UniquenessWritePathTests
         await StoreTypeAsync(store, tenant, Badges(type));
 
         await using var session = store.LightweightSession(tenant);
-        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
+        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         await writer.CreateAsync(Created(type, "B-9"), Ct);
 
         var again = async () => await writer.CreateAsync(Created(type, "B-9"), Ct);
@@ -393,7 +393,7 @@ public class UniquenessWritePathTests
         IDocumentStore store, string tenant, Guid contentId, string value)
     {
         await using var session = store.LightweightSession(tenant);
-        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
+        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         var action = new UpdateFieldAction(
             session, writer, new ContentLifecycleRunner([], session), NullLogger<UpdateFieldAction>.Instance);
 

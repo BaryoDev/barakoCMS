@@ -251,7 +251,8 @@ public class ContentConcurrencyTests
             services.AddScoped<IContentWriter>(sp => new DocumentAdvancingContentWriter(
                 new barakoCMS.Infrastructure.Services.ContentWriter(
                     sp.GetRequiredService<IDocumentSession>(),
-                    sp.GetRequiredService<IContentSourcingPolicy>()),
+                    sp.GetRequiredService<IContentSourcingPolicy>(),
+                    sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>()),
                 sp.GetRequiredService<IDocumentStore>(),
                 advancer));
         }));

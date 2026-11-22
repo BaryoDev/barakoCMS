@@ -125,7 +125,8 @@ public class ContentUpdateVersionTests
                 services.AddScoped<IContentWriter>(sp => new StreamAdvancingContentWriter(
                     new barakoCMS.Infrastructure.Services.ContentWriter(
                         sp.GetRequiredService<IDocumentSession>(),
-                        sp.GetRequiredService<barakoCMS.Core.Interfaces.IContentSourcingPolicy>()),
+                        sp.GetRequiredService<barakoCMS.Core.Interfaces.IContentSourcingPolicy>(),
+                        sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>()),
                     sp.GetRequiredService<IDocumentStore>(),
                     sp.GetRequiredService<StreamAdvancer>()));
             }));

@@ -48,7 +48,7 @@ public class AccountService
     /// </summary>
     private barakoCMS.Infrastructure.Services.ContentWriter Rules => _rules ??=
         new barakoCMS.Infrastructure.Services.ContentWriter(
-            WriteSession, new barakoCMS.Infrastructure.Services.ContentSourcingPolicyService(WriteSession));
+            WriteSession, new barakoCMS.Infrastructure.Services.ContentSourcingPolicyService(WriteSession), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
 
     /// <summary>The whole chart, ordered by code.</summary>
     public async Task<IReadOnlyList<Account>> GetAllAsync(CancellationToken ct = default) =>

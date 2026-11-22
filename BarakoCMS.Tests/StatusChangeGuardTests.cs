@@ -279,7 +279,8 @@ public class StatusChangeGuardTests
             services.AddScoped<IContentWriter>(sp => new SingleAppendAdvancingContentWriter(
                 new barakoCMS.Infrastructure.Services.ContentWriter(
                     sp.GetRequiredService<IDocumentSession>(),
-                    sp.GetRequiredService<IContentSourcingPolicy>()),
+                    sp.GetRequiredService<IContentSourcingPolicy>(),
+                    sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>()),
                 sp.GetRequiredService<IDocumentStore>(),
                 advancer));
         }));

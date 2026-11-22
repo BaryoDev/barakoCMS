@@ -45,16 +45,6 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     private readonly WorkflowTriggerRegistry _triggers;
     private readonly WorkflowExecutors _executors;
 
-    public WorkflowSchemaValidator(IWorkflowPluginRegistry pluginRegistry, IQuerySession session)
-        : this(pluginRegistry, session, configuration: null)
-    {
-    }
-
-    public WorkflowSchemaValidator(IWorkflowPluginRegistry pluginRegistry, IQuerySession session, IConfiguration? configuration)
-        : this(pluginRegistry, session, configuration, WorkflowTriggerRegistry.BuiltIn, new WorkflowExecutors([]))
-    {
-    }
-
     /// <summary>The validator the host builds, which also accepts the triggers modules registered.</summary>
     internal WorkflowSchemaValidator(
         IWorkflowPluginRegistry pluginRegistry, IQuerySession session, IConfiguration? configuration, WorkflowTriggerRegistry triggers,

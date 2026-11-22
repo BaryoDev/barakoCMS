@@ -43,7 +43,7 @@ public class UpdateFieldMoneyTests
             Fields = [new FieldDefinition { Name = "Price", DisplayName = "Price", Type = "money", Currency = currency }],
         });
 
-        var writer = new ContentWriter(seed, new ContentSourcingPolicyService(seed));
+        var writer = new ContentWriter(seed, new ContentSourcingPolicyService(seed), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         await writer.CreateAsync(
             new ContentCreated(
                 contentId, type, new Dictionary<string, object> { ["Price"] = 10m }, ContentStatus.Draft,
@@ -57,7 +57,7 @@ public class UpdateFieldMoneyTests
     private static async Task<WorkflowActionResult> SetPriceAsync(Seeded seeded, string value)
     {
         await using var session = seeded.Store.LightweightSession(seeded.Tenant);
-        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session));
+        var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         var action = new UpdateFieldAction(
             session, writer, new ContentLifecycleRunner([], session), NullLogger<UpdateFieldAction>.Instance);
 

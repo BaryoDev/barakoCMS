@@ -353,7 +353,7 @@ public class TenantDomainCorsPolicyProviderTests
     }
 
     private static ITenantDomainSource WithMapped() =>
-        new FixedDomains(new TenantDomainMap([(Mapped, "bakery")], ["bakery"]));
+        new FixedDomains(new TenantDomainMap([(Mapped, "bakery")], ["bakery"], []));
 
     [Fact]
     public async Task A_registered_domain_is_allowed_without_credentials_and_keeps_the_exposed_headers()

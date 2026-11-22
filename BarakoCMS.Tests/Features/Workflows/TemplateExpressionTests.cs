@@ -412,7 +412,7 @@ public class TemplateExpressionTests
     public async Task Preparing_a_template_that_names_nothing_new_reads_nothing()
     {
         var session = new Mock<IDocumentSession>(MockBehavior.Strict);
-        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session.Object);
+        ITemplateVariableExtractor extractor = new TemplateVariableExtractor(session.Object, null, null, null);
         var entry = Entry();
 
         await extractor.PrepareAsync(

@@ -20,7 +20,8 @@ public class WorkflowSchemaValidatorTests
         // These cover the synchronous checks, which never read the session. The transition trigger
         // needs the content type it names, so its tests go through the real store in
         // WorkflowTransitionTriggerTests rather than being mocked here.
-        _validator = new WorkflowSchemaValidator(_mockRegistry.Object, Mock.Of<Marten.IQuerySession>());
+        _validator = new WorkflowSchemaValidator(_mockRegistry.Object, Mock.Of<Marten.IQuerySession>(), null,
+            barakoCMS.Features.Workflows.WorkflowTriggerRegistry.BuiltIn, new barakoCMS.Features.Workflows.WorkflowExecutors([]));
     }
 
     [Fact]
@@ -284,7 +285,8 @@ public class WorkflowSchemaValidatorTests
             new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
             {
                 [WebhookSigning.AllowInsecureSignedUrlsKey] = "true",
-            }).Build());
+            }).Build(),
+            barakoCMS.Features.Workflows.WorkflowTriggerRegistry.BuiltIn, new barakoCMS.Features.Workflows.WorkflowExecutors([]));
 
         Assert.True(optedIn.Validate(SignedWebhook("http://hooks.example.com/x", secret: "whsec_x")).IsValid);
     }
