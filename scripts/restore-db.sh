@@ -29,7 +29,7 @@ echo "🛑 Stopping application..."
 docker compose stop app
 
 echo "📦 Restoring from $BACKUP_FILE..."
-gunzip -c "$BACKUP_FILE" | docker compose exec -T postgres psql -U postgres -d barako_cms
+gunzip -c "$BACKUP_FILE" | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d barako_cms
 
 if [ $? -eq 0 ]; then
     echo "✅ Restore complete!"
