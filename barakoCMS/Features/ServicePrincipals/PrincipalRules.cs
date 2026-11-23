@@ -73,7 +73,7 @@ internal static class PrincipalRules
             await session.SaveChangesAsync(ct);
             return true;
         }
-        catch (JasperFx.ConcurrencyException)
+        catch (Exception e) when (ConcurrencyConflict.Is(e))
         {
             endpoint.HttpContext.Response.StatusCode = 409;
             await endpoint.HttpContext.Response.WriteAsJsonAsync(

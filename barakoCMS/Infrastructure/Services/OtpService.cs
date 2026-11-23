@@ -92,7 +92,7 @@ public class OtpService : IOtpService
         {
             await _session.SaveChangesAsync(ct);
         }
-        catch (JasperFx.ConcurrencyException)
+        catch (Exception e) when (ConcurrencyConflict.Is(e))
         {
             // Invalidating the outstanding codes is an update of optimistic documents, so two
             // concurrent requests for the same address race. Nothing was stored, so no code exists

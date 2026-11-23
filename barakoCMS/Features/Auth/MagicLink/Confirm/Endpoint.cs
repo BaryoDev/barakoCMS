@@ -144,7 +144,7 @@ internal class Endpoint(
             await session.SaveChangesAsync(ct);
             return true;
         }
-        catch (JasperFx.ConcurrencyException)
+        catch (Exception e) when (ConcurrencyConflict.Is(e))
         {
             return false;
         }

@@ -350,7 +350,7 @@ internal class RotateApiKeyEndpoint(
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (JasperFx.ConcurrencyException)
+        catch (Exception e) when (ConcurrencyConflict.Is(e))
         {
             AddError("The key changed while it was being rotated. Try again.");
             await Send.ErrorsAsync(409, ct);
