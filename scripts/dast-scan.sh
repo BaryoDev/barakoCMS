@@ -13,8 +13,9 @@
 #   3. signs in as the seeded admin, registers one user (the only user creation route, and it gives
 #      the global User role, the least the API hands out)
 #   4. runs the ZAP API scan against openapi/baseline.json with the target set to the stack: once
-#      anonymous, then once with that user's bearer token. The user signs in right before the second
-#      pass, and the token is tried on GET /api/me (any signed-in user may read it)
+#      with that user's bearer token, then once anonymous. The signed-in pass goes first because
+#      ZAP's attempts on the sign-in route use up its per-address limit. The user signs in right
+#      before that pass, and the token is tried on GET /api/me (any signed-in user may read it)
 #      before and after the pass. Access tokens last 15 minutes, so a 401 after the pass means the
 #      token expired during it and the pass proved nothing: exit 2. The signed-in pass scans a copy of
 #      the spec without the operations listed in security/zap/signed-in-skip.tsv (logout, password
@@ -227,12 +228,25 @@ else
   say "security smoke: FAIL, ${smoke_failed:-0} checks failed (exit $smoke_rc)"
 fi
 
-# token_for <username> <password>: prints an access token, or nothing.
-token_for() {
+# sign_in <username> <password>: sets SIGNIN_CODE to the status the API answered and SIGNIN_TOKEN to
+# the access token, or to nothing when the sign-in was refused.
+SIGNIN_CODE=""
+SIGNIN_TOKEN=""
+sign_in() {
   local resp
+  SIGNIN_TOKEN=""
   resp="$(printf '{"username":"%s","password":"%s"}' "$1" "$2" | api_call POST /api/auth/login)"
-  [ "$(api_status "$resp")" = "200" ] || return 0
-  api_body "$resp" | json_field token
+  SIGNIN_CODE="$(api_status "$resp")"
+  [ "$SIGNIN_CODE" = "200" ] || return 0
+  SIGNIN_TOKEN="$(api_body "$resp" | json_field token)"
+}
+
+# signin_failed <who>: stops with the status class of the refused sign-in, or "rate limited" for a 429.
+signin_failed() {
+  local why
+  why="status $(dast_status_class "$SIGNIN_CODE")"
+  [ "$SIGNIN_CODE" != 429 ] || why="rate limited"
+  die "$1 could not sign in ($why)"
 }
 
 # token_probe <token>: one GET /api/me with the token, from a throwaway curl container on the project
@@ -270,11 +284,11 @@ token_state() {
 }
 
 say "=== sign-in"
-ADMIN_TOKEN="$(token_for dast-admin "$ADMIN_PASSWORD")"
-[ -n "$ADMIN_TOKEN" ] || die "the seeded admin could not sign in"
-mask "$ADMIN_TOKEN"
+sign_in dast-admin "$ADMIN_PASSWORD"
+[ -n "$SIGNIN_TOKEN" ] || signin_failed "the seeded admin"
+mask "$SIGNIN_TOKEN"
 # The admin token is not used again. Signing in proves the seed ran.
-unset ADMIN_TOKEN
+SIGNIN_TOKEN=""
 
 resp="$(printf '{"username":"%s","password":"%s","email":"%s@example.test"}' \
   "$USER_NAME" "$USER_PASSWORD" "$USER_NAME" | api_call POST /api/auth/register)"
@@ -318,11 +332,13 @@ run_zap() {
   say "ZAP finished the $name pass with $urls URLs"
 }
 
-run_zap anonymous "$MAX" openapi.json
-
-# Signed in right before the pass: the token lasts 15 minutes and the pass has to fit inside them.
-USER_TOKEN="$(token_for "$USER_NAME" "$USER_PASSWORD")"
-[ -n "$USER_TOKEN" ] || die "the low-privilege user could not sign in"
+# The signed-in pass runs first. The sign-in limit (5 per client address in 15 minutes, as shipped) is
+# spent by ZAP's own attempts on the sign-in route, and the next container is often given the address
+# ZAP just left, so a sign-in after a pass is refused. The user signs in right before its pass, because
+# an access token lasts 15 minutes and the pass has to fit inside them.
+sign_in "$USER_NAME" "$USER_PASSWORD"
+USER_TOKEN="$SIGNIN_TOKEN"
+[ -n "$USER_TOKEN" ] || signin_failed "the low-privilege user"
 mask_all "$USER_TOKEN"
 token_state "$USER_TOKEN" "before the signed-in pass" || die "the user token was not accepted before the pass"
 run_zap authenticated "$AUTH_MAX" openapi-signed-in.json "$USER_TOKEN"
@@ -332,6 +348,8 @@ if ! token_state "$USER_TOKEN" "after the signed-in pass"; then
   fi
   die "the token was not accepted after the signed-in pass, so the pass proved nothing"
 fi
+
+run_zap anonymous "$MAX" openapi.json
 
 say "=== summary"
 accepted="${DAST_ACCEPTED:-security/zap/accepted.tsv}"

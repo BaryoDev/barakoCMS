@@ -145,13 +145,15 @@ about session handling, because the honest answer includes what this does not fi
 
 The DAST workflow (`.github/workflows/dast.yml`) starts the production compose stack on a runner, with
 secrets made on the spot, and runs the ZAP API scan against it twice, using `openapi/baseline.json`
-as the list of routes: once anonymous, and once signed in as a user with only the User role. It runs
+as the list of routes: once signed in as a user with only the User role, then once anonymous. It runs
 weekly, on demand from the Actions tab, and when the workflow, the scan scripts, the production compose
 file, the OpenAPI baseline or `security/zap/` change.
 
 What is capped: the active scan of each pass (15 minutes for the anonymous pass, 8 for the signed-in
 one) and ZAP's waits for start and for the passive scan. A whole pass can therefore run longer than
-its cap. The signed-in user signs in right before its pass, because an access token lasts 15 minutes.
+its cap. The signed-in pass goes first, because ZAP's attempts on the sign-in route use up the sign-in
+limit for its client address (5 in 15 minutes, as shipped), and a later container is often given the
+same address. The user signs in right before that pass, because an access token lasts 15 minutes.
 The token is tried on `GET /api/me` before the pass and again after it. That route is open to any
 signed-in user and is refused for a token that still has to enrol in MFA, so such a token fails the
 check too. A 429 is tried once more after the `Retry-After` the API gives (1 to 60 seconds). A rejected token

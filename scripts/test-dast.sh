@@ -367,6 +367,19 @@ auth_line=$(grep -nE '^run_zap authenticated' scripts/dast-scan.sh | head -n 1 |
 if [ -n "$filter_line" ] && [ -n "$auth_line" ] && [ "$filter_line" -lt "$auth_line" ]; then
   ok "dast-scan.sh builds the signed-in spec before the signed-in pass"
 else bad "dast-scan.sh builds the signed-in spec before the signed-in pass"; fi
+# ZAP's attempts on the sign-in route use up the per-address sign-in limit, so the user has to sign in
+# before any pass runs.
+# shellcheck disable=SC2016 # the pattern is literal text
+signin_line=$(grep -nE '^sign_in "\$USER_NAME"' scripts/dast-scan.sh | head -n 1 | cut -d: -f1)
+first_zap_line=$(grep -nE '^run_zap ' scripts/dast-scan.sh | head -n 1 | cut -d: -f1)
+if [ -n "$signin_line" ] && [ -n "$first_zap_line" ] && [ -n "$auth_line" ] \
+  && [ "$signin_line" -lt "$first_zap_line" ] && [ "$first_zap_line" = "$auth_line" ]; then
+  ok "dast-scan.sh signs the user in before any pass and runs the signed-in pass first"
+else bad "dast-scan.sh signs the user in before any pass and runs the signed-in pass first"; fi
+# shellcheck disable=SC2016 # the pattern is literal text
+if grep -qF 'why="rate limited"' scripts/dast-scan.sh && grep -qF 'could not sign in ($why)' scripts/dast-scan.sh; then
+  ok "dast-scan.sh says why a sign-in was refused"
+else bad "dast-scan.sh says why a sign-in was refused"; fi
 if grep -qF 'the ZAP work folder could not be made' scripts/dast-scan.sh; then
   ok "dast-scan.sh stops when the ZAP work folder cannot be made"
 else bad "dast-scan.sh stops when the ZAP work folder cannot be made"; fi
