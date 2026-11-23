@@ -162,7 +162,7 @@ public class NumberingRuleTests : IAsyncLifetime
             {
                 completed = (await FieldChanges.RunAsync(store, configuration, "*DEFAULT*", id, maxBatches: null, Ct))?.State == FieldChangeState.Completed;
             }
-            catch (JasperFx.ConcurrencyException)
+            catch (Exception e) when (TestHelpers.LostConcurrencyCheck(e))
             {
                 // The queued job committed the same batch first; the next run reads its progress.
             }
