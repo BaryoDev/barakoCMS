@@ -1,0 +1,9 @@
+# Alerts the DAST job does not count (scripts/dast-summary.py reads this file).
+#
+# One alert per line: plugin id, tab, reason, tab, date accepted (YYYY-MM-DD).
+#
+#   10038<TAB>CSP is set by the proxy in front of the API, checked in the deploy runbook<TAB>2026-12-01
+#
+# The plugin id is the number ZAP gives the rule, in the full report in the scan's private folder.
+# An accepted id drops every alert from that rule, so name the reason well and review the file
+# when a rule's meaning changes. Lines starting with # and blank lines are ignored.

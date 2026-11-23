@@ -49,6 +49,7 @@ Each row is a control that is implemented and checkable, not a plan.
 | Static analysis | CodeQL on every pull request that touches code (docs-only changes skip it) |
 | Dependency vulnerabilities | Dependabot, plus a `dotnet list package --vulnerable` gate that fails the build on High or Critical |
 | Secret scanning | Gitleaks on every pull request |
+| Scan of the running API | A weekly and on-demand ZAP scan of the production stack (the DAST workflow); a new High alert fails it. See "Scanning the running API" below |
 | Software bill of materials | One CycloneDX SBOM covering the whole solution, generated on each release run and kept as a 90-day workflow artifact. Not per package, none for the container image, and not attached to the GitHub release |
 | Backup and restore | Every deployment path takes verified backups; CI restores one and boots against it on every pull request (`docs/backup-and-restore.md`) |
 | Upgrade safety | CI upgrades a real database created by the last 4.x release (4.9.0) and rolls it back, then does the same from one created by 4.1.0 (`scripts/upgrade-check.sh`, `docs/upgrading-to-5.0.md`). No other 4.x start is exercised in CI, and a 3.x database is not upgraded to 5.0 directly: it goes to 4.9 first |
@@ -139,6 +140,67 @@ minutes.
 The reasoning, what you will notice, and what your deployment topology needs for the cookie to be
 sent are all in `docs/session-and-token-storage.md`. Worth reading before answering a questionnaire
 about session handling, because the honest answer includes what this does not fix.
+
+## Scanning the running API
+
+The DAST workflow (`.github/workflows/dast.yml`) starts the production compose stack on a runner, with
+secrets made on the spot, and runs the ZAP API scan against it twice, using `openapi/baseline.json`
+as the list of routes: once signed in as a user with only the User role, then once anonymous. It runs
+weekly, on demand from the Actions tab, and when the workflow, the scan scripts, the production compose
+file, the OpenAPI baseline or `security/zap/` change.
+
+What is capped: the active scan of each pass (15 minutes for the anonymous pass, 8 for the signed-in
+one) and ZAP's waits for start and for the passive scan. A whole pass can therefore run longer than
+its cap. The signed-in pass goes first, because ZAP's attempts on the sign-in route use up the sign-in
+limit for its client address (5 in 15 minutes, as shipped), and a later container is often given the
+same address. The user signs in right before that pass, because an access token lasts 15 minutes.
+The token is tried on `GET /api/me` before the pass and again after it. That route is open to any
+signed-in user and is refused for a token that still has to enrol in MFA, so such a token fails the
+check too. A 429 is tried once more after the `Retry-After` the API gives (1 to 60 seconds). A rejected token
+before the pass, or a 401 after it (the token expired during the pass, so the pass proved nothing),
+is a scan that could not run. `DAST_MAX_MINUTES` and `DAST_AUTH_MAX_MINUTES` set the two caps.
+
+ZAP sends the user's token to every operation in the spec, and a few operations end the token, the
+session or the user. The signed-in pass therefore scans a copy of `openapi/baseline.json` without the
+operations in `security/zap/signed-in-skip.tsv`: logout, deleting one of your own sessions, changing
+your password, switching tenant and turning MFA on or off. The anonymous pass keeps the whole spec, so
+these routes are still scanned, just without a token. `scripts/dast-spec-filter.py` makes the copy and
+exits 2 when a line in the file is not an operation in the spec, so a renamed route cannot drop out
+unnoticed. `scripts/test-dast.sh` fails when a route that calls a token or session revocation function
+is neither in the file nor listed there as unreachable by a User-role token.
+
+After each pass the script reads the URL count ZAP prints (`Total of N URLs`). No such line, or a count
+under `DAST_MIN_URLS` (default 100; the spec lists 253 paths), is a scan that reached nothing and
+exits 2. An empty alert list in a report that did reach the API is still a pass.
+
+The job fails on a new High alert (exit 1) and on a scan that could not run (exit 2). The security
+smoke check runs first, and a failed check fails the job too.
+
+This repository's logs are public, so CI prints only the count of alerts per risk level and a pass or
+fail line (the smoke check prints a pass line or the number of failed checks). The full reports are
+written to a folder the script makes with `mktemp -d`, which it deletes at the end of the job. A folder
+you name with `DAST_REPORT_DIR` is not deleted in CI. Nothing is uploaded.
+
+To run it on your machine (Docker and `openssl` are needed):
+
+```
+bash scripts/dast-scan.sh
+```
+
+It prints the folder it wrote the full reports to, with ZAP's own output, the smoke check output and the
+API's log beside them. That folder is separate from the one that holds the generated secrets, which is
+always deleted. Run one scan per machine at a time: the stack uses a fixed subnet.
+
+To accept an alert, add a line to `security/zap/accepted.tsv`: the plugin id from the full report, a
+tab, the reason, a tab, and the date. The file says how. An accepted plugin id is dropped from the
+counts for every alert that rule raises, so write the reason down and review the file now and then.
+
+The scan stack raises the global rate limit (100 requests a minute per client address by default),
+because ZAP would otherwise get 429 for most of its requests. The other limits stay as shipped.
+
+The scan stack turns off email verification for registration, because there is no mailbox to confirm
+from, so one low-privilege user can be created. The scan does not run the active attacks that need
+a second tenant or a real mail server, so it is one layer, not a penetration test.
 
 ## Reporting a vulnerability
 
