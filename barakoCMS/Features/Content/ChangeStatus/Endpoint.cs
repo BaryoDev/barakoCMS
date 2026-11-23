@@ -113,8 +113,7 @@ internal class Endpoint(
 
             await session.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency")
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex)
             || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
         {
             // 409 rather than the 412 the update endpoint returns: nothing here was conditional on a

@@ -237,8 +237,7 @@ internal class RollbackEndpoint(
 
             await session.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency")
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex)
             || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
         {
             ThrowError("The content was changed by another writer. Please refresh and try again.", 409);

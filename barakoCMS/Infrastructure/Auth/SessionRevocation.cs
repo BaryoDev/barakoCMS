@@ -104,7 +104,7 @@ internal static class SessionRevocation
                 await session.SaveChangesAsync(ct);
             }
             catch (Exception ex) when (attempt < Attempts
-                && (ex is JasperFx.ConcurrencyException || IsUniqueViolation(ex)))
+                && (ConcurrencyConflict.Is(ex) || IsUniqueViolation(ex)))
             {
                 // A second end of the same session inserted the key first. The session is ended, and
                 // the next pass finds that row and updates it instead of inserting another.

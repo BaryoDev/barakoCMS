@@ -84,7 +84,7 @@ internal sealed class SocialExchangeEndpoint(IDocumentSession session) : Endpoin
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (JasperFx.ConcurrencyException)
+        catch (Exception e) when (barakoCMS.ConcurrencyConflict.Is(e))
         {
             // A concurrent exchange spent the code first, so no tokens may be returned here.
             ThrowError(Refused);
