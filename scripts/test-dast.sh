@@ -154,6 +154,7 @@ if [ "$(printf 'retry-after: 900\r\n' | dast_retry_after)" = 60 ]; then ok "retr
 if [ "$(printf 'HTTP/1.1 429 Too Many Requests\r\n\r\n' | dast_retry_after)" = 5 ]; then ok "retry after: a missing header is 5"; else bad "retry after: a missing header is 5"; fi
 if [ "$(printf 'Retry-After: Wed, 21 Oct 2026 07:28:00 GMT\r\n' | dast_retry_after)" = 5 ]; then ok "retry after: a date instead of seconds is 5"; else bad "retry after: a date instead of seconds is 5"; fi
 if [ "$(printf 'Retry-After: 0\r\n' | dast_retry_after)" = 1 ]; then ok "retry after: 0 is raised to 1"; else bad "retry after: 0 is raised to 1"; fi
+if [ "$(printf 'Retry-After: 99999999999999999999\r\n' | dast_retry_after)" = 60 ]; then ok "retry after: a 20-digit value is 60"; else bad "retry after: a 20-digit value is 60"; fi
 state=$(dast_token_state ""); trc=$?
 if [ "$state" = failed ] && [ "$trc" != 0 ]; then ok "token state: no status is failed"; else bad "token state: no status is failed"; fi
 work="$tmp/work"; mkdir -p "$work"
@@ -243,7 +244,7 @@ NOT_SKIPPED=(
   "DELETE /api/users/{id}/sessions|admin only: needs ManageUsers or SuperAdmin"
   "DELETE /api/users/{id}/sessions/{sessionId}|admin only: needs ManageUsers or SuperAdmin"
 )
-revocation_pattern='RevokeTokenAsync|RevokeAllUserTokensAsync|SessionRevocation\.EndAsync|RevokeRefreshTokens\.ForUserAsync|SessionRoutes\.(EndAsync|EndAllAsync)'
+revocation_pattern='RevokeTokenAsync|RevokeAllUserTokensAsync|SessionRevocation\.EndAsync|RevokeRefreshTokens\.ForUserAsync|SessionRoutes\.(EndAsync|EndAllAsync)|ISessionEpochService'
 # declared_routes: METHOD path for every route a file that calls a revocation function declares.
 declared_routes() {
   grep -rlE "$revocation_pattern" barakoCMS --include='*.cs' | while read -r f; do
@@ -253,6 +254,17 @@ declared_routes() {
 skipped_routes() { grep -vE '^[[:space:]]*(#|$)' "$SKIP" | awk -F'\t' '{print $1 " " $2}' | sort -u; }
 listed_routes() { for entry in "${NOT_SKIPPED[@]}"; do printf '%s\n' "${entry%%|*}"; done | sort -u; }
 declared=$(declared_routes)
+# A route file that ends sessions but declares its route some other way (Verbs, a constant, another file)
+# would drop out of the search silently, so every such file under Features must yield a route.
+unrouted=0
+while read -r f; do
+  grep -qE '^[[:space:]]*(Get|Post|Put|Delete|Patch)\("/[^"]*"' "$f" || unrouted=$((unrouted + 1))
+done < <(grep -rlE "$revocation_pattern" barakoCMS/Features --include='*.cs')
+if [ "$unrouted" -eq 0 ]; then
+  ok "guard: every Features file that ends sessions declares its route where the search reads it"
+else
+  bad "guard: every Features file that ends sessions declares its route where the search reads it ($unrouted not)"
+fi
 if [ -n "$declared" ] && [ "$(printf '%s\n' "$declared" | wc -l)" -ge 10 ]; then
   ok "guard: the search finds the routes that call a revocation function"
 else bad "guard: the search finds the routes that call a revocation function"; fi

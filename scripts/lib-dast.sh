@@ -56,6 +56,8 @@ dast_retry_after() {
   local n
   n="$(tr -d '\r' | sed -n 's/^[Rr]etry-[Aa]fter:[[:space:]]*\([0-9][0-9]*\)[[:space:]]*$/\1/p' | head -n 1)"
   case "$n" in '' | *[!0-9]*) printf '5'; return 0 ;; esac
+  # More than four digits is past the cap anyway, and bash arithmetic would wrap a long one.
+  if [ "${#n}" -gt 4 ]; then printf '60'; return 0; fi
   n=$((10#$n))
   [ "$n" -ge 1 ] || n=1
   [ "$n" -le 60 ] || n=60

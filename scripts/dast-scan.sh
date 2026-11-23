@@ -283,7 +283,8 @@ say "signed in as the seeded admin and registered a low-privilege user"
 
 cp openapi/baseline.json "$ZAP_WRK/openapi.json" || die "openapi/baseline.json is missing"
 # The signed-in pass scans a copy without the operations that end the token, the session or the user
-# (security/zap/signed-in-skip.tsv). The anonymous pass keeps the whole spec.
+# (security/zap/signed-in-skip.tsv). The anonymous pass keeps the whole spec. A skip line that no longer
+# matches the spec stops both passes, so a renamed route is fixed in the skip file before anything scans.
 python3 -I scripts/dast-spec-filter.py openapi/baseline.json security/zap/signed-in-skip.tsv \
   "$ZAP_WRK/openapi-signed-in.json" > /dev/null || die "the signed-in spec could not be made from the skip file"
 chmod 644 "$ZAP_WRK/openapi.json" "$ZAP_WRK/openapi-signed-in.json"
