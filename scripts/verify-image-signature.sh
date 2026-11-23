@@ -15,7 +15,7 @@
 # mirror (arnelirobles/*) tags, and images published before signing was added. For a mirror image,
 # verify the same digest against ghcr.io.
 #
-# Needs cosign, docker (buildx) and jq on PATH. Exit 0 when both checks pass, 1 when one fails, 2 on
+# Needs cosign 3 or later, docker (buildx) and jq on PATH. Exit 0 when both checks pass, 1 when one fails, 2 on
 # bad usage. Only ghcr.io/baryodev/ images are accepted.
 set -euo pipefail
 
@@ -42,8 +42,23 @@ if ! [[ "$REF" =~ ^ghcr\.io/baryodev/[a-z0-9][a-z0-9._-]*((:[A-Za-z0-9._-]+)|(@s
     exit 2
 fi
 
+COSIGN_INSTALL="https://docs.sigstore.dev/cosign/system_config/installation/"
 command -v jq > /dev/null 2>&1 || fail "jq is not installed"
-command -v cosign > /dev/null 2>&1 || fail "cosign is not installed, see https://docs.sigstore.dev/cosign/system_config/installation/"
+command -v cosign > /dev/null 2>&1 || fail "cosign is not installed, see $COSIGN_INSTALL"
+
+# Images are signed with cosign 3 and its default bundle format, and the commands below use cosign 3's
+# defaults, which cosign 2 does not share. A source build that reports no version is refused too.
+COSIGN_VERSION=$(cosign version --json 2> /dev/null | jq -r '.gitVersion // empty' 2> /dev/null) || COSIGN_VERSION=""
+COSIGN_MAJOR="${COSIGN_VERSION#v}"
+COSIGN_MAJOR="${COSIGN_MAJOR%%.*}"
+if ! [[ "$COSIGN_MAJOR" =~ ^[0-9]{1,6}$ ]]; then
+    fail "could not read the cosign version, cosign 3 or later is needed, see $COSIGN_INSTALL"
+fi
+if [ "$((10#$COSIGN_MAJOR))" -lt 3 ]; then
+    # Only plain version characters are printed, so cosign's output cannot put control codes on the terminal.
+    COSIGN_SHOWN=$(printf '%s' "$COSIGN_VERSION" | LC_ALL=C tr -cd 'A-Za-z0-9.+_-' | cut -c1-40)
+    fail "cosign $COSIGN_SHOWN is too old, cosign 3 or later is needed, see $COSIGN_INSTALL"
+fi
 
 NAME="${REF%%@*}"
 NAME="${NAME%:*}"
