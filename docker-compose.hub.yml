@@ -67,7 +67,7 @@ services:
   # this job to finish, and if it fails the API does not start; its log says why. It reads
   # DB_APP_USER and DB_APP_PASSWORD from its environment, never from the command line.
   postgres-extensions:
-    image: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d # postgres:16-alpine
+    image: postgres:19-alpine@sha256:8b0ff4cdf221f0c53d7fcda681d3b461be725c492cd881c5ec9c0ad25023f188 # postgres:16-alpine
     container_name: barako-postgres-extensions
     restart: "no"
     depends_on:
