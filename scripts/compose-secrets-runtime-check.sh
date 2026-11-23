@@ -81,7 +81,10 @@ fi
 without_override logs --no-color postgres > "$LOGS" 2>&1 || true
 grep -q "superuser password is not specified" "$LOGS" || fail "postgres did not refuse for the missing password"
 without_override ps --status running --format '{{.Service}}' | grep -qx app && fail "the app is running without its secrets"
-without_override ps --status running --format '{{.Service}}' | grep -qx postgres && fail "postgres initialised without a password"
+# postgres has restart: always, so after each refusal it starts again, and a check for a running
+# container can catch it between two refusals. A server that initialised logs that it is ready to
+# accept connections, and one that refused never does.
+grep -q "database system is ready to accept connections" "$LOGS" && fail "postgres initialised without a password"
 without_override down -v --remove-orphans > /dev/null 2>&1 || true
 
 step "with the override, postgres starts on a fresh volume and reports healthy"
