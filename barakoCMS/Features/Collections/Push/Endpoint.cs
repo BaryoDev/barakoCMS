@@ -312,8 +312,7 @@ internal sealed class Endpoint(
         {
             ThrowError(ex.Message, 409);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency")
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex)
             || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
         {
             ThrowError("An entry in this push was changed by another writer while it ran. Nothing was written; push again.", 409);

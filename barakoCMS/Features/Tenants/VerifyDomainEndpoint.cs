@@ -141,7 +141,7 @@ internal sealed class VerifyDomainEndpoint(
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException || ex.GetType().Name.Contains("NonExistent"))
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex) || ex.GetType().Name.Contains("NonExistent"))
         {
             session.EjectAllPendingChanges();
             ThrowError(ClaimChangedMessage, 409);

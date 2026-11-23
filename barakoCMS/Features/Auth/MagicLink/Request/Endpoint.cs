@@ -90,7 +90,7 @@ internal class Endpoint(
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (JasperFx.ConcurrencyException)
+        catch (Exception e) when (ConcurrencyConflict.Is(e))
         {
             logger.LogWarning("Concurrent magic link request for the same address; no link was issued");
             return false;

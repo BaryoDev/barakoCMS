@@ -24,7 +24,7 @@ internal static class ErasureRetry
                 await attempt();
                 return;
             }
-            catch (JasperFx.ConcurrencyException) when (tried < Attempts)
+            catch (Exception e) when (ConcurrencyConflict.Is(e) && tried < Attempts)
             {
                 session.EjectAllPendingChanges();
             }

@@ -178,8 +178,8 @@ internal sealed class ConfigEngine(
     /// document saved since it was loaded, or a name taken in the meantime.
     /// </summary>
     private static bool IsCommitConflict(Exception ex) =>
-        ex is StaleContentException or JasperFx.ConcurrencyException
-        || ex.GetType().Name.Contains("Concurrency", StringComparison.Ordinal)
+        ex is StaleContentException
+        || ConcurrencyConflict.Is(ex)
         || ex.GetType().Name.Contains("UnexpectedMaxEventId", StringComparison.Ordinal)
         || IsUniqueViolation(ex);
 

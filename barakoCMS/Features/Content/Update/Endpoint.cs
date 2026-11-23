@@ -301,8 +301,7 @@ internal class Endpoint(
         {
             ThrowError(e => e.Version, ex.Message, 409);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency")
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex)
             || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
         {
             ThrowError(e => e.Version, "The content has been modified by another user. Please refresh and try again.", 412);

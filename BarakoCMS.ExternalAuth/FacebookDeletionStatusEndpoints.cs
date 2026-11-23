@@ -207,7 +207,7 @@ internal sealed class FacebookDeletionChoiceEndpoint(IDocumentSession session, I
                 await session.SaveChangesAsync(ct);
             }
         }
-        catch (JasperFx.ConcurrencyException)
+        catch (Exception e) when (barakoCMS.ConcurrencyConflict.Is(e))
         {
             await using var read = store.QuerySession();
             request = await read.LoadAsync<FacebookDeletionRequest>(id, ct) ?? request;
