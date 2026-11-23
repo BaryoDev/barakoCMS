@@ -66,7 +66,7 @@ public class EmailVerificationService : IEmailVerificationService
         {
             await _session.SaveChangesAsync(ct);
         }
-        catch (JasperFx.ConcurrencyException)
+        catch (Exception e) when (ConcurrencyConflict.Is(e))
         {
             // Two registrations for one address arriving together race on invalidating each other's
             // outstanding rows. Nothing was stored, so there is no token to send. Same shape as

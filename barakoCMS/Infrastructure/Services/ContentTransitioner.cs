@@ -400,8 +400,7 @@ internal sealed class ContentTransitioner(
             // staged. The message names the rule and the type, and neither the value nor the entry.
             return ContentTransitionResult.Conflict(ex.Message);
         }
-        catch (Exception ex) when (ex is JasperFx.ConcurrencyException
-            || ex.GetType().Name.Contains("Concurrency")
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex)
             || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
         {
             return ContentTransitionResult.Conflict(ChangedByAnotherWriter);

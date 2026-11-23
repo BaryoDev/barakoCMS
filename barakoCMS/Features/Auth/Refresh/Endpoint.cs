@@ -144,15 +144,6 @@ internal class Endpoint : Endpoint<Request, Response>
         return newRefreshToken;
     }
 
-    /// <summary>
-    /// A lost race. A retry saves two versioned rows, so Marten can report the loss as one
-    /// exception per row, wrapped in an AggregateException.
-    /// </summary>
-    private static bool IsConcurrencyRace(Exception ex) =>
-        ex is JasperFx.ConcurrencyException
-        || ex is AggregateException { InnerExceptions.Count: > 0 } many
-            && many.InnerExceptions.All(inner => inner is JasperFx.ConcurrencyException);
-
     private static List<System.Security.Claims.Claim> RefreshClaims(RefreshToken refreshToken, Guid sessionId)
     {
         var claims = new List<System.Security.Claims.Claim>();
@@ -289,7 +280,7 @@ internal class Endpoint : Endpoint<Request, Response>
             // this commit throws and we reject rather than issuing a second valid token.
             await _documentSession.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (IsConcurrencyRace(ex))
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
         {
             await RevokeAfterRaceAsync(refreshToken.UserId, sessionId, ct);
             return;

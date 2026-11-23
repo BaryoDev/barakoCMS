@@ -128,7 +128,7 @@ internal sealed class Endpoint(
         {
             await session.SaveChangesAsync(ct);
         }
-        catch (JasperFx.ConcurrencyException)
+        catch (Exception e) when (ConcurrencyConflict.Is(e))
         {
             AddError($"\"{definition.Name}\" was changed by another request while this one ran. Read it again and retry.");
             ThrowIfAnyErrors(StatusCodes.Status409Conflict);

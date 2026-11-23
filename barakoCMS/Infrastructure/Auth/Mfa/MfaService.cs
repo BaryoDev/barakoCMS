@@ -84,7 +84,7 @@ public sealed class MfaService(
             {
                 await session.SaveChangesAsync(ct);
             }
-            catch (JasperFx.ConcurrencyException)
+            catch (Exception e) when (ConcurrencyConflict.Is(e))
             {
                 // A concurrent verify already advanced the guard / consumed the code. Fail this one
                 // rather than double-accepting the same code.

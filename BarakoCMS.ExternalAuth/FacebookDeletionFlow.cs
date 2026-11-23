@@ -277,7 +277,7 @@ internal static class FacebookDeletionFlow
                     await session.SaveChangesAsync(ct);
                     settled++;
                 }
-                catch (JasperFx.ConcurrencyException)
+                catch (Exception e) when (barakoCMS.ConcurrencyConflict.Is(e))
                 {
                     // Another node, or the person, settled it first. Nothing of this attempt was saved.
                 }

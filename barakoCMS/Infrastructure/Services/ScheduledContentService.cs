@@ -537,9 +537,8 @@ public class ScheduledContentService : BackgroundService
                     applied++;
                     appliedInBatch++;
                 }
-                catch (Exception ex) when (ex is JasperFx.ConcurrencyException
+                catch (Exception ex) when (ConcurrencyConflict.Is(ex)
                     || ex is barakoCMS.Core.Interfaces.StaleContentException
-                    || ex.GetType().Name.Contains("Concurrency")
                     || ex.GetType().Name.Contains("UnexpectedMaxEventId"))
                 {
                     // Nothing of this item's is left staged, or the next item's save would carry it
