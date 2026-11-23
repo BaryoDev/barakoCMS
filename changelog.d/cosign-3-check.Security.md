@@ -1,1 +1,1 @@
-verify-image-signature.sh now refuses a cosign older than 3 with a clear message, and the deploy docs say cosign 3 or later is needed, since the images are signed with cosign 3.
+- **The image verify script refuses a cosign older than 3.** `scripts/verify-image-signature.sh` reads `cosign version --json` and stops with a clear message when the version is older than 3 or cannot be read, since the images are signed with cosign 3 and the script uses its defaults. `docs/deploy-in-production.md` says cosign 3 or later is needed.
