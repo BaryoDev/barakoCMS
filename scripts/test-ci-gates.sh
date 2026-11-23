@@ -205,19 +205,22 @@ check "parses, and holds no expired entry" pass $?
 echo
 echo "Action pins (check-action-pins.sh):"
 sha=3d3c42e5aac5ba805825da76410c181273ba90b1
-mkdir -p "$d/wf-good" "$d/wf-tag" "$d/wf-branch" "$d/wf-short" "$d/wf-docker" "$d/wf-none"
+mkdir -p "$d/wf-good" "$d/wf-tag" "$d/wf-branch" "$d/wf-short" "$d/wf-docker" "$d/wf-none" "$d/wf-no-eol"
 printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@%s # v7\n      - uses: ./.github/actions/local\n' "$sha" > "$d/wf-good/a.yml"
 printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@%s # v7\n      - uses: actions/setup-dotnet@v6\n' "$sha" > "$d/wf-tag/a.yml"
 printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@main\n' > "$d/wf-branch/a.yml"
 printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@3d3c42e\n' > "$d/wf-short/a.yml"
 printf 'jobs:\n  a:\n    steps:\n      - uses: docker://alpine:3.20\n' > "$d/wf-docker/a.yml"
 printf 'name: nothing\n' > "$d/wf-none/a.yml"
+# No newline after the last line, which a plain read loop never returns.
+printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@%s # v7\n      - uses: actions/setup-dotnet@v6' "$sha" > "$d/wf-no-eol/a.yml"
 bash "$here/check-action-pins.sh" "$d/wf-good" > /dev/null;   check "every action pinned by SHA"      pass $?
 bash "$here/check-action-pins.sh" "$d/wf-tag" > /dev/null;    check "one action pinned by a tag"      fail $?
 bash "$here/check-action-pins.sh" "$d/wf-branch" > /dev/null; check "action pinned by a branch"       fail $?
 bash "$here/check-action-pins.sh" "$d/wf-short" > /dev/null;  check "abbreviated SHA"                 fail $?
 bash "$here/check-action-pins.sh" "$d/wf-docker" > /dev/null; check "docker:// without a digest"      fail $?
 bash "$here/check-action-pins.sh" "$d/wf-none" > /dev/null;   check "no uses lines at all"            fail $?
+bash "$here/check-action-pins.sh" "$d/wf-no-eol" > /dev/null; check "a tag on a last line with no newline" fail $?
 bash "$here/check-action-pins.sh" "$here/../.github/workflows" > /dev/null; check "this repository's workflows" pass $?
 
 echo

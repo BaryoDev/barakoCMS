@@ -39,7 +39,8 @@ check_ref() {
 }
 
 for f in "${files[@]}"; do
-    while IFS= read -r line; do
+    # The || keeps a last line that has no newline, where read returns non-zero.
+    while IFS= read -r line || [[ -n "$line" ]]; do
         [[ "$line" =~ ^[[:space:]]*# ]] && continue
         # A flow sequence can hold several uses keys on one line, so match again on what follows
         # each value until none is left.
