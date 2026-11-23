@@ -44,4 +44,13 @@ public static class TestHelpers
         var token = fixture.CreateToken(roles: new[] { "Admin", "SuperAdmin" }, userId: userId.ToString());
         return (token, userId);
     }
+
+    /// <summary>
+    /// True when a save lost an optimistic concurrency check. Marten throws one ConcurrencyException
+    /// when one document lost, and an AggregateException holding one per document when several did.
+    /// </summary>
+    public static bool LostConcurrencyCheck(Exception e) =>
+        e is JasperFx.ConcurrencyException
+        || e is AggregateException { InnerExceptions.Count: > 0 } all
+            && all.InnerExceptions.All(inner => inner is JasperFx.ConcurrencyException);
 }

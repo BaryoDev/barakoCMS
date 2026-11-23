@@ -102,7 +102,7 @@ public class FieldChangeSeamsTests
                     return;
                 }
             }
-            catch (JasperFx.ConcurrencyException)
+            catch (Exception e) when (TestHelpers.LostConcurrencyCheck(e))
             {
                 // The queued job committed the same batch first; the next run reads its progress.
             }

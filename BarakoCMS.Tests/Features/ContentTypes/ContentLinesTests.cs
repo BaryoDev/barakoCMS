@@ -487,7 +487,7 @@ public class ContentLinesTests : IAsyncLifetime
                     JasperFx.StorageConstants.DefaultTenantId, id, maxBatches: null, Ct);
                 break;
             }
-            catch (JasperFx.ConcurrencyException) when (attempt < 5)
+            catch (Exception e) when (attempt < 5 && TestHelpers.LostConcurrencyCheck(e))
             {
             }
         }
