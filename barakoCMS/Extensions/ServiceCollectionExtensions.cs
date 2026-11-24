@@ -649,7 +649,10 @@ public static class ServiceCollectionExtensions
                 // it. Off, and NamespaceTagProcessor tags by namespace instead.
                 o.AutoTagPathSegmentIndex = 0;
                 o.DocumentSettings = s =>
+                {
                     s.OperationProcessors.Add(new barakoCMS.Infrastructure.OpenApi.NamespaceTagProcessor());
+                    s.DocumentProcessors.Add(new barakoCMS.Infrastructure.OpenApi.EcmaPatternProcessor());
+                };
             });
         }
 
