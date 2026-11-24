@@ -56,7 +56,7 @@ Every limit has a default. A value of 0 or less is refused for the keys below, s
 
 | Key | Environment variable | Default | Allowed | Blank or malformed |
 |---|---|---|---|---|
-| `RequestLimits:MaxBodyBytes` | `RequestLimits__MaxBodyBytes` | 10485760 (10 MiB) | Greater than 0. | Blank keeps the default. A value of 0 or less throws at start. Malformed throws on the request or job that reads it. |
+| `RequestLimits:MaxBodyBytes` | `RequestLimits__MaxBodyBytes` | 10485760 (10 MiB) | Greater than 0. | Blank keeps the default. A value of 0 or less, or a malformed value, throws at start. |
 | `Kestrel:Limits:MaxRequestBodySize` | `Kestrel__Limits__MaxRequestBodySize` | not supported | Do not set it. Use RequestLimits:MaxBodyBytes. | Any value throws at start and names RequestLimits:MaxBodyBytes. |
 | `Kestrel:Limits:RequestHeadersTimeout` | `Kestrel__Limits__RequestHeadersTimeout` | 00:00:15 | A positive time span. | Blank is skipped and keeps the default. A zero, negative or infinite value throws at start and names the key. |
 | `Kestrel:Limits:KeepAliveTimeout` | `Kestrel__Limits__KeepAliveTimeout` | 00:02:10 | A positive time span. | Blank is skipped and keeps the default. A zero, negative or infinite value throws at start and names the key. |
