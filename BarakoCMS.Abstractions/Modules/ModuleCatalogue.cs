@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace barakoCMS.Modules;
@@ -44,6 +45,12 @@ internal sealed partial class ModuleCatalogue
     [GeneratedRegex(@"\A/api/[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*\z", RegexOptions.NonBacktracking | RegexOptions.CultureInvariant)]
     private static partial Regex CardRoutePattern();
 
+    [GeneratedRegex(@"\A/api/auth(/|\z)", RegexOptions.NonBacktracking | RegexOptions.CultureInvariant)]
+    private static partial Regex AuthRoutePattern();
+
+    private static bool IsUnsafeChar(char c) => char.IsControl(c)
+        || char.GetUnicodeCategory(c) is UnicodeCategory.Format or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator;
+
     public static ModuleCatalogue Of(
         IEnumerable<IBarakoModule> seen,
         IEnumerable<IBarakoModule> enabled,
@@ -62,7 +69,7 @@ internal sealed partial class ModuleCatalogue
                 Category = ModuleCategory.Normalise(m.Category),
                 Description = m.Description,
                 Glyph = m.Glyph,
-                Cards = ValidateCards(m, warn),
+                Cards = running.Contains(m) ? ValidateCards(m, warn) : [],
             })
             .ToArray());
     }
@@ -74,39 +81,47 @@ internal sealed partial class ModuleCatalogue
     /// </summary>
     private static IReadOnlyList<ConsoleCard> ValidateCards(IBarakoModule module, Action<string>? warn)
     {
-        IReadOnlyList<ConsoleCard>? declared = module.ConsoleCards;
-        if (declared is null)
+        var name = Clean(module.Name, 80);
+        var kept = new List<ConsoleCard>();
+        try
         {
+            IReadOnlyList<ConsoleCard>? declared = module.ConsoleCards;
+            if (declared is null)
+            {
+                return [];
+            }
+
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var card in declared)
+            {
+                if (card is null)
+                {
+                    continue;
+                }
+
+                var problem = Problem(card, ids);
+                if (problem is null && kept.Count >= MaxCardsPerModule)
+                {
+                    problem = $"a module keeps at most {MaxCardsPerModule} cards";
+                }
+
+                if (problem is not null)
+                {
+                    warn?.Invoke($"Module '{name}' console card '{Clean(card.Id, 40)}' dropped: {problem}.");
+                    continue;
+                }
+
+                ids.Add(card.Id);
+                kept.Add(card with { Title = card.Title.Trim() });
+            }
+        }
+        catch (Exception ex)
+        {
+            warn?.Invoke($"Module '{name}' console cards ignored: reading them threw {ex.GetType().Name}.");
             return [];
         }
 
-        var kept = new List<ConsoleCard>();
-        var ids = new HashSet<string>(StringComparer.Ordinal);
-        var name = Clean(module.Name, 80);
-        foreach (var card in declared)
-        {
-            if (card is null)
-            {
-                continue;
-            }
-
-            var problem = Problem(card, ids);
-            if (problem is null && kept.Count >= MaxCardsPerModule)
-            {
-                problem = $"a module keeps at most {MaxCardsPerModule} cards";
-            }
-
-            if (problem is not null)
-            {
-                warn?.Invoke($"Module '{name}' console card '{Clean(card.Id, 40)}' dropped: {problem}.");
-                continue;
-            }
-
-            ids.Add(card.Id);
-            kept.Add(card with { Title = card.Title.Trim() });
-        }
-
-        return kept;
+        return kept.ToArray();
     }
 
     private static string? Problem(ConsoleCard card, HashSet<string> ids)
@@ -122,9 +137,14 @@ internal sealed partial class ModuleCatalogue
         }
 
         var title = card.Title?.Trim();
-        if (string.IsNullOrEmpty(title) || title.Length > MaxCardTitleLength || title.Any(char.IsControl))
+        if (string.IsNullOrEmpty(title) || title.Length > MaxCardTitleLength || title.Any(IsUnsafeChar))
         {
-            return $"the title must be 1 to {MaxCardTitleLength} characters with no control characters";
+            return $"the title must be 1 to {MaxCardTitleLength} characters with no control or format characters";
+        }
+
+        if (card.Route is not null && AuthRoutePattern().IsMatch(card.Route))
+        {
+            return "the route must not be under /api/auth";
         }
 
         if (card.Route is null || card.Route.Length > MaxCardRouteLength || !CardRoutePattern().IsMatch(card.Route))
@@ -143,7 +163,12 @@ internal sealed partial class ModuleCatalogue
         }
 
         var cut = value.Length > max ? value[..max] : value;
-        return string.Concat(cut.Select(c => char.IsControl(c) ? '?' : c));
+        if (cut.Length > 0 && char.IsHighSurrogate(cut[^1]))
+        {
+            cut = cut[..^1];
+        }
+
+        return string.Concat(cut.Select(c => IsUnsafeChar(c) ? '?' : c));
     }
 
     // Only modules that run can serve a section, so a switched-off module does not stop the host.

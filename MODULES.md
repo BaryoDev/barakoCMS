@@ -133,9 +133,10 @@ path your module serves, and the console calls it with the caller's own credenti
 
 - `Id`: lowercase letters, digits and hyphens, 1 to 40 characters, starting with a letter or digit,
   unique within the module.
-- `Title`: 1 to 60 characters after trimming, no control characters.
+- `Title`: 1 to 60 characters after trimming, no control or format characters (so no bidi override or zero-width space).
 - `Route`: `/api/` plus segments of letters, digits, hyphens and underscores, at most 200
-  characters. No query, no `..`, no `//`, no scheme, no host, no backslash.
+  characters. No query, no `..`, no `//`, no scheme, no host, no backslash, and not under
+  `/api/auth`. A route is not scoped to your module's own prefix, so name only routes your module serves.
 
 A card that breaks a rule is dropped and a warning names the module and the card id. The module
 still runs. Core lists the cards of an enabled module in `GET /api/modules` and nothing more.

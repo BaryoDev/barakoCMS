@@ -7,11 +7,11 @@ namespace barakoCMS.Modules;
 /// Lowercase letters, digits and hyphens, 1 to 40 characters, starting with a letter or digit.
 /// Unique within the module.
 /// </param>
-/// <param name="Title">1 to 60 characters after trimming, no control characters.</param>
+/// <param name="Title">1 to 60 characters after trimming, no control or format characters.</param>
 /// <param name="Route">
 /// A path on this host the console calls with the caller's own credentials: <c>/api/</c> followed
 /// by segments of letters, digits, hyphens and underscores, at most 200 characters. No query, no
-/// <c>..</c>, no <c>//</c>, no scheme, no host, no backslash. The route answers with a
+/// <c>..</c>, no <c>//</c>, no scheme, no host, no backslash, and not under <c>/api/auth</c>. The route answers with a
 /// <see cref="ConsoleCardContent"/> and enforces its own permission.
 /// </param>
 /// <remarks>

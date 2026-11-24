@@ -184,6 +184,110 @@ public class ModuleConsoleCardTests
         warnings[0].Should().NotContain("/x");
     }
 
+    private sealed class ThrowingModule(bool onGet) : IBarakoModule
+    {
+        public string Name => "Reports";
+
+        public IReadOnlyList<ConsoleCard> ConsoleCards => onGet ? throw new InvalidOperationException("boom") : Throws();
+
+        private static IReadOnlyList<ConsoleCard> Throws() => new ThrowingList();
+
+        private sealed class ThrowingList : IReadOnlyList<ConsoleCard>
+        {
+            public ConsoleCard this[int index] => throw new InvalidOperationException("boom");
+
+            public int Count => 1;
+
+            public IEnumerator<ConsoleCard> GetEnumerator()
+            {
+                yield return new ConsoleCard("ok", "Ok", "/api/reports");
+                throw new InvalidOperationException("boom");
+            }
+
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_module_whose_cards_throw_still_lists_with_no_cards_and_one_warning(bool onGet)
+    {
+        var warnings = new List<string>();
+        var module = new ThrowingModule(onGet);
+
+        var entry = ModuleCatalogue.Of([module], [module], warnings.Add).Entries.Single();
+
+        entry.Cards.Should().BeEmpty();
+        warnings.Should().ContainSingle().Which.Should().Contain("Reports");
+    }
+
+    [Fact]
+    public void A_disabled_module_with_a_bad_card_gives_no_warning_and_no_cards()
+    {
+        var warnings = new List<string>();
+        var module = new CardModule(Card(route: "http://example.com"), Card("good"));
+
+        var entry = ModuleCatalogue.Of([module], [], warnings.Add).Entries.Single();
+
+        entry.Enabled.Should().BeFalse();
+        entry.Cards.Should().BeEmpty();
+        warnings.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("Evil\u202Etitle")]
+    [InlineData("Zero\u200Bwidth")]
+    [InlineData("Line\u2028sep")]
+    [InlineData("Para\u2029sep")]
+    public void A_title_with_a_format_or_separator_character_drops_the_card(string title)
+    {
+        Run(Card(title: title)).Cards.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_route_under_api_auth_is_dropped_and_a_look_alike_is_kept()
+    {
+        Run(Card(route: "/api/auth/methods")).Cards.Should().BeEmpty();
+        Run(Card(route: "/api/auth")).Cards.Should().BeEmpty();
+        Run(Card(route: "/api/authors/top")).Cards.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void A_title_padded_with_spaces_is_kept_trimmed_at_sixty_characters()
+    {
+        var (cards, _) = Run(Card(title: "  " + new string('t', 60) + "  "));
+
+        cards.Should().ContainSingle().Which.Title.Should().Be(new string('t', 60));
+    }
+
+    [Fact]
+    public void A_very_long_id_gives_a_short_warning()
+    {
+        var (_, warnings) = Run(Card(id: new string('a', 10000)));
+
+        warnings.Should().ContainSingle().Which.Length.Should().BeLessThan(250);
+    }
+
+    [Fact]
+    public void A_module_name_with_a_newline_gives_a_warning_without_one()
+    {
+        var module = new NamedModule("A\nB", Card(route: "nope"));
+        var warnings = new List<string>();
+
+        ModuleCatalogue.Of([module], [module], warnings.Add);
+
+        warnings.Should().ContainSingle();
+        warnings[0].Should().NotContain("\n");
+        warnings[0].Should().Contain("A?B");
+    }
+
+    private sealed class NamedModule(string name, params ConsoleCard[] cards) : IBarakoModule
+    {
+        public string Name => name;
+        public IReadOnlyList<ConsoleCard> ConsoleCards { get; } = cards;
+    }
+
     [Fact]
     public void A_module_with_a_broken_card_still_lists()
     {
