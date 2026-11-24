@@ -204,9 +204,9 @@ public class ContentValidatorService(
             return One(await ValidateFileAsync(field, value, existing, caller));
         }
 
-        // An address stored before the email check was tightened is still the entry's own, and an
-        // edit of another field keeps it as it is.
-        if (expectedType == "email" && StoredValues.IsUnchanged(field.Name, value, existing))
+        // A value stored before the email or slug check was tightened is still the entry's own, and
+        // an edit of another field keeps it as it is.
+        if (expectedType is "email" or "slug" && StoredValues.IsUnchanged(field.Name, value, existing))
         {
             return [];
         }
