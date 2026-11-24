@@ -84,10 +84,13 @@ public class RegexEndAnchorRegistryTests
         public void ConfigureWorkflowTriggers(IModuleWorkflowTriggers triggers) => triggers.Add(name, "something happened");
     }
 
+    // A topic may only carry event types from its module's own assembly, which is this one.
+    private sealed record Submitted;
+
     private sealed class TopicModule(string name) : IBarakoModule
     {
         public string Name => "regex-anchor";
-        public void ConfigureTopics(IModuleTopics topics) => topics.Add(name, "read_content");
+        public void ConfigureTopics(IModuleTopics topics) => topics.Add(name, "read_content", typeof(Submitted));
     }
 
     [Fact]
@@ -112,7 +115,7 @@ public class RegexEndAnchorRegistryTests
     {
         var act = () => new TopicRegistry([new TopicModule("forms.submitted\n")]);
 
-        act.Should().Throw<ArgumentException>();
+        act.Should().Throw<ArgumentException>().WithMessage("*lower case words*");
     }
 
     [Fact]
