@@ -1,0 +1,1 @@
+- **Names, slugs and codes with a trailing line feed were accepted.** A value such as "my-slug" followed by a newline passed the slug, handle, locale, email and similar checks, because `$` also matches before a final newline. Those checks end with `\z` now and refuse it.
