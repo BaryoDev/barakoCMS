@@ -127,6 +127,34 @@ them. `Category` is one of `ModuleCategory.Content`, `Comms`, `Access`, `Platfor
 `Business`; anything else is reported as null. `ModuleMetadata.VersionOf(GetType())` reads
 `PackageVersion` from your assembly. Adding them does not move `ModuleContract.Version`.
 
+**Console cards.** A module can ask the console to draw up to four small cards by overriding
+`ConsoleCards` on `IBarakoModule`. A card is `new ConsoleCard(id, title, route)`: the route is a
+path your module serves, and the console calls it with the caller's own credentials.
+
+- `Id`: lowercase letters, digits and hyphens, 1 to 40 characters, starting with a letter or digit,
+  unique within the module.
+- `Title`: 1 to 60 characters after trimming, no control or format characters (so no bidi override or zero-width space).
+- `Route`: `/api/` plus segments of letters, digits, hyphens and underscores, at most 200
+  characters. No query, no `..`, no `//`, no scheme, no host, no backslash, and not under
+  `/api/auth`. A route is not scoped to your module's own prefix, so name only routes your module serves.
+
+A card that breaks a rule is dropped and a warning names the module and the card id. The module
+still runs. Core lists the cards of an enabled module in `GET /api/modules` and nothing more.
+
+The route answers with a `ConsoleCardContent`: `State` (`ok`, `empty` or `unavailable`, see
+`ConsoleCardState`), `Text`, `Rows` of `ConsoleCardRow(Label, Value)`, an optional `Note` and an
+optional `UpdatedAt`. A console cuts what is longer than text 1000 characters, 12 rows, label 60,
+value 120 and note 200. Core does not serve this type, your route does.
+
+The card only names where to look. Your route must enforce its own permission, because anyone who
+can read `GET /api/modules` sees the route. A console hides the card when the route answers 401,
+403, 404, 503 or anything it cannot read, so a caller without the right sees no card, not an error.
+
+```csharp
+public IReadOnlyList<ConsoleCard> ConsoleCards =>
+    [new ConsoleCard("recent-reports", "Recent reports", "/api/reports/summary")];
+```
+
 ### Schema preflight
 
 Production runs `AutoCreate.CreateOnly`, which creates a missing table with its indexes and never

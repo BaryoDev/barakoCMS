@@ -247,7 +247,7 @@ public static class ServiceCollectionExtensions
 
         // Every module seen and whether it runs, for GET /api/modules. The IBarakoModule singletons
         // below hold only the ones that run, so "off" and "not installed" would otherwise look alike.
-        services.AddSingleton(ModuleCatalogue.Of(seen, enabled));
+        services.AddSingleton(ModuleCatalogue.Of(seen, enabled, message => Log.Warning("{Message}", message)));
 
         // Filled by the schema preflight at boot; empty until then, which the endpoint reports as
         // unknown rather than guessing.

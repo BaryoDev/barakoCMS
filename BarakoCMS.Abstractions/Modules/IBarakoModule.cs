@@ -94,6 +94,17 @@ public interface IBarakoModule
     string? Glyph => null;
 
     /// <summary>
+    /// Small cards the console draws for this module, each from a route the module serves. Optional.
+    /// </summary>
+    /// <remarks>
+    /// Core lists the cards in <c>GET /api/modules</c> for an enabled module. A card that breaks the
+    /// rules on <see cref="ConsoleCard"/> is dropped with a warning, and at most four are kept. The
+    /// route answers with <see cref="ConsoleCardContent"/> and must check its own permission, since
+    /// the card only names where to look. The default declares nothing.
+    /// </remarks>
+    IReadOnlyList<ConsoleCard> ConsoleCards => [];
+
+    /// <summary>
     /// Names of modules that must be configured before this one.
     /// </summary>
     /// <remarks>
