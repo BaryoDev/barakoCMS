@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.10.0] - 2026-11-24
+
+This release lets a module declare small console cards, each with an optional refresh button. It also fixes a 500 when a save loses a race on several documents, and moves the pinned Postgres, pgvector and Caddy images in the shipped compose and Kubernetes files past known CVEs. Every module package moves up one patch version because it now builds against core 5.10. The API contract version stays at 16 (`ApiContract.Version`), the delivery contract at 10 and the module contract at 1. There are no migrations.
+
+### Added
+
+- **Modules can declare console cards.** `IBarakoModule.ConsoleCards` lists up to four small cards, each a title, a route the module serves and an optional button label. A card with a label gets a button that sends POST to the route to ask for a fresh card. `GET /api/modules` returns them as `cards` for an enabled module, and an empty list otherwise. A card with a bad id, title, route or button label is dropped with a warning. The route returns a `ConsoleCardContent` and enforces its own permission. The field is additive, so the API contract number stays at 16.
+
+### Fixed
+
+- **A lost race reported for several documents at once is handled like a lost race on one.** When a save lost on more than one versioned document, Marten threw an AggregateException of conflicts, and many of the places that handle a lost race only matched the single form. A request for an OTP code for an address with two or more outstanding codes answered 500 instead of returning no code. Every one of those places goes through `ConcurrencyConflict.Is` now, which accepts an aggregate only when every exception in it is a conflict.
+
+### Security
+
+- **The pinned database and proxy images are past known CVEs.** `postgres:16-alpine`, `pgvector/pgvector:pg16` and `caddy:alpine` move to newer digests of the same tags in `docker-compose.yml`, `docker-compose.hub.yml`, `docker-compose.prod.yml` and `quickstart/docker-compose.yml`. `k8s/03-postgres.yaml` and `k8s/07-backup-cronjob.yaml` pin the same digests, where before they named only the tag. The next `docker compose pull` takes them. The major versions do not change.
+
 ## [5.9.0] - 2026-11-21
 
 This release adds signed-in sessions with routes to list and end them, blocking an account, editing the lifecycle of an existing content type, a CDN purge client with purge on every content commit, inbound webhook settings on a connector, and a module marker so a module can build on the contract package alone. It also fixes how a workflow schedule matches `InState`. **Check before upgrading:** a workflow with a schedule trigger that sets `InState` can start running on entries it skipped before, so list those workflows and confirm each one should run (see the first entry under Changed). The API contract version stays at 16 (`ApiContract.Version`) and the delivery contract at 10. Run `db-migrate` after upgrading: the migrations are under `migrations/5.9.0`.
