@@ -1397,9 +1397,9 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
 
         var response = await PutAsync(admin, type, Claim());
 
-        ApiContract.Version.Should().Be(16);
+        ApiContract.Version.Should().Be(17);
         ApiContract.DeliveryVersion.Should().Be(10);
-        response.Headers.GetValues(ApiContract.HeaderName).Should().Equal("16");
+        response.Headers.GetValues(ApiContract.HeaderName).Should().Equal("17");
         response.Headers.GetValues(ApiContract.DeliveryHeaderName).Should().Equal("10");
     }
 
