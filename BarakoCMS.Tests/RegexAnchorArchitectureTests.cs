@@ -23,13 +23,6 @@ public class RegexAnchorArchitectureTests
         "BarakoCMS.Import", "BarakoCMS.Pages", "BarakoCMS.Portability",
     ];
 
-    // Allowed to keep a `$`, each with why.
-    private static readonly Dictionary<string, string> Allowed = new()
-    {
-        ["BarakoCMS.Abstractions.Core.CredentialRedaction.CredentialSegment"] =
-            "its `^(?:pin|pw)$` also matching \"pin\\n\" redacts more, which is the safe side",
-    };
-
     private static IEnumerable<(string Owner, string Pattern)> Patterns()
     {
         const BindingFlags all = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance
@@ -97,7 +90,7 @@ public class RegexAnchorArchitectureTests
     public void NoPatternEndsWithADollar()
     {
         var offenders = Patterns()
-            .Where(p => EndsWithBareDollar(p.Pattern) && !Allowed.ContainsKey(p.Owner))
+            .Where(p => EndsWithBareDollar(p.Pattern))
             .Select(p => $"{p.Owner}: {p.Pattern}")
             .ToList();
 
