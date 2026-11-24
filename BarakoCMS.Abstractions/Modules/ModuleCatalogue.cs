@@ -38,6 +38,7 @@ internal sealed partial class ModuleCatalogue
     internal const int MaxCardsPerModule = 4;
     internal const int MaxCardTitleLength = 60;
     internal const int MaxCardRouteLength = 200;
+    internal const int MaxCardRefreshLabelLength = 24;
 
     [GeneratedRegex(@"\A[a-z0-9][a-z0-9-]{0,39}\z", RegexOptions.NonBacktracking | RegexOptions.CultureInvariant)]
     private static partial Regex CardIdPattern();
@@ -112,7 +113,7 @@ internal sealed partial class ModuleCatalogue
                 }
 
                 ids.Add(card.Id);
-                kept.Add(card with { Title = card.Title.Trim() });
+                kept.Add(card with { Title = card.Title.Trim(), RefreshLabel = card.RefreshLabel?.Trim() });
             }
         }
         catch (Exception ex)
@@ -140,6 +141,13 @@ internal sealed partial class ModuleCatalogue
         if (string.IsNullOrEmpty(title) || title.Length > MaxCardTitleLength || title.Any(IsUnsafeChar))
         {
             return $"the title must be 1 to {MaxCardTitleLength} characters with no control or format characters";
+        }
+
+        var label = card.RefreshLabel?.Trim();
+        if (card.RefreshLabel is not null
+            && (string.IsNullOrEmpty(label) || label.Length > MaxCardRefreshLabelLength || label.Any(IsUnsafeChar)))
+        {
+            return $"the refresh label must be 1 to {MaxCardRefreshLabelLength} characters with no control or format characters";
         }
 
         if (card.Route is not null && AuthRoutePattern().IsMatch(card.Route))

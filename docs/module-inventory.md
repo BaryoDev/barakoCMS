@@ -48,8 +48,8 @@ the console's icon set. Each is null when the module declares nothing, and a cat
 set is reported as null. They are optional additions to the item, not a breaking change. Every
 first-party module declares all five.
 
-`cards` lists the console cards the module declared and core accepted, each with `id`, `title` and
-`route`. It is an empty array when the module declares none, when it breaks the card rules (see
+`cards` lists the console cards the module declared and core accepted, each with `id`, `title`,
+`route` and `refreshLabel` (null when the card has no refresh button). It is an empty array when the module declares none, when it breaks the card rules (see
 [MODULES.md](../MODULES.md#saying-who-a-module-is)), and always for a module that is not enabled.
 It is an optional addition to the item, not a breaking change, so the admin API contract number did
 not move. A console draws each card from its route and hides it on 401, 403, 404, 503 or any error.

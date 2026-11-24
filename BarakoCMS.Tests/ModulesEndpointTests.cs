@@ -57,7 +57,7 @@ public class ModulesEndpointTests
                             Category = ModuleCategory.Insight,
                             Description = "A probe",
                             Glyph = "flag",
-                            Cards = [new ConsoleCard("recent", "Recent reports", "/api/reports/summary")],
+                            Cards = [new ConsoleCard("recent", "Recent reports", "/api/reports/summary", "Refresh")],
                         },
                         new ModuleCatalogueEntry(Mike, 0, Enabled: false)
                         {
@@ -175,10 +175,11 @@ public class ModulesEndpointTests
         var zulu = items.Single(i => i.GetProperty("name").GetString() == Zulu);
         var cards = zulu.GetProperty("cards").EnumerateArray().ToArray();
         cards.Should().ContainSingle();
-        cards[0].EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(["id", "title", "route"]);
+        cards[0].EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(["id", "title", "route", "refreshLabel"]);
         cards[0].GetProperty("id").GetString().Should().Be("recent");
         cards[0].GetProperty("title").GetString().Should().Be("Recent reports");
         cards[0].GetProperty("route").GetString().Should().Be("/api/reports/summary");
+        cards[0].GetProperty("refreshLabel").GetString().Should().Be("Refresh");
         items.Single(i => i.GetProperty("name").GetString() == Mike)
             .GetProperty("cards").GetArrayLength().Should().Be(0, "a module that is not enabled lists no cards");
         items.Single(i => i.GetProperty("name").GetString() == Alpha)

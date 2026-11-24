@@ -109,6 +109,44 @@ public class ModuleConsoleCardTests
         Run(Card(title: new string('t', 61))).Cards.Should().BeEmpty();
     }
 
+    [Fact]
+    public void A_refresh_label_is_kept_trimmed_and_listed()
+    {
+        var (cards, warnings) = Run(new ConsoleCard("recent", "Recent", "/api/reports/summary", "  Refresh  "));
+
+        cards.Should().ContainSingle().Which.RefreshLabel.Should().Be("Refresh");
+        warnings.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_null_refresh_label_keeps_the_card_with_no_button()
+    {
+        var (cards, warnings) = Run(Card());
+
+        cards.Should().ContainSingle().Which.RefreshLabel.Should().BeNull();
+        warnings.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("Bad\u0007label")]
+    [InlineData("Zero\u200Bwidth")]
+    [InlineData("abcdefghijklmnopqrstuvwxy")]
+    public void A_refresh_label_that_breaks_the_rule_drops_the_card_with_a_warning(string label)
+    {
+        var (cards, warnings) = Run(new ConsoleCard("recent", "Recent", "/api/reports/summary", label));
+
+        cards.Should().BeEmpty();
+        warnings.Should().ContainSingle().Which.Should().Contain("Reports").And.Contain("'recent'").And.Contain("refresh label");
+    }
+
+    [Fact]
+    public void A_refresh_label_of_twenty_four_characters_is_kept()
+    {
+        Run(new ConsoleCard("recent", "Recent", "/api/reports/summary", new string('r', 24))).Cards.Should().ContainSingle();
+    }
+
     [Theory]
     [InlineData("/api/reports")]
     [InlineData("/api/reports/summary")]

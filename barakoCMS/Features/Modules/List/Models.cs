@@ -67,4 +67,5 @@ internal sealed record ModuleSummary(
 /// <param name="Id"><see cref="barakoCMS.Modules.ConsoleCard.Id"/>.</param>
 /// <param name="Title"><see cref="barakoCMS.Modules.ConsoleCard.Title"/>, trimmed.</param>
 /// <param name="Route"><see cref="barakoCMS.Modules.ConsoleCard.Route"/>.</param>
-internal sealed record ModuleCardSummary(string Id, string Title, string Route);
+/// <param name="RefreshLabel"><see cref="barakoCMS.Modules.ConsoleCard.RefreshLabel"/>, trimmed, or null for no button.</param>
+internal sealed record ModuleCardSummary(string Id, string Title, string Route, string? RefreshLabel);
