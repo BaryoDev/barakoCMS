@@ -48,6 +48,12 @@ the console's icon set. Each is null when the module declares nothing, and a cat
 set is reported as null. They are optional additions to the item, not a breaking change. Every
 first-party module declares all five.
 
+`cards` lists the console cards the module declared and core accepted, each with `id`, `title` and
+`route`. It is an empty array when the module declares none, when it breaks the card rules (see
+[MODULES.md](../MODULES.md#saying-who-a-module-is)), and always for a module that is not enabled.
+It is an optional addition to the item, not a breaking change, so the admin API contract number did
+not move. A console draws each card from its route and hides it on 401, 403, 404, 503 or any error.
+
 `enabled` says whether the module runs in this process. False means the host added it or discovery
 found it and `BarakoCMS:Modules:Enabled` left it off; its endpoints answer 404 and its data is still
 in the database. A module that is not installed at all is not listed. See
@@ -79,13 +85,13 @@ question is trying to tell apart.
 
 ## What it does not report
 
-Name, contract version, enabled, schema state and the objects behind it, and the five identity fields, and nothing else. A module
+Name, contract version, enabled, schema state and the objects behind it, the five identity fields and the cards, and nothing else. A module
 knows its configuration section, its assemblies and therefore its file paths on the host, and none
 of that is a fact about the module: it is a description of the deployment. `schemaChanges` names
 database objects, which is the one deployment fact here, and it is there because the operator who
 reads it is the one who has to apply the migration. `ModulesEndpointTests` asserts the property
 names on each item are exactly `name`, `contractVersion`, `enabled`, `schemaState`,
-`schemaChanges`, `packageId`, `packageVersion`, `category`, `description` and `glyph`, so a field added later has to be added there too, in a line somebody reviews.
+`schemaChanges`, `packageId`, `packageVersion`, `category`, `description`, `glyph` and `cards`, so a field added later has to be added there too, in a line somebody reviews.
 
 ## Authorisation
 

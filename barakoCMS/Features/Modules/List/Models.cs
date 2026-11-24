@@ -44,6 +44,9 @@ internal sealed class ListModulesRequest : ListRequest;
 /// <param name="Category">One of <see cref="barakoCMS.Modules.ModuleCategory"/>, or null.</param>
 /// <param name="Description">A one-line description, or null.</param>
 /// <param name="Glyph">An icon name from the console's icon set, or null.</param>
+/// <param name="Cards">
+/// The console cards the module declared and core accepted. Empty when the module is not enabled.
+/// </param>
 internal sealed record ModuleSummary(
     string Name,
     int ContractVersion,
@@ -54,4 +57,14 @@ internal sealed record ModuleSummary(
     string? PackageVersion = null,
     string? Category = null,
     string? Description = null,
-    string? Glyph = null);
+    string? Glyph = null,
+    IReadOnlyList<ModuleCardSummary>? Cards = null)
+{
+    public IReadOnlyList<ModuleCardSummary> Cards { get; init; } = Cards ?? [];
+}
+
+/// <summary>One console card: where to draw it from and what to call it.</summary>
+/// <param name="Id"><see cref="barakoCMS.Modules.ConsoleCard.Id"/>.</param>
+/// <param name="Title"><see cref="barakoCMS.Modules.ConsoleCard.Title"/>, trimmed.</param>
+/// <param name="Route"><see cref="barakoCMS.Modules.ConsoleCard.Route"/>.</param>
+internal sealed record ModuleCardSummary(string Id, string Title, string Route);

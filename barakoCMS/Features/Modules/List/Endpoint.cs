@@ -60,6 +60,7 @@ internal sealed class Endpoint(
             entry.PackageVersion,
             entry.Category,
             entry.Description,
-            entry.Glyph);
+            entry.Glyph,
+            entry.Enabled ? entry.Cards.Select(c => new ModuleCardSummary(c.Id, c.Title, c.Route)).ToArray() : []);
     }
 }
