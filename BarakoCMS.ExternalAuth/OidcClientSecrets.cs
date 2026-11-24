@@ -19,7 +19,7 @@ internal sealed partial record OidcSignedSecret(string KeyId, string TeamId, str
 {
     public const string Section = "SignedClientSecret";
 
-    [GeneratedRegex("^[A-Za-z0-9._-]{1,64}$")]
+    [GeneratedRegex("^[A-Za-z0-9._-]{1,64}\\z")]
     private static partial Regex IdPattern();
 
     /// <summary>

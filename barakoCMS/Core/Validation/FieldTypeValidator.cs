@@ -6,8 +6,12 @@ namespace barakoCMS.Core.Validation;
 /// Validates field types and names against documented standards.
 /// See DEVELOPMENT_STANDARDS.md for complete reference.
 /// </summary>
-public static class FieldTypeValidator
+public static partial class FieldTypeValidator
 {
+    // PascalCase: starts with an uppercase letter, then letters and digits only.
+    [GeneratedRegex("^[A-Z][a-zA-Z0-9]*\\z")]
+    private static partial Regex PascalCase();
+
     /// <summary>
     /// Validates if a field type is allowed. Delegates to <see cref="FieldTypeRegistry"/>,
     /// the single source of truth, so this helper can never diverge from the two
@@ -23,9 +27,7 @@ public static class FieldTypeValidator
         if (string.IsNullOrWhiteSpace(fieldName))
             return false;
 
-        // PascalCase pattern: Starts with uppercase letter, contains only letters and numbers
-        var pascalCasePattern = @"^[A-Z][a-zA-Z0-9]*$";
-        return Regex.IsMatch(fieldName, pascalCasePattern);
+        return PascalCase().IsMatch(fieldName);
     }
 
     /// <summary>

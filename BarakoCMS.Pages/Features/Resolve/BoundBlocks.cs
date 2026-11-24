@@ -34,7 +34,7 @@ internal static class BoundBlocks
     private const string FieldEqualsIgnoreCaseSql =
         "lower((SELECT e.value FROM jsonb_each(d.data -> 'Data') e WHERE lower(e.key) = lower(?) LIMIT 1) #>> '{}') = lower(?)";
 
-    private static readonly Regex SafeFieldName = new("^[A-Za-z][A-Za-z0-9]*$", RegexOptions.Compiled);
+    private static readonly Regex SafeFieldName = new("^[A-Za-z][A-Za-z0-9]*\\z", RegexOptions.Compiled);
 
     public static async Task<IReadOnlyList<BoundBlock>> MaterializeAsync(
         IQuerySession session,

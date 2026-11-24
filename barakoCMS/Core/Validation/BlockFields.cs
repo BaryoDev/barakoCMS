@@ -38,7 +38,7 @@ internal static class BlockFields
     /// </remarks>
     public static IReadOnlyList<string> Envelope { get; } = ["type", "id", "preset", "binding", "dataSource"];
 
-    private static readonly Regex BlockName = new(@"^[A-Za-z][A-Za-z0-9_-]{0,63}$", RegexOptions.Compiled);
+    private static readonly Regex BlockName = new(@"^[A-Za-z][A-Za-z0-9_-]{0,63}\z", RegexOptions.Compiled);
 
     public static bool Is(string? type) => string.Equals(type, TypeName, StringComparison.OrdinalIgnoreCase);
 

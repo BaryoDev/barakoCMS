@@ -20,7 +20,7 @@ public static class TenantDomains
 
     private static readonly char[] NotInAHost = { ':', '/', '\\', '*', '@', '?', '#', ' ' };
 
-    private static readonly Regex Label = new("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$", RegexOptions.Compiled);
+    private static readonly Regex Label = new("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\z", RegexOptions.Compiled);
 
     /// <summary>The setting that names the host a tenant's domain points its CNAME at.</summary>
     public const string DeploymentHostKey = "Tenancy:DeploymentHost";

@@ -17,7 +17,7 @@ internal sealed record ModuleWorkflowTrigger(string Name, string Module, string 
 /// </remarks>
 internal sealed partial class WorkflowTriggerRegistry
 {
-    [GeneratedRegex("^[a-z0-9]+([.-][a-z0-9]+)*$")]
+    [GeneratedRegex("^[a-z0-9]+([.-][a-z0-9]+)*\\z")]
     private static partial Regex NamePattern();
 
     /// <summary>The longest name a module may register.</summary>

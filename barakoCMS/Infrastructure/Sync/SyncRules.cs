@@ -281,7 +281,7 @@ internal static class SyncRules
             return row.TryGetValue(path, out var single) && single.Length > 0 ? [single] : [];
         }
 
-        var matcher = Build("^" + Regex.Escape(path).Replace(@"\[]", @"\[(\d+)]", StringComparison.Ordinal) + "$",
+        var matcher = Build("^" + Regex.Escape(path).Replace(@"\[]", @"\[(\d+)]", StringComparison.Ordinal) + @"\z",
             RegexOptions.IgnoreCase);
 
         return row

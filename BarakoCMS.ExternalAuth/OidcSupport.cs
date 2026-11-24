@@ -43,7 +43,7 @@ internal static partial class OidcSupport
     public const int MaxCodeLength = 2048;
 
     /// <summary>32 random bytes as unpadded base64url, which is what state, nonce and verifier all are.</summary>
-    [GeneratedRegex("^[A-Za-z0-9_-]{43}$")]
+    [GeneratedRegex("^[A-Za-z0-9_-]{43}\\z")]
     public static partial Regex TokenPattern();
 
     /// <summary>

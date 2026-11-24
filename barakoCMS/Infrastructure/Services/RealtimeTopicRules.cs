@@ -15,7 +15,7 @@ namespace barakoCMS.Infrastructure.Services;
 /// </remarks>
 public static partial class RealtimeTopicRules
 {
-    [GeneratedRegex("^[a-z0-9]+([.-][a-z0-9]+)*$")]
+    [GeneratedRegex("^[a-z0-9]+([.-][a-z0-9]+)*\\z")]
     private static partial Regex NamePattern();
 
     /// <summary>

@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using FastEndpoints;
 using FluentValidation;
 using Marten;
@@ -51,15 +52,16 @@ internal sealed class OidcIdTokenGrantResponse
     public string? MfaChallengeToken { get; set; }
 }
 
-internal sealed class OidcIdTokenGrantValidator : Validator<OidcIdTokenGrantRequest>
+internal sealed partial class OidcIdTokenGrantValidator : Validator<OidcIdTokenGrantRequest>
 {
     /// <summary>Printable ASCII with no space, 16 to 256 characters: room for a hash or a random string.</summary>
-    internal const string NoncePattern = "^[\\x21-\\x7E]{16,256}$";
+    [GeneratedRegex("^[\\x21-\\x7E]{16,256}\\z")]
+    private static partial Regex NoncePattern();
 
     public OidcIdTokenGrantValidator()
     {
         RuleFor(x => x.IdToken).NotEmpty().MaximumLength(OidcIdToken.MaxLength);
-        RuleFor(x => x.Nonce).NotEmpty().Matches(NoncePattern)
+        RuleFor(x => x.Nonce).NotEmpty().Matches(NoncePattern())
             .WithMessage("Nonce must be 16 to 256 printable characters with no spaces.");
         RuleFor(x => x.Club).MaximumLength(OidcSupport.MaxClubLength);
     }

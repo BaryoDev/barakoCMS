@@ -11,6 +11,6 @@ internal static partial class Slugs
     /// </summary>
     internal static bool IsValid(string value) => SlugPattern().IsMatch(value);
 
-    [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,62}$")]
+    [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,62}\\z")]
     private static partial Regex SlugPattern();
 }

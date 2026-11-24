@@ -8,6 +8,7 @@ using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
 using Marten.Patching;
+using System.Text.RegularExpressions;
 
 namespace barakoCMS.Features.Connectors;
 
@@ -459,8 +460,11 @@ internal sealed class TestConnectorEndpoint(
     }
 }
 
-internal static class ConnectorRules
+internal static partial class ConnectorRules
 {
+    [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,62}\\z")]
+    private static partial Regex SlugShape();
+
     internal static bool CarriesSecret(SaveConnectorRequest req) =>
         req.Secrets is { Count: > 0 } || !string.IsNullOrWhiteSpace(req.Inbound?.Secret);
 
@@ -470,7 +474,7 @@ internal static class ConnectorRules
         if (string.IsNullOrWhiteSpace(req.Name)) return "Name is required.";
         if (string.IsNullOrWhiteSpace(req.Slug)) return "Slug is required.";
 
-        if (!System.Text.RegularExpressions.Regex.IsMatch(req.Slug, "^[a-z0-9][a-z0-9-]{0,62}$"))
+        if (!SlugShape().IsMatch(req.Slug))
         {
             return "Slug must be lowercase letters, digits and hyphens, starting with a letter or digit.";
         }

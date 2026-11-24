@@ -201,7 +201,7 @@ internal sealed partial class KeyRing
         }
     }
 
-    [GeneratedRegex("^[A-Za-z0-9_-]{1,32}$")]
+    [GeneratedRegex("^[A-Za-z0-9_-]{1,32}\\z")]
     private static partial Regex KeyIdPattern();
 }
 

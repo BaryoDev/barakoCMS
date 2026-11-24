@@ -29,10 +29,10 @@ internal static partial class ActionOutputs
     /// <summary>The longest value kept. A longer one is not kept, and the attempt says so.</summary>
     internal const int MaxValueLength = 2000;
 
-    [GeneratedRegex("^[A-Za-z0-9_]{1,64}$")]
+    [GeneratedRegex("^[A-Za-z0-9_]{1,64}\\z")]
     private static partial Regex NamePattern();
 
-    [GeneratedRegex(@"^actions\.[0-9]{1,4}\.[A-Za-z0-9_]{1,64}$")]
+    [GeneratedRegex(@"^actions\.[0-9]{1,4}\.[A-Za-z0-9_]{1,64}\z")]
     private static partial Regex ReferenceName();
 
     [GeneratedRegex(@"\{\{\s*actions\.(?<ordinal>[0-9]{1,4})\.(?<name>[A-Za-z0-9_]{1,64})\s*\}\}", RegexOptions.None, 2000)]
