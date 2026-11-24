@@ -57,8 +57,12 @@ public class ModulesEndpointTests
                             Category = ModuleCategory.Insight,
                             Description = "A probe",
                             Glyph = "flag",
+                            Cards = [new ConsoleCard("recent", "Recent reports", "/api/reports/summary")],
                         },
-                        new ModuleCatalogueEntry(Mike, 0, Enabled: false),
+                        new ModuleCatalogueEntry(Mike, 0, Enabled: false)
+                        {
+                            Cards = [new ConsoleCard("hidden", "Hidden", "/api/mike/summary")],
+                        },
                         new ModuleCatalogueEntry(Alpha, 0, Enabled: true),
                     ]));
                 }));
@@ -156,8 +160,29 @@ public class ModulesEndpointTests
         {
             item.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(
                 ["name", "contractVersion", "enabled", "schemaState", "schemaChanges",
-                    "packageId", "packageVersion", "category", "description", "glyph"]);
+                    "packageId", "packageVersion", "category", "description", "glyph", "cards"]);
         }
+    }
+
+    [Fact]
+    public async Task It_returns_the_cards_of_an_enabled_module_and_none_for_a_disabled_one()
+    {
+        var client = await AdminClientFor(HostWithModules());
+
+        var response = await client.GetAsync("/api/modules", TestContext.Current.CancellationToken);
+
+        var items = await ItemsAsync(response);
+        var zulu = items.Single(i => i.GetProperty("name").GetString() == Zulu);
+        var cards = zulu.GetProperty("cards").EnumerateArray().ToArray();
+        cards.Should().ContainSingle();
+        cards[0].EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(["id", "title", "route"]);
+        cards[0].GetProperty("id").GetString().Should().Be("recent");
+        cards[0].GetProperty("title").GetString().Should().Be("Recent reports");
+        cards[0].GetProperty("route").GetString().Should().Be("/api/reports/summary");
+        items.Single(i => i.GetProperty("name").GetString() == Mike)
+            .GetProperty("cards").GetArrayLength().Should().Be(0, "a module that is not enabled lists no cards");
+        items.Single(i => i.GetProperty("name").GetString() == Alpha)
+            .GetProperty("cards").GetArrayLength().Should().Be(0);
     }
 
     /// <summary>
