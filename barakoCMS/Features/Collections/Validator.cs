@@ -2,6 +2,7 @@ using barakoCMS.Infrastructure.Sync;
 using barakoCMS.Models;
 using FastEndpoints;
 using FluentValidation;
+using System.Text.RegularExpressions;
 
 namespace barakoCMS.Features.Collections;
 
@@ -15,15 +16,18 @@ namespace barakoCMS.Features.Collections;
 /// the alternative is a sync that is configured, looks fine, and writes nothing at three in the
 /// morning.
 /// </remarks>
-internal sealed class SaveCollectionSyncValidator : Validator<SaveCollectionSyncRequest>
+internal sealed partial class SaveCollectionSyncValidator : Validator<SaveCollectionSyncRequest>
 {
+    [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,62}\\z")]
+    private static partial Regex SlugShape();
+
     public SaveCollectionSyncValidator()
     {
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
 
         RuleFor(x => x.Slug)
             .NotEmpty()
-            .Matches("^[a-z0-9][a-z0-9-]{0,62}$")
+            .Matches(SlugShape())
             .WithMessage("Slug must be lowercase letters, digits and hyphens, starting with a letter or digit.");
 
         RuleFor(x => x.ContentType).NotEmpty().MaximumLength(200);

@@ -7,6 +7,7 @@ using BarakoCMS.Files.Storage;
 using FastEndpoints;
 using FluentValidation;
 using Marten;
+using System.Text.RegularExpressions;
 using barakoCMS.Modules;
 
 namespace BarakoCMS.Files.Features.StorageSettings;
@@ -40,8 +41,11 @@ internal sealed class StorageSettingsRequest
     public S3SettingsRequest? S3 { get; set; }
 }
 
-internal sealed class StorageSettingsValidator : Validator<StorageSettingsRequest>
+internal sealed partial class StorageSettingsValidator : Validator<StorageSettingsRequest>
 {
+    [GeneratedRegex("^[a-z0-9-]+\\z")]
+    private static partial Regex RegionShape();
+
     public StorageSettingsValidator()
     {
         RuleFor(x => x.Provider)
@@ -52,7 +56,7 @@ internal sealed class StorageSettingsValidator : Validator<StorageSettingsReques
             .When(x => x.Provider == StorageProviders.S3)
             .WithMessage("s3 is required when provider is 's3'.");
         RuleFor(x => x.S3!.Bucket).NotEmpty().MaximumLength(255).When(x => x.S3 is not null);
-        RuleFor(x => x.S3!.Region).NotEmpty().MaximumLength(64).Matches("^[a-z0-9-]+$")
+        RuleFor(x => x.S3!.Region).NotEmpty().MaximumLength(64).Matches(RegionShape())
             .When(x => x.S3 is not null)
             .WithMessage("s3.region must be a region name such as us-east-1.");
         RuleFor(x => x.S3!.AccessKey).NotEmpty().MaximumLength(256).When(x => x.S3 is not null);

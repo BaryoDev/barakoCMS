@@ -12,7 +12,7 @@ public sealed record RealtimeTopic(string Name, string Module, string Capability
 /// </summary>
 public sealed partial class TopicRegistry
 {
-    [GeneratedRegex("^[a-z0-9]+([.-][a-z0-9]+)*$")]
+    [GeneratedRegex("^[a-z0-9]+([.-][a-z0-9]+)*\\z")]
     private static partial Regex NamePattern();
 
     private readonly Dictionary<string, RealtimeTopic> _byName = new(StringComparer.Ordinal);

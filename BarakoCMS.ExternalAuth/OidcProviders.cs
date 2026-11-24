@@ -80,7 +80,7 @@ internal static partial class OidcProviders
 
     private const int MaxAudienceLength = 255;
 
-    [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,31}$")]
+    [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,31}\\z")]
     private static partial Regex NamePattern();
 
     /// <summary>The providers that are on, by name, at most <see cref="MaxProviders"/>.</summary>

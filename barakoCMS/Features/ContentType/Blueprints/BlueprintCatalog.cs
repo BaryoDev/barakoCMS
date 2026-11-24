@@ -32,7 +32,7 @@ internal sealed class BlueprintCatalog(
 
     private const string ResourcePrefix = "Blueprints/";
 
-    private static readonly Regex NameShape = new("^[a-z0-9]+(?:-[a-z0-9]+)*$", RegexOptions.Compiled);
+    private static readonly Regex NameShape = new("^[a-z0-9]+(?:-[a-z0-9]+)*\\z", RegexOptions.Compiled);
 
     private static readonly Lazy<IReadOnlyList<(string Resource, string Json)>> BuiltInFiles = new(ReadBuiltInFiles);
 

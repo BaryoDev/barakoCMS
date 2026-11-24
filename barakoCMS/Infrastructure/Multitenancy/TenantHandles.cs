@@ -14,7 +14,7 @@ public static class TenantHandles
     };
 
     // lowercase alphanumerics and hyphens, 3-40 chars, no leading/trailing hyphen.
-    private static readonly Regex Format = new("^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$", RegexOptions.Compiled);
+    private static readonly Regex Format = new("^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]\\z", RegexOptions.Compiled);
 
     public static bool IsValidHandle(string? handle) =>
         !string.IsNullOrWhiteSpace(handle) &&

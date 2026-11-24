@@ -48,6 +48,6 @@ public sealed partial class BlockDataSources
 
     public static bool IsValidId(string? id) => id is not null && IdPattern().IsMatch(id);
 
-    [GeneratedRegex("^[a-z][a-z0-9._-]{0,63}$")]
+    [GeneratedRegex("^[a-z][a-z0-9._-]{0,63}\\z")]
     private static partial Regex IdPattern();
 }

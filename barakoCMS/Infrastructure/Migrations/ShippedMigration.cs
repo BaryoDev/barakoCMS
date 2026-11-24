@@ -60,7 +60,7 @@ internal static class ShippedMigrations
     private const string RerunnableDirective = "rerunnable";
 
     private static readonly Regex PathPattern = new(
-        @"^(?<version>[0-9]+\.[0-9]+\.[0-9]+)/(?<name>[A-Za-z0-9][A-Za-z0-9._-]*)\.sql$",
+        @"^(?<version>[0-9]+\.[0-9]+\.[0-9]+)/(?<name>[A-Za-z0-9][A-Za-z0-9._-]*)\.sql\z",
         RegexOptions.CultureInvariant);
 
     /// <summary>Core's migrations, then each enabled module's, in the order they run.</summary>

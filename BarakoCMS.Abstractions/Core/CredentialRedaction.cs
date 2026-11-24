@@ -63,6 +63,7 @@ public static class CredentialRedaction
 
     // Matched against one segment of a key at a time. Wider than CredentialNames on purpose: a key
     // that is shown by mistake is a leak, a key that is hidden by mistake is an inconvenience.
+    // The `$` in `^(?:pin|pw)$` stays: it also matching "pin\n" redacts more, which is the safe side.
     private static readonly Regex CredentialSegment = new(
         @"pass|pwd|secret|token|key|hmac|salt|cert|pfx|jwt|sas|auth|session|cookie|signature|otp|credential|bearer|dsn|connection[_\s-]?string|pincode|^(?:pin|pw)$|[_./\s-](?:pin|pw)(?![a-z])|(?:pin|pw)[_./\s-]|(?-i:(?:^|(?<=[a-z]))(?:Pin|Pw)(?![a-z])|(?:PIN|PW)(?![A-Za-z]))",
         Options, Timeout);

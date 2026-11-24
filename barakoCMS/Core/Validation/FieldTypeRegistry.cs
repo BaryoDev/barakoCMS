@@ -44,9 +44,9 @@ public static class FieldTypeRegistry
     // mail server accepts (RFC 5321), and the cap keeps the match short.
     private const int MaxEmailLength = 254;
     private static readonly Regex EmailRegex =
-        new(@"^[^@\s<>()\[\]\\,;:""\p{C}]+@[^@\s<>()\[\]\\,;:""\p{C}]+\.[^@\s<>()\[\]\\,;:""\p{C}]+$", RegexOptions.Compiled);
+        new(@"^[^@\s<>()\[\]\\,;:""\p{C}]+@[^@\s<>()\[\]\\,;:""\p{C}]+\.[^@\s<>()\[\]\\,;:""\p{C}]+\z", RegexOptions.Compiled);
     private static readonly Regex SlugRegex =
-        new(@"^[a-z0-9]+(?:-[a-z0-9]+)*$", RegexOptions.Compiled);
+        new(@"^[a-z0-9]+(?:-[a-z0-9]+)*\z", RegexOptions.Compiled);
 
     // Canonical spec per distinct type. Aliases are wired up in the lookup below so
     // both a spec's canonical name and its aliases resolve to the same behaviour.

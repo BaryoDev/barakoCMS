@@ -34,7 +34,8 @@ public sealed class FilesModule : IBarakoModule
 
     // 2: a private file somebody else uploaded opens to manage_all_files, not to the role names
     // Admin and SuperAdmin, so a caller that only had the name now gets 404 or 403 (#886).
-    public int HttpContractVersion => 2;
+    // 3: a storage region that ends with a line feed is refused where it used to be accepted.
+    public int HttpContractVersion => 3;
 
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {

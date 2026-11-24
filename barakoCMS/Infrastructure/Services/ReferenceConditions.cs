@@ -104,6 +104,8 @@ internal static class ReferenceConditions
     /// twelve hexadecimal digits with hyphens between, in either case. The same pattern is used
     /// in SQL by <see cref="InSubquery"/>.
     /// </summary>
+    // Keeps `$`: the raw constant also goes into a PostgreSQL `~` predicate, where `$` is end of string
+    // and `\z` is not supported. The Regex below swaps in `\z`.
     private const string IdPattern = "^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$";
 
     private static readonly Regex Id = new(

@@ -9,7 +9,7 @@ internal sealed partial class UpdateLocaleSettingsValidator : Validator<UpdateLo
     internal const int MaxLocales = 50;
     internal const int MaxChainLength = 10;
 
-    [GeneratedRegex("^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$")]
+    [GeneratedRegex("^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}\\z")]
     private static partial Regex CodeShape();
 
     public UpdateLocaleSettingsValidator()

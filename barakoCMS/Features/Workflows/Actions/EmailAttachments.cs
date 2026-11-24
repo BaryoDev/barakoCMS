@@ -80,6 +80,7 @@ internal static class EmailAttachments
     private const int MaxFileNameLength = 255;
     private const int MaxDataDepth = 16;
 
+    // The `$` is one branch of an alternation in a search, not a whole-string anchor.
     private static readonly Regex FilesLink = new(
         @"/files/(?<id>[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})(?:[/?#]|$)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
