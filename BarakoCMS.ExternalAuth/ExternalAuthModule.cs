@@ -33,7 +33,9 @@ public sealed class ExternalAuthModule : IBarakoModule
 
     public string? PackageVersion => ModuleMetadata.VersionOf(GetType());
 
-    public int HttpContractVersion => 1;
+    // 2: a provider name, client secret or nonce that ends with a line feed is refused where it
+    // used to be accepted.
+    public int HttpContractVersion => 2;
 
     public string? Category => ModuleCategory.Access;
 
