@@ -136,8 +136,8 @@ path your module serves, and the console calls it with the caller's own credenti
 - `Route`: `/api/` plus segments of letters, digits, hyphens and underscores, at most 200
   characters. No query, no `..`, no `//`, no scheme, no host, no backslash, and not under
   `/api/auth`. A route is not scoped to your module's own prefix, so name only routes your module serves.
-- `RefreshLabel`: optional, null by default. When set, 1 to 24 characters after trimming, no control or
-  format characters. The console shows a button with this label.
+- `RefreshLabel`: optional, null by default. When set, 1 to 24 characters after trimming, no control,
+  format, line separator or paragraph separator characters. The console shows a button with this label.
 
 A card that breaks a rule is dropped and a warning names the module and the card id. The module
 still runs. Core lists the cards of an enabled module in `GET /api/modules` and nothing more.
@@ -150,7 +150,10 @@ value 120 and note 200. Core does not serve this type, your route does.
 A card with a `RefreshLabel` gets a button. Clicking it sends `POST` to the card's route with no body.
 The route answers like its GET with a `ConsoleCardContent`, or with 429 and a `Retry-After` header.
 A route that declares a label must accept POST and enforce the same permission on it. The POST may do
-work the GET avoids, since it is how a person asks for a fresh card.
+work the GET avoids, since it is how a person asks for a fresh card. The POST may start paid or slow
+work, so rate-limit it and answer 429 with `Retry-After` when a caller asks too often. If a click gets
+any other answer than a `ConsoleCardContent` or 429, the console keeps the card it already shows and
+puts a short muted line under it. It does not hide the card. The hide rule below is for the GET only.
 
 The card only names where to look. Your route must enforce its own permission, because anyone who
 can read `GET /api/modules` sees the route. A console hides the card when the route answers 401,

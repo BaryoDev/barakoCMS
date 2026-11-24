@@ -15,8 +15,8 @@ namespace barakoCMS.Modules;
 /// <see cref="ConsoleCardContent"/> and enforces its own permission.
 /// </param>
 /// <param name="RefreshLabel">
-/// Null means no button. Otherwise 1 to 24 characters after trimming, no control or format
-/// characters (the same rule as <paramref name="Title"/>). When set, the console shows a button with
+/// Null means no button. Otherwise 1 to 24 characters after trimming, no control, format,
+/// line separator or paragraph separator characters (the same rule as <paramref name="Title"/>). When set, the console shows a button with
 /// this label. Clicking it sends POST to <paramref name="Route"/> with no body. The route answers like
 /// its GET (a <see cref="ConsoleCardContent"/>), or 429 with Retry-After. A route that declares a
 /// label must accept POST and enforce the same permission on it. The POST may do work the GET avoids,

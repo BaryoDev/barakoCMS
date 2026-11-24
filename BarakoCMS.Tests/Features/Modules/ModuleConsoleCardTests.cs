@@ -142,6 +142,17 @@ public class ModuleConsoleCardTests
     }
 
     [Fact]
+    public void A_refresh_label_is_trimmed_before_its_length_is_checked()
+    {
+        var label = new string('r', 24);
+
+        var (cards, warnings) = Run(new ConsoleCard("recent", "Recent", "/api/reports/summary", "  " + label + "  "));
+
+        cards.Should().ContainSingle().Which.RefreshLabel.Should().Be(label);
+        warnings.Should().BeEmpty();
+    }
+
+    [Fact]
     public void A_refresh_label_of_twenty_four_characters_is_kept()
     {
         Run(new ConsoleCard("recent", "Recent", "/api/reports/summary", new string('r', 24))).Cards.Should().ContainSingle();
