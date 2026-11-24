@@ -68,7 +68,7 @@ public class ModuleConsoleCardTests
     [InlineData("re cent")]
     [InlineData("re_cent")]
     [InlineData("recent\n")]
-    [InlineData("a123456789012345678901234567890123456789")]
+    [InlineData("a1234567890123456789012345678901234567890")]
     public void An_id_outside_the_pattern_drops_the_card(string id)
     {
         var (cards, warnings) = Run(Card(id: id));
