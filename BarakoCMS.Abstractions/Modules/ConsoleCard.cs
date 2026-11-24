@@ -14,12 +14,20 @@ namespace barakoCMS.Modules;
 /// <c>..</c>, no <c>//</c>, no scheme, no host, no backslash, and not under <c>/api/auth</c>. The route answers with a
 /// <see cref="ConsoleCardContent"/> and enforces its own permission.
 /// </param>
+/// <param name="RefreshLabel">
+/// Null means no button. Otherwise 1 to 24 characters after trimming, no control or format
+/// characters (the same rule as <paramref name="Title"/>). When set, the console shows a button with
+/// this label. Clicking it sends POST to <paramref name="Route"/> with no body. The route answers like
+/// its GET (a <see cref="ConsoleCardContent"/>), or 429 with Retry-After. A route that declares a
+/// label must accept POST and enforce the same permission on it. The POST may do work the GET avoids,
+/// since it is how a person asks for a fresh card.
+/// </param>
 /// <remarks>
 /// Core checks these rules when it builds the module list. A card that breaks one is dropped and a
 /// warning names the module and the card id. The module still runs. At most four cards per module
 /// are kept. See <see cref="IBarakoModule.ConsoleCards"/>.
 /// </remarks>
-public sealed record ConsoleCard(string Id, string Title, string Route);
+public sealed record ConsoleCard(string Id, string Title, string Route, string? RefreshLabel = null);
 
 /// <summary>
 /// What a card route returns. Core does not serve this type: a module returns it from its own route.

@@ -127,7 +127,7 @@ them. `Category` is one of `ModuleCategory.Content`, `Comms`, `Access`, `Platfor
 `PackageVersion` from your assembly. Adding them does not move `ModuleContract.Version`.
 
 **Console cards.** A module can ask the console to draw up to four small cards by overriding
-`ConsoleCards` on `IBarakoModule`. A card is `new ConsoleCard(id, title, route)`: the route is a
+`ConsoleCards` on `IBarakoModule`. A card is `new ConsoleCard(id, title, route)` (plus an optional `refreshLabel`): the route is a
 path your module serves, and the console calls it with the caller's own credentials.
 
 - `Id`: lowercase letters, digits and hyphens, 1 to 40 characters, starting with a letter or digit,
@@ -136,6 +136,8 @@ path your module serves, and the console calls it with the caller's own credenti
 - `Route`: `/api/` plus segments of letters, digits, hyphens and underscores, at most 200
   characters. No query, no `..`, no `//`, no scheme, no host, no backslash, and not under
   `/api/auth`. A route is not scoped to your module's own prefix, so name only routes your module serves.
+- `RefreshLabel`: optional, null by default. When set, 1 to 24 characters after trimming, no control or
+  format characters. The console shows a button with this label.
 
 A card that breaks a rule is dropped and a warning names the module and the card id. The module
 still runs. Core lists the cards of an enabled module in `GET /api/modules` and nothing more.
@@ -145,13 +147,18 @@ The route answers with a `ConsoleCardContent`: `State` (`ok`, `empty` or `unavai
 optional `UpdatedAt`. A console cuts what is longer than text 1000 characters, 12 rows, label 60,
 value 120 and note 200. Core does not serve this type, your route does.
 
+A card with a `RefreshLabel` gets a button. Clicking it sends `POST` to the card's route with no body.
+The route answers like its GET with a `ConsoleCardContent`, or with 429 and a `Retry-After` header.
+A route that declares a label must accept POST and enforce the same permission on it. The POST may do
+work the GET avoids, since it is how a person asks for a fresh card.
+
 The card only names where to look. Your route must enforce its own permission, because anyone who
 can read `GET /api/modules` sees the route. A console hides the card when the route answers 401,
 403, 404, 503 or anything it cannot read, so a caller without the right sees no card, not an error.
 
 ```csharp
 public IReadOnlyList<ConsoleCard> ConsoleCards =>
-    [new ConsoleCard("recent-reports", "Recent reports", "/api/reports/summary")];
+    [new ConsoleCard("recent-reports", "Recent reports", "/api/reports/summary", "Refresh")];
 ```
 
 ### Schema preflight
