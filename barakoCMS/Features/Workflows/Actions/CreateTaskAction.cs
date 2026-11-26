@@ -21,12 +21,15 @@ internal class CreateTaskAction : IWorkflowAction
     private readonly IDocumentSession _session;
     private readonly ILogger<CreateTaskAction> _logger;
     private readonly IContentWriter _contentWriter;
+    private readonly Microsoft.Extensions.Configuration.IConfiguration? _configuration;
 
     /// <summary>
     /// Creates a new CreateTaskAction.
     /// </summary>
-    public CreateTaskAction(IDocumentSession session, ILogger<CreateTaskAction> logger, IContentWriter contentWriter)
+    public CreateTaskAction(IDocumentSession session, ILogger<CreateTaskAction> logger, IContentWriter contentWriter,
+        Microsoft.Extensions.Configuration.IConfiguration? configuration = null)
     {
+        _configuration = configuration;
         _contentWriter = contentWriter;
         _session = session;
         _logger = logger;
@@ -43,6 +46,13 @@ internal class CreateTaskAction : IWorkflowAction
     public async Task<WorkflowActionResult> RunAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct)
     {
         var contentType = parameters.GetValueOrDefault("ContentType", "Task");
+
+        // This action writes without the validator, so it applies the defined type rule itself.
+        if (barakoCMS.Core.Validation.RequiredContentType.IsOn(_configuration)
+            && await _session.Query<barakoCMS.Models.ContentTypeDefinition>().FirstNamedAsync(contentType, ct) is null)
+        {
+            return WorkflowActionResult.PermanentFailure(barakoCMS.Core.Validation.RequiredContentType.Refusal(contentType));
+        }
 
         // A parameter is text and an inline image is an object checked byte by byte, so no value
         // this action can be given is one. The type is read only when a field is copied.

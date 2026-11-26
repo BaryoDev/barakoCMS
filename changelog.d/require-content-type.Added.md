@@ -1,0 +1,1 @@
+- **A deployment can refuse entries of an undefined content type.** Set `Content:RequireContentType` to `true` (`Content__RequireContentType`) and a create under a type with no definition is refused with 400 naming the type, on the single create, the batch, the imports and the workflow create actions. It is off by default, and updates are not changed. See `docs/configuration.md`.

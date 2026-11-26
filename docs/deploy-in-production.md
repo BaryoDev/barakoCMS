@@ -756,6 +756,15 @@ it past the limit, is refused with 400. Raise or lower it with `ContentTypes:Max
 more fields than the limit keeps working, and only adding fields to it is refused.
 `FieldCountCapTests` covers this.
 
+## Requiring a defined content type
+
+By default an entry can be created under a content type that has no definition, and it is stored
+without validation. Set `Content:RequireContentType` to `true` (`Content__RequireContentType` in
+compose) and creating such an entry is refused with 400, naming the type. The rule applies to every
+create from caller input: `POST /api/contents`, the batch, the bulk and portability imports, and the
+workflow actions that create entries. Updates are not changed, so an entry already stored under an
+undefined type can still be edited. `RequireContentTypeTests` covers this.
+
 ## Upgrading
 
 Change `BARAKO_TAG` first, then pull and stop the API. From 6.0 the API connects as the app role,

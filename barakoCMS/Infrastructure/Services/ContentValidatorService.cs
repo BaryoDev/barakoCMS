@@ -9,7 +9,8 @@ namespace barakoCMS.Infrastructure.Services;
 public class ContentValidatorService(
     IQuerySession session,
     barakoCMS.Core.Interfaces.IFileStore? files = null,
-    barakoCMS.Core.Interfaces.BlockDataSources? dataSources = null) : IContentValidatorService
+    barakoCMS.Core.Interfaces.BlockDataSources? dataSources = null,
+    Microsoft.Extensions.Configuration.IConfiguration? configuration = null) : IContentValidatorService
 {
     // With no file store a new value in a file field is refused, and with no data sources a block
     // naming one is refused.
@@ -83,6 +84,14 @@ public class ContentValidatorService(
 
         if (schema == null)
         {
+            // Opt-in refusal, creating only. An update of an entry stored under an undefined type
+            // is accepted as before.
+            if (existing is null && barakoCMS.Core.Validation.RequiredContentType.IsOn(configuration))
+            {
+                errors.Add(barakoCMS.Core.Validation.RequiredContentType.Refusal(contentType));
+                return (false, errors);
+            }
+
             // No content type definition, so there is no schema to check against and the entry is
             // accepted as-is. Validation is opt-in: defining a type is what turns it on.
             return (true, errors);
