@@ -264,7 +264,7 @@ jobs:
           dotnet tool install --global CycloneDX --version 5.4.0
           export PATH="$PATH:$HOME/.dotnet/tools"
           mkdir -p sbom
-          dotnet CycloneDX barakoCMS.sln --output sbom --filename barakoCMS.cdx.json --json
+          dotnet CycloneDX barakoCMS.sln --exclude-test-projects --output sbom --filename barakoCMS.cdx.json --json
 
           # A tool that writes nothing still exits 0, so check the file rather than the command.
           f=sbom/barakoCMS.cdx.json
@@ -660,6 +660,12 @@ jobs:
           path: /tmp/digests
           merge-multiple: true
 
+      # Produced by the test job, which build-images depends on. Attested to each image below.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: sbom
+          path: sbom
+
       # Only :VERSION is pushed here. :latest moves at the end, after the platform gate, the
       # signature and the provenance have all passed, so a failure leaves :latest on the previous
       # release rather than on an unsigned image.
@@ -742,7 +748,27 @@ jobs:
           push-to-registry: true
           create-storage-record: false
 
-      - name: Verify the provenance attestation of every published image
+      # actions/attest-sbom is a deprecated wrapper around actions/attest, so this uses actions/attest
+      # with sbom-path. It writes a CycloneDX attestation with predicate type https://cyclonedx.org/bom.
+      - name: Attest the SBOM for barako-cms
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/baryodev/barako-cms
+          subject-digest: ${{ steps.sign.outputs.barako_cms_digest }}
+          sbom-path: sbom/barakoCMS.cdx.json
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Attest the SBOM for barako-cms-decaf
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/baryodev/barako-cms-decaf
+          subject-digest: ${{ steps.sign.outputs.barako_cms_decaf_digest }}
+          sbom-path: sbom/barakoCMS.cdx.json
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Verify the provenance and SBOM attestations of every published image
         env:
           IDENTITY_REGEXP: '^https://github\.com/BaryoDev/barakoCMS/\.github/workflows/release\.yml@refs/heads/master$'
           OIDC_ISSUER: https://token.actions.githubusercontent.com
@@ -753,6 +779,10 @@ jobs:
           for pair in "barako-cms $SUITE_DIGEST" "barako-cms-decaf $DECAF_DIGEST"; do
             read -r NAME DIGEST <<< "$pair"
             cosign verify-attestation --type slsaprovenance1 \
+              --certificate-identity-regexp "$IDENTITY_REGEXP" \
+              --certificate-oidc-issuer "$OIDC_ISSUER" \
+              "ghcr.io/baryodev/$NAME@$DIGEST" > /dev/null
+            cosign verify-attestation --type https://cyclonedx.org/bom \
               --certificate-identity-regexp "$IDENTITY_REGEXP" \
               --certificate-oidc-issuer "$OIDC_ISSUER" \
               "ghcr.io/baryodev/$NAME@$DIGEST" > /dev/null
@@ -922,13 +952,19 @@ jobs:
       - name: Read the release notes out of the changelog
         run: bash scripts/release-notes.sh "$VERSION" > /tmp/notes.md
 
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: sbom
+          path: sbom
+
       # Re-runnable. A release that already exists is left alone rather than failing the job, so
       # re-running a partially failed release run does not need someone to delete a tag first.
       - name: Tag the release commit and publish the release
         run: |
           set -euo pipefail
           if gh release view "v$VERSION" >/dev/null 2>&1; then
-            echo "::notice::Release v$VERSION already exists; leaving it alone."
+            echo "::notice::Release v$VERSION already exists; making sure the SBOM is attached."
+            gh release upload "v$VERSION" sbom/barakoCMS.cdx.json --clobber
             exit 0
           fi
 
@@ -941,7 +977,8 @@ jobs:
             --target "${{ github.sha }}" \
             --title "v$VERSION" \
             --notes-file /tmp/notes.md \
-            $PRERELEASE
+            $PRERELEASE \
+            sbom/barakoCMS.cdx.json
           echo "::notice::Tagged v$VERSION and published the release."
 
   close-milestone:

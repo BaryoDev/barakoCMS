@@ -50,7 +50,7 @@ Each row is a control that is implemented and checkable, not a plan.
 | Dependency vulnerabilities | Dependabot, plus a `dotnet list package --vulnerable` gate that fails the build on High or Critical |
 | Secret scanning | Gitleaks on every pull request |
 | Scan of the running API | A weekly and on-demand ZAP scan of the production stack (the DAST workflow); a new High alert fails it. See "Scanning the running API" below |
-| Software bill of materials | One CycloneDX SBOM covering the whole solution, generated on each release run and kept as a 90-day workflow artifact. Not per package, none for the container image, and not attached to the GitHub release |
+| Software bill of materials | One CycloneDX SBOM of the NuGet packages the solution's shipped projects use (test projects left out), generated on each release run, attached to the GitHub release and attested to the `barako-cms` and `barako-cms-decaf` images. Not per package, and it does not list the operating system packages in the image layers |
 | Backup and restore | Every deployment path takes verified backups; CI restores one and boots against it on every pull request (`docs/backup-and-restore.md`) |
 | Upgrade safety | CI upgrades a real database created by the last 4.x release (4.9.0) and rolls it back, then does the same from one created by 4.1.0 (`scripts/upgrade-check.sh`, `docs/upgrading-to-5.0.md`). No other 4.x start is exercised in CI, and a 3.x database is not upgraded to 5.0 directly: it goes to 4.9 first |
 | Vulnerability disclosure | Private channel with a stated timeline (`SECURITY.md`) |

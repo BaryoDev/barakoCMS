@@ -79,6 +79,38 @@ gets fixed and for how long. It says nothing about response times for your speci
 nothing in it is a contractual commitment. For the vulnerability-response timeline, see the top of
 this file.
 
+## Verifying an image
+
+Release images of `barako-cms` and `barako-cms-decaf` are signed with cosign (keyless, GitHub
+OIDC) and carry a build provenance attestation and a CycloneDX SBOM attestation. This checks all
+three:
+
+```
+bash scripts/verify-image-signature.sh ghcr.io/baryodev/barako-cms@sha256:<digest>
+```
+
+Releases up to 5.10.0 have no SBOM attestation. For those, set `VERIFY_SBOM=0` and the other two
+checks still run. Each GitHub release after 5.10.0 also has the SBOM attached as
+`barakoCMS.cdx.json`.
+
+The SBOM lists the NuGet packages of the solution's shipped projects, with test projects left out.
+It does not list the operating system packages in the image layers, so scan the image itself for
+those.
+
+The signature and the provenance by hand, with cosign 3 or later and the GitHub CLI:
+
+```
+cosign verify \
+  --certificate-identity-regexp '^https://github\.com/BaryoDev/barakoCMS/\.github/workflows/release\.yml@refs/heads/master$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/baryodev/barako-cms@sha256:<digest>
+
+gh attestation verify oci://ghcr.io/baryodev/barako-cms@sha256:<digest> -R BaryoDev/barakoCMS
+```
+
+`gh attestation verify` checks the build provenance. Add `--predicate-type
+https://cyclonedx.org/bom` to check the SBOM attestation instead.
+
 ## Compliance posture
 
 `docs/compliance-posture.md` states what exists, what does not, and what running it moves to the
