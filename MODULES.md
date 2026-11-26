@@ -154,7 +154,9 @@ Parts are optional and additive. A console that does not know them ignores them,
 parts draws as before. A part left null is not written to the JSON. A console reads parts only from
 an `ok` answer, and drops a part that breaks a rule instead of hiding the card. Numbers must be
 finite and 0 or more. The default JSON options refuse to write NaN or infinity, so a card holding
-one fails to serialize and does not draw at all.
+one fails to serialize and does not draw at all. Text longer than its limit is cut and kept. Text
+that is empty or only spaces counts as broken, so leave an optional label null rather than `""`:
+an empty `Value` drops its check and an empty `PreviousLabel` drops the series.
 
 - `Stats`: up to 4 of `ConsoleCardStat(Label, Value, Previous, Format, Total, GoodWhen)`. `Label` is
   cut to 40 characters. `Format` is `count` (the default) or `percent`. `GoodWhen` is `up`, `down` or
@@ -175,13 +177,15 @@ one fails to serialize and does not draw at all.
   dropped and the rest of the card still draws.
 
 Question box wire contract. The console sends `POST` to the question route with
-`{ "question", "turns", "timeZone" }`. `turns` are earlier exchanges, oldest first, each
-`{ "role": "user" | "assistant", "text" }`, answered exchanges only, at most `MaxTurns`. The console
+`{ "question", "turns", "timeZone" }`. `turns` are earlier messages, oldest first, each
+`{ "role": "user" | "assistant", "text" }`, from answered exchanges only. `MaxTurns` counts
+messages, so a question and its answer are 2, and the list always starts with a user message.
+An odd `MaxTurns` therefore sends one fewer. The console
 drops the oldest turns until the body is under 7 KB. The route answers
 `{ "answer", "refused", "sources"?, "sourceLabels"?, "window"?: { "from", "to", "zone" }, "generatedAt"? }`.
 The console cuts `answer` to 2000 characters and draws it as plain text. Errors show fixed copy:
 429 shows "Try again in N seconds" (`Retry-After` clamped to 1 to 3600, and "Try again shortly." when
-the header is missing), 400 or 413 shows "That was too long. Clear the conversation and try again.",
+the header is missing or not a number of seconds, such as an HTTP date), 400 or 413 shows "That was too long. Clear the conversation and try again.",
 and anything else shows "Questions are not available right now." The route enforces its own
 permission and its own rate limit.
 

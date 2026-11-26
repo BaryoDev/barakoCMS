@@ -141,7 +141,7 @@ public sealed record ConsoleCardCheck(string Label, string Tone, string? Value =
 /// <param name="Placeholder">1 to 60 characters.</param>
 /// <param name="MaxLength">1 to 1000, a whole number. Anything else drops the question box.</param>
 /// <param name="MaxTurns">
-/// 0 to 20, a whole number: how many earlier turns the console sends back. 0 sends none.
+/// 0 to 20, a whole number: how many earlier messages the console sends back, where a question and its answer are 2. 0 sends none.
 /// Anything else drops the question box.
 /// </param>
 public sealed record ConsoleCardQuestion(
