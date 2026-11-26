@@ -22,6 +22,8 @@ jobs:
   verify:
     name: Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -69,6 +71,8 @@ jobs:
     name: Deploy to dev-playground
     needs: build-api
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     environment:
       name: dev-playground
       url: https://dev-playground.baryo.dev/barakocms-api/health
@@ -122,6 +126,7 @@ jobs:
     needs: [verify, build-api, deploy]
     if: failure()
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
       - name: Notify Discord
         env:
