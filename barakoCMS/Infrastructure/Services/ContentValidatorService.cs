@@ -43,42 +43,12 @@ public class ContentValidatorService(
         // 2. The singleton cap. Creating only: an update is not a second entry, and refusing it
         // would make the flag unusable, since the one entry a singleton type is for could never be
         // edited.
-        //
-        // When the lookup above finds nothing, this case-insensitive read finds nothing either, since
-        // that lookup already ignores case (ContentTypeName.Pick). It is kept as a guard, so the cap
-        // does not depend on how that lookup treats case. The cap has
-        // to see the type, because an entry created as SETTINGS is a second entry of settings, and a
-        // cap a caller can walk past by holding down shift is not a cap. Case-insensitive for the
-        // reason every other name comparison here is: names have only been normalised since 4.0, so
-        // a type or an entry written by a 3.x import carries whatever the caller typed.
-        if (existing is null)
+        if (existing is null && await SingletonTakenAsync(schema, contentType) is { } taken)
         {
-            var lowered = contentType.ToLower();
+            errors.Add(taken);
 
-            var definition = schema ?? await session.Query<ContentTypeDefinition>()
-                .FirstOrDefaultAsync(x => x.Name.ToLower() == lowered);
-
-            if (definition?.IsSingleton == true)
-            {
-                var typeName = definition.Name.ToLower();
-
-                // Every status counts, drafts and archived entries included. The cap exists so the
-                // type holds one row, and a reader that takes the first item of the list cannot tell
-                // an archived row from a live one. Freeing the slot means erasing the entry, which
-                // needs SuperAdmin and the EraseContent capability.
-                var taken = await session.Query<Models.Content>()
-                    .AnyAsync(c => c.ContentType.ToLower() == typeName);
-
-                if (taken)
-                {
-                    errors.Add(
-                        $"'{definition.DisplayName}' holds a single entry and already has one. "
-                      + "Edit that entry rather than creating another.");
-
-                    // No point reporting field errors on a request that cannot be created either way.
-                    return (false, errors);
-                }
-            }
+            // No point reporting field errors on a request that cannot be created either way.
+            return (false, errors);
         }
 
         if (schema == null)
@@ -97,6 +67,44 @@ public class ContentValidatorService(
         }
 
         return await ValidateFieldsAsync(schema, contentType, data, existing, caller);
+    }
+
+    /// <summary>
+    /// Returns the refusal when the type is a singleton that already holds an entry, or null.
+    /// </summary>
+    /// <remarks>
+    /// When the lookup in <see cref="ValidateAsync(string, Dictionary{string, object}, Models.Content?, System.Security.Claims.ClaimsPrincipal?)"/>
+    /// finds nothing, this case-insensitive read finds nothing either, since that lookup already
+    /// ignores case (ContentTypeName.Pick). It is kept as a guard, so the cap does not depend on how
+    /// that lookup treats case. The cap has to see the type, because an entry created as SETTINGS is a
+    /// second entry of settings, and a cap a caller can walk past by holding down shift is not a cap.
+    /// Case-insensitive for the reason every other name comparison here is: names have only been
+    /// normalised since 4.0, so a type or an entry written by a 3.x import carries whatever the caller
+    /// typed.
+    /// </remarks>
+    private async Task<string?> SingletonTakenAsync(ContentTypeDefinition? schema, string contentType)
+    {
+        var lowered = contentType.ToLower();
+
+        var definition = schema ?? await session.Query<ContentTypeDefinition>()
+            .FirstOrDefaultAsync(x => x.Name.ToLower() == lowered);
+
+        if (definition?.IsSingleton != true)
+            return null;
+
+        var typeName = definition.Name.ToLower();
+
+        // Every status counts, drafts and archived entries included. The cap exists so the type holds
+        // one row, and a reader that takes the first item of the list cannot tell an archived row from
+        // a live one. Freeing the slot means erasing the entry, which needs SuperAdmin and the
+        // EraseContent capability.
+        var taken = await session.Query<Models.Content>()
+            .AnyAsync(c => c.ContentType.ToLower() == typeName);
+
+        return taken
+            ? $"'{definition.DisplayName}' holds a single entry and already has one. "
+              + "Edit that entry rather than creating another."
+            : null;
     }
 
     /// <inheritdoc />
