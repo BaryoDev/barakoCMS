@@ -153,7 +153,8 @@ so the constructor is unchanged: `Stats`, `Series`, `Bars`, `Checks`, `RowsLabel
 Parts are optional and additive. A console that does not know them ignores them, and a card without
 parts draws as before. A part left null is not written to the JSON. A console reads parts only from
 an `ok` answer, and drops a part that breaks a rule instead of hiding the card. Numbers must be
-finite and 0 or more.
+finite and 0 or more. The default JSON options refuse to write NaN or infinity, so a card holding
+one fails to serialize and does not draw at all.
 
 - `Stats`: up to 4 of `ConsoleCardStat(Label, Value, Previous, Format, Total, GoodWhen)`. `Label` is
   cut to 40 characters. `Format` is `count` (the default) or `percent`. `GoodWhen` is `up`, `down` or
