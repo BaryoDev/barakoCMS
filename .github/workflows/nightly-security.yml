@@ -45,7 +45,7 @@ jobs:
 
       - name: Upload to code scanning
         if: always() && hashFiles('nuget.sarif') != ''
-        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         with:
           sarif_file: nuget.sarif
           category: nightly-nuget
@@ -82,7 +82,7 @@ jobs:
 
       - name: Upload to code scanning
         if: always() && hashFiles(format('trivy-reports/{0}.sarif', matrix.image.name)) != ''
-        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         with:
           sarif_file: trivy-reports/${{ matrix.image.name }}.sarif
           category: nightly-image-${{ matrix.image.name }}
@@ -135,7 +135,7 @@ jobs:
 
       - name: Upload to code scanning
         if: always() && hashFiles('pinned-images.sarif') != ''
-        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
         with:
           sarif_file: pinned-images.sarif
           category: nightly-pinned-images
