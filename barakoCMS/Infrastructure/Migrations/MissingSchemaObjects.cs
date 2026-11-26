@@ -1,5 +1,6 @@
 using JasperFx;
 using Marten;
+using Npgsql;
 using Weasel.Core;
 using Weasel.Core.Migrations;
 
@@ -66,6 +67,42 @@ internal static class MissingSchemaObjects
         }
 
         return names;
+    }
+
+    /// <summary>
+    /// What <c>db-migrate</c> does after the ledger run, so a file that changes an existing table has run before the tables the
+    /// build adds are created. Creates only what is missing: an existing table is never altered, so
+    /// drift on one still fails <c>db-assert</c>.
+    /// </summary>
+    public static async Task<int> CreateAndReportAsync(
+        IDocumentStore store, IConfiguration? configuration, TextWriter output, CancellationToken ct)
+    {
+        IReadOnlyList<string> created = [];
+
+        try
+        {
+            // The lock a starting host takes for the same work, so a host that starts meanwhile and this
+            // command do not both create the same table.
+            await Services.SchemaApplyLock.RunAsync(
+                store, async () => created = await CreateAsync(store, ct), configuration, ct);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or NpgsqlException or TimeoutException)
+        {
+            output.WriteLine(ct.IsCancellationRequested
+                ? "cancelled  while creating missing schema objects."
+                : $"failed     creating missing schema objects  {MigrationLedger.Describe(ex)}");
+            output.WriteLine(
+                "The migrations listed above stay in place with their rows. The next run creates what is still missing.");
+            return 1;
+        }
+
+        foreach (var name in created)
+        {
+            output.WriteLine($"created    {name}");
+        }
+
+        output.WriteLine($"{created.Count} missing schema object(s) created.");
+        return 0;
     }
 
     private static List<ISchemaObjectDelta> CreateDeltas(SchemaMigration migration) =>

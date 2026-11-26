@@ -146,9 +146,11 @@ step "the migrate branch this checkout implies"
 #  - MigrationCommand.StatusAsync exits status.Current ? 0 : 1. Current needs a row for every shipped
 #    migration, keyed by owner/version/name. MigrationLedger.StateOf keeps a baselined row's state even
 #    when the file's checksum differs, so an edited file does not change the exit code.
-#  - So the exit is 1 exactly when this checkout ships a migration path that 5.9.0 did not.
+#  - So the exit is 1 when this checkout ships a migration path that 5.9.0 did not.
 #    Byte identity is stricter than needed, so it is not used. The embedded set leaves out tenancy/,
 #    removed/ and rollback-*.sql (barakoCMS.csproj).
+#  - It is also 1 when this build declares a table or function 5.9.0 never created. Only the build
+#    knows its tables, so that part is read from the "pending    create" lines --status prints.
 EXPECT_STATUS=0
 while IFS= read -r f; do
   case "$f" in migrations/tenancy/*|migrations/removed/*|*/rollback-*) continue ;; esac
@@ -230,6 +232,10 @@ step "block 2: db-migrate --status"
 status_rc=0
 run_block 2 || status_rc=$?
 printf 'db-migrate --status exit code: %s\n' "$status_rc"
+if grep -qE '^[[:space:]]*pending +create ' "$LOGS"; then
+  printf 'this build declares schema objects 5.9.0 did not create, so --status lists them and exits 1\n'
+  EXPECT_STATUS=1
+fi
 case "$status_rc" in
   0) branch=3; printf 'branch: --status exited 0, so db-assert and up\n' ;;
   1) branch=4; printf 'branch: --status exited 1, so db-migrate, db-assert and up\n' ;;

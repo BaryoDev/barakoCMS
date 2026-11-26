@@ -1,4 +1,5 @@
 using Marten;
+using Npgsql;
 
 namespace barakoCMS.Infrastructure.Migrations;
 
@@ -125,32 +126,8 @@ internal static class MigrationCommand
                 var recorded = shipped.Count - result.Applied.Count - result.Baselined.Count;
                 output.WriteLine(
                     $"{result.Applied.Count} applied, {result.Baselined.Count} baselined, {recorded} already recorded.");
-                return store is null ? 0 : await CreateMissingAsync(store, configuration, output, ct);
+                return store is null ? 0 : await MissingSchemaObjects.CreateAndReportAsync(store, configuration, output, ct);
         }
-    }
-
-    /// <summary>
-    /// After the ledger run, so a file that changes an existing table has run before the tables the
-    /// build adds are created. Creates only what is missing: an existing table is never altered, so
-    /// drift on one still fails <c>db-assert</c>.
-    /// </summary>
-    private static async Task<int> CreateMissingAsync(
-        IDocumentStore store, IConfiguration? configuration, TextWriter output, CancellationToken ct)
-    {
-        IReadOnlyList<string> created = [];
-
-        // The lock a starting host takes for the same work, so a host that starts meanwhile and this
-        // command do not both create the same table.
-        await Services.SchemaApplyLock.RunAsync(
-            store, async () => created = await MissingSchemaObjects.CreateAsync(store, ct), configuration, ct);
-
-        foreach (var name in created)
-        {
-            output.WriteLine($"created    {name}");
-        }
-
-        output.WriteLine($"{created.Count} missing schema object(s) created.");
-        return 0;
     }
 
     private static async Task<int> StatusAsync(
@@ -174,7 +151,19 @@ internal static class MigrationCommand
 
         WriteChanged(status.In(MigrationState.Changed), output);
 
-        var missing = store is null ? [] : await MissingSchemaObjects.PendingAsync(store, ct);
+        IReadOnlyList<string> missing;
+        try
+        {
+            missing = store is null ? [] : await MissingSchemaObjects.PendingAsync(store, ct);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or NpgsqlException)
+        {
+            output.WriteLine(ct.IsCancellationRequested
+                ? "cancelled  while reading missing schema objects."
+                : $"failed     reading missing schema objects  {MigrationLedger.Describe(ex)}");
+            return 1;
+        }
+
         foreach (var name in missing)
         {
             output.WriteLine($"pending    create {name}  (missing from the database, db-migrate creates it)");

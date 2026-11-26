@@ -15,7 +15,7 @@ namespace BarakoCMS.Tests;
 /// Each case uses a database of its own and a store built here with <c>AutoCreate.CreateOnly</c>,
 /// the policy production runs. <c>db-assert</c> is
 /// <c>IDatabase.AssertDatabaseMatchesConfigurationAsync</c>, which is what JasperFx's command calls.
-/// Revert to see the first two red: remove the <c>CreateMissingAsync</c> call in
+/// Revert to see the first two red: remove the <c>MissingSchemaObjects.CreateAndReportAsync</c> call in
 /// <c>MigrationCommand.ApplyAsync</c> and the new table is never created.
 /// </remarks>
 [Collection("Integration1")]
@@ -138,18 +138,24 @@ public class MigrationMissingTablesTests
         using (var before = StoreFor(database.ConnectionString, withAdded: false))
         {
             await before.Storage.ApplyAllConfiguredChangesToDatabaseAsync();
+
+            // The old build migrated, so the ledger is current and only the missing table is left.
+            var migrated = await RunAsync(database, before);
+            migrated.Exit.Should().Be(0, migrated.Output);
         }
 
+        var ledger = await database.LedgerAsync();
+        var runs = await database.RunsAsync();
         using var after = StoreFor(database.ConnectionString, withAdded: true);
 
         var status = await RunAsync(database, after, "--status");
 
-        status.Exit.Should().Be(1, status.Output);
+        status.Exit.Should().Be(1, "the ledger is current and the table is missing: " + status.Output);
         status.Output.Should().Contain($"pending    create {AddedTable}");
         status.Output.Should().NotContain(ExistingTable, "an existing table is not listed");
         (await ExistsAsync(database, AddedTable)).Should().BeFalse("--status only reads");
-        (await database.LedgerAsync()).Should().BeEmpty("--status does not create the ledger either");
-        (await database.RunsAsync()).Should().BeEmpty();
+        (await database.LedgerAsync()).Should().Equal(ledger, "--status does not write the ledger");
+        (await database.RunsAsync()).Should().Equal(runs);
     }
 
     [Fact]

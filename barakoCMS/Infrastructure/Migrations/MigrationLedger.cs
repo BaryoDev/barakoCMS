@@ -576,7 +576,7 @@ internal sealed class MigrationLedger(
         return rows;
     }
 
-    private static string Describe(Exception ex) => ex is PostgresException pg
+    internal static string Describe(Exception ex) => ex is PostgresException pg
         ? $"{pg.SqlState}: {pg.MessageText}" + (string.IsNullOrEmpty(pg.Detail) ? string.Empty : $" ({pg.Detail})")
         : ex.Message;
 }
