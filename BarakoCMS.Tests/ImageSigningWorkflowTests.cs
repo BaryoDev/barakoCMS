@@ -105,17 +105,58 @@ public class ImageSigningWorkflowTests
         sign.Should().BeGreaterThan(gate, "an image that fails the platform gate must never be signed");
     }
 
+    // The steps of a job, each as its code lines. A step starts at a line beginning "- ".
+    private static List<string[]> Steps(string[] lines)
+    {
+        var steps = new List<string[]>();
+        var current = new List<string>();
+        foreach (var line in lines)
+        {
+            if (line.StartsWith("- ") && current.Count > 0)
+            {
+                steps.Add(current.ToArray());
+                current = new List<string>();
+            }
+            current.Add(line);
+        }
+        if (current.Count > 0) steps.Add(current.ToArray());
+        return steps;
+    }
+
+    private static List<string[]> StepsUsing(string action) =>
+        Steps(CodeLines(Job(Workflow("release.yml"), "publish-images")))
+            .Where(s => s.Any(l => l.Contains($"uses: {action}@"))).ToList();
+
+    // One step per image, each naming that image and its own signed digest, pushed to the registry.
+    private static void AttestsEachImage(List<string[]> steps)
+    {
+        steps.Should().HaveCount(2);
+        steps.Should().ContainSingle(s => s.Contains("subject-name: ghcr.io/baryodev/barako-cms")
+            && s.Contains("subject-digest: ${{ steps.sign.outputs.barako_cms_digest }}"));
+        steps.Should().ContainSingle(s => s.Contains("subject-name: ghcr.io/baryodev/barako-cms-decaf")
+            && s.Contains("subject-digest: ${{ steps.sign.outputs.barako_cms_decaf_digest }}"));
+        steps.Should().OnlyContain(s => s.Contains("push-to-registry: true") && s.Contains("create-storage-record: false"));
+    }
+
     [Fact]
     public void Every_image_gets_a_provenance_attestation_for_its_own_digest()
     {
-        var lines = CodeLines(Job(Workflow("release.yml"), "publish-images"));
+        AttestsEachImage(StepsUsing("actions/attest-build-provenance"));
+    }
 
-        lines.Should().Contain("subject-name: ghcr.io/baryodev/barako-cms");
-        lines.Should().Contain("subject-digest: ${{ steps.sign.outputs.barako_cms_digest }}");
-        lines.Should().Contain("subject-name: ghcr.io/baryodev/barako-cms-decaf");
-        lines.Should().Contain("subject-digest: ${{ steps.sign.outputs.barako_cms_decaf_digest }}");
-        lines.Count(l => l == "push-to-registry: true").Should().Be(2);
-        lines.Count(l => l == "create-storage-record: false").Should().Be(2);
+    [Fact]
+    public void Every_image_gets_an_sbom_attestation_for_its_own_digest()
+    {
+        var sbom = StepsUsing("actions/attest");
+        AttestsEachImage(sbom);
+        sbom.Should().OnlyContain(s => s.Contains("sbom-path: sbom/barakoCMS.cdx.json"));
+
+        var lines = CodeLines(Job(Workflow("release.yml"), "publish-images"));
+        var download = Line(lines, l => l == "name: sbom", "the SBOM download");
+        var attest = Line(lines, l => l == "sbom-path: sbom/barakoCMS.cdx.json", "the first SBOM attestation");
+        var verify = Line(lines, l => l == "cosign verify-attestation --type https://cyclonedx.org/bom \\", "the SBOM verify");
+        download.Should().BeLessThan(attest, "the SBOM has to be downloaded before it is attested");
+        verify.Should().BeGreaterThan(attest, "the SBOM attestation is verified after it is written");
     }
 
     [Fact]
