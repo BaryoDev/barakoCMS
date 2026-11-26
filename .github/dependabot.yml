@@ -82,6 +82,14 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    # A new .NET major is a framework upgrade, and a new postgres major needs a dump and restore of
+    # the data directory. Neither is a pin refresh, so both are done by hand. Minor and patch
+    # updates, and the barako-cms tag in the k8s manifests, still come through.
+    ignore:
+      - dependency-name: "mcr.microsoft.com/dotnet/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
     groups:
       docker:
         patterns: ["*"]
@@ -95,6 +103,9 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
     groups:
       compose:
         patterns: ["*"]
