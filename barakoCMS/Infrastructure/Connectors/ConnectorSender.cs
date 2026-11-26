@@ -639,15 +639,16 @@ internal sealed class ConnectorSender(
     /// </summary>
     /// <remarks>
     /// Plain http carries a token, a password or a client secret in clear text past every hop on
-    /// the way, so credentials go over it only to this machine or to a host the operator named in
-    /// Webhooks:AllowedHosts, which is a receiver on their own network. Checked where credentials go
+    /// the way, so credentials go over it only to a host the operator named in Webhooks:AllowedHosts,
+    /// which is a receiver on their own network. Loopback is not exempt: the address guard refuses an
+    /// unlisted loopback address at connect anyway, so listing it is the way in. Checked where credentials go
     /// on, so the probe, a send, a fetch, the retry after a new token and the token request all meet
     /// it, including for rows saved before this check existed. Redirects are off on the client, so
     /// an https URL cannot be bounced to http after the check.
     /// </remarks>
     private string? PlainHttpRefusal(Uri target) =>
-        target.Scheme == Uri.UriSchemeHttp && !target.IsLoopback && !guard.IsListed(target.IdnHost, target.Port)
-            ? "Credentials go only over https, or over http to this machine or a host in Webhooks:AllowedHosts. Use an https URL."
+        target.Scheme == Uri.UriSchemeHttp && !guard.IsListed(target.IdnHost, target.Port)
+            ? "Credentials go only over https, or over http to a host in Webhooks:AllowedHosts. Use an https URL."
             : null;
 
     private async Task<string?> SecretAsync(Guid connectorId, string key, CancellationToken ct)

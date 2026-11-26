@@ -412,7 +412,8 @@ public class ConnectorOAuthTests : IAsyncLifetime
     /// <summary>
     /// The token URL is dialled through the same guarded client as every other outbound call. This
     /// one uses the fixture's own host, where that client's handler is the real one, and a listener
-    /// on loopback that an unguarded client would reach.
+    /// on loopback that an unguarded client would reach. The URL is https so the plain http check
+    /// in front of the token request does not answer first.
     /// </summary>
     [Fact]
     public async Task A_token_url_on_a_blocked_address_is_refused_before_anything_connects()
@@ -425,7 +426,7 @@ public class ConnectorOAuthTests : IAsyncLifetime
         var tenant = OAuthConnectors.NewTenant();
         var connector = await _scope.SeedAsync(tenant, provider, Secret, settings: new()
         {
-            [ConnectorSettingKeys.TokenUrl] = $"http://127.0.0.1:{port}/token",
+            [ConnectorSettingKeys.TokenUrl] = $"https://127.0.0.1:{port}/token",
             [ConnectorSettingKeys.ClientId] = OAuthConnectors.ClientIdOf(provider),
         });
 
