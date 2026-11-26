@@ -87,8 +87,8 @@ internal static class MigrationCommand
     }
 
     private static async Task<int> ApplyAsync(
-        MigrationLedger ledger, IReadOnlyList<ShippedMigration> shipped, TextWriter output,
-        IDocumentStore? store, IConfiguration? configuration, CancellationToken ct)
+        MigrationLedger ledger, IReadOnlyList<ShippedMigration> shipped, TextWriter output, IDocumentStore? store,
+        IConfiguration? configuration, CancellationToken ct)
     {
         var result = await ledger.ApplyAsync(shipped, output.WriteLine, ct);
 
