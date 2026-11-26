@@ -93,7 +93,11 @@ Releases up to 5.10.0 have no SBOM attestation. For those, set `VERIFY_SBOM=0` a
 checks still run. Each GitHub release after 5.10.0 also has the SBOM attached as
 `barakoCMS.cdx.json`.
 
-The same checks by hand, with cosign 3 or later and the GitHub CLI:
+The SBOM lists the NuGet packages of the solution's shipped projects, with test projects left out.
+It does not list the operating system packages in the image layers, so scan the image itself for
+those.
+
+The signature and the provenance by hand, with cosign 3 or later and the GitHub CLI:
 
 ```
 cosign verify \

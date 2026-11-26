@@ -264,7 +264,7 @@ jobs:
           dotnet tool install --global CycloneDX --version 5.4.0
           export PATH="$PATH:$HOME/.dotnet/tools"
           mkdir -p sbom
-          dotnet CycloneDX barakoCMS.sln --output sbom --filename barakoCMS.cdx.json --json
+          dotnet CycloneDX barakoCMS.sln --exclude-test-projects --output sbom --filename barakoCMS.cdx.json --json
 
           # A tool that writes nothing still exits 0, so check the file rather than the command.
           f=sbom/barakoCMS.cdx.json
