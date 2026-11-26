@@ -5,8 +5,9 @@
 #
 # Resolves the reference to a digest, then checks three things against that digest: the cosign
 # signature, the build provenance attestation and, for release images, the CycloneDX SBOM
-# attestation. All must come from this repository's release workflow (GitHub OIDC, keyless). Release images are signed by release.yml. The :master image is
-# signed by publish-master-image.yml, so verify it with:
+# attestation. All must come from this repository's release workflow (GitHub OIDC, keyless).
+# Release images are signed by release.yml. The :master image is signed by
+# publish-master-image.yml, so verify it with:
 #
 #   VERIFY_WORKFLOW=publish-master-image.yml bash scripts/verify-image-signature.sh ghcr.io/baryodev/barako-cms:master
 #
@@ -15,12 +16,16 @@
 # mirror (arnelirobles/*) tags, and images published before signing was added. For a mirror image,
 # verify the same digest against ghcr.io.
 #
-# Needs cosign 3 or later, docker (buildx) and jq on PATH. Exit 0 when all checks pass, 1 when one fails, 2 on
-# bad usage. Only ghcr.io/baryodev/ images are accepted.
+# Release images up to 5.10.0 have no SBOM attestation. For those, VERIFY_SBOM=0 skips that check
+# and keeps the other two.
+#
+# Needs cosign 3 or later, docker (buildx) and jq on PATH. Exit 0 when all checks pass, 1 when one
+# fails, 2 on bad usage. Only ghcr.io/baryodev/ images are accepted.
 set -euo pipefail
 
 REF="${1:-}"
 WORKFLOW="${VERIFY_WORKFLOW:-release.yml}"
+VERIFY_SBOM="${VERIFY_SBOM:-1}"
 ISSUER="https://token.actions.githubusercontent.com"
 
 fail() { echo "error: $*" >&2; exit 1; }
@@ -33,6 +38,11 @@ fi
 case "$WORKFLOW" in
     release.yml | publish-master-image.yml) ;;
     *) echo "error: VERIFY_WORKFLOW must be release.yml or publish-master-image.yml" >&2; exit 2 ;;
+esac
+
+case "$VERIFY_SBOM" in
+    0 | 1) ;;
+    *) echo "error: VERIFY_SBOM must be 0 or 1" >&2; exit 2 ;;
 esac
 
 # Lowercase registry path, no whitespace, no shell syntax. The reference is only ever passed as a
@@ -89,12 +99,14 @@ cosign verify-attestation --type slsaprovenance1 \
     || fail "the provenance attestation on $SUBJECT does not verify. Do not run this image."
 
 # Only release images carry an SBOM attestation. The :master image does not.
-if [ "$WORKFLOW" = "release.yml" ]; then
+if [ "$WORKFLOW" = "release.yml" ] && [ "$VERIFY_SBOM" = "1" ]; then
     cosign verify-attestation --type https://cyclonedx.org/bom \
         --certificate-identity-regexp "$IDENTITY" \
         --certificate-oidc-issuer "$ISSUER" \
         "$SUBJECT" > /dev/null \
-        || fail "the SBOM attestation on $SUBJECT does not verify. Do not run this image."
+        || fail "the SBOM attestation on $SUBJECT does not verify. Releases up to 5.10.0 have none: rerun with VERIFY_SBOM=0 for those. For a later release, do not run this image."
+elif [ "$WORKFLOW" = "release.yml" ]; then
+    echo "Skipped the SBOM attestation (VERIFY_SBOM=0)."
 fi
 
 echo "OK: $SUBJECT is signed by $WORKFLOW in BaryoDev/barakoCMS"
