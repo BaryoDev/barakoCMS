@@ -63,13 +63,14 @@ and each of them is safe to run again. Deploy soon after, since an old instance 
 fails its own start-up check. For any other pending file, take the downtime: there is no supported
 way to run it under a serving API.
 
-`db-migrate` applies the shipped SQL files. `db-assert` then checks that the schema is what the
+`db-migrate` applies the shipped SQL files, then creates the tables and other objects the build
+declares that the database does not have at all. `db-assert` then checks that the schema is what the
 build declares. They answer different questions, so run both.
 
 | Command | What it does | Exit code |
 |---|---|---|
-| `db-migrate` | Runs every migration the ledger lacks, in order. | 0 when all of them are recorded, 1 when it stopped |
-| `db-migrate --status` | Prints each migration and its state. Changes nothing and does not create the table. | 0 when every shipped migration has a row and none is `changed`, otherwise 1 |
+| `db-migrate` | Runs every migration the ledger lacks, in order, then creates the missing tables and functions. | 0 when all of them are recorded and the schema objects are created, 1 when it stopped |
+| `db-migrate --status` | Prints each migration and its state, and each missing table as `pending    create <name>`. Changes nothing and does not create the ledger table. | 0 when every shipped migration has a row, none is `changed` and no table is missing, otherwise 1 |
 | `db-migrate --record <key>` | Writes the row for a file you applied by hand. Does not run it. | 0, or 1 for a key this build does not ship |
 | `db-migrate --forget <key>` | Removes a row, after you rolled the file back by hand. | 0, or 1 for a key this build does not ship |
 
@@ -98,6 +99,15 @@ log will name the command: change that line first.
    If it does not, the file is failed and nothing is recorded.
 7. Stops at the first file that fails, prints `failed     <key>` with the database's error, and
    exits 1.
+8. When every file is recorded, takes the schema lock a starting API takes and creates what the
+   loaded modules declare and the database lacks entirely: the table, its indexes and its functions,
+   printed as `created    <name>`. This is what the API's `CreateOnly` start does for a new
+   document type, done before the API starts so `db-assert` can pass.
+
+Step 8 creates and nothing else. A table that exists is not read for change and not altered, so an
+extra or missing index or a changed column on it is left as it is and `db-assert` still fails on it.
+That is real drift: fix it with a migration file or `db-patch`. A new document type in a release
+therefore no longer shows up as outstanding in `db-assert`.
 
 What commits together: a file and its row. If the file fails, or the process dies part way through
 it, the transaction rolls back, there is no row, and the next run starts that file from the top.
@@ -214,7 +224,7 @@ Run `db-migrate --status` first if you want to see what the run would do. `pendi
 A database nothing has started against has no `mt_doc_users` table. No shipped migration applies
 to it, because the first start creates every object in its current shape. A normal start,
 `db-apply` and `db-migrate` each record every shipped migration as `baselined` on such a database
-and run none. A start and `db-apply` write those rows before they create the schema, so one that
+and run none. `db-migrate` then creates the schema, as a start would. A start and `db-apply` write those rows before they create the schema, so one that
 dies in between leaves rows and no tables, and the next start creates the tables.
 
 Without this, the first `db-migrate` on an install that began on a release with the ledger would

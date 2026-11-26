@@ -801,7 +801,8 @@ by hand, and how to stop a run. `db-assert` exits 0 when the database already ho
 the new build declares, and non-zero listing what is outstanding. The API is down from the `stop`
 to the `up`, so read what `--status` listed before you begin.
 
-Those steps are not optional on an existing database. A new table is created on start, but an
+Those steps are not optional on an existing database. `db-migrate` creates the tables a release
+adds, so `db-assert` passes before you start the new build, but an
 existing table is never altered: production runs `AutoCreate.CreateOnly`. So a release carrying a
 change to a table you already have does not migrate it and does not skip it either, it throws on
 start and the container restarts forever, with the previous one already gone. Releases that need

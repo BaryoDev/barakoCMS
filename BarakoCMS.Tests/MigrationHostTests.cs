@@ -63,8 +63,8 @@ public class MigrationHostTests
         second.Output.Should().Contain("0 applied, 0 baselined");
         (await database.LedgerAsync()).Should().Equal(ledgerAfterFirst);
         status.ExitCode.Should().Be(0, $"output:\n{Truncate(status.Output)}");
-        (await database.IsTrueAsync("select to_regclass('public.mt_doc_users') is null"))
-            .Should().BeTrue("the command records migrations and does not apply Marten's schema");
+        (await database.IsTrueAsync("select to_regclass('public.mt_doc_users') is not null"))
+            .Should().BeTrue("after recording the migrations the command creates the tables the build declares");
     }
 
     /// <summary>
@@ -238,7 +238,7 @@ public class MigrationHostTests
         var first = await RunHostAsync(assembly, database.ConnectionString, "db-migrate");
         first.ExitCode.Should().Be(0, $"output:\n{Truncate(first.Output)}");
         // Started since, so the run below cannot take the new-database path.
-        await database.ExecuteAsync("create table public.mt_doc_users (id uuid primary key)");
+        await database.ExecuteAsync("create table if not exists public.mt_doc_users (id uuid primary key)");
 
         var removed = Path.Combine(RepoPaths.Root, "migrations", "removed");
         var owners = new Dictionary<string, string>
@@ -257,12 +257,15 @@ public class MigrationHostTests
             ["core"] = "5.2.0/580-stock-reservations",
         };
         // A real 5.4 database had Marten's immutable cast helpers, and the removed scripts index through them.
+        // Guarded: db-migrate now creates what the build declares, and Marten may have made these already.
         await database.ExecuteAsync(
-            "create function public.mt_immutable_timestamp(value text) returns timestamp without time zone "
-            + "language sql immutable as $f$ select value::timestamp $f$;");
+            "do $f$ begin if to_regprocedure('public.mt_immutable_timestamp(text)') is null then "
+            + "create function public.mt_immutable_timestamp(value text) returns timestamp without time zone "
+            + "language sql immutable as 'select value::timestamp'; end if; end $f$;");
         await database.ExecuteAsync(
-            "create function public.mt_immutable_timestamptz(value text) returns timestamp with time zone "
-            + "language sql immutable as $f$ select value::timestamptz $f$;");
+            "do $f$ begin if to_regprocedure('public.mt_immutable_timestamptz(text)') is null then "
+            + "create function public.mt_immutable_timestamptz(value text) returns timestamp with time zone "
+            + "language sql immutable as 'select value::timestamptz'; end if; end $f$;");
         foreach (var (owner, file) in owners)
         {
             await database.ExecuteAsync(await File.ReadAllTextAsync(Path.Combine(removed, file + ".sql")));
