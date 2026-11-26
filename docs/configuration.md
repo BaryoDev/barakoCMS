@@ -163,6 +163,7 @@ Keys marked secret have no default and must not be committed. Each key must be a
 | `EventSourcing:DocumentTypesAppend` | `EventSourcing__DocumentTypesAppend` | true | true or false. | Blank or malformed throws on the request or job that reads it. |
 | `ContentTypes:MaxFields` | `ContentTypes__MaxFields` | 200 | 1 or more. | Blank keeps the default. Less than 1 is raised to 1. Malformed throws on the request or job that reads it. |
 | `Content:Concurrency:Require` | `Content__Concurrency__Require` | false | true or false. | Blank or malformed throws on the request or job that reads it. |
+| `Content:RequireContentType` | `Content__RequireContentType` | false | true or false. On refuses to create an entry of a content type that has no definition, with a 400 naming the type. Updates of existing entries are not changed. | Blank is false. Malformed throws on the request or job that reads it. |
 | `PublicDelivery:RequireAcknowledgement` | `PublicDelivery__RequireAcknowledgement` | false | true or false. | Blank or malformed throws on the request or job that reads it. |
 | `Erasure:Mode` | `Erasure__Mode` | Delete | Delete, None or CryptoShred. | Blank is Delete. None needs Erasure:AcknowledgeNoErasure. CryptoShred throws at start (not supported). |
 | `Erasure:AcknowledgeNoErasure` | `Erasure__AcknowledgeNoErasure` | false | true or false. | Blank or malformed throws at start. |
