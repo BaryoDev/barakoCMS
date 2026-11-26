@@ -46,42 +46,41 @@ internal class CreateTaskAction : IWorkflowAction
     public async Task<WorkflowActionResult> RunAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct)
     {
         var contentType = parameters.GetValueOrDefault("ContentType", "Task");
+        var copied = parameters.Keys.Where(k => k.StartsWith("Data.")).Select(k => k.Substring(5)).ToList();
+        var requireDefined = barakoCMS.Core.Validation.RequiredContentType.IsOn(_configuration);
 
-        // This action writes without the validator, so it applies the defined type rule itself, with
-        // the validator's lookup: a type the account owns counts as defined.
-        if (barakoCMS.Core.Validation.RequiredContentType.IsOn(_configuration))
+        // This action writes without the validator, so it reads the type with the validator's lookup:
+        // a type the account owns counts as defined, and its fields are the ones checked below. The
+        // type is read only when the rule is on or a field is copied.
+        barakoCMS.Models.ContentTypeDefinition? definition = null;
+        if (requireDefined || copied.Count > 0)
         {
             try
             {
-                if (await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(_session, contentType, ct) is null)
-                {
-                    return WorkflowActionResult.PermanentFailure(barakoCMS.Core.Validation.RequiredContentType.Refusal(contentType));
-                }
+                definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(_session, contentType, ct);
             }
             catch (barakoCMS.Core.AmbiguousContentTypeException)
             {
                 // A retry finds the same two spellings, so this fails once rather than five times.
                 return WorkflowActionResult.PermanentFailure(barakoCMS.Core.Validation.RequiredContentType.Ambiguous(contentType));
             }
+
+            if (requireDefined && definition is null)
+            {
+                return WorkflowActionResult.PermanentFailure(barakoCMS.Core.Validation.RequiredContentType.Refusal(contentType));
+            }
         }
 
         // A parameter is text and an inline image is an object checked byte by byte, so no value
-        // this action can be given is one. The type is read only when a field is copied.
-        var copied = parameters.Keys.Where(k => k.StartsWith("Data.")).Select(k => k.Substring(5)).ToList();
-        if (copied.Count > 0)
+        // this action can be given is one.
+        var image = definition?.Fields.FirstOrDefault(f =>
+            f is not null
+            && barakoCMS.Core.Validation.InlineImageFields.Is(f.Type)
+            && copied.Contains(f.Name, StringComparer.OrdinalIgnoreCase));
+        if (image is not null)
         {
-            var definition = await _session.Query<barakoCMS.Models.ContentTypeDefinition>()
-                .FirstNamedAsync(contentType, ct);
-            var image = definition?.Fields.FirstOrDefault(f =>
-                f is not null
-                && barakoCMS.Core.Validation.InlineImageFields.Is(f.Type)
-                && copied.Contains(f.Name, StringComparer.OrdinalIgnoreCase));
-
-            if (image is not null)
-            {
-                return WorkflowActionResult.PermanentFailure(
-                    $"Field '{image.Name}' holds an inline image, which this action cannot set.");
-            }
+            return WorkflowActionResult.PermanentFailure(
+                $"Field '{image.Name}' holds an inline image, which this action cannot set.");
         }
 
         var status = parameters.GetValueOrDefault("Status", "Draft");
@@ -101,7 +100,7 @@ internal class CreateTaskAction : IWorkflowAction
             data[fieldName] = param.Value;
         }
 
-        var refusal = await ReadJsonFieldsAsync(parameters, contentType, copied, data, ct);
+        var refusal = ReadJsonFields(parameters, definition, copied, data);
         if (refusal is not null)
             return WorkflowActionResult.PermanentFailure(refusal);
 
@@ -130,15 +129,14 @@ internal class CreateTaskAction : IWorkflowAction
     /// A copied json field takes only a whole list or object from one placeholder, read from its
     /// JSON text. Returns the refusal, which does not name the value, or null.
     /// </summary>
-    private async Task<string?> ReadJsonFieldsAsync(
-        Dictionary<string, string> parameters, string contentType, List<string> copied,
-        Dictionary<string, object> data, CancellationToken ct)
+    private static string? ReadJsonFields(
+        Dictionary<string, string> parameters, barakoCMS.Models.ContentTypeDefinition? definition, List<string> copied,
+        Dictionary<string, object> data)
     {
         if (copied.Count == 0)
             return null;
 
-        var declared = (await _session.Query<barakoCMS.Models.ContentTypeDefinition>()
-            .FirstNamedAsync(contentType, ct))?.Fields;
+        var declared = definition?.Fields;
         var sent = copied.Where(data.ContainsKey).ToDictionary(k => k, k => data[k]);
         var refusal = barakoCMS.Core.Validation.JsonTextFields.Read(
             declared, sent, key => ActionParameters.IsStructured(parameters, "Data." + key));

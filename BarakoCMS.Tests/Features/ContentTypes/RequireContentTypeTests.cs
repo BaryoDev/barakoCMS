@@ -211,6 +211,18 @@ public class RequireContentTypeTests(IntegrationTestFixture host)
         message.Should().Contain("'ab" + new string('x', 62) + "...'");
     }
 
+    [Fact]
+    public void The_refusal_drops_bidi_and_separator_marks_and_never_cuts_a_character_in_half()
+    {
+        // After the marks go, the emoji's first half is the 64th character, so the cut falls before it.
+        var message = barakoCMS.Core.Validation.RequiredContentType.Refusal(
+            "a\u202Eb\u2028c\u200B" + new string('x', 60) + "\U0001F600tail");
+
+        message.Should().NotContainAny("\u202E", "\u2028", "\u200B");
+        message.Any(char.IsSurrogate).Should().BeFalse(message);
+        message.Should().Contain("'abc" + new string('x', 60) + "...'");
+    }
+
     /// <summary>The creator the CreateEntry workflow action, the site settings sync and the lines write call.</summary>
     [Fact]
     public async Task On_the_content_creator_refuses_an_undefined_type_and_accepts_a_defined_one()
@@ -230,7 +242,7 @@ public class RequireContentTypeTests(IntegrationTestFixture host)
         accepted.Should().BeEmpty();
     }
 
-    private async Task<WorkflowActionResult> CreateTaskAsync(string type, bool requireOn)
+    private async Task<WorkflowActionResult> CreateTaskAsync(string type, bool requireOn, params (string Key, string Value)[] extra)
     {
         using var scope = host.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
@@ -240,8 +252,12 @@ public class RequireContentTypeTests(IntegrationTestFixture host)
         var action = new CreateTaskAction(
             session, NullLogger<CreateTaskAction>.Instance, scope.ServiceProvider.GetRequiredService<IContentWriter>(), config);
 
+        var parameters = new Dictionary<string, string> { ["ContentType"] = type, ["Title"] = "Follow up" };
+        foreach (var (key, value) in extra)
+            parameters[key] = value;
+
         return await action.RunAsync(
-            new Dictionary<string, string> { ["ContentType"] = type, ["Title"] = "Follow up" },
+            parameters,
             new Content { Id = Guid.NewGuid(), ContentType = "trigger", LastModifiedBy = Guid.NewGuid() },
             Ct);
     }
@@ -289,6 +305,40 @@ public class RequireContentTypeTests(IntegrationTestFixture host)
         var result = await CreateTaskAsync(name, requireOn: true);
 
         result.Succeeded.Should().BeTrue(result.Error);
+    }
+
+    /// <summary>
+    /// The action reads the fields of a type the account owns too, so the inline image guard holds for
+    /// one, with the rule off. A read of the tenant's definitions alone does not see the field.
+    /// </summary>
+    [Fact]
+    public async Task The_CreateTask_action_refuses_an_inline_image_field_of_a_type_the_account_owns()
+    {
+        var name = $"acimg{Guid.NewGuid():n}"[..20];
+        using (var scope = host.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new AccountContentType
+            {
+                Id = Guid.NewGuid(),
+                AccountId = TenantAccount.DefaultId,
+                Name = name,
+                Definition = new ContentTypeDefinition
+                {
+                    Id = Guid.NewGuid(),
+                    Name = name,
+                    DisplayName = name,
+                    Fields = [new FieldDefinition { Name = "Logo", DisplayName = "Logo", Type = "inlineimage" }],
+                },
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var result = await CreateTaskAsync(name, requireOn: false, ("Data.Logo", "data:image/png;base64,AAAA"));
+
+        result.Succeeded.Should().BeFalse("the field holds an inline image");
+        result.Retryable.Should().BeFalse();
+        result.Error.Should().Contain("Field 'Logo' holds an inline image");
     }
 
     [Fact]

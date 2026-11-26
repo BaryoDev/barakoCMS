@@ -44,9 +44,9 @@ public class ContentValidatorService(
         // would make the flag unusable, since the one entry a singleton type is for could never be
         // edited.
         //
-        // The definition is read again here, case-insensitively, when the lookup above found none.
-        // That lookup already ignores case (ContentTypeName.Pick), so the second read is a fallback
-        // that keeps the cap from depending on how the schema lookup treats case. The cap has
+        // When the lookup above finds nothing, this case-insensitive read finds nothing either, since
+        // that lookup already ignores case (ContentTypeName.Pick). It is kept as a guard, so the cap
+        // does not depend on how that lookup treats case. The cap has
         // to see the type, because an entry created as SETTINGS is a second entry of settings, and a
         // cap a caller can walk past by holding down shift is not a cap. Case-insensitive for the
         // reason every other name comparison here is: names have only been normalised since 4.0, so
@@ -83,8 +83,8 @@ public class ContentValidatorService(
 
         if (schema == null)
         {
-            // Opt-in refusal, creating only. An update of an entry stored under an undefined type
-            // is accepted as before.
+            // Opt-in refusal, creating only. An update is not refused, with the rule on or off, so an
+            // entry stored under a type with no definition stays editable.
             if (existing is null && barakoCMS.Core.Validation.RequiredContentType.IsOn(configuration))
             {
                 errors.Add(barakoCMS.Core.Validation.RequiredContentType.Refusal(contentType));

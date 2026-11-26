@@ -31,7 +31,25 @@ public static class RequiredContentType
     // characters are dropped and the length is capped.
     private static string Shown(string? name)
     {
-        var clean = new string((name ?? string.Empty).Where(c => !char.IsControl(c)).ToArray());
-        return clean.Length <= MaxShown ? clean : clean[..MaxShown] + "...";
+        var clean = new string((name ?? string.Empty).Where(Kept).ToArray());
+        if (clean.Length <= MaxShown)
+            return clean;
+
+        // A cut between the two halves of a surrogate pair leaves half a character, which is not valid text.
+        var cut = char.IsHighSurrogate(clean[MaxShown - 1]) ? MaxShown - 1 : MaxShown;
+        return clean[..cut] + "...";
+    }
+
+    // Control characters, line and paragraph separators, and format characters such as bidi overrides
+    // and zero-width marks, which can make the message read other than it is.
+    private static bool Kept(char c)
+    {
+        if (char.IsControl(c))
+            return false;
+
+        return System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) is not (
+            System.Globalization.UnicodeCategory.Format
+            or System.Globalization.UnicodeCategory.LineSeparator
+            or System.Globalization.UnicodeCategory.ParagraphSeparator);
     }
 }
