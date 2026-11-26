@@ -666,6 +666,25 @@ internal sealed class ConnectorSender(
     private static readonly HttpRequestOptionsKey<ConnectorTokenKey> SentCachedToken = new("barakocms.connector.cached-token");
 
     /// <summary>
+    /// The token URL from Settings when the client secret may go to it, or null with the reason in
+    /// <paramref name="problem"/>.
+    /// </summary>
+    private Uri? TokenUrlFor(Connector connector, out string problem)
+    {
+        var tokenUrl = connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.TokenUrl);
+        if (!Uri.TryCreate(tokenUrl?.Trim(), UriKind.Absolute, out var tokenUri)
+            || (tokenUri.Scheme != Uri.UriSchemeHttp && tokenUri.Scheme != Uri.UriSchemeHttps))
+        {
+            problem = $"Auth is OAuth2ClientCredentials, so Settings needs '{ConnectorSettingKeys.TokenUrl}' as an absolute http or https URL.";
+            return null;
+        }
+
+        // The token request carries the client secret.
+        problem = PlainHttpRefusal(tokenUri) ?? "";
+        return problem.Length == 0 ? tokenUri : null;
+    }
+
+    /// <summary>
     /// Attaches a token from the client credentials grant: the cached one, or a new one from the
     /// token endpoint. Returns null when it went on, or the reason it did not.
     /// </summary>
@@ -677,15 +696,7 @@ internal sealed class ConnectorSender(
     private async Task<string?> TryAttachGrantedTokenAsync(
         HttpRequestMessage request, Connector connector, CancellationToken ct)
     {
-        var tokenUrl = connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.TokenUrl);
-        if (!Uri.TryCreate(tokenUrl?.Trim(), UriKind.Absolute, out var tokenUri)
-            || (tokenUri.Scheme != Uri.UriSchemeHttp && tokenUri.Scheme != Uri.UriSchemeHttps))
-        {
-            return $"Auth is OAuth2ClientCredentials, so Settings needs '{ConnectorSettingKeys.TokenUrl}' as an absolute http or https URL.";
-        }
-
-        // The token request carries the client secret.
-        if (PlainHttpRefusal(tokenUri) is { } refused) return refused;
+        if (TokenUrlFor(connector, out var problem) is not { } tokenUri) return problem;
 
         var clientId = connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.ClientId);
         if (string.IsNullOrWhiteSpace(clientId))
