@@ -1,3 +1,4 @@
+using System.Text.Json;
 using barakoCMS.Modules;
 using FluentAssertions;
 using Xunit;
@@ -347,5 +348,61 @@ public class ModuleConsoleCardTests
         entry.Name.Should().Be("Reports");
         entry.Enabled.Should().BeTrue();
         entry.Cards.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Console_card_content_parts_default_to_null_and_keep_old_construction()
+    {
+        // Modules answer with the web defaults, which write nulls unless a member opts out.
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var rows = new[] { new ConsoleCardRow("Open", "3") };
+
+        var plain = new ConsoleCardContent("ok", "Fine", rows, "note", DateTimeOffset.UnixEpoch);
+
+        plain.Stats.Should().BeNull();
+        plain.Series.Should().BeNull();
+        plain.Bars.Should().BeNull();
+        plain.Checks.Should().BeNull();
+        plain.RowsLabel.Should().BeNull();
+        plain.Question.Should().BeNull();
+        using var old = JsonDocument.Parse(JsonSerializer.Serialize(plain, web));
+        old.RootElement.EnumerateObject().Select(p => p.Name)
+            .Should().BeEquivalentTo("state", "text", "rows", "note", "updatedAt");
+
+        var withStats = plain with { Stats = [new ConsoleCardStat("Orders", 12, 10, "count", 40, "up")] };
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(withStats, web));
+        json.RootElement.EnumerateObject().Select(p => p.Name)
+            .Should().BeEquivalentTo("state", "text", "rows", "note", "updatedAt", "stats");
+        json.RootElement.GetProperty("stats")[0].EnumerateObject().Select(p => p.Name)
+            .Should().BeEquivalentTo("label", "value", "previous", "format", "total", "goodWhen");
+    }
+
+    [Fact]
+    public void Console_card_content_parts_keep_the_names_the_console_reads()
+    {
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var card = new ConsoleCardContent("ok", "Fine", [new ConsoleCardRow("Open", "3")], null, DateTimeOffset.UnixEpoch)
+        {
+            Series = new ConsoleCardSeries("Visits", [new ConsoleCardPoint("2026-11-19", 4, 3)], "Week before"),
+            Bars = new ConsoleCardBars("Top pages", [new ConsoleCardBar("/", 9)]),
+            Checks = [new ConsoleCardCheck("Storage", "warn", "Degraded")],
+            RowsLabel = "Details",
+            Question = new ConsoleCardQuestion("/api/modules/x/ask", "Ask a question"),
+        };
+
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(card, web));
+        var root = json.RootElement;
+
+        Names(root).Should().BeEquivalentTo("state", "text", "rows", "note", "updatedAt", "series", "bars", "checks", "rowsLabel", "question");
+        Names(root.GetProperty("series")).Should().BeEquivalentTo("label", "points", "previousLabel");
+        Names(root.GetProperty("series").GetProperty("points")[0]).Should().BeEquivalentTo("date", "value", "previous");
+        Names(root.GetProperty("bars")).Should().BeEquivalentTo("label", "items");
+        Names(root.GetProperty("bars").GetProperty("items")[0]).Should().BeEquivalentTo("label", "value");
+        Names(root.GetProperty("checks")[0]).Should().BeEquivalentTo("label", "tone", "value");
+        Names(root.GetProperty("question")).Should().BeEquivalentTo("route", "placeholder", "maxLength", "maxTurns");
+        root.GetProperty("question").GetProperty("maxLength").GetInt32().Should().Be(500);
+        root.GetProperty("question").GetProperty("maxTurns").GetInt32().Should().Be(10);
+
+        static IEnumerable<string> Names(JsonElement e) => e.EnumerateObject().Select(p => p.Name);
     }
 }
