@@ -2,6 +2,7 @@ using barakoCMS.Infrastructure.Migrations;
 using FluentAssertions;
 using JasperFx;
 using Marten;
+using Npgsql;
 using Weasel.Core.Migrations;
 using Xunit;
 
@@ -156,6 +157,48 @@ public class MigrationMissingTablesTests
         (await ExistsAsync(database, AddedTable)).Should().BeFalse("--status only reads");
         (await database.LedgerAsync()).Should().Equal(ledger, "--status does not write the ledger");
         (await database.RunsAsync()).Should().Equal(runs);
+    }
+
+    /// <summary>
+    /// A create the database refuses is a failure, not a table reported as created. Weasel tells a
+    /// logger other than its own about a failed statement and carries on, so this goes red if the
+    /// create step passes one.
+    /// </summary>
+    [Fact]
+    public async Task A_create_the_database_refuses_prints_failed_and_exits_1()
+    {
+        await using var database = await MigrationScratchDatabase.CreateAsync(_factory);
+        using (var before = StoreFor(database.ConnectionString, withAdded: false))
+        {
+            await before.Storage.ApplyAllConfiguredChangesToDatabaseAsync();
+        }
+
+        // A login with no CREATE on the schema or the database, so the new table's DDL is refused.
+        var role = $"migrate_no_create_{Guid.NewGuid():N}";
+        var password = Guid.NewGuid().ToString("N");
+        await database.ExecuteAsync($"create role {role} login password '{password}'");
+        try
+        {
+            await database.ExecuteAsync("revoke create on schema public from public");
+            var refusedLogin = new NpgsqlConnectionStringBuilder(database.ConnectionString)
+            {
+                Username = role,
+                Password = password,
+                Pooling = false,
+            }.ConnectionString;
+            using var after = StoreFor(refusedLogin, withAdded: true);
+
+            var run = await RunAsync(database, after);
+
+            run.Exit.Should().Be(1, run.Output);
+            run.Output.Should().Contain("failed     creating missing schema objects");
+            run.Output.Should().NotContain($"created    {AddedTable}");
+            (await ExistsAsync(database, AddedTable)).Should().BeFalse();
+        }
+        finally
+        {
+            await database.ExecuteAsync($"drop role if exists {role}");
+        }
     }
 
     [Fact]

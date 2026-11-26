@@ -60,8 +60,11 @@ internal static class MissingSchemaObjects
 
             await using var connection = database.CreateConnection();
             await connection.OpenAsync(ct);
+            // Weasel rethrows a failed statement only for its own logger. Any other logger is told and
+            // the run goes on, so a create the database refused would be printed as created. The
+            // writer is null because the command prints what it created itself.
             await database.Migrator.ApplyAllAsync(
-                connection, new SchemaMigration(creates), AutoCreate.CreateOnly, new QuietLogger(), ct);
+                connection, new SchemaMigration(creates), AutoCreate.CreateOnly, new DefaultMigrationLogger(TextWriter.Null), ct);
 
             names.AddRange(creates.Select(d => prefix + d.SchemaObject.Identifier.QualifiedName));
         }
@@ -86,7 +89,8 @@ internal static class MissingSchemaObjects
             await Services.SchemaApplyLock.RunAsync(
                 store, async () => created = await CreateAsync(store, ct), configuration, ct);
         }
-        catch (Exception ex) when (ex is OperationCanceledException or NpgsqlException or TimeoutException)
+        catch (Exception ex) when (ex is OperationCanceledException or NpgsqlException or TimeoutException
+                                       or InsufficientDatabasePrivilegeException)
         {
             output.WriteLine(ct.IsCancellationRequested
                 ? "cancelled  while creating missing schema objects."
@@ -107,16 +111,4 @@ internal static class MissingSchemaObjects
 
     private static List<ISchemaObjectDelta> CreateDeltas(SchemaMigration migration) =>
         migration.Deltas.Where(d => d.Difference == SchemaPatchDifference.Create).ToList();
-
-    /// <summary>The command prints what it created itself, so Weasel's own SQL echo stays off.</summary>
-    private sealed class QuietLogger : IMigrationLogger
-    {
-        public void SchemaChange(string sql)
-        {
-        }
-
-        public void OnFailure(System.Data.Common.DbCommand command, Exception ex)
-        {
-        }
-    }
 }
