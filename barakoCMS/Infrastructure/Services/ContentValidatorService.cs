@@ -44,10 +44,9 @@ public class ContentValidatorService(
         // would make the flag unusable, since the one entry a singleton type is for could never be
         // edited.
         //
-        // The definition is resolved again here, case-insensitively, instead of reusing the exact
-        // match above. That lookup stays exact on purpose: a mis-cased name finds no schema and the
-        // entry is accepted unvalidated, and loosening it would start refusing requests this API
-        // takes today, which is an HTTP-surface break under CLAUDE.md section 6. The cap still has
+        // The definition is read again here, case-insensitively, when the lookup above found none.
+        // That lookup already ignores case (ContentTypeName.Pick), so the second read is a fallback
+        // that keeps the cap from depending on how the schema lookup treats case. The cap has
         // to see the type, because an entry created as SETTINGS is a second entry of settings, and a
         // cap a caller can walk past by holding down shift is not a cap. Case-insensitive for the
         // reason every other name comparison here is: names have only been normalised since 4.0, so
@@ -92,8 +91,8 @@ public class ContentValidatorService(
                 return (false, errors);
             }
 
-            // No content type definition, so there is no schema to check against and the entry is
-            // accepted as-is. Validation is opt-in: defining a type is what turns it on.
+            // With the rule off, the default, an entry of a type with no definition is accepted
+            // as-is: defining a type is what turns field validation on.
             return (true, errors);
         }
 

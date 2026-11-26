@@ -47,11 +47,22 @@ internal class CreateTaskAction : IWorkflowAction
     {
         var contentType = parameters.GetValueOrDefault("ContentType", "Task");
 
-        // This action writes without the validator, so it applies the defined type rule itself.
-        if (barakoCMS.Core.Validation.RequiredContentType.IsOn(_configuration)
-            && await _session.Query<barakoCMS.Models.ContentTypeDefinition>().FirstNamedAsync(contentType, ct) is null)
+        // This action writes without the validator, so it applies the defined type rule itself, with
+        // the validator's lookup: a type the account owns counts as defined.
+        if (barakoCMS.Core.Validation.RequiredContentType.IsOn(_configuration))
         {
-            return WorkflowActionResult.PermanentFailure(barakoCMS.Core.Validation.RequiredContentType.Refusal(contentType));
+            try
+            {
+                if (await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(_session, contentType, ct) is null)
+                {
+                    return WorkflowActionResult.PermanentFailure(barakoCMS.Core.Validation.RequiredContentType.Refusal(contentType));
+                }
+            }
+            catch (barakoCMS.Core.AmbiguousContentTypeException)
+            {
+                // A retry finds the same two spellings, so this fails once rather than five times.
+                return WorkflowActionResult.PermanentFailure(barakoCMS.Core.Validation.RequiredContentType.Ambiguous(contentType));
+            }
         }
 
         // A parameter is text and an inline image is an object checked byte by byte, so no value

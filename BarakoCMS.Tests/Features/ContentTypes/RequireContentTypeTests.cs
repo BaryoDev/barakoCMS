@@ -183,6 +183,34 @@ public class RequireContentTypeTests(IntegrationTestFixture host)
         (await RowsAsync(type)).Should().Be(0);
     }
 
+    /// <summary>A bundle that defines a type and carries its entries is not refused for that type.</summary>
+    [Fact]
+    public async Task On_the_portability_import_accepts_a_record_of_a_type_the_same_bundle_defines()
+    {
+        var type = Undefined();
+
+        var response = await (await ClientAsync(On())).PostAsJsonAsync("/api/portability/import", new
+        {
+            contentTypes = new[]
+            {
+                new { name = type, displayName = type, fields = new[] { new { name = "Title", type = "string" } } },
+            },
+            contents = new[] { new { contentType = type, data = Data(), status = "Draft" } },
+        }, Ct);
+
+        response.IsSuccessStatusCode.Should().BeTrue(await response.Content.ReadAsStringAsync(Ct));
+        (await RowsAsync(type)).Should().Be(1);
+    }
+
+    [Fact]
+    public void The_refusal_drops_control_characters_and_cuts_a_long_name()
+    {
+        var message = barakoCMS.Core.Validation.RequiredContentType.Refusal("a\r\nb" + new string('x', 200));
+
+        message.Should().NotContain("\r").And.NotContain("\n");
+        message.Should().Contain("'ab" + new string('x', 62) + "...'");
+    }
+
     /// <summary>The creator the CreateEntry workflow action, the site settings sync and the lines write call.</summary>
     [Fact]
     public async Task On_the_content_creator_refuses_an_undefined_type_and_accepts_a_defined_one()
@@ -238,5 +266,38 @@ public class RequireContentTypeTests(IntegrationTestFixture host)
 
         (await CreateTaskAsync(defined, requireOn: true)).Succeeded.Should().BeTrue();
         (await CreateTaskAsync(undefined, requireOn: false)).Succeeded.Should().BeTrue();
+    }
+
+    /// <summary>The validator counts a type the account owns as defined, so the action does too.</summary>
+    [Fact]
+    public async Task On_the_CreateTask_action_creates_a_type_the_account_owns()
+    {
+        var name = $"acct{Guid.NewGuid():n}"[..20];
+        using (var scope = host.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new AccountContentType
+            {
+                Id = Guid.NewGuid(),
+                AccountId = TenantAccount.DefaultId,
+                Name = name,
+                Definition = new ContentTypeDefinition { Id = Guid.NewGuid(), Name = name, DisplayName = name, Fields = [] },
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var result = await CreateTaskAsync(name, requireOn: true);
+
+        result.Succeeded.Should().BeTrue(result.Error);
+    }
+
+    [Fact]
+    public async Task On_the_CreateTask_action_finds_a_defined_type_named_in_another_case()
+    {
+        var defined = await DefinedAsync();
+
+        var result = await CreateTaskAsync(defined.ToUpperInvariant(), requireOn: true);
+
+        result.Succeeded.Should().BeTrue(result.Error);
     }
 }
