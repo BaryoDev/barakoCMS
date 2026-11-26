@@ -3,9 +3,9 @@
 #
 #   bash scripts/verify-image-signature.sh ghcr.io/baryodev/barako-cms:6.0.0
 #
-# Resolves the reference to a digest, then checks two things against that digest: the cosign
-# signature, and the build provenance attestation. Both must come from this repository's release
-# workflow (GitHub OIDC, keyless). Release images are signed by release.yml. The :master image is
+# Resolves the reference to a digest, then checks three things against that digest: the cosign
+# signature, the build provenance attestation and, for release images, the CycloneDX SBOM
+# attestation. All must come from this repository's release workflow (GitHub OIDC, keyless). Release images are signed by release.yml. The :master image is
 # signed by publish-master-image.yml, so verify it with:
 #
 #   VERIFY_WORKFLOW=publish-master-image.yml bash scripts/verify-image-signature.sh ghcr.io/baryodev/barako-cms:master
@@ -15,7 +15,7 @@
 # mirror (arnelirobles/*) tags, and images published before signing was added. For a mirror image,
 # verify the same digest against ghcr.io.
 #
-# Needs cosign 3 or later, docker (buildx) and jq on PATH. Exit 0 when both checks pass, 1 when one fails, 2 on
+# Needs cosign 3 or later, docker (buildx) and jq on PATH. Exit 0 when all checks pass, 1 when one fails, 2 on
 # bad usage. Only ghcr.io/baryodev/ images are accepted.
 set -euo pipefail
 
@@ -87,6 +87,15 @@ cosign verify-attestation --type slsaprovenance1 \
     --certificate-oidc-issuer "$ISSUER" \
     "$SUBJECT" > /dev/null \
     || fail "the provenance attestation on $SUBJECT does not verify. Do not run this image."
+
+# Only release images carry an SBOM attestation. The :master image does not.
+if [ "$WORKFLOW" = "release.yml" ]; then
+    cosign verify-attestation --type https://cyclonedx.org/bom \
+        --certificate-identity-regexp "$IDENTITY" \
+        --certificate-oidc-issuer "$ISSUER" \
+        "$SUBJECT" > /dev/null \
+        || fail "the SBOM attestation on $SUBJECT does not verify. Do not run this image."
+fi
 
 echo "OK: $SUBJECT is signed by $WORKFLOW in BaryoDev/barakoCMS"
 echo "Run it by digest to be sure you get exactly this image: $SUBJECT"

@@ -1,0 +1,1 @@
+- **Released images now carry the CycloneDX SBOM as a signed attestation, and the GitHub release has the SBOM file attached.** The release workflow attests it to `barako-cms` and `barako-cms-decaf` and fails if it does not verify against the `release.yml` identity. `scripts/verify-image-signature.sh` checks it for release images, and `SECURITY.md` says how to verify an image.
