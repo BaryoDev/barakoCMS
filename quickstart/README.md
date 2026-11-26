@@ -193,7 +193,8 @@ docker compose run --rm --no-deps api db-assert
 docker compose up -d
 ```
 
-Migrations do not run on start. The API creates missing tables but never alters an existing one
+Migrations do not run on start. `db-migrate` creates the tables a release adds, and the API never
+alters an existing one
 (outside Development it runs Marten's `CreateOnly`), so a release that changes a table you already
 have fails to start until its SQL from `migrations/<version>/` in the barakoCMS repository is
 applied. `db-assert` exits 0 when the database holds everything the new build needs, and non-zero

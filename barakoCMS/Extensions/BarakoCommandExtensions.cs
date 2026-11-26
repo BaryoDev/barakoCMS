@@ -76,7 +76,9 @@ public static class BarakoCommandExtensions
 
         try
         {
-            return await MigrationCommand.RunAsync(LedgerFor(store, host.Services.GetService<IConfiguration>()), shipped, args[1..], Console.Out, stop.Token);
+            var configuration = host.Services.GetService<IConfiguration>();
+            return await MigrationCommand.RunAsync(
+                LedgerFor(store, configuration), shipped, args[1..], Console.Out, stop.Token, store, configuration);
         }
         finally
         {

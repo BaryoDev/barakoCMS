@@ -1,3 +1,6 @@
+using Marten;
+using Npgsql;
+
 namespace barakoCMS.Infrastructure.Migrations;
 
 /// <summary>
@@ -9,8 +12,8 @@ internal static class MigrationCommand
 
     private const string Usage =
         """
-        db-migrate                       run every migration the ledger lacks, in order
-        db-migrate --status              list each migration and its state, change nothing
+        db-migrate                       run every migration the ledger lacks, in order, then create missing tables
+        db-migrate --status              list each migration and each missing table, change nothing
         db-migrate --record <key>        record a migration you applied by hand, without running it
         db-migrate --forget <key>        remove a migration's row, after rolling it back by hand
 
@@ -32,12 +35,19 @@ internal static class MigrationCommand
     public static bool IsNamed(string[] args) => args.Length > 0 && args[0] == Name;
 
     /// <param name="args">The arguments after <c>db-migrate</c>.</param>
+    /// <param name="store">
+    /// The store whose missing tables and functions are listed by <c>--status</c> and created after the ledger run.
+    /// Null leaves the schema alone, which is what a test of the ledger alone wants.
+    /// </param>
+    /// <param name="configuration">Read for the schema lock timeout.</param>
     public static async Task<int> RunAsync(
         MigrationLedger ledger,
         IReadOnlyList<ShippedMigration> shipped,
         string[] args,
         TextWriter output,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IDocumentStore? store = null,
+        IConfiguration? configuration = null)
     {
         if (!ledger.SchemaSupported)
         {
@@ -47,7 +57,7 @@ internal static class MigrationCommand
 
         try
         {
-            return await DispatchAsync(ledger, shipped, args, output, ct);
+            return await DispatchAsync(ledger, shipped, args, output, store, configuration, ct);
         }
         catch (InvalidOperationException ex)
         {
@@ -58,14 +68,15 @@ internal static class MigrationCommand
     }
 
     private static Task<int> DispatchAsync(
-        MigrationLedger ledger, IReadOnlyList<ShippedMigration> shipped, string[] args, TextWriter output, CancellationToken ct)
+        MigrationLedger ledger, IReadOnlyList<ShippedMigration> shipped, string[] args, TextWriter output,
+        IDocumentStore? store, IConfiguration? configuration, CancellationToken ct)
     {
         switch (args)
         {
             case []:
-                return ApplyAsync(ledger, shipped, output, ct);
+                return ApplyAsync(ledger, shipped, output, store, configuration, ct);
             case ["--status"]:
-                return StatusAsync(ledger, shipped, output, ct);
+                return StatusAsync(ledger, shipped, output, store, ct);
             case ["--record", var key]:
                 return RecordAsync(ledger, shipped, key, output, ct);
             case ["--forget", var key]:
@@ -77,7 +88,8 @@ internal static class MigrationCommand
     }
 
     private static async Task<int> ApplyAsync(
-        MigrationLedger ledger, IReadOnlyList<ShippedMigration> shipped, TextWriter output, CancellationToken ct)
+        MigrationLedger ledger, IReadOnlyList<ShippedMigration> shipped, TextWriter output, IDocumentStore? store,
+        IConfiguration? configuration, CancellationToken ct)
     {
         var result = await ledger.ApplyAsync(shipped, output.WriteLine, ct);
 
@@ -114,12 +126,13 @@ internal static class MigrationCommand
                 var recorded = shipped.Count - result.Applied.Count - result.Baselined.Count;
                 output.WriteLine(
                     $"{result.Applied.Count} applied, {result.Baselined.Count} baselined, {recorded} already recorded.");
-                return 0;
+                return store is null ? 0 : await MissingSchemaObjects.CreateAndReportAsync(store, configuration, output, ct);
         }
     }
 
     private static async Task<int> StatusAsync(
-        MigrationLedger ledger, IReadOnlyList<ShippedMigration> shipped, TextWriter output, CancellationToken ct)
+        MigrationLedger ledger, IReadOnlyList<ShippedMigration> shipped, TextWriter output,
+        IDocumentStore? store, CancellationToken ct)
     {
         var status = await ledger.StatusAsync(shipped, ct);
 
@@ -138,7 +151,25 @@ internal static class MigrationCommand
 
         WriteChanged(status.In(MigrationState.Changed), output);
 
-        var pending = status.In(MigrationState.Pending).Count;
+        IReadOnlyList<string> missing;
+        try
+        {
+            missing = store is null ? [] : await MissingSchemaObjects.PendingAsync(store, ct);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or NpgsqlException)
+        {
+            output.WriteLine(ct.IsCancellationRequested
+                ? "cancelled  while reading missing schema objects."
+                : $"failed     reading missing schema objects  {MigrationLedger.Describe(ex)}");
+            return 1;
+        }
+
+        foreach (var name in missing)
+        {
+            output.WriteLine($"pending    create {name}  (missing from the database, db-migrate creates it)");
+        }
+
+        var pending = status.In(MigrationState.Pending).Count + missing.Count;
         var notNeeded = status.In(MigrationState.NotNeeded).Count;
         if (pending + notNeeded > 0)
         {
@@ -146,7 +177,7 @@ internal static class MigrationCommand
                 $"{pending} pending, {notNeeded} not needed and not yet recorded. Run db-migrate.");
         }
 
-        return status.Current ? 0 : 1;
+        return status.Current && missing.Count == 0 ? 0 : 1;
     }
 
     private static async Task<int> RecordAsync(

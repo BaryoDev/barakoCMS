@@ -278,7 +278,8 @@ by the module schema preflight.
 
 When a release needs a SQL step, it ships under `migrations/<version>/` and inside the image. From
 4.6.0 the image applies it: `db-migrate`, run as a one-off job in the same form as `db-assert`
-below, runs the files this database has not had and records each in a ledger table.
+below, runs the files this database has not had and records each in a ledger table, then creates any
+table or function the build adds, so `db-assert` does not report a new document type.
 [migrations.md](migrations.md) describes it. The job form on each platform is not tested here. The job runs with the same `AllowedHosts` and
 `InitialAdmin` settings as the service, because the host checks run before the command starts.
 
