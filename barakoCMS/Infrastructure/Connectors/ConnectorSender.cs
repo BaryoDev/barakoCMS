@@ -102,7 +102,8 @@ internal sealed class ConnectorSender(
     IConnectorSecretProtector protector,
     ConnectorTokenCache tokens,
     IConnectorDeliveryLog deliveries,
-    ILogger<ConnectorSender> logger) : IConnectorSender, IConnectorFetcher, IConnectorDeliverySender
+    ILogger<ConnectorSender> logger,
+    barakoCMS.Infrastructure.Http.OutboundAddressGuard guard) : IConnectorSender, IConnectorFetcher, IConnectorDeliverySender
 {
     /// <summary>
     /// The longest one token request may take, from the first byte sent to the last byte read.
@@ -581,6 +582,9 @@ internal sealed class ConnectorSender(
     {
         if (connector.Auth == ConnectorAuth.None) return null;
 
+        if (request.RequestUri is null) return "The request has no URL to check.";
+        if (PlainHttpRefusal(request.RequestUri) is { } refused) return refused;
+
         if (!protector.IsConfigured)
         {
             return "Connectors:Key is not configured, so the stored credential cannot be decrypted.";
@@ -630,6 +634,22 @@ internal sealed class ConnectorSender(
         }
     }
 
+    /// <summary>
+    /// The reason credentials may not go to this URL, or null when they may.
+    /// </summary>
+    /// <remarks>
+    /// Plain http carries a token, a password or a client secret in clear text past every hop on
+    /// the way, so credentials go over it only to this machine or to a host the operator named in
+    /// Webhooks:AllowedHosts, which is a receiver on their own network. Checked where credentials go
+    /// on, so the probe, a send, a fetch, the retry after a new token and the token request all meet
+    /// it, including for rows saved before this check existed. Redirects are off on the client, so
+    /// an https URL cannot be bounced to http after the check.
+    /// </remarks>
+    private string? PlainHttpRefusal(Uri target) =>
+        target.Scheme == Uri.UriSchemeHttp && !target.IsLoopback && !guard.IsListed(target.IdnHost, target.Port)
+            ? "Credentials go only over https, or over http to this machine or a host in Webhooks:AllowedHosts. Use an https URL."
+            : null;
+
     private async Task<string?> SecretAsync(Guid connectorId, string key, CancellationToken ct)
     {
         var stored = await session.Query<ConnectorSecret>()
@@ -662,6 +682,9 @@ internal sealed class ConnectorSender(
         {
             return $"Auth is OAuth2ClientCredentials, so Settings needs '{ConnectorSettingKeys.TokenUrl}' as an absolute http or https URL.";
         }
+
+        // The token request carries the client secret.
+        if (PlainHttpRefusal(tokenUri) is { } refused) return refused;
 
         var clientId = connector.Settings?.GetValueOrDefault(ConnectorSettingKeys.ClientId);
         if (string.IsNullOrWhiteSpace(clientId))

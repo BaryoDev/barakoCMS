@@ -49,6 +49,13 @@ value and it would go somewhere nobody entered it for:
   in the same request. The whole URL is compared, path included, since a token endpoint is one
   exact address.
 
+Credentials go only over `https`. A connector with an `auth` other than `None` sends them over
+plain `http` only to this machine (`localhost`, `127.0.0.0/8`, `::1`) or to a host and port listed
+in `Webhooks:AllowedHosts` (see [webhooks.md](webhooks.md)). Anywhere else the probe, a send, a
+fetch and the token request are refused before a secret is read, and the result says to use an
+`https` URL. The same applies to `settings.TokenUrl`, because the token request carries
+`ClientSecret`. A connector with `auth` set to `None` can still use `http`.
+
 Testing a connector writes only its last test time and result, so a test that is still out when an
 update lands does not undo the update.
 

@@ -283,14 +283,15 @@ internal sealed class OAuthTestScope(IntegrationTestFixture factory) : IAsyncDis
     /// <summary>Stores a client credentials connector and its secret straight into one tenant.</summary>
     internal async Task<Connector> SeedAsync(
         string tenant, FakeProvider provider, string clientSecret,
-        Guid? id = null, DateTime? updatedAt = null, Dictionary<string, string>? settings = null)
+        Guid? id = null, DateTime? updatedAt = null, Dictionary<string, string>? settings = null,
+        string? baseUrl = null)
     {
         var connector = new Connector
         {
             Id = id ?? Guid.NewGuid(),
             Name = "Client credentials",
             Slug = provider.Slug,
-            BaseUrl = provider.BaseUrl,
+            BaseUrl = baseUrl ?? provider.BaseUrl,
             Auth = ConnectorAuth.OAuth2ClientCredentials,
             Settings = settings ?? new()
             {
@@ -372,14 +373,16 @@ internal static class OAuthConnectors
     internal static ConnectorSender Sender(
         IServiceProvider services, IQuerySession session, ConnectorTokenCache cache,
         ILogger<ConnectorSender>? logger = null, TimeSpan? grantTimeout = null,
-        IConnectorDeliveryLog? deliveries = null, TimeSpan? recordTimeout = null, TimeSpan? bodyTimeout = null) =>
+        IConnectorDeliveryLog? deliveries = null, TimeSpan? recordTimeout = null, TimeSpan? bodyTimeout = null,
+        barakoCMS.Infrastructure.Http.OutboundAddressGuard? guard = null) =>
         new(
             services.GetRequiredService<IHttpClientFactory>(),
             session,
             services.GetRequiredService<IConnectorSecretProtector>(),
             cache,
             deliveries ?? services.GetRequiredService<IConnectorDeliveryLog>(),
-            logger ?? new CapturingLogger())
+            logger ?? new CapturingLogger(),
+            guard ?? services.GetRequiredService<barakoCMS.Infrastructure.Http.OutboundAddressGuard>())
         {
             GrantTimeout = grantTimeout ?? TimeSpan.FromSeconds(30),
             RecordTimeout = recordTimeout ?? TimeSpan.FromSeconds(5),
