@@ -148,6 +148,51 @@ The route answers with a `ConsoleCardContent`: `State` (`ok`, `empty` or `unavai
 optional `UpdatedAt`. A console cuts what is longer than text 1000 characters, 12 rows, label 60,
 value 120 and note 200. Core does not serve this type, your route does.
 
+**Visual parts.** A `ConsoleCardContent` can also carry optional visual parts as init properties,
+so the constructor is unchanged: `Stats`, `Series`, `Bars`, `Checks`, `RowsLabel` and `Question`.
+Parts are optional and additive. A console that does not know them ignores them, and a card without
+parts draws as before. A part left null is not written to the JSON. A console reads parts only from
+an `ok` answer, and drops a part that breaks a rule instead of hiding the card. Numbers must be
+finite and 0 or more.
+
+- `Stats`: up to 4 of `ConsoleCardStat(Label, Value, Previous, Format, Total, GoodWhen)`. `Label` is
+  cut to 40 characters. `Format` is `count` (the default) or `percent`. `GoodWhen` is `up`, `down` or
+  null. A stat with another format or `GoodWhen` is dropped.
+- `Series`: one `ConsoleCardSeries(Label, Points, PreviousLabel)` with 2 to 31 points. More than 31
+  drops the series, and so do fewer than 2 valid points. A point is `ConsoleCardPoint(Date, Value,
+  Previous)` with `Date` a real day as `YYYY-MM-DD`. The previous line is drawn only when every point
+  has a `Previous`.
+- `Bars`: one `ConsoleCardBars(Label, Items)` of up to 8 `ConsoleCardBar(Label, Value)`.
+- `Checks`: up to 6 of `ConsoleCardCheck(Label, Tone, Value)`. `Tone` is `ok`, `warn` or `bad`, and a
+  check with another tone is dropped. `Value` is an optional detail of 1 to 120 characters.
+- `RowsLabel`: 1 to 40 characters, default `Details`. It names the disclosure that holds the rows and
+  applies only when a stat, series, bar or check part is drawn. A longer label falls back to the default.
+- `Question`: `ConsoleCardQuestion(Route, Placeholder, MaxLength, MaxTurns)`. `Placeholder` is 1 to 60
+  characters, `MaxLength` a whole number from 1 to 1000 (default 500), `MaxTurns` a whole number from
+  0 to 20 (default 10). `Route` follows the card route rules (so never under `/api/auth`) and must
+  share the card route's first two segments, such as `/api/orders`. A question that breaks a rule is
+  dropped and the rest of the card still draws.
+
+Question box wire contract. The console sends `POST` to the question route with
+`{ "question", "turns", "timeZone" }`. `turns` are earlier exchanges, oldest first, each
+`{ "role": "user" | "assistant", "text" }`, answered exchanges only, at most `MaxTurns`. The console
+drops the oldest turns until the body is under 7 KB. The route answers
+`{ "answer", "refused", "sources"?, "sourceLabels"?, "window"?: { "from", "to", "zone" }, "generatedAt"? }`.
+The console cuts `answer` to 2000 characters and draws it as plain text. Errors show fixed copy:
+429 shows "Try again in N seconds" (`Retry-After` clamped to 1 to 3600, and "Try again shortly." when
+the header is missing), 400 or 413 shows "That was too long. Clear the conversation and try again.",
+and anything else shows "Questions are not available right now." The route enforces its own
+permission and its own rate limit.
+
+```csharp
+new ConsoleCardContent("ok", "Orders today", [new ConsoleCardRow("Open", "3")])
+{
+    Stats = [new ConsoleCardStat("Orders", 42, Previous: 36, GoodWhen: "up")],
+    Checks = [new ConsoleCardCheck("Carrier feed", "ok")],
+    Question = new ConsoleCardQuestion("/api/orders/question", "Search orders"),
+};
+```
+
 A card with a `RefreshLabel` gets a button. Clicking it sends `POST` to the card's route with no body.
 The route answers like its GET with a `ConsoleCardContent`, or with 429 and a `Retry-After` header.
 A route that declares a label must accept POST and enforce the same permission on it. The POST may do

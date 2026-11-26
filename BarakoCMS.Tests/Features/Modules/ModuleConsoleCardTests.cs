@@ -1,3 +1,4 @@
+using System.Text.Json;
 using barakoCMS.Modules;
 using FluentAssertions;
 using Xunit;
@@ -347,5 +348,32 @@ public class ModuleConsoleCardTests
         entry.Name.Should().Be("Reports");
         entry.Enabled.Should().BeTrue();
         entry.Cards.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Console_card_content_parts_default_to_null_and_keep_old_construction()
+    {
+        // Modules answer with the web defaults, which write nulls unless a member opts out.
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var rows = new[] { new ConsoleCardRow("Open", "3") };
+
+        var plain = new ConsoleCardContent("ok", "Fine", rows, "note", DateTimeOffset.UnixEpoch);
+
+        plain.Stats.Should().BeNull();
+        plain.Series.Should().BeNull();
+        plain.Bars.Should().BeNull();
+        plain.Checks.Should().BeNull();
+        plain.RowsLabel.Should().BeNull();
+        plain.Question.Should().BeNull();
+        using var old = JsonDocument.Parse(JsonSerializer.Serialize(plain, web));
+        old.RootElement.EnumerateObject().Select(p => p.Name)
+            .Should().BeEquivalentTo("state", "text", "rows", "note", "updatedAt");
+
+        var withStats = plain with { Stats = [new ConsoleCardStat("Orders", 12, 10, "count", 40, "up")] };
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(withStats, web));
+        json.RootElement.EnumerateObject().Select(p => p.Name)
+            .Should().BeEquivalentTo("state", "text", "rows", "note", "updatedAt", "stats");
+        json.RootElement.GetProperty("stats")[0].EnumerateObject().Select(p => p.Name)
+            .Should().BeEquivalentTo("label", "value", "previous", "format", "total", "goodWhen");
     }
 }
