@@ -1027,7 +1027,7 @@
         "resolved": "16.3.0",
         "contentHash": "SgMOdxbz8X65z8hraIs6hOEdnkH6hESTAIUa7viEngHOYaH+6q5XJmwr1+yb9vJpNQ19hCQY69xbFsLtXpobQA=="
       },
-      "barakocms": {
+      "BarakoCMS": {
         "type": "Project",
         "dependencies": {
           "AspNetCore.HealthChecks.Npgsql": "[9.0.0, )",
@@ -1045,7 +1045,7 @@
           "JasperFx": "[2.102.0, )",
           "KubernetesClient": "[18.0.13, )",
           "Markdig": "[1.6.0, )",
-          "Marten": "[9.62.0, )",
+          "Marten": "[9.63.0, )",
           "Microsoft.Extensions.DependencyModel": "[10.0.15, )",
           "Microsoft.IdentityModel.JsonWebTokens": "[8.23.0, )",
           "OpenTelemetry.Exporter.OpenTelemetryProtocol": "[1.21.0, )",
@@ -1067,7 +1067,7 @@
         "dependencies": {
           "FastEndpoints": "[8.3.0, )",
           "JasperFx": "[2.102.0, )",
-          "Marten": "[9.62.0, )",
+          "Marten": "[9.63.0, )",
           "Microsoft.Extensions.DependencyModel": "[10.0.15, )"
         }
       },
@@ -1198,9 +1198,9 @@
       },
       "Marten": {
         "type": "CentralTransitive",
-        "requested": "[9.62.0, )",
-        "resolved": "9.62.0",
-        "contentHash": "CrsHvX7BwUhyNgcm121wMsjkbLIICeLwsLKKtyQ5lMxinYyCzA5gRnqdbjcW03L5U3a/F851H4nxSjPfUtODnQ==",
+        "requested": "[9.63.0, )",
+        "resolved": "9.63.0",
+        "contentHash": "BQSw2bPiFmGpkatWGwvhp5ufIiZMZo5QrxfVHeSN4m6tByW0eXfEaFueJMxGrDtxLpOAP6uoF4Bsz6f1cGO/1Q==",
         "dependencies": {
           "JasperFx": "2.102.0",
           "JasperFx.Events": "2.102.0",
