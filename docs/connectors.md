@@ -49,6 +49,16 @@ value and it would go somewhere nobody entered it for:
   in the same request. The whole URL is compared, path included, since a token endpoint is one
   exact address.
 
+Credentials go only over `https`. A connector with an `auth` other than `None` sends them over
+plain `http` only to a host and port listed in `Webhooks:AllowedHosts` (see
+[webhooks.md](webhooks.md)). Loopback is not exempt, since the address guard refuses an unlisted
+loopback address anyway. Anywhere else the probe, a send, a fetch and the token request are
+refused before a secret is read, and the result says to use an `https` URL. The same applies to
+`settings.TokenUrl`, because the token request carries `ClientSecret`. A connector with `auth` set
+to `None` can still use `http`. Listing a host also lets that name resolve to a loopback, private
+or carrier-grade address, for webhooks and connectors alike, so list a receiver you run, not a
+public host you only need plain `http` for.
+
 Testing a connector writes only its last test time and result, so a test that is still out when an
 update lands does not undo the update.
 

@@ -145,7 +145,7 @@ A value that is not an array (a single string) allows nothing and logs a warning
 
 An IPv6 address that carries an IPv4 address is judged by the IPv4 address.
 
-The list applies only to webhook delivery, an IP literal in it matches only as written, and an entry with a trailing dot matches nothing.
+The list applies to webhook delivery and to connectors, where a listed host is also the only one that takes credentials over plain `http` (see [connectors.md](connectors.md)). An IP literal in it matches only as written, and an entry with a trailing dot matches nothing.
 
 ## The headers
 

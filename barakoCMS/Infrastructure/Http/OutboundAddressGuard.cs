@@ -111,7 +111,8 @@ internal sealed class OutboundAddressGuard
         return hosts;
     }
 
-    private bool IsListed(string host, int port)
+    /// <summary>Whether an operator named this host and port in <c>Webhooks:AllowedHosts</c>.</summary>
+    public bool IsListed(string host, int port)
     {
         if (!_allowed.TryGetValue(host, out var ports))
             return false;
