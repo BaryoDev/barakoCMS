@@ -188,4 +188,21 @@ public class QuerySystemFieldTests(IntegrationTestFixture factory)
             result.Rows[0]["status"].Should().Be("open", "the field is the type's, not Content.Status");
         }
     }
+
+    [Fact]
+    public async Task A_run_refuses_more_than_fifty_terms_and_a_null_in_a_list()
+    {
+        var (type, session, _) = await SeedAsync();
+        await using var _s = session;
+
+        var wide = await RunAsync(session, new QueryDefinition { ContentType = type, Fields = [.. Enumerable.Repeat("Name", 51)] });
+        wide.Ok.Should().BeFalse();
+        wide.Refusal.Should().Contain("at most 50 fields, filters or measures");
+
+        var nullField = await RunAsync(session, new QueryDefinition { ContentType = type, Fields = ["Name", null!] });
+        nullField.Ok.Should().BeFalse("a null in a list is a refusal, not an exception");
+
+        var nullFilter = await RunAsync(session, new QueryDefinition { ContentType = type, Fields = ["Name"], Filters = [null!] });
+        nullFilter.Ok.Should().BeFalse();
+    }
 }
