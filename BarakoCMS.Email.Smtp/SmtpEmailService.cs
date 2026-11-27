@@ -1,4 +1,5 @@
 using barakoCMS.Core.Interfaces;
+using MailKit;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using Microsoft.Extensions.DependencyInjection;
@@ -185,12 +186,15 @@ public sealed class SmtpEmailService : IEmailService
     /// <see cref="SmtpCommandException"/> with <see cref="SmtpErrorCode.SenderNotAccepted"/> or
     /// <see cref="SmtpErrorCode.RecipientNotAccepted"/>. <see cref="SmtpErrorCode.MessageNotAccepted"/>
     /// is not on the list: MailKit raises it both for a refused DATA command and for a refusal after
-    /// the whole message went over, and the two cannot be told apart. A dropped connection or a
+    /// the whole message went over, and the two cannot be told apart. A 530 (the relay wants a login
+    /// first) is raised as <see cref="SmtpServiceNotAuthenticatedException"/> since MailKit 5, and
+    /// the relay sends it in place of accepting a sender or recipient. A dropped connection or a
     /// timeout during the send is not on it either, since the relay may have queued the message.
     /// </remarks>
     internal static bool NothingSent(Exception ex, bool sending) =>
         !sending
-        || ex is SmtpCommandException { ErrorCode: SmtpErrorCode.SenderNotAccepted or SmtpErrorCode.RecipientNotAccepted };
+        || ex is SmtpCommandException { ErrorCode: SmtpErrorCode.SenderNotAccepted or SmtpErrorCode.RecipientNotAccepted }
+        || ex is SmtpServiceNotAuthenticatedException;
 
     private static ContentType MimeTypeOf(EmailAttachment attachment) =>
         ContentType.TryParse(attachment.ContentType, out var parsed)

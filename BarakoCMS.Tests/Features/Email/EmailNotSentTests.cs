@@ -42,6 +42,18 @@ public class EmailNotSentTests
     }
 
     [Fact]
+    public async Task An_smtp_recipient_refused_for_want_of_a_login_is_not_sent()
+    {
+        using var relay = new FakeSmtpServer(recipientFailure: "530 5.7.0 Authentication required");
+
+        var send = () => Smtp(relay.Port).SendEmailAsync("someone@example.com", "s", "<p>b</p>", Ct);
+
+        var failure = (await send.Should().ThrowAsync<EmailNotSentException>()).Which;
+        failure.Message.Should().Contain("530", "the relay's refusal is named");
+        relay.Messages.Should().BeEmpty("the relay refused before DATA");
+    }
+
+    [Fact]
     public async Task An_smtp_login_refused_is_not_sent_and_keeps_the_password_out()
     {
         using var relay = new FakeSmtpServer(authFailure: $"535 5.7.8 Bad credentials for postmaster/{Password}");
