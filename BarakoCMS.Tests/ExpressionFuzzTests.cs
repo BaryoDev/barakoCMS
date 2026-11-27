@@ -158,7 +158,11 @@ public class ExpressionFuzzTests
 
         foreach (var warm in inputs.Take(300).Concat(Corpus))
         {
-            Run(warm);
+            var checkedWarm = Check(warm);
+            if (checkedWarm.IsValid)
+            {
+                ExpressionEngine.Evaluate(checkedWarm.Expression!, _ => null);
+            }
         }
 
         var failures = new List<string>();
