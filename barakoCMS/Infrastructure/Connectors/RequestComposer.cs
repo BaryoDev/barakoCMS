@@ -77,10 +77,13 @@ internal sealed class RequestComposer(
     /// <summary>What a preview says when it masks the rows of a query, whatever the query matched.</summary>
     internal const string QueryMaskNote = "The rows of the query, and whether the query matches anything, are not shown.";
 
-    /// <summary>The granted fields a preview masks, and whether it masks the rows of the query too.</summary>
-    private sealed record Mask(HashSet<string> Fields, bool Query)
+    /// <summary>
+    /// The granted fields a preview masks. A masked query needs nothing here: its rows are already the
+    /// one row <see cref="SchemaRows"/> made, and every query hole reads from them.
+    /// </summary>
+    private sealed record Mask(HashSet<string> Fields)
     {
-        public static readonly Mask None = new(new(StringComparer.OrdinalIgnoreCase), false);
+        public static readonly Mask None = new(new HashSet<string>(StringComparer.OrdinalIgnoreCase));
     }
 
     /// <summary>Sent when a connector names no header of its own. See <see cref="IdempotencyHeaderName"/>.</summary>
@@ -143,7 +146,7 @@ internal sealed class RequestComposer(
         var refusal = Refuse(templates, schema, grants, content);
         if (refusal is not null) return ComposedRequest.Refused(refusal);
 
-        var mask = await MaskAsync(templates, schema, grants, content, query, mayRead);
+        var mask = await MaskAsync(templates, schema, grants, content, mayRead);
 
         // Path and headers are not JSON, whatever the body is. Escaping a path segment as if it were
         // a JSON string would put backslashes in a URL.
@@ -174,7 +177,7 @@ internal sealed class RequestComposer(
     /// </summary>
     private static async Task<Mask> MaskAsync(
         List<string> templates, ContentTypeDefinition schema, ISet<string> grants, Content content,
-        QueryContext query, FieldReadCheck? mayRead)
+        FieldReadCheck? mayRead)
     {
         if (mayRead is null) return Mask.None;
 
@@ -185,7 +188,7 @@ internal sealed class RequestComposer(
             if (!await mayRead(schema.Name, field, content)) masked.Add(field.Name);
         }
 
-        return new Mask(masked, query.Unreadable);
+        return new Mask(masked);
     }
 
     /// <summary>The headers whose template reads a granted field, or the rows of a query that did.</summary>
@@ -629,11 +632,7 @@ internal sealed class RequestComposer(
         {
             if (name.StartsWith("query.", StringComparison.OrdinalIgnoreCase))
             {
-                if (format is not null) return null;
-                var queryField = name["query.".Length..];
-                return mask.Query
-                    ? MaskedQuery(queryField, queryRows, escaping)
-                    : SubstituteQuery(queryField, queryRows, escaping);
+                return format is null ? SubstituteQuery(name["query.".Length..], queryRows, escaping) : null;
             }
 
             if (mask.Fields.Count > 0 && mask.Fields.Contains(TemplateHoles.Bare(name).Split('.', 2)[0]))
@@ -676,15 +675,6 @@ internal sealed class RequestComposer(
         Escaping.Url => Uri.EscapeDataString(value),
         _ => value,
     };
-
-    /// <summary>
-    /// A query hole the previewer may not read. <paramref name="rows"/> is already the one schema row
-    /// <see cref="SchemaRows"/> made, so the body stays JSON and nothing in it comes from the data.
-    /// </summary>
-    private static string MaskedQuery(string field, IReadOnlyList<Dictionary<string, object>> rows, Escaping escaping) =>
-        string.Equals(field, "rows", StringComparison.OrdinalIgnoreCase)
-            ? SubstituteQuery("rows", rows, escaping)
-            : Escape(MaskText, escaping);
 
     /// <summary>
     /// The rows a masked query hole shows: exactly one, with a key for each field the definition
