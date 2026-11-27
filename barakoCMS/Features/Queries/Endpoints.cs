@@ -332,6 +332,26 @@ internal sealed class SaveQueryEndpoint(
         }
         var definition = existing ?? new QueryDefinition { Id = Guid.NewGuid(), Slug = req.Slug.ToLowerInvariant() };
 
+        CopyFrom(definition, req);
+
+        var refusal = await RefusalForAsync(definition, ct);
+        if (refusal is not null)
+        {
+            ThrowError(refusal, 400);
+            return;
+        }
+
+        session.Store(definition);
+
+        await RecordAsync(definition, existing is null || replacesDeleted, ct);
+
+        await session.SaveChangesAsync(ct);
+
+        await Send.ResponseAsync(QueryResponse.From(definition), cancellation: ct);
+    }
+
+    private static void CopyFrom(QueryDefinition definition, SaveQueryRequest req)
+    {
         definition.Name = req.Name.Trim();
         definition.ContentType = req.ContentType.Trim();
         definition.Filters = req.Filters;
@@ -343,13 +363,17 @@ internal sealed class SaveQueryEndpoint(
         definition.GroupBy = req.GroupBy;
         definition.Measures = req.Measures;
         definition.UpdatedAt = DateTime.UtcNow;
+    }
 
-        // Validated against the schema before it is stored, so an unknown or non-Public field is a
-        // 400 while the operator is still looking at the form, rather than a workflow that fails
-        // later with a message about a field they thought they had.
-        // An aggregate is checked against what this caller may read, since its figures are computed
-        // under the reader's rules, and returns no rows for a projection to name.
-        var refusal = definition.IsAggregate
+    /// <summary>
+    /// Why the query cannot be stored, or null. It is validated against the schema before it is
+    /// stored, so an unknown or non-Public field is a 400 while the operator is still looking at the
+    /// form, rather than a workflow that fails later with a message about a field they thought they
+    /// had. An aggregate is checked against what this caller may read, since its figures are
+    /// computed under the reader's rules, and returns no rows for a projection to name.
+    /// </summary>
+    private async Task<string?> RefusalForAsync(QueryDefinition definition, CancellationToken ct) =>
+        definition.IsAggregate
             ? (await new Run.AggregateQuery(session, permissions, sensitivity)
                 .RunAsync(definition, User, null, null, execute: false, ct)).Refusal
             : await QueryForms.NeedsAContextAsync(session, definition, ct)
@@ -358,17 +382,12 @@ internal sealed class SaveQueryEndpoint(
                 ? await contextRunner.ValidateAsync(
                     definition, new QueryRunContext(null) { AsActor = true, Actor = QueryForms.UserIdOf(User) }, ct)
                 : await runner.ValidateAsync(definition, ct);
-        if (refusal is not null)
-        {
-            ThrowError(refusal, 400);
-            return;
-        }
 
-        session.Store(definition);
-
+    private Task RecordAsync(QueryDefinition definition, bool created, CancellationToken ct)
+    {
         var actorId = ActingCaller.IdOf(User);
-        await AuditLog.RecordAsync(session, tenant.Slug,
-            existing is null || replacesDeleted ? "query.created" : "query.updated",
+        return AuditLog.RecordAsync(session, tenant.Slug,
+            created ? "query.created" : "query.updated",
             actorId, User.FindFirst("Username")?.Value,
             targetType: nameof(QueryDefinition), targetId: definition.Id.ToString(),
             metadata: new Dictionary<string, object>
@@ -379,10 +398,6 @@ internal sealed class SaveQueryEndpoint(
                 ["fields"] = string.Join(", ", definition.Fields),
                 ["limit"] = definition.Limit,
             }, ct: ct);
-
-        await session.SaveChangesAsync(ct);
-
-        await Send.ResponseAsync(QueryResponse.From(definition), cancellation: ct);
     }
 }
 
@@ -570,13 +585,7 @@ internal sealed class PreviewQueryEndpoint(
                 definition,
                 new QueryRunContext(req.Parameters) { AsActor = true, Actor = QueryForms.UserIdOf(User) }, ct);
 
-            await Send.ResponseAsync(new QueryPreviewResponse
-            {
-                Ok = shown.Ok,
-                Refusal = shown.Refusal,
-                Count = shown.Count,
-                Rows = shown.Rows,
-            }, cancellation: ct);
+            await Send.ResponseAsync(PreviewOf(shown), cancellation: ct);
             return;
         }
 
@@ -598,12 +607,14 @@ internal sealed class PreviewQueryEndpoint(
 
         var result = await runner.RunAsync(definition, ct);
 
-        await Send.ResponseAsync(new QueryPreviewResponse
-        {
-            Ok = result.Ok,
-            Refusal = result.Refusal,
-            Count = result.Count,
-            Rows = result.Rows,
-        }, cancellation: ct);
+        await Send.ResponseAsync(PreviewOf(result), cancellation: ct);
     }
+
+    private static QueryPreviewResponse PreviewOf(QueryResult result) => new()
+    {
+        Ok = result.Ok,
+        Refusal = result.Refusal,
+        Count = result.Count,
+        Rows = result.Rows,
+    };
 }

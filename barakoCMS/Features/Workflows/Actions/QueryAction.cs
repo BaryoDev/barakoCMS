@@ -57,32 +57,10 @@ internal sealed class QueryAction(
 
     public async Task<WorkflowActionResult> RunAsync(WorkflowContext context, CancellationToken ct)
     {
-        var slug = context.Parameters.GetValueOrDefault(SlugParameter);
-        if (string.IsNullOrWhiteSpace(slug))
-        {
-            return WorkflowActionResult.PermanentFailure("No 'Query' parameter names a saved query.");
-        }
+        var (definition, slug, refused) = await LoadAsync(context, ct);
+        if (refused is not null) return refused;
 
-        if (!Slugs.IsValid(slug))
-        {
-            return WorkflowActionResult.PermanentFailure("The 'Query' parameter is not a saved query name. A name is lowercase letters, digits and hyphens.");
-        }
-
-        // One tenant for the whole step. The session is the run's own, so this holds unless a host
-        // wired it otherwise, and then nothing is read.
-        if (!string.Equals(TenantScopes.SlugFor(session.TenantId), context.TenantId, StringComparison.Ordinal))
-        {
-            return WorkflowActionResult.PermanentFailure("The query was not run, because this step was not given the tenant of its run.");
-        }
-
-        var definition = await session.Query<QueryDefinition>()
-            .FirstOrDefaultAsync(q => q.Slug == slug && q.DeletedAt == null, ct);
-        if (definition is null)
-        {
-            return WorkflowActionResult.PermanentFailure($"The saved query '{slug}' does not exist.");
-        }
-
-        var (values, problem) = Bind(definition, context);
+        var (values, problem) = Bind(definition!, context);
         if (problem is not null)
         {
             return WorkflowActionResult.Failure($"Query '{slug}': {problem}");
@@ -96,7 +74,7 @@ internal sealed class QueryAction(
         try
         {
             result = await runner.RunAsync(
-                definition, new QueryRunContext(values) { AsActor = true, Actor = actor }, ct);
+                definition!, new QueryRunContext(values) { AsActor = true, Actor = actor }, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -109,10 +87,45 @@ internal sealed class QueryAction(
         {
             // A refusal is the same answer when asked again, so it is not retried. A run that took too
             // long may not be, so that one is.
-            var refused = $"Query '{slug}': {result.Refusal}";
-            return result.TimedOut ? WorkflowActionResult.Failure(refused) : WorkflowActionResult.PermanentFailure(refused);
+            var refusal = $"Query '{slug}': {result.Refusal}";
+            return result.TimedOut ? WorkflowActionResult.Failure(refusal) : WorkflowActionResult.PermanentFailure(refusal);
         }
 
+        return OutputsFrom(slug!, definition!, result);
+    }
+
+    /// <summary>The saved query the step names, or the failure that ends the step: no name, a bad name, another tenant, or no such query.</summary>
+    private async Task<(QueryDefinition? Definition, string? Slug, WorkflowActionResult? Failure)> LoadAsync(
+        WorkflowContext context, CancellationToken ct)
+    {
+        var slug = context.Parameters.GetValueOrDefault(SlugParameter);
+        if (string.IsNullOrWhiteSpace(slug))
+        {
+            return (null, null, WorkflowActionResult.PermanentFailure("No 'Query' parameter names a saved query."));
+        }
+
+        if (!Slugs.IsValid(slug))
+        {
+            return (null, slug, WorkflowActionResult.PermanentFailure("The 'Query' parameter is not a saved query name. A name is lowercase letters, digits and hyphens."));
+        }
+
+        // One tenant for the whole step. The session is the run's own, so this holds unless a host
+        // wired it otherwise, and then nothing is read.
+        if (!string.Equals(TenantScopes.SlugFor(session.TenantId), context.TenantId, StringComparison.Ordinal))
+        {
+            return (null, slug, WorkflowActionResult.PermanentFailure("The query was not run, because this step was not given the tenant of its run."));
+        }
+
+        var definition = await session.Query<QueryDefinition>()
+            .FirstOrDefaultAsync(q => q.Slug == slug && q.DeletedAt == null, ct);
+        return definition is null
+            ? (null, slug, WorkflowActionResult.PermanentFailure($"The saved query '{slug}' does not exist."))
+            : (definition, slug, null);
+    }
+
+    /// <summary>The first row's selected fields as the step's outputs, or the failure when a name or a value cannot be handed on.</summary>
+    private static WorkflowActionResult OutputsFrom(string slug, QueryDefinition definition, QueryResult result)
+    {
         var names = new List<string>();
         foreach (var field in definition.Fields)
         {

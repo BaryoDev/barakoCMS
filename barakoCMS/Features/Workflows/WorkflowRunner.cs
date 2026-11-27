@@ -1187,8 +1187,7 @@ internal sealed class WorkflowRunner(
             {
                 Parameters = resolved,
                 Content = content,
-                TriggerEvent = run.TriggerEvent,
-                EventSequence = run.TriggeringEventSequence,
+                TriggerEvent = run.TriggerEvent, EventSequence = run.TriggeringEventSequence,
                 TenantId = TenantScopes.SlugFor(tenantId),
                 Outputs = outputs, ProducedFiles = ActionOutputs.KeptFiles(run), Ordinal = attempt.Ordinal, Undoing = undo,
             }, ct);

@@ -201,63 +201,12 @@ internal sealed class QueryRunner(
             return Refuse($"Content type '{Safe(definition.ContentType)}' does not exist.");
         }
 
-        // Public only, which is the same allowlist the anonymous delivery filters use and load
-        // bearing for the same reason: filtering on a field the result cannot show is an oracle. A
-        // workflow author could binary-search a Sensitive salary by watching how many rows come
-        // back, without the value ever appearing in a payload.
-        // When the run reads as a user, the allowlist is what that user may read, by the same service
-        // that masks the same fields on a read. Without a user it is the Public fields.
-        Reader? reader = null;
-        if (context?.AsActor == true)
-        {
-            if (permissions is null || sensitivity is null)
-            {
-                return Refuse("Reads as a user cannot be checked here, so the query was not run.");
-            }
+        var (reader, readerRefusal) = await ReaderForAsync(schema, context, ct);
+        if (readerRefusal is not null) return Refuse(readerRefusal);
 
-            User? user = null;
-            if (context.Actor != Guid.Empty)
-            {
-                user = await session.LoadAsync<User>(context.Actor, ct);
-                if (user is null) return Refuse("The user this run reads as no longer exists.");
-            }
+        var allowed = await AllowedFieldsAsync(schema, reader, ct);
 
-            reader = new Reader(user, permissions, sensitivity, branches);
-            if (!await reader.MayReadTypeAsync(schema.Name, ct))
-            {
-                return Refuse($"The user this run reads as may not read '{Safe(schema.Name)}'.");
-            }
-        }
-
-        var allowed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var f in schema.Fields)
-        {
-            if (reader is null
-                    ? f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f)
-                    : await reader.MayReadFieldAsync(schema.Name, f, ct))
-            {
-                allowed[f.Name] = f.Type ?? string.Empty;
-            }
-        }
-
-        // Null, not just empty. A request binding `filters` or `fields` to null reaches here, and
-        // dereferencing it would throw out of an endpoint whose job is to answer 400 with a reason.
-        if (definition.Filters is null || definition.Fields is null)
-        {
-            return Refuse("Filters and Fields must be present, even if Filters is empty.");
-        }
-
-        if (definition.Filters.Any(f => f is null) || definition.Fields.Any(string.IsNullOrWhiteSpace))
-        {
-            return Refuse("Every filter needs a field and every field a name.");
-        }
-
-        // The text form stops at this many terms, and so does the list form: each dotted field costs
-        // a read of its own below, outside the statement's time limit.
-        if (QueryText.TermRefusal(definition.Fields.Count, definition.Filters.Count, definition.Measures?.Count ?? 0) is { } tooMany)
-        {
-            return Refuse(tooMany);
-        }
+        if (ListsRefusal(definition) is { } listsRefusal) return Refuse(listsRefusal);
 
         var filterRefusal = ValidateFilters(definition, schema, allowed, context);
         if (filterRefusal is not null)
@@ -279,22 +228,8 @@ internal sealed class QueryRunner(
             return Refuse("Fields must name at least one field. A query with no projection would send whatever the schema grows.");
         }
 
-        Dictionary<string, Followed>? follows = null;
-        foreach (var field in definition.Fields)
-        {
-            if (field.Contains('.') && context is not null)
-            {
-                var (followed, refusal) = await FollowAsync(field, schema, allowed, reader, ct);
-                if (refusal is not null) return Refuse(refusal);
-                (follows ??= new(StringComparer.Ordinal))[field] = followed!;
-                continue;
-            }
-
-            if (!allowed.ContainsKey(field) && !IsSystem(schema, field, context))
-            {
-                return Refuse(Unknown(field, allowed, schema.Name, "returned from"));
-            }
-        }
+        var (follows, fieldRefusal) = await CheckFieldsAsync(definition, schema, allowed, reader, context, ct);
+        if (fieldRefusal is not null) return Refuse(fieldRefusal);
 
         if (definition.Limit is < 1 or > QueryDefinition.MaxLimit)
         {
@@ -302,6 +237,98 @@ internal sealed class QueryRunner(
         }
 
         return new Checked(null, schema, allowed, reader, follows);
+    }
+
+    /// <summary>
+    /// Who the run reads as, or why it cannot. Public only, which is the same allowlist the anonymous
+    /// delivery filters use and load bearing for the same reason: filtering on a field the result
+    /// cannot show is an oracle. A workflow author could binary-search a Sensitive salary by watching
+    /// how many rows come back, without the value ever appearing in a payload. When the run reads as
+    /// a user, the allowlist is what that user may read, by the same service that masks the same
+    /// fields on a read. Without a user it is the Public fields.
+    /// </summary>
+    private async Task<(Reader? Reader, string? Refusal)> ReaderForAsync(ContentTypeDefinition schema, QueryRunContext? context, CancellationToken ct)
+    {
+        if (context?.AsActor != true) return (null, null);
+
+        if (permissions is null || sensitivity is null)
+        {
+            return (null, "Reads as a user cannot be checked here, so the query was not run.");
+        }
+
+        User? user = null;
+        if (context.Actor != Guid.Empty)
+        {
+            user = await session.LoadAsync<User>(context.Actor, ct);
+            if (user is null) return (null, "The user this run reads as no longer exists.");
+        }
+
+        var reader = new Reader(user, permissions, sensitivity, branches);
+        return await reader.MayReadTypeAsync(schema.Name, ct)
+            ? (reader, null)
+            : (null, $"The user this run reads as may not read '{Safe(schema.Name)}'.");
+    }
+
+    /// <summary>The fields of the type this run may name, with their types: what the reader may read, or the Public ones.</summary>
+    private static async Task<Dictionary<string, string>> AllowedFieldsAsync(ContentTypeDefinition schema, Reader? reader, CancellationToken ct)
+    {
+        var allowed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in schema.Fields)
+        {
+            if (reader is null
+                    ? f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f)
+                    : await reader.MayReadFieldAsync(schema.Name, f, ct))
+            {
+                allowed[f.Name] = f.Type ?? string.Empty;
+            }
+        }
+
+        return allowed;
+    }
+
+    /// <summary>Why the lists of the query cannot be used: null lists, null entries, or more terms than a query may hold.</summary>
+    private static string? ListsRefusal(QueryDefinition definition)
+    {
+        // Null, not just empty. A request binding `filters` or `fields` to null reaches here, and
+        // dereferencing it would throw out of an endpoint whose job is to answer 400 with a reason.
+        if (definition.Filters is null || definition.Fields is null)
+        {
+            return "Filters and Fields must be present, even if Filters is empty.";
+        }
+
+        if (definition.Filters.Any(f => f is null) || definition.Fields.Any(string.IsNullOrWhiteSpace))
+        {
+            return "Every filter needs a field and every field a name.";
+        }
+
+        // The text form stops at this many terms, and so does the list form: each dotted field costs
+        // a read of its own below, outside the statement's time limit.
+        return QueryText.TermRefusal(definition.Fields.Count, definition.Filters.Count, definition.Measures?.Count ?? 0);
+    }
+
+    /// <summary>Checks each selected field: a followed reference is resolved, anything else must be allowed or a system field.</summary>
+    private async Task<(Dictionary<string, Followed>? Follows, string? Refusal)> CheckFieldsAsync(
+        QueryDefinition definition, ContentTypeDefinition schema, Dictionary<string, string> allowed,
+        Reader? reader, QueryRunContext? context, CancellationToken ct)
+    {
+        Dictionary<string, Followed>? follows = null;
+        foreach (var field in definition.Fields)
+        {
+            if (field.Contains('.') && context is not null)
+            {
+                var (followed, refusal) = await FollowAsync(field, schema, allowed, reader, ct);
+                if (refusal is not null) return (null, refusal);
+                (follows ??= new(StringComparer.Ordinal))[field] = followed!;
+                continue;
+            }
+
+            if (!allowed.ContainsKey(field) && !IsSystem(schema, field, context))
+            {
+                return (null, Unknown(field, allowed, schema.Name, "returned from"));
+            }
+        }
+
+        return (follows, null);
     }
 
     /// <summary>
@@ -416,81 +443,10 @@ internal sealed class QueryRunner(
             .Where(barakoCMS.Core.ContentTypeName.Named(definition.ContentType)).ToListAsync(ct);
         var schema = barakoCMS.Core.ContentTypeName.Pick(named, definition.ContentType)!;
 
-        var typeOf = schema.Fields.ToDictionary(f => f.Name, f => f.Type ?? string.Empty, StringComparer.OrdinalIgnoreCase);
-        var canonical = schema.Fields.ToDictionary(f => f.Name, f => f.Name, StringComparer.OrdinalIgnoreCase);
-        var lists = DeliveryQuery.ListFields(schema);
-
-        // The schema's own spelling. Rows are stored as their creator spelled the type, so with one
-        // stored type the match ignores case. With a sibling that differs only by case, the match is
-        // exact, or a query for one type would return the rows of the other.
-        var exactName = schema.Name;
-        var typeName = exactName.ToLower();
-        var query = named.Count > 1
-            ? session.Query<Content>().Where(c => c.ContentType == exactName)
-            : session.Query<Content>().Where(c => c.ContentType.ToLower() == typeName);
-
-        // An entry this reader may not see at all is not matched, counted or taken by the limit. It
-        // is left out by its level, which no field value decides, so leaving it out says nothing
-        // about any value. The read of each entry asks the same question again below.
-        if (check.Reader is { } seeing)
-        {
-            foreach (var level in await seeing.HiddenLevelsAsync(ct))
-            {
-                var withheld = level;
-                query = query.Where(c => c.Sensitivity != withheld);
-            }
-        }
-
-        foreach (var filter in definition.Filters)
-        {
-            if (IsSystem(schema, filter.Field, context))
-            {
-                var text = filter.Value;
-                if (filter.Param is not null)
-                {
-                    var (raw, missing) = QueryParameters.Raw(filter.Param, context.Values);
-                    if (missing is not null) return QueryResult.Refused(missing);
-                    text = raw!;
-                }
-
-                var (narrowed, refusal) = SystemFilter(query, filter.Field, Ops[filter.Op], text, filter.Param);
-                if (refusal is not null) return QueryResult.Refused(refusal);
-                query = narrowed!;
-                continue;
-            }
-
-            var type = typeOf[filter.Field];
-            var value = filter.Value;
-            if (filter.Param is not null)
-            {
-                var (bound, refusal) = QueryParameters.Bind(filter.Param, type, context?.Values);
-                if (refusal is not null) return QueryResult.Refused(refusal);
-                value = bound!;
-            }
-
-            // The schema's own spelling, never the stored one, so what reaches the builder can only
-            // be a string the content type already declared.
-            var built = new DeliveryFilter(
-                canonical[filter.Field], Ops[filter.Op], value, type, lists.Contains(filter.Field));
-
-            var (sql, parameters) = DeliveryQuery.ToSql(built);
-            query = query.Where(c => c.MatchesSql(sql, parameters));
-        }
-
-        if (!string.IsNullOrWhiteSpace(definition.SortField))
-        {
-            query = IsSystem(schema, definition.SortField, context)
-                ? SystemOrder(query, definition.SortField, definition.Descending)
-                : query.OrderBySql(
-                    DeliveryQuery.ToOrderBySql(new DeliverySort(canonical[definition.SortField], definition.Descending)));
-        }
-        else if (context is not null)
-        {
-            // A run with a context always has an order, so two runs of the same text over the same
-            // entries return the same first row: newest first, and the id breaks a tie. A schema sort
-            // above already ends on the id, and a system sort adds it.
-            query = query.OrderByDescending(c => c.CreatedAt).ThenBy(c => c.Id);
-        }
+        var scoped = await ScopedQueryAsync(named, schema, check.Reader, ct);
+        var (filtered, filterRefusal) = ApplyFilters(scoped, definition, schema, context);
+        if (filterRefusal is not null) return QueryResult.Refused(filterRefusal);
+        var query = Ordered(filtered!, definition, schema, context);
 
         // Validated above, so the limit is already known to be within the ceiling. There used to be
         // a Math.Clamp here as a second guard, and it was unreachable: ValidateAsync refuses an
@@ -512,60 +468,9 @@ internal sealed class QueryRunner(
             }
             else
             {
-                // The fields this reader may name were decided before any row was read, so no row can
-                // change whether the run is refused. What is left to drop is an entry a read rule or
-                // a branch withholds, and the limit is counted over the entries that are kept.
-                var selected = definition.Fields.Select(f => f.Contains('.') ? f[..f.IndexOf('.')] : f)
-                    .Where(n => !IsSystem(schema, n, context))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                rows = new List<Content>(Math.Min(definition.Limit, 64));
-                var offset = 0;
-                while (rows.Count < definition.Limit)
-                {
-                    var page = await query.Skip(offset).Take(definition.Limit).ToListAsync(limit.Token);
-                    if (page.Count == 0) break;
-                    offset += page.Count;
-
-                    foreach (var row in page)
-                    {
-                        // An entry the reader may not read is left out, the same as one that is not there.
-                        if (await reader.ShownAsync(row, limit.Token) is not { } shown) continue;
-
-                        // A defence, not a rule: every selected field passed the check above, so a
-                        // masked one means that check missed a case. Nothing is dropped silently.
-                        foreach (var name in selected)
-                        {
-                            if (!Reader.Unchanged(row, shown, name)) return Missed(definition, name);
-                        }
-
-                        rows.Add(row);
-                        if (rows.Count == definition.Limit) break;
-                    }
-
-                    if (page.Count < definition.Limit) break;
-                }
-
-                var followed = await FollowedEntriesAsync(rows, check.Follows, reader, limit.Token);
-                targets = followed?.Entries;
-
-                if (followed is not null && check.Follows is not null)
-                {
-                    foreach (var row in rows)
-                    {
-                        foreach (var follow in check.Follows.Values)
-                        {
-                            var target = ReferenceId(row, follow);
-                            if (followed.Entries.TryGetValue(target, out var entry)
-                                && string.Equals(entry.ContentType, follow.Target.Name, StringComparison.OrdinalIgnoreCase)
-                                && followed.Masked.Contains((target, follow.Field.Name.ToLowerInvariant())))
-                            {
-                                return Missed(definition, follow.Reference.Name + "." + follow.Field.Name);
-                            }
-                        }
-                    }
-                }
+                var read = await ReadAsReaderAsync(query, definition, schema, check, reader, context, limit.Token);
+                if (read.Refusal is not null) return read.Refusal;
+                (rows, targets) = (read.Rows, read.Targets);
             }
         }
         catch (Exception e) when (!ct.IsCancellationRequested && TimedOut(e))
@@ -574,6 +479,200 @@ internal sealed class QueryRunner(
                 $"The query took longer than {timeout.TotalSeconds:0.##} seconds and was stopped. Narrow it with a filter.") with { TimedOut = true };
         }
 
+        return new QueryResult(Project(rows, definition, schema, check, targets, context), null) { Ids = [.. rows.Select(r => r.Id)] };
+    }
+
+    /// <summary>The entries of the type, less any this reader may not see at all by their level.</summary>
+    private async Task<IQueryable<Content>> ScopedQueryAsync(
+        IReadOnlyList<ContentTypeDefinition> named, ContentTypeDefinition schema, Reader? reader, CancellationToken ct)
+    {
+        // The schema's own spelling. Rows are stored as their creator spelled the type, so with one
+        // stored type the match ignores case. With a sibling that differs only by case, the match is
+        // exact, or a query for one type would return the rows of the other.
+        var exactName = schema.Name;
+        var typeName = exactName.ToLower();
+        var query = named.Count > 1
+            ? session.Query<Content>().Where(c => c.ContentType == exactName)
+            : session.Query<Content>().Where(c => c.ContentType.ToLower() == typeName);
+
+        // An entry this reader may not see at all is not matched, counted or taken by the limit. It
+        // is left out by its level, which no field value decides, so leaving it out says nothing
+        // about any value. The read of each entry asks the same question again below.
+        if (reader is { } seeing)
+        {
+            foreach (var level in await seeing.HiddenLevelsAsync(ct))
+            {
+                var withheld = level;
+                query = query.Where(c => c.Sensitivity != withheld);
+            }
+        }
+
+        return query;
+    }
+
+    /// <summary>The schema's own spelling of each field, found by any case.</summary>
+    private static Dictionary<string, string> CanonicalNames(ContentTypeDefinition schema) =>
+        schema.Fields.ToDictionary(f => f.Name, f => f.Name, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The query narrowed by each filter, or why a filter cannot be applied.</summary>
+    private static (IQueryable<Content>? Query, string? Refusal) ApplyFilters(
+        IQueryable<Content> query, QueryDefinition definition, ContentTypeDefinition schema, QueryRunContext? context)
+    {
+        var typeOf = schema.Fields.ToDictionary(f => f.Name, f => f.Type ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+        var canonical = CanonicalNames(schema);
+        var lists = DeliveryQuery.ListFields(schema);
+
+        foreach (var filter in definition.Filters)
+        {
+            if (IsSystem(schema, filter.Field, context))
+            {
+                var (narrowed, systemRefusal) = ApplySystemFilter(query, filter, context!);
+                if (systemRefusal is not null) return (null, systemRefusal);
+                query = narrowed!;
+                continue;
+            }
+
+            var type = typeOf[filter.Field];
+            var value = filter.Value;
+            if (filter.Param is not null)
+            {
+                var (bound, refusal) = QueryParameters.Bind(filter.Param, type, context?.Values);
+                if (refusal is not null) return (null, refusal);
+                value = bound!;
+            }
+
+            // The schema's own spelling, never the stored one, so what reaches the builder can only
+            // be a string the content type already declared.
+            var built = new DeliveryFilter(
+                canonical[filter.Field], Ops[filter.Op], value, type, lists.Contains(filter.Field));
+
+            var (sql, parameters) = DeliveryQuery.ToSql(built);
+            query = query.Where(c => c.MatchesSql(sql, parameters));
+        }
+
+        return (query, null);
+    }
+
+    /// <summary>A filter on id, status or a date: the value is the filter's or the run's parameter, and read as that kind of value.</summary>
+    private static (IQueryable<Content>? Query, string? Refusal) ApplySystemFilter(
+        IQueryable<Content> query, QueryFilter filter, QueryRunContext context)
+    {
+        var text = filter.Value;
+        if (filter.Param is not null)
+        {
+            var (raw, missing) = QueryParameters.Raw(filter.Param, context.Values);
+            if (missing is not null) return (null, missing);
+            text = raw!;
+        }
+
+        return SystemFilter(query, filter.Field, Ops[filter.Op], text, filter.Param);
+    }
+
+    private static IQueryable<Content> Ordered(
+        IQueryable<Content> query, QueryDefinition definition, ContentTypeDefinition schema, QueryRunContext? context)
+    {
+        if (!string.IsNullOrWhiteSpace(definition.SortField))
+        {
+            return IsSystem(schema, definition.SortField, context)
+                ? SystemOrder(query, definition.SortField, definition.Descending)
+                : query.OrderBySql(
+                    DeliveryQuery.ToOrderBySql(new DeliverySort(CanonicalNames(schema)[definition.SortField], definition.Descending)));
+        }
+
+        // A run with a context always has an order, so two runs of the same text over the same
+        // entries return the same first row: newest first, and the id breaks a tie. A schema sort
+        // above already ends on the id, and a system sort adds it.
+        return context is not null ? query.OrderByDescending(c => c.CreatedAt).ThenBy(c => c.Id) : query;
+    }
+
+    /// <summary>The rows a reader may read, the entries their references point at, or a refusal when a read masks a field the check let through.</summary>
+    private async Task<(List<Content> Rows, Dictionary<Guid, Content>? Targets, QueryResult? Refusal)> ReadAsReaderAsync(
+        IQueryable<Content> query, QueryDefinition definition, ContentTypeDefinition schema, Checked check,
+        Reader reader, QueryRunContext? context, CancellationToken ct)
+    {
+        var (rows, missed) = await KeepReadableAsync(query, definition, schema, reader, context, ct);
+        if (missed is not null) return (rows, null, Missed(definition, missed));
+
+        var followed = await FollowedEntriesAsync(rows, check.Follows, reader, ct);
+        if (MaskedFollow(rows, check.Follows, followed) is { } masked) return (rows, null, Missed(definition, masked));
+
+        return (rows, followed?.Entries, null);
+    }
+
+    /// <summary>
+    /// Pages through the matches and keeps the entries this reader may read, up to the limit. The
+    /// fields this reader may name were decided before any row was read, so no row can change
+    /// whether the run is refused. What is left to drop is an entry a read rule or a branch
+    /// withholds, and the limit is counted over the entries that are kept. The name of a selected
+    /// field that a read shows masked is returned with the rows.
+    /// </summary>
+    private static async Task<(List<Content> Rows, string? Missed)> KeepReadableAsync(
+        IQueryable<Content> query, QueryDefinition definition, ContentTypeDefinition schema,
+        Reader reader, QueryRunContext? context, CancellationToken ct)
+    {
+        var selected = definition.Fields.Select(f => f.Contains('.') ? f[..f.IndexOf('.')] : f)
+            .Where(n => !IsSystem(schema, n, context))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var rows = new List<Content>(Math.Min(definition.Limit, 64));
+        var offset = 0;
+        while (rows.Count < definition.Limit)
+        {
+            var page = await query.Skip(offset).Take(definition.Limit).ToListAsync(ct);
+            if (page.Count == 0) break;
+            offset += page.Count;
+
+            foreach (var row in page)
+            {
+                // An entry the reader may not read is left out, the same as one that is not there.
+                if (await reader.ShownAsync(row, ct) is not { } shown) continue;
+
+                // A defence, not a rule: every selected field passed the check above, so a
+                // masked one means that check missed a case. Nothing is dropped silently.
+                foreach (var name in selected)
+                {
+                    if (!Reader.Unchanged(row, shown, name)) return (rows, name);
+                }
+
+                rows.Add(row);
+                if (rows.Count == definition.Limit) break;
+            }
+
+            if (page.Count < definition.Limit) break;
+        }
+
+        return (rows, null);
+    }
+
+    /// <summary>The followed field a read shows masked on some row, as Reference.Field, or null.</summary>
+    private static string? MaskedFollow(List<Content> rows, Dictionary<string, Followed>? follows, FollowedSet? followed)
+    {
+        if (followed is null || follows is null) return null;
+
+        foreach (var row in rows)
+        {
+            foreach (var follow in follows.Values)
+            {
+                var target = ReferenceId(row, follow);
+                if (followed.Entries.TryGetValue(target, out var entry)
+                    && string.Equals(entry.ContentType, follow.Target.Name, StringComparison.OrdinalIgnoreCase)
+                    && followed.Masked.Contains((target, follow.Field.Name.ToLowerInvariant())))
+                {
+                    return follow.Reference.Name + "." + follow.Field.Name;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The selected fields of each row, by the name the query gave, with the schema's spelling for a stored value.</summary>
+    private static List<Dictionary<string, object>> Project(
+        List<Content> rows, QueryDefinition definition, ContentTypeDefinition schema, Checked check,
+        Dictionary<Guid, Content>? targets, QueryRunContext? context)
+    {
+        var canonical = CanonicalNames(schema);
         var projected = new List<Dictionary<string, object>>(rows.Count);
         foreach (var row in rows)
         {
@@ -608,7 +707,7 @@ internal sealed class QueryRunner(
             projected.Add(item);
         }
 
-        return new QueryResult(projected, null) { Ids = [.. rows.Select(r => r.Id)] };
+        return projected;
     }
 
     /// <summary>
