@@ -337,7 +337,7 @@ internal static class TemplateExpression
             return null;
         }
 
-        if (dataset.Failure is not null) throw new TemplateRenderException(dataset.Failure);
+        if (dataset.Failure is not null) throw new TemplateRenderException(dataset.Failure, dataset.Transient);
 
         if (dataset.Rows.Count > MaxDatasetRows)
         {
@@ -456,7 +456,7 @@ internal static class TemplateExpression
         {
             if (piece.Kind == PieceKind.Loop && piece.Nested)
             {
-                yield return $"The loop over '{piece.Dataset ?? "data." + piece.Field}' holds another loop, and loops do not nest, so it is sent as written.";
+                yield return $"The loop over '{(piece.Dataset is null ? "data." + piece.Field : TemplateDatasets.Shown(piece.Dataset))}' holds another loop, and loops do not nest, so it is sent as written.";
             }
         }
     }
@@ -547,6 +547,25 @@ internal static class TemplateExpression
         if (position < template.Length) pieces.Add(new Piece(PieceKind.Text, position, template.Length - position));
 
         return pieces;
+    }
+
+    /// <summary>The datasets a template loops over that <paramref name="declared"/> does not hold, each once, in the order they first appear.</summary>
+    /// <remarks>A template that cannot be read in full names none here, since <see cref="Problems"/> already says it cannot be read.</remarks>
+    public static IReadOnlyList<string> UndeclaredLoops(string? template, IReadOnlyDictionary<string, string>? declared)
+    {
+        if (string.IsNullOrEmpty(template)) return [];
+
+        try
+        {
+            return [.. Pieces(template)
+                .Where(p => p.Kind == PieceKind.Loop && p.Dataset is not null && declared?.ContainsKey(p.Dataset) != true)
+                .Select(p => p.Dataset!)
+                .Distinct(StringComparer.Ordinal)];
+        }
+        catch (TemplateScanException)
+        {
+            return [];
+        }
     }
 
     /// <summary>Whether a template holds a placeholder that resolves to a user's email address.</summary>

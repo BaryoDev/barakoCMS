@@ -152,7 +152,7 @@ internal sealed class InvoiceKit(IntegrationTestFixture fixture, string? tenant 
 
     /// <summary>The email the Email action sends for the template, or why it did not.</summary>
     public async Task<(WorkflowActionResult Result, RecordingEmailService.Sent? Sent)> SendAsync(
-        ILogger? log = null, Guid? asActor = null, string? template = null)
+        ILogger? log = null, Guid? asActor = null, string? template = null, IContextQueryRunner? queries = null)
     {
         await using var session = Store.LightweightSession(Tenant);
         using var scope = fixture.Services.CreateScope();
@@ -169,7 +169,7 @@ internal sealed class InvoiceKit(IntegrationTestFixture fixture, string? tenant 
 
         var extractor = new TemplateVariableExtractor(session, permissions, sensitivity, null)
         {
-            Queries = new QueryRunner(session, permissions, sensitivity),
+            Queries = queries ?? new QueryRunner(session, permissions, sensitivity),
             Log = log,
         };
         await extractor.PrepareAsync(entry, WorkflowEvents.Created, 0, [], Ct);

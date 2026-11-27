@@ -469,8 +469,17 @@ internal static class EmailTemplateRenderer
             {
                 yield return (field, problem);
             }
+
+            foreach (var name in TemplateExpression.UndeclaredLoops(text, rendered.Datasets))
+            {
+                yield return (field, UndeclaredLoop(name));
+            }
         }
     }
+
+    /// <summary>What a loop over a dataset the template does not declare is told: a warning in a preview, and the reason a send is refused.</summary>
+    internal static string UndeclaredLoop(string dataset) =>
+        $"The loop over '{TemplateDatasets.Shown(dataset)}' names a dataset this template does not declare. Declare it in the template's Datasets.";
 
     /// <summary>A field of an entry as text, matched in any case, or null when it is empty or absent.</summary>
     internal static string? Text(ContentDoc entry, string name) => Text(entry.Data, name);

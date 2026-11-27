@@ -258,6 +258,12 @@ internal class EmailAction : IWorkflowAction
             var (subject, body, refusal) = await ReadTemplateAsync(name, content, ct);
             return ((subject, body), refusal is null ? null : WorkflowActionResult.PermanentFailure(refusal));
         }
+        catch (barakoCMS.Infrastructure.Services.TemplateRenderException ex) when (ex.Transient)
+        {
+            // Retryable: a dataset read that timed out or threw may get through on the next try.
+            _logger.LogWarning("Reading an email template's dataset failed: {Message}", ex.Message);
+            return (default, WorkflowActionResult.Failure(ex.Message));
+        }
         catch (Exception ex) when (ex is barakoCMS.Infrastructure.Services.TemplateRenderException or barakoCMS.Models.TemplateScanException)
         {
             // Permanent: the same template and the same entry fail the same way. The message
@@ -284,6 +290,17 @@ internal class EmailAction : IWorkflowAction
         if (rendered is null)
         {
             return (string.Empty, string.Empty, error);
+        }
+
+        // A loop over a name the template does not declare would go out as written, so it is refused.
+        var undeclared = barakoCMS.Infrastructure.Services.TemplateExpression
+            .UndeclaredLoops(rendered.Subject, rendered.Datasets)
+            .Concat(barakoCMS.Infrastructure.Services.TemplateExpression.UndeclaredLoops(rendered.Html, rendered.Datasets))
+            .Distinct(StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (undeclared is not null)
+        {
+            return (string.Empty, string.Empty, barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.UndeclaredLoop(undeclared));
         }
 
         if (_extractor is not null)

@@ -28,13 +28,13 @@ internal static class TemplateDatasetRights
         {
             if (!TemplateDatasets.IsValidName(name))
             {
-                refusals.Add($"'{name}' cannot be a dataset name. A name is letters, digits and underscores, starts with a letter, and is not one the template already uses.");
+                refusals.Add($"'{TemplateDatasets.Shown(name)}' cannot be a dataset name. A name is letters, digits and underscores, starts with a letter, and is not one the template already uses.");
                 continue;
             }
 
             if (!Slugs.IsValid(slug))
             {
-                refusals.Add($"The dataset '{name}' does not name a saved query.");
+                refusals.Add($"The dataset '{TemplateDatasets.Shown(name)}' does not name a saved query.");
                 continue;
             }
 
@@ -46,7 +46,7 @@ internal static class TemplateDatasetRights
                 : await runner.ValidateAsync(saved, new QueryRunContext(null) { AsActor = true, Actor = saver.Id }, ct);
 
             if (refusal is not null)
-                refusals.Add($"You cannot read everything the dataset '{name}' (the saved query '{slug}') reads. {refusal}");
+                refusals.Add($"You cannot read everything the dataset '{TemplateDatasets.Shown(name)}' (the saved query '{slug}') reads. {refusal}");
         }
 
         return refusals;

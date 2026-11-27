@@ -89,6 +89,70 @@ public class TemplateLimitTests(IntegrationTestFixture fixture)
         sent.Should().BeNull();
     }
 
+    private sealed class Big(Action hit, int length)
+    {
+        public override string ToString()
+        {
+            hit();
+            return new string('x', length);
+        }
+    }
+
+    private static Content Entry() => new() { Id = Guid.NewGuid(), ContentType = "x", Data = [] };
+
+    [Fact]
+    public void A_dataset_loop_stops_at_the_row_that_passes_the_cap()
+    {
+        var calls = 0;
+        var rows = Enumerable.Range(0, 200)
+            .Select(_ => new Dictionary<string, object> { ["Big"] = new Big(() => calls++, 600_000) }).ToList();
+        var context = new TemplateContext(TimeZoneInfo.Utc, null, null, null,
+            Datasets: new Dictionary<string, TemplateDataset> { ["lines"] = new TemplateDataset("s", rows) });
+
+        var act = () => TemplateVariableExtractor.Resolve("{{#each lines}}{{row.Big}}{{/each}}", Entry(), TemplateValueEncoding.None, context);
+
+        act.Should().Throw<TemplateRenderException>().WithMessage("*more than 1048576 characters*");
+        calls.Should().Be(2, "the second row is the one that passes the cap, and no row after it is rendered");
+    }
+
+    [Fact]
+    public void A_reference_loop_stops_at_the_item_that_passes_the_cap()
+    {
+        var calls = 0;
+        var items = Enumerable.Range(0, 5)
+            .Select(_ => new Content { Id = Guid.NewGuid(), ContentType = "x", Data = new() { ["Big"] = new Big(() => calls++, 600_000) } }).ToList();
+        var context = new TemplateContext(TimeZoneInfo.Utc, null, null, null,
+            References: new Dictionary<string, TemplateFollowed> { ["Runners"] = new TemplateFollowed(true, 5, items) });
+
+        var act = () => TemplateVariableExtractor.Resolve("{{#each data.Runners}}{{data.Big}}{{/each}}", Entry(), TemplateValueEncoding.None, context);
+
+        act.Should().Throw<TemplateRenderException>().WithMessage("*more than 1048576 characters*");
+        calls.Should().Be(2, "the second item is the one that passes the cap, and no item after it is rendered");
+    }
+
+    [Theory]
+    [InlineData(400, false)]
+    [InlineData(600, true)]
+    public void A_render_that_evaluates_more_than_one_hundred_thousand_placeholders_is_refused(int holesInTheBody, bool refused)
+    {
+        var rows = Enumerable.Range(0, 200).Select(_ => new Dictionary<string, object> { ["Qty"] = 1 }).ToList();
+        var context = new TemplateContext(TimeZoneInfo.Utc, null, null, null,
+            Datasets: new Dictionary<string, TemplateDataset> { ["lines"] = new TemplateDataset("s", rows) });
+        var template = "{{#each lines}}" + string.Concat(Enumerable.Repeat("{{row.Qty}}", holesInTheBody)) + "{{/each}}";
+
+        var act = () => TemplateVariableExtractor.Resolve(template, Entry(), TemplateValueEncoding.None, context);
+
+        if (refused)
+        {
+            act.Should().Throw<TemplateRenderException>()
+                .WithMessage("The template evaluates more than 100000 placeholders, which is the most one render evaluates.");
+        }
+        else
+        {
+            act.Should().NotThrow().Which.Should().HaveLength(200 * holesInTheBody);
+        }
+    }
+
     [Fact]
     public void A_template_over_the_input_cap_is_refused_and_never_read_in_part()
     {

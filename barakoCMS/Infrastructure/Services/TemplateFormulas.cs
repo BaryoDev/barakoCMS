@@ -10,7 +10,8 @@ namespace barakoCMS.Infrastructure.Services;
 /// <param name="Slug">The saved query the rows came from.</param>
 /// <param name="Rows">The rows, each holding only the fields the query selects.</param>
 /// <param name="Failure">Why the dataset has no rows to render, or null. A template that reads it fails with this message.</param>
-internal sealed record TemplateDataset(string Slug, IReadOnlyList<Dictionary<string, object>> Rows, string? Failure = null);
+/// <param name="Transient">Whether the failure is one a later try may not repeat: a read that timed out or threw.</param>
+internal sealed record TemplateDataset(string Slug, IReadOnlyList<Dictionary<string, object>> Rows, string? Failure = null, bool Transient = false);
 
 /// <summary>The rules a template's declared datasets follow.</summary>
 internal static class TemplateDatasets
@@ -19,6 +20,13 @@ internal static class TemplateDatasets
     {
         "data", "row", "id", "status", "createdAt", "updatedAt", "createdBy", "contentType", "transition", "links", "actions", "site",
     };
+
+    /// <summary>The longest part of a dataset name a message quotes back.</summary>
+    public const int MaxShownName = 40;
+
+    /// <summary>A dataset name as a message may quote it: the first 40 characters, then three dots when there is more.</summary>
+    public static string Shown(string name) =>
+        name.Length <= MaxShownName ? name : name[..MaxShownName] + "...";
 
     /// <summary>A name the formula and the loop readers can tell from every other name a template uses.</summary>
     public static bool IsValidName(string name) =>
@@ -44,8 +52,14 @@ internal static class TemplateDatasets
 }
 
 /// <summary>A template that cannot be rendered at all: a dataset or an output past its cap, or a dataset that did not run.</summary>
-/// <remarks>The message names the dataset and the limit and never a value.</remarks>
-internal sealed class TemplateRenderException(string message) : Exception(message);
+/// <remarks>
+/// The message names the dataset and the limit and never a value. <see cref="Transient"/> is set
+/// for a dataset read that timed out or threw, which a later try may get through.
+/// </remarks>
+internal sealed class TemplateRenderException(string message, bool transient = false) : Exception(message)
+{
+    public bool Transient { get; } = transient;
+}
 
 /// <summary>
 /// Evaluates the expression inside <c>{{= ... }}</c> with the shared evaluator.

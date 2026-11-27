@@ -211,6 +211,16 @@ public class EmailTemplatePreviewTests
             new Warning("actions[0].parameters.Template", $"In the template's Body: {expected[0]}"));
     }
 
+    [Fact]
+    public async Task A_loop_over_a_dataset_the_template_does_not_declare_is_warned_about_in_the_preview()
+    {
+        var (_, entry, template) = await ArrangeAsync("s", "Lines: {{#each lines}}{{row.Qty}}{{/each}}", ContentStatus.Published);
+
+        var preview = await ReadAsync(await PreviewAsync(await SuperAdminAsync(), template.Id.ToString(), entry.Id));
+
+        preview.Warnings.Should().ContainSingle(w => w.Field == "Body").Which.Message.Should().Be(EmailTemplateRenderer.UndeclaredLoop("lines"));
+    }
+
     private static LifecycleDefinition ApprovalLifecycle() => new()
     {
         States = ["Draft", "Approved"],

@@ -72,6 +72,19 @@ public class TemplateDatasetRightsTests(IntegrationTestFixture factory)
     }
 
     [Fact]
+    public async Task A_dataset_key_of_five_thousand_characters_is_refused_without_being_echoed_whole()
+    {
+        var (flow, _, full) = await SeededAsync();
+        var key = new string('k', 5_000);
+
+        var errors = await SaveErrorsAsync($"{{\"{key}\":\"{flow.QuerySlug}\"}}", full);
+
+        var refusal = errors.Should().ContainSingle().Which;
+        refusal.Should().Contain(new string('k', 40) + "...").And.Contain("cannot be a dataset name");
+        refusal.Should().NotContain(new string('k', 41));
+    }
+
+    [Fact]
     public async Task A_publish_is_checked_like_a_save()
     {
         var (flow, narrow, _) = await SeededAsync();

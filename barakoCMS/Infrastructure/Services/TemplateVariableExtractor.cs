@@ -361,21 +361,37 @@ public class TemplateVariableExtractor(
 
         var actor = await actorOf(ct);
         var read = new Dictionary<string, TemplateDataset>(StringComparer.Ordinal);
+
+        // One deadline for all of them, and the first one that cannot be read ends the reading.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(DatasetReadBudget);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        TemplateDataset? stopped = null;
         foreach (var (name, slug) in datasets)
         {
-            read[name] = await ReadDatasetAsync(content, name, slug, actor, ct);
+            read[name] = stopped is null
+                ? await ReadDatasetAsync(content, name, slug, actor, DatasetReadBudget - clock.Elapsed, deadline.Token, ct)
+                : Unread(slug, $"The dataset '{TemplateDatasets.Shown(name)}' was not read, because another dataset could not be.", stopped.Transient);
+
+            if (read[name].Failure is not null) stopped ??= read[name];
         }
 
         _datasets = read;
         _prepared = _prepared with { Datasets = read };
     }
 
-    private async Task<TemplateDataset> ReadDatasetAsync(Content content, string name, string slug, Guid actor, CancellationToken ct)
+    /// <summary>The longest all of a template's datasets may take to read together.</summary>
+    internal static readonly TimeSpan DatasetReadBudget = TimeSpan.FromSeconds(30);
+
+    private async Task<TemplateDataset> ReadDatasetAsync(
+        Content content, string name, string slug, Guid actor, TimeSpan left, CancellationToken deadline, CancellationToken ct)
     {
         if (!TemplateDatasets.IsValidName(name))
         {
-            return Unread(slug, $"'{name}' cannot be a dataset name. A name is letters, digits and underscores, starts with a letter, and is not one the template already uses.");
+            return Unread(slug, $"'{TemplateDatasets.Shown(name)}' cannot be a dataset name. A name is letters, digits and underscores, starts with a letter, and is not one the template already uses.");
         }
+
+        if (left <= TimeSpan.Zero) return Unread(slug, TookTooLong(name), transient: true);
 
         if (Queries is null || string.IsNullOrWhiteSpace(slug) || !Slugs.IsValid(slug))
         {
@@ -390,15 +406,19 @@ public class TemplateVariableExtractor(
         try
         {
             result = await Queries.RunAsync(
-                TemplateDatasets.Probe(definition), new QueryRunContext(values) { AsActor = true, Actor = actor }, ct);
+                TemplateDatasets.Probe(definition), new QueryRunContext(values) { AsActor = true, Actor = actor, Timeout = left }, deadline);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return Unread(slug, TookTooLong(name), transient: true);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Log?.LogWarning("Dataset '{Dataset}' failed with {Error}", name, ex.GetType().Name);
-            return Unread(slug, $"The dataset '{name}' could not be read.");
+            return Unread(slug, $"The dataset '{name}' could not be read.", transient: true);
         }
 
-        if (!result.Ok) return Unread(slug, $"The dataset '{name}' ({slug}): {result.Refusal}");
+        if (!result.Ok) return Unread(slug, $"The dataset '{name}' ({slug}): {result.Refusal}", result.TimedOut);
 
         Log?.LogDebug("Dataset '{Dataset}' read {Count} rows", name, result.Count);
         return result.Count > TemplateExpression.MaxDatasetRows
@@ -408,7 +428,10 @@ public class TemplateVariableExtractor(
 
     internal const string ErasedDataset = "An erased entry reads no dataset.";
 
-    private static TemplateDataset Unread(string slug, string failure) => new(slug, [], failure);
+    private static string TookTooLong(string name) =>
+        $"The dataset '{name}' took longer to read than the {DatasetReadBudget.TotalSeconds:0} seconds all of a template's datasets are given.";
+
+    private static TemplateDataset Unread(string slug, string failure, bool transient = false) => new(slug, [], failure, transient);
 
     public async Task PreparePreviewAsync(Content content, Guid viewer, IEnumerable<string> templates, CancellationToken ct = default)
     {
@@ -813,25 +836,53 @@ public class TemplateVariableExtractor(
             return template;
         }
 
+        return Render(template, TemplateExpression.Pieces(template), content, encoding, context, new RenderBudget());
+    }
+
+    /// <summary>The most placeholders one render evaluates, counting every pass of every loop.</summary>
+    internal const int MaxEvaluatedHoles = 100_000;
+
+    /// <summary>The count of placeholders one render has evaluated so far, shared by its loops.</summary>
+    private sealed class RenderBudget
+    {
+        private int _holes;
+
+        public void Spend()
+        {
+            if (++_holes > MaxEvaluatedHoles)
+            {
+                throw new TemplateRenderException(System.FormattableString.Invariant(
+                    $"The template evaluates more than {MaxEvaluatedHoles} placeholders, which is the most one render evaluates."));
+            }
+        }
+    }
+
+    /// <summary>One pass over a template that is already cut into pieces. A loop cuts its body once and reuses the pieces for every item.</summary>
+    private static string Render(
+        string template, List<TemplateExpression.Piece> pieces, Content content,
+        TemplateValueEncoding encoding, TemplateContext context, RenderBudget budget)
+    {
         // Single pass over the ORIGINAL template. Because each {{...}} token is resolved exactly
         // once and substituted values are NOT re-scanned, a content field whose value itself
         // contains "{{data.Other}}" cannot inject/leak another field (second-order injection).
         // A formatted value, a name, a duration, a link and a referenced entry's value go through
         // Encode like any other value. A loop's body is template text, resolved once per item.
         var rendered = new System.Text.StringBuilder(template.Length);
-        foreach (var piece in TemplateExpression.Pieces(template))
+        foreach (var piece in pieces)
         {
             switch (piece.Kind)
             {
                 case TemplateExpression.PieceKind.Hole:
+                    budget.Spend();
                     var value = TemplateExpression.Evaluate(piece.Hole!.Groups[1].Value, content, context);
                     rendered.Append(value is null ? piece.Hole.Value : Encode(value, encoding));
                     break;
 
                 case TemplateExpression.PieceKind.Loop when piece.Dataset is not null && TemplateExpression.DatasetRows(piece, context) is { } rows:
+                    var rowPieces = TemplateExpression.Pieces(piece.Body!);
                     foreach (var row in rows)
                     {
-                        rendered.Append(Resolve(piece.Body!, content, encoding, context.ForRow(row)));
+                        rendered.Append(Render(piece.Body!, rowPieces, content, encoding, context.ForRow(row), budget));
                         CheckSize(rendered);
                     }
 
@@ -839,9 +890,10 @@ public class TemplateVariableExtractor(
 
                 case TemplateExpression.PieceKind.Loop when TemplateExpression.LoopItems(piece, context) is { } items:
                     var itemContext = context.ForItem();
+                    var itemPieces = TemplateExpression.Pieces(piece.Body!);
                     foreach (var item in items)
                     {
-                        rendered.Append(Resolve(piece.Body!, item, encoding, itemContext));
+                        rendered.Append(Render(piece.Body!, itemPieces, item, encoding, itemContext, budget));
                         CheckSize(rendered);
                     }
 
