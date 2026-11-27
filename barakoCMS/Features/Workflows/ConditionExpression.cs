@@ -45,6 +45,9 @@ internal static partial class ConditionExpression
     [GeneratedRegex("\"(?:[^\"\\\\]|\\\\.)*\"|\\{\\{\\s*(?<name>[A-Za-z_][A-Za-z0-9_.]*)\\s*\\}\\}", RegexOptions.None, 1000)]
     private static partial Regex Hole();
 
+    [GeneratedRegex("\"(?:[^\"\\\\]|\\\\.)*\"|(?<![A-Za-z0-9_.])actions\\.(?<step>[0-9]+)\\.", RegexOptions.None, 1000)]
+    private static partial Regex StepOrdinal();
+
     [GeneratedRegex(@"^-?(0|[1-9][0-9]{0,17})(\.[0-9]{1,10})?\z", RegexOptions.None, 1000)]
     private static partial Regex PlainNumber();
 
@@ -57,7 +60,8 @@ internal static partial class ConditionExpression
         if (condition.Contains("{{data.") || condition.Contains("{{status}}")) return true;
 
         var tokens = new List<Token>();
-        if (Lexer.TryLex(condition, tokens) is not null) return false;
+        var read = StepOrdinal().Replace(condition, m => m.Groups["step"].Success ? $"actions._{m.Groups["step"].Value}." : m.Value);
+        if (Lexer.TryLex(read, tokens) is not null) return false;
 
         foreach (var token in tokens)
         {
@@ -78,7 +82,8 @@ internal static partial class ConditionExpression
             if (TryLegacy(condition, content, out var legacy)) return new Prepared(null, null, legacy, null);
 
             var bindings = new Bindings(content, outputs);
-            var rewritten = bindings.Rewrite(Hole().Replace(condition, m => m.Groups["name"].Success ? m.Groups["name"].Value : m.Value));
+            var named = Hole().Replace(condition, m => m.Groups["name"].Success ? m.Groups["name"].Value : m.Value);
+            var rewritten = bindings.Rewrite(StepOrdinal().Replace(named, m => m.Groups["step"].Success ? $"actions._{m.Groups["step"].Value}." : m.Value));
             if (rewritten is null) return Failed(bindings.Error);
 
             var parsed = ExpressionEngine.ParseAndCheck(rewritten, bindings.TypeOf, refuseClock: false);
@@ -253,7 +258,7 @@ internal static partial class ConditionExpression
             }
 
             if (path.Count == 2 && path[0] == "data") return Field(path[1], out value, out type);
-            if (path.Count == 3 && path[0] == "actions" && int.TryParse(path[1], NumberStyles.None, CultureInfo.InvariantCulture, out var ordinal))
+            if (path.Count == 3 && path[0] == "actions" && path[1].StartsWith('_') && int.TryParse(path[1].AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out var ordinal))
             {
                 value = Output(ordinal, path[2], out type);
                 return true;
