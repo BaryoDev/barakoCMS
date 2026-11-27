@@ -94,7 +94,7 @@ internal sealed class ContentTypeConfigProvider(
                 continue;
             }
 
-            var resolved = await ResolveAsync(key, document, stored, errors, ct);
+            var resolved = await ResolveAsync(key, document, stored, errors, conflicts, ct);
             if (resolved is null)
             {
                 continue;
@@ -181,10 +181,10 @@ internal sealed class ContentTypeConfigProvider(
     }
 
     /// <summary>
-    /// The refusal the field change route gives for removing a field a block binding names or a
-    /// connector is granted, for each stored field <paramref name="type"/> leaves out that one does.
+    /// The refusal the field change route gives for removing a field a connector is granted, for each
+    /// stored field <paramref name="type"/> leaves out that one does.
     /// </summary>
-    private async Task<List<string>> RemovedFieldsBindingsNameAsync(
+    private async Task<List<string>> RemovedGrantsNameAsync(
         ContentTypeDefinition stored, ContentTypeDefinition type, CancellationToken ct)
     {
         var conflicts = new List<string>();
@@ -195,7 +195,21 @@ internal sealed class ContentTypeConfigProvider(
             {
                 conflicts.Add($"'{stored.Name}': {barakoCMS.Infrastructure.Connectors.ConnectorGrants.Refusal($"'{stored.Name}.{removed.Name}'", granted)}");
             }
+        }
 
+        return conflicts;
+    }
+
+    /// <summary>
+    /// The refusal the field change route gives for removing a field a block binding names, for each
+    /// stored field <paramref name="type"/> leaves out that one does.
+    /// </summary>
+    private async Task<List<string>> RemovedFieldsBindingsNameAsync(
+        ContentTypeDefinition stored, ContentTypeDefinition type, CancellationToken ct)
+    {
+        var conflicts = new List<string>();
+        foreach (var removed in stored.Fields.Where(f => !type.Fields.Any(t => t.Name.Equals(f.Name, StringComparison.OrdinalIgnoreCase))))
+        {
             var bindings = await barakoCMS.Features.Blocks.Bindings.BindingFields.NamingAsync(session, stored.Name, removed.Name, ct);
             if (bindings.Count > 0)
             {
@@ -239,7 +253,7 @@ internal sealed class ContentTypeConfigProvider(
 
         foreach (var change in plan.Changes)
         {
-            if (await ResolveAsync(change.Key, change.Desired!.Value, stored, errors, ct) is not { } resolved)
+            if (await ResolveAsync(change.Key, change.Desired!.Value, stored, errors, errors, ct) is not { } resolved)
             {
                 continue;
             }
@@ -315,7 +329,8 @@ internal sealed class ContentTypeConfigProvider(
     /// Null, with the reasons added to <paramref name="errors"/>, when it cannot be written.
     /// </summary>
     private async Task<(ContentTypeDefinition Type, ContentTypeDefinition? Match, bool EventSourced)?> ResolveAsync(
-        string key, JsonElement document, List<ContentTypeDefinition> stored, List<string> errors, CancellationToken ct)
+        string key, JsonElement document, List<ContentTypeDefinition> stored, List<string> errors,
+        List<string> conflicts, CancellationToken ct)
     {
         var problems = new List<string>();
         var type = ConfigJson.Read<ContentTypeDefinition>(key, document, problems);
@@ -329,6 +344,18 @@ internal sealed class ContentTypeConfigProvider(
         var eventSourced = document.TryGetProperty("eventSourced", out var flag) && flag.ValueKind == JsonValueKind.True;
         var match = ContentTypeUpsert.StoredMatch(stored, key);
         var maxFields = ContentTypeFieldLimit.Resolve(configuration);
+
+        // Before the Sensitive-drop guard, the order the field change route keeps: a field a connector
+        // is granted is named by its connector, whatever its level.
+        if (match is not null)
+        {
+            var granted = await RemovedGrantsNameAsync(match, type, ct);
+            if (granted.Count > 0)
+            {
+                conflicts.AddRange(granted);
+                return null;
+            }
+        }
 
         if (ContentTypeUpsert.FieldCapError(type, match, maxFields) is { } tooMany)
         {
