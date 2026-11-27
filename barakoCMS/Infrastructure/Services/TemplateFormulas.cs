@@ -211,7 +211,7 @@ internal static class TemplateFormulas
                 var next = Name(source, tokens, at, out var replacement);
                 if (next < 0) return null;
 
-                if (replacement is null) output.Append(source, token.Position, tokens[at + 1].Position - token.Position);
+                if (replacement is null) output.Append(source, token.Position, tokens[next].Position - token.Position);
                 else output.Append(replacement).Append(' ');
                 at = next;
             }
