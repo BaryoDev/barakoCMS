@@ -61,6 +61,12 @@ internal static partial class ConditionExpression
 
         try
         {
+            // A placeholder names the entry whether or not the rest of the condition lexes.
+            foreach (Match hole in Hole().Matches(condition))
+            {
+                if (hole.Groups["name"].Success && NamesTheEntry(hole.Groups["name"].Value)) return true;
+            }
+
             // Read it the way Prepare does, so spacing and case in a placeholder do not hide a name.
             var named = Hole().Replace(condition, m => m.Groups["name"].Success ? m.Groups["name"].Value : m.Value);
             var read = StepOrdinal().Replace(named, m => m.Groups["step"].Success ? $"actions._{m.Groups["step"].Value}." : m.Value);
@@ -87,6 +93,13 @@ internal static partial class ConditionExpression
             return true;
         }
     }
+
+    private static bool NamesTheEntry(string name) =>
+        name.Equals("data", StringComparison.OrdinalIgnoreCase)
+        || name.StartsWith("data.", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("status", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("createdAt", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("updatedAt", StringComparison.OrdinalIgnoreCase);
 
     public static Prepared Prepare(string condition, barakoCMS.Models.Content content, IReadOnlyDictionary<int, IReadOnlyDictionary<string, string>> outputs)
     {

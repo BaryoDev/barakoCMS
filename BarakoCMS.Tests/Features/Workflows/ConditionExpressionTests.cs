@@ -127,6 +127,7 @@ public class ConditionExpressionTests
     [InlineData("Status = \"Draft\"")]
     [InlineData("CreatedAt > \"2020-01-01\"")]
     [InlineData("{{ data.X }} == a")]
+    [InlineData("{{ status }} != it's")]
     public void A_condition_that_reads_the_entry_is_seen_as_reading_it_in_any_case_or_spacing(string c)
     {
         ConditionExpression.ReadsTheEntry(c).Should().BeTrue();
