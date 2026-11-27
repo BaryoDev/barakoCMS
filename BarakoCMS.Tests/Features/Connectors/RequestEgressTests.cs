@@ -9,6 +9,7 @@ using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using Subject = BarakoCMS.Tests.Features.Connectors.RequestKit.Subject;
 
 namespace BarakoCMS.Tests.Features.Connectors;
 
@@ -51,70 +52,28 @@ public class RequestEgressTests(IntegrationTestFixture fixture)
         "{{= data.Title}}",
     ];
 
-    private sealed record Subject(string Type, Guid EntryId, string ConnectorSlug);
-
-    private async Task<Subject> SeedAsync()
-    {
-        var type = "egr" + Guid.NewGuid().ToString("n")[..10];
-        var connectorSlug = "egrc" + Guid.NewGuid().ToString("n")[..10];
-        var entryId = Guid.NewGuid();
-
-        using var scope = fixture.Services.CreateScope();
-        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-
-        session.Store(new ContentTypeDefinition
+    private Task<Subject> SeedAsync() => RequestKit.SeedAsync(
+        fixture,
+        [
+            new FieldDefinition { Name = "Title", Type = "string" },
+            new FieldDefinition { Name = "Ssn", Type = "string", Sensitivity = SensitivityLevel.Sensitive },
+            new FieldDefinition { Name = "Vault", Type = "string", Sensitivity = SensitivityLevel.Hidden },
+            new FieldDefinition { Name = "Perk", Type = "string", Sensitivity = SensitivityLevel.Members },
+            new FieldDefinition { Name = "Memo", Type = "string", ShownWhenListedIn = "Viewers" },
+        ],
+        new Dictionary<string, object>
         {
-            Id = Guid.NewGuid(),
-            Name = type,
-            DisplayName = type,
-            Fields =
-            [
-                new FieldDefinition { Name = "Title", Type = "string" },
-                new FieldDefinition { Name = "Ssn", Type = "string", Sensitivity = SensitivityLevel.Sensitive },
-                new FieldDefinition { Name = "Vault", Type = "string", Sensitivity = SensitivityLevel.Hidden },
-                new FieldDefinition { Name = "Perk", Type = "string", Sensitivity = SensitivityLevel.Members },
-                new FieldDefinition { Name = "Memo", Type = "string", ShownWhenListedIn = "Viewers" },
-            ],
+            ["Title"] = "plain title",
+            ["Ssn"] = "123-45-6789",
+            ["Vault"] = "vault value",
+            ["Perk"] = "member perk",
+            ["Memo"] = "owner memo",
         });
-        session.Store(new Connector
-        {
-            Id = Guid.NewGuid(),
-            Name = "Egress",
-            Slug = connectorSlug,
-            BaseUrl = "https://egress.example",
-            Auth = ConnectorAuth.None,
-        });
-        session.Store(new Content
-        {
-            Id = entryId,
-            ContentType = type,
-            Status = ContentStatus.Published,
-            Data = new Dictionary<string, object>
-            {
-                ["Title"] = "plain title",
-                ["Ssn"] = "123-45-6789",
-                ["Vault"] = "vault value",
-                ["Perk"] = "member perk",
-                ["Memo"] = "owner memo",
-            },
-        });
-
-        await session.SaveChangesAsync(Ct);
-        return new Subject(type, entryId, connectorSlug);
-    }
 
     private static string Body(string form, string field) => "{\"v\":\"" + form.Replace("F", field) + "\"}";
 
-    private static RequestDefinition Definition(Subject subject, string body, string path = "/in") => new()
-    {
-        Id = Guid.NewGuid(),
-        Name = "Egress",
-        Slug = "egrq" + Guid.NewGuid().ToString("n")[..10],
-        ConnectorSlug = subject.ConnectorSlug,
-        Method = "POST",
-        PathTemplate = path,
-        BodyTemplate = body,
-    };
+    private static RequestDefinition Definition(Subject subject, string body, string path = "/in") =>
+        RequestKit.Definition(subject, body, path);
 
     private async Task<Content> EntryAsync(Subject subject)
     {
@@ -122,16 +81,8 @@ public class RequestEgressTests(IntegrationTestFixture fixture)
         return (await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<Content>(subject.EntryId, Ct))!;
     }
 
-    private async Task<ComposedRequest> ComposeAsync(Subject subject, RequestDefinition definition)
-    {
-        using var scope = fixture.Services.CreateScope();
-        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
-        var connector = await session.Query<Connector>().FirstAsync(c => c.Slug == subject.ConnectorSlug, Ct);
-        var entry = await session.LoadAsync<Content>(subject.EntryId, Ct);
-
-        return await scope.ServiceProvider.GetRequiredService<IRequestComposer>()
-            .ComposeAsync(definition, connector, entry!, idempotencyKey: null, Ct);
-    }
+    private Task<ComposedRequest> ComposeAsync(Subject subject, RequestDefinition definition) =>
+        RequestKit.ComposeAsync(fixture, subject, definition);
 
     [Theory]
     [MemberData(nameof(NamedForms))]

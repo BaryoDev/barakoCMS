@@ -99,6 +99,13 @@ internal sealed class RequestComposer(
         // a JSON string would put backslashes in a URL.
         var path = Substitute(definition.PathTemplate, content, query.Rows, Escaping.Url);
 
+        // A value of ".." is unreserved, so escaping leaves it, and the address then collapses it
+        // into the segment before. A dot segment the template did not write is a value's, and refused.
+        if (HasDotSegment(path) && !HasDotSegment(definition.PathTemplate))
+        {
+            return ComposedRequest.Refused("A value in the path is a dot segment, which would change which endpoint is addressed.");
+        }
+
         var (headers, headerRefusal) = BuildHeaders(definition, connector, content, query.Rows, idempotencyKey);
         if (headerRefusal is not null) return ComposedRequest.Refused(headerRefusal);
 
@@ -106,6 +113,15 @@ internal sealed class RequestComposer(
         if (bodyRefusal is not null) return ComposedRequest.Refused(bodyRefusal);
 
         return Address(definition, connector, path, headers, body);
+    }
+
+    private static bool HasDotSegment(string path)
+    {
+        var end = path.AsSpan().IndexOfAny('?', '#');
+        var segments = (end < 0 ? path : path[..end]).Split('/');
+
+        return segments.Any(segment =>
+            segment.Replace("%2e", ".", StringComparison.OrdinalIgnoreCase) is "." or "..");
     }
 
     private (Dictionary<string, string> Headers, string? Refusal) BuildHeaders(
