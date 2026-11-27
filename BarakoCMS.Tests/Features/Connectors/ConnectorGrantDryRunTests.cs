@@ -99,4 +99,42 @@ public class ConnectorGrantDryRunTests(IntegrationTestFixture fixture)
         dry.GetProperty("refusal").GetString().Should().Contain("Ssn");
         dry.GetRawText().Should().NotContain(SsnValue);
     }
+
+    private async Task<(GrantKit.LineSeed Seed, string Slug)> StoreQueryRequestAsync()
+    {
+        var seed = await SeedLinesAsync(fixture, (lines, _) => [lines + ".Note"]);
+        var query = new QueryDefinition
+        {
+            Id = Guid.NewGuid(), Slug = Name("dryq"), Name = "Dry run query", ContentType = seed.Lines, Fields = ["Qty", "Note"],
+        };
+        var definition = Definition(seed.Subject, "{{query.rows}}");
+        definition.QuerySlug = query.Slug;
+        await StoreAsync(fixture, query, definition);
+        return (seed, definition.Slug);
+    }
+
+    [Fact]
+    public async Task A_query_row_that_holds_a_granted_field_the_caller_may_not_read_is_masked_in_the_preview()
+    {
+        var (seed, slug) = await StoreQueryRequestAsync();
+        var blind = await CallerAsync(fixture, [SystemCapabilities.ManageRequests], seed.Lines);
+
+        var dry = await DryRunAsync(blind, slug, seed.Subject.EntryId);
+
+        dry.GetProperty("wouldSend").GetBoolean().Should().BeTrue();
+        dry.GetProperty("body").GetString().Should().Contain(Mask);
+        dry.GetRawText().Should().NotContain(NoteValue);
+    }
+
+    [Fact]
+    public async Task A_query_row_that_holds_a_granted_field_the_caller_may_read_is_shown_in_the_preview()
+    {
+        var (seed, slug) = await StoreQueryRequestAsync();
+        var reader = await CallerAsync(
+            fixture, [SystemCapabilities.ManageRequests, SystemCapabilities.ViewSensitive], seed.Lines);
+
+        var dry = await DryRunAsync(reader, slug, seed.Subject.EntryId);
+
+        dry.GetProperty("body").GetString().Should().Contain(NoteValue);
+    }
 }
