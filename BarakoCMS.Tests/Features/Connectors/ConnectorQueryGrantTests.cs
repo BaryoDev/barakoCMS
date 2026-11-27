@@ -175,4 +175,36 @@ public class ConnectorQueryGrantTests(IntegrationTestFixture fixture)
         (composed.Body ?? string.Empty).Should().NotContain(SsnValue);
         (composed.Refusal ?? string.Empty).Should().NotContain(SsnValue);
     }
+
+    [Fact]
+    public async Task A_followed_reference_is_judged_by_the_account_definition_of_the_type_it_points_at()
+    {
+        var s = await GrantKit.SeedLinesAsync(fixture, (lines, _) => [lines + ".Note"]);
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var copy = await session.Query<ContentTypeDefinition>().SingleAsync(t => t.Name == s.Products, Ct);
+            var account = new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = s.Products, DisplayName = s.Products,
+                Fields = [.. copy.Fields.Select(f => new FieldDefinition
+                {
+                    Name = f.Name, DisplayName = f.DisplayName, Type = f.Type, Sensitivity = f.Sensitivity,
+                })],
+            };
+            copy.Fields.Single(f => f.Name == "Cost").Sensitivity = SensitivityLevel.Public;
+            session.Store(copy);
+            session.Store(new AccountContentType
+            {
+                Id = Guid.NewGuid(), AccountId = TenantAccount.DefaultId, Name = s.Products, Definition = account,
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var composed = await ComposeAsync(s, new QueryDefinition { Fields = ["Qty", "Product.Cost"] });
+
+        composed.Ok.Should().BeFalse("the account's Sensitive Cost decides, and it is not granted");
+        (composed.Body ?? string.Empty).Should().NotContain(CostValue);
+        (composed.Refusal ?? string.Empty).Should().NotContain(CostValue);
+    }
 }
