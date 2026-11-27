@@ -183,6 +183,44 @@ public class ComputedExpressionSchemaTests
             .Select(f => f.Name).Should().Equal("Total", "Double");
     }
 
+    /// <summary>200 formulas, each reading the one before and padded to 1900 characters, declared last first.</summary>
+    private static List<FieldDefinition> Chain(int length)
+    {
+        var padding = new string(' ', 1900);
+        return Enumerable.Range(0, length).Reverse()
+            .Select(i => Formula($"F{i}", "decimal", (i == 0 ? "Qty + 1" : $"F{i - 1} + 1") + padding))
+            .ToList();
+    }
+
+    [Fact]
+    public void A_long_chain_of_formulas_declared_in_reverse_is_put_in_dependency_order_with_one_parse_each()
+    {
+        var chain = Chain(200);
+
+        var before = barakoCMS.Core.Expressions.ExpressionEngine.ReadsOnThisThread;
+        var ordered = ComputedFields.InOrder(chain);
+        var parses = barakoCMS.Core.Expressions.ExpressionEngine.ReadsOnThisThread - before;
+
+        ordered.Select(f => f.Name).Should().Equal(Enumerable.Range(0, 200).Select(i => $"F{i}"));
+        parses.Should().Be(200, "each formula is read once, not once for every field placed before it");
+    }
+
+    [Fact]
+    public void A_write_over_a_long_chain_parses_each_formula_once_and_works_every_value_out()
+    {
+        var fields = new List<FieldDefinition> { Plain("Qty", "decimal") };
+        fields.AddRange(Chain(200));
+        var data = new Dictionary<string, object> { ["Qty"] = 1m };
+
+        var before = barakoCMS.Core.Expressions.ExpressionEngine.ReadsOnThisThread;
+        ComputedFields.Apply(fields, data);
+        var parses = barakoCMS.Core.Expressions.ExpressionEngine.ReadsOnThisThread - before;
+
+        Convert.ToDecimal(data["F199"]).Should().Be(201m);
+        Convert.ToDecimal(data["F0"]).Should().Be(2m);
+        parses.Should().Be(200, "the order and the value share one read of each formula");
+    }
+
     [Fact]
     public void A_public_formula_over_a_hidden_input_is_refused_as_more_widely_readable()
     {

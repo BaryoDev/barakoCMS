@@ -463,14 +463,41 @@ internal static class ComputedFields
     public static List<FieldDefinition> InOrder(IEnumerable<FieldDefinition> fields)
     {
         var computed = fields.Where(f => f is not null && IsComputed(f) && !string.IsNullOrWhiteSpace(f.Name)).ToList();
+        return InOrder(computed, Read(computed));
+    }
+
+    /// <summary>The formulas of the computed fields, each lexed and parsed once, for the callers that need them more than once.</summary>
+    private static Dictionary<FieldDefinition, ExpressionEngine.Syntax> Read(IEnumerable<FieldDefinition> computed)
+    {
+        var read = new Dictionary<FieldDefinition, ExpressionEngine.Syntax>(ReferenceEqualityComparer.Instance);
+        foreach (var field in computed.Where(f => HasExpression(f.Computed!)))
+            read[field] = ExpressionEngine.Read(field.Computed!.Expression);
+
+        return read;
+    }
+
+    private static IReadOnlyList<string> InputsOf(FieldDefinition field, Dictionary<FieldDefinition, ExpressionEngine.Syntax> read) =>
+        read.TryGetValue(field, out var syntax)
+            ? ExpressionEngine.Names(syntax)?.Fields ?? []
+            : field.Computed!.Args ?? [];
+
+    private static List<FieldDefinition> InOrder(
+        List<FieldDefinition> computed, Dictionary<FieldDefinition, ExpressionEngine.Syntax> read)
+    {
+        // What each field reads among the computed fields, worked out once. Asking again on every pass
+        // below parsed every formula once per placed field.
+        var dependsOn = computed.ToDictionary(
+            f => f,
+            f => InputsOf(f, read).Where(a => computed.Any(c => Matches(c.Name, a))).ToList(),
+            ReferenceEqualityComparer.Instance);
+
         var ordered = new List<FieldDefinition>();
         var placed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         while (ordered.Count < computed.Count)
         {
             var next = computed.Where(f => !placed.Contains(f.Name))
-                .FirstOrDefault(f => Inputs(f.Computed!).All(a =>
-                    placed.Contains(a) || !computed.Any(c => Matches(c.Name, a))));
+                .FirstOrDefault(f => dependsOn[f].All(placed.Contains));
 
             next ??= computed.First(f => !placed.Contains(f.Name));
             ordered.Add(next);
@@ -492,12 +519,17 @@ internal static class ComputedFields
     public static void Apply(IEnumerable<FieldDefinition> fields, Dictionary<string, object> data, ILogger? log = null)
     {
         var all = fields as IReadOnlyCollection<FieldDefinition> ?? fields.ToList();
-        foreach (var field in InOrder(all))
+        var computed = all.Where(f => f is not null && IsComputed(f) && !string.IsNullOrWhiteSpace(f.Name)).ToList();
+
+        // Each formula is parsed once for the whole write: the order reads its names, and the value
+        // reads its tree.
+        var read = Read(computed);
+        foreach (var field in InOrder(computed, read))
         {
             foreach (var key in data.Keys.Where(k => Matches(k, field.Name)).ToList())
                 data.Remove(key);
 
-            if (Compute(field, data, all, log) is { } value)
+            if (Compute(field, data, all, log, read.GetValueOrDefault(field)) is { } value)
                 data[field.Name] = value;
         }
     }
@@ -506,11 +538,16 @@ internal static class ComputedFields
     /// <param name="fields">The type's fields, for a formula to read the types of what it names. Not needed for a function.</param>
     public static object? Compute(
         FieldDefinition field, IReadOnlyDictionary<string, object> data,
-        IReadOnlyCollection<FieldDefinition>? fields = null, ILogger? log = null)
+        IReadOnlyCollection<FieldDefinition>? fields = null, ILogger? log = null) =>
+        Compute(field, data, fields, log, read: null);
+
+    private static object? Compute(
+        FieldDefinition field, IReadOnlyDictionary<string, object> data,
+        IReadOnlyCollection<FieldDefinition>? fields, ILogger? log, ExpressionEngine.Syntax? read)
     {
         var def = field.Computed!;
         if (HasExpression(def))
-            return ComputeExpression(field, data, fields ?? [field], log);
+            return ComputeExpression(field, data, fields ?? [field], log, read);
 
         var fn = def.Fn.ToLowerInvariant();
         var args = def.Args ?? [];
@@ -560,9 +597,11 @@ internal static class ComputedFields
     /// names the field, the rule and the position. Nothing logged is an entry value or the formula's text.
     /// </summary>
     private static object? ComputeExpression(
-        FieldDefinition field, IReadOnlyDictionary<string, object> data, IReadOnlyCollection<FieldDefinition> fields, ILogger? log)
+        FieldDefinition field, IReadOnlyDictionary<string, object> data, IReadOnlyCollection<FieldDefinition> fields, ILogger? log,
+        ExpressionEngine.Syntax? read)
     {
-        var parsed = ExpressionEngine.ParseAndCheck(field.Computed!.Expression, FieldTypes(fields), refuseClock: true);
+        var parsed = ExpressionEngine.Check(
+            read ?? ExpressionEngine.Read(field.Computed!.Expression), FieldTypes(fields), refuseClock: true);
         if (parsed.Expression is not { } expression)
         {
             Say(log, field, parsed.Errors.FirstOrDefault());

@@ -13,26 +13,57 @@ namespace barakoCMS.Core.Expressions;
 internal static class ExpressionEngine
 {
     /// <summary>
-    /// Parses a formula and checks every name and type. <paramref name="refuseClock"/> refuses
-    /// <c>today()</c> and <c>now()</c>, for a stored computed field whose value would go stale.
+    /// A formula read into its tree and not yet checked against a schema, so one read can serve
+    /// both <see cref="Names(Syntax)"/> and <see cref="Check"/>.
     /// </summary>
-    public static ParseResult ParseAndCheck(string? source, NameResolver names, bool refuseClock, ExpressionLimits? limits = null)
+    /// <param name="Tree">The tree, or null when <paramref name="Error"/> says the formula did not read.</param>
+    public sealed record Syntax(ParsedTree? Tree, ExpressionError? Error, int SourceLength);
+
+    [ThreadStatic]
+    private static int reads;
+
+    /// <summary>
+    /// How many formulas <see cref="Read"/> has lexed and parsed on this thread. A test takes the
+    /// difference around one call to see how often a formula was parsed.
+    /// </summary>
+    internal static int ReadsOnThisThread => reads;
+
+    /// <summary>Lexes and parses a formula, applying the source length and the node bounds, and checks nothing against a schema.</summary>
+    public static Syntax Read(string? source, ExpressionLimits? limits = null)
     {
         limits ??= ExpressionLimits.Default;
         if (string.IsNullOrWhiteSpace(source))
-            return Refused(new ExpressionError(Rules.Empty, 0, "the formula is empty"));
+            return new Syntax(null, new ExpressionError(Rules.Empty, 0, "the formula is empty"), 0);
 
         if (source.Length > limits.MaxSource)
-            return Refused(new ExpressionError(Rules.SourceTooLong, limits.MaxSource, $"a formula may be at most {limits.MaxSource} characters"));
+            return new Syntax(null, new ExpressionError(Rules.SourceTooLong, limits.MaxSource, $"a formula may be at most {limits.MaxSource} characters"), source.Length);
 
         var tokens = new List<Token>();
         if (Lexer.TryLex(source, tokens) is { } lexError)
-            return Refused(lexError);
+            return new Syntax(null, lexError, source.Length);
 
+        reads++;
         var tree = Parser.Parse(tokens, limits);
-        if (tree.Error is not null)
-            return Refused(tree.Error);
+        return tree.Error is not null
+            ? new Syntax(null, tree.Error, source.Length)
+            : new Syntax(tree, null, source.Length);
+    }
 
+    /// <summary>
+    /// Parses a formula and checks every name and type. <paramref name="refuseClock"/> refuses
+    /// <c>today()</c> and <c>now()</c>, for a stored computed field whose value would go stale.
+    /// </summary>
+    public static ParseResult ParseAndCheck(string? source, NameResolver names, bool refuseClock, ExpressionLimits? limits = null) =>
+        Check(Read(source, limits), names, refuseClock, limits);
+
+    /// <summary>As above, over a formula already read.</summary>
+    public static ParseResult Check(Syntax syntax, NameResolver names, bool refuseClock, ExpressionLimits? limits = null)
+    {
+        limits ??= ExpressionLimits.Default;
+        if (syntax.Error is not null)
+            return Refused(syntax.Error);
+
+        var tree = syntax.Tree!;
         if (tree.Nodes > limits.MaxSteps)
             return Refused(new ExpressionError(Rules.StepBudget, 0, $"a formula may take at most {limits.MaxSteps} steps"));
 
@@ -41,7 +72,7 @@ internal static class ExpressionEngine
         if (checker.Errors.Count > 0 || type is null)
             return new ParseResult(null, checker.Errors);
 
-        var expression = new CheckedExpression(tree.Root!, type.Value, tree.Nodes, source.Length, checker.FieldsUsed, checker.UsesClock, checker.SystemUsed);
+        var expression = new CheckedExpression(tree.Root!, type.Value, tree.Nodes, syntax.SourceLength, checker.FieldsUsed, checker.UsesClock, checker.SystemUsed);
         return new ParseResult(expression, []);
     }
 
@@ -57,18 +88,14 @@ internal static class ExpressionEngine
     /// does not parse. For readers that only need to know what a stored formula touches, such as who
     /// may read it. Names are given as written, once each.
     /// </summary>
-    public static (IReadOnlyList<string> Fields, IReadOnlyList<string> System)? Names(string? source, ExpressionLimits? limits = null)
+    public static (IReadOnlyList<string> Fields, IReadOnlyList<string> System)? Names(string? source, ExpressionLimits? limits = null) =>
+        Names(Read(source, limits));
+
+    /// <summary>As above, over a formula already read.</summary>
+    public static (IReadOnlyList<string> Fields, IReadOnlyList<string> System)? Names(Syntax syntax)
     {
-        limits ??= ExpressionLimits.Default;
-        if (string.IsNullOrWhiteSpace(source) || source.Length > limits.MaxSource)
-            return null;
-
-        var tokens = new List<Token>();
-        if (Lexer.TryLex(source, tokens) is not null)
-            return null;
-
-        var tree = Parser.Parse(tokens, limits);
-        if (tree.Error is not null || tree.Root is null)
+        var tree = syntax.Tree;
+        if (syntax.Error is not null || tree?.Root is null)
             return null;
 
         var fields = new List<string>();
