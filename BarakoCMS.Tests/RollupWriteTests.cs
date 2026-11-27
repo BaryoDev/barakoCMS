@@ -311,10 +311,11 @@ public class RollupWriteTests
     [Fact]
     public async Task The_drain_leaves_an_entry_of_another_type_alone_when_a_reference_names_it()
     {
-        var (pair, _, _) = await StartAsync();
+        var (tenant, _) = await R.OwnTenantAsync(_fixture);
+        var pair = await R.StorePairAsync(_fixture, tenant: tenant);
         var otherType = "ro" + Guid.NewGuid().ToString("n")[..10];
         var stranger = Guid.NewGuid();
-        using (var scope = _fixture.Services.CreateScope())
+        using (var scope = R.ScopeOf(_fixture, tenant))
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             session.Store(new Content
@@ -324,25 +325,28 @@ public class RollupWriteTests
             await session.SaveChangesAsync(Ct);
         }
 
-        var before = await DocumentAsync(stranger);
-        await R.SeedLineAsync(_fixture, pair, stranger, 4);
-        await R.DropQueuedDrainsAsync(_fixture);
-        (await R.MarkedAsync(_fixture)).Should().Contain(stranger, "the write marked what the reference names");
+        var before = await DocumentAsync(stranger, tenant);
+        await R.SeedLineAsync(_fixture, pair, stranger, 4, tenant: tenant);
+        await R.DropQueuedDrainsAsync(_fixture, tenant);
+        (await R.MarkedAsync(_fixture, tenant)).Should().Contain(stranger, "the write marked what the reference names");
 
-        await R.DrainAsync(_fixture);
+        await R.DrainAsync(_fixture, tenant);
 
-        var after = await DocumentAsync(stranger);
+        var after = await DocumentAsync(stranger, tenant);
         after.Json.Should().Be(before.Json, "the drain writes headers of its own type only");
         after.Version.Should().Be(before.Version);
-        (await R.MarkedAsync(_fixture)).Should().NotContain(stranger, "and the mark is not left to be retried for ever");
+        (await R.MarkedAsync(_fixture, tenant)).Should().NotContain(stranger, "and the mark is not left to be retried for ever");
     }
 
     [Fact]
     public async Task A_user_edit_that_commits_before_the_drain_does_is_kept_and_the_next_drain_recounts()
     {
-        var (pair, admin, header) = await StartAsync();
-        await R.LineAsync(_fixture, admin, pair, header, 4);
-        await R.DropQueuedDrainsAsync(_fixture);
+        // A tenant of its own, so no other test's drain job takes this test's marks.
+        var (tenant, client) = await R.OwnTenantAsync(_fixture);
+        var pair = await R.StorePairAsync(_fixture, tenant: tenant);
+        var header = await R.CreateAsync(client, pair.Header, new() { ["Name"] = "h" });
+        await R.CreateAsync(client, pair.Line, new() { ["Teacher"] = header.ToString(), ["Hours"] = 4m });
+        await R.DropQueuedDrainsAsync(_fixture, tenant);
 
         // Stored in the edit's step, after the drain read its marks and the types it skips. From
         // there the queue's own drain skips the type too, so it cannot recount between the checks.
@@ -353,10 +357,10 @@ public class RollupWriteTests
         };
         var edit = new EditBeforeCommit(async () =>
         {
-            var res = await R.Client(_fixture, admin).PutAsJsonAsync(
+            var res = await client.PutAsJsonAsync(
                 $"/api/contents/{header}", new { id = header, data = new Dictionary<string, object> { ["Name"] = "edited" } }, Ct);
             res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
-            using var scope = _fixture.Services.CreateScope();
+            using var scope = R.ScopeOf(_fixture, tenant);
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             session.Store(hold);
             await session.SaveChangesAsync(Ct);
@@ -364,30 +368,30 @@ public class RollupWriteTests
 
         var run = async () => await RollupDrain.RunAsync(
             _fixture.Services.GetRequiredService<IDocumentStore>(), _fixture.Services.GetRequiredService<IConfiguration>(),
-            R.Tenant, Ct, edit);
+            tenant, Ct, edit);
 
         try
         {
             (await run.Should().ThrowAsync<Exception>()).Which.Should().Match<Exception>(e => TestHelpers.LostConcurrencyCheck(e));
-            var held = await R.StoredAsync(_fixture, header);
+            var held = await R.StoredAsync(_fixture, header, tenant);
             Convert.ToString(held.Data["Name"]).Should().Be("edited", "the drain lost and wrote nothing over the edit");
             R.Num(held, "Count").Should().NotBe(1);
-            (await R.MarkedAsync(_fixture)).Should().Contain(header, "the mark stays, so the retry has work");
+            (await R.MarkedAsync(_fixture, tenant)).Should().Contain(header, "the mark stays, so the retry has work");
         }
         finally
         {
-            await ReleaseAsync(hold.Id);
+            await ReleaseAsync(hold.Id, tenant);
         }
 
-        await R.DrainAsync(_fixture);
+        await R.DrainAsync(_fixture, tenant);
 
-        (await R.ValuesAsync(_fixture, header)).Should().Be((1m, 4m, 4m));
-        Convert.ToString((await R.StoredAsync(_fixture, header)).Data["Name"]).Should().Be("edited");
+        (await R.ValuesAsync(_fixture, header, tenant)).Should().Be((1m, 4m, 4m));
+        Convert.ToString((await R.StoredAsync(_fixture, header, tenant)).Data["Name"]).Should().Be("edited");
     }
 
-    private async Task ReleaseAsync(Guid id)
+    private async Task ReleaseAsync(Guid id, string tenant)
     {
-        using var scope = _fixture.Services.CreateScope();
+        using var scope = R.ScopeOf(_fixture, tenant);
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         session.Delete<FieldChange>(id);
         await session.SaveChangesAsync(Ct);
@@ -486,14 +490,18 @@ public class RollupWriteTests
 
     private const long Huge = 6_000_000_000_000_000_000;
 
-    /// <summary>A header whose int sum two lines carry past the range of a long.</summary>
-    private async Task<(R.Pair Pair, Guid Header, FieldDefinition Rollup, FieldDefinition Source)> OverflowingAsync()
+    /// <summary>
+    /// A header whose int sum two lines carry past the range of a long, in a tenant of its own: the
+    /// header holds a mark the drain skips, and no other test should meet it.
+    /// </summary>
+    private async Task<(R.Pair Pair, Guid Header, FieldDefinition Rollup, FieldDefinition Source, string Tenant)> OverflowingAsync()
     {
+        var (tenant, client) = await R.OwnTenantAsync(_fixture);
         var header = "rh" + Guid.NewGuid().ToString("n")[..10];
         var line = "rl" + Guid.NewGuid().ToString("n")[..10];
         var source = R.Plain("Qty", "int");
         var rollup = R.Rollup("Total", "int", line, "Teacher", "sum", "Qty");
-        using (var scope = _fixture.Services.CreateScope())
+        using (var scope = R.ScopeOf(_fixture, tenant))
         {
             var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
             session.Store(new ContentTypeDefinition
@@ -508,34 +516,33 @@ public class RollupWriteTests
         }
 
         var pair = new R.Pair(header, line);
-        var admin = await Probe.AdminAsync(_fixture);
-        var id = await R.HeaderAsync(_fixture, admin, pair);
+        var id = await R.CreateAsync(client, header, new() { ["Name"] = "h" });
         await R.SeedManyAsync(_fixture, line, Enumerable.Range(0, 2).Select(_ =>
-            new Dictionary<string, object> { ["Teacher"] = id.ToString(), ["Qty"] = Huge }));
-        await R.DropQueuedDrainsAsync(_fixture);
+            new Dictionary<string, object> { ["Teacher"] = id.ToString(), ["Qty"] = Huge }), tenant);
+        await R.DropQueuedDrainsAsync(_fixture, tenant);
 
-        return (pair, id, rollup, source);
+        return (pair, id, rollup, source, tenant);
     }
 
     [Fact]
     public async Task A_sum_past_the_range_of_an_int_field_leaves_the_header_and_clears_its_mark()
     {
-        var (_, header, _, _) = await OverflowingAsync();
-        (await R.MarkedAsync(_fixture)).Should().Contain(header);
+        var (_, header, _, _, tenant) = await OverflowingAsync();
+        (await R.MarkedAsync(_fixture, tenant)).Should().Contain(header);
 
-        await R.DrainAsync(_fixture);
+        await R.DrainAsync(_fixture, tenant);
 
-        R.Num(await R.StoredAsync(_fixture, header), "Total").Should().BeNull("a value that does not fit is not written");
-        (await R.MarkedAsync(_fixture)).Should().NotContain(header, "the mark goes, or the drain would meet the same header for ever");
+        R.Num(await R.StoredAsync(_fixture, header, tenant), "Total").Should().BeNull("a value that does not fit is not written");
+        (await R.MarkedAsync(_fixture, tenant)).Should().NotContain(header, "the mark goes, or the drain would meet the same header for ever");
     }
 
     [Fact]
     public async Task A_skipped_header_is_named_once_in_a_warning_with_no_value()
     {
-        var (pair, header, rollup, source) = await OverflowingAsync();
+        var (pair, header, rollup, source, tenant) = await OverflowingAsync();
         var log = new ListLogger();
 
-        using var scope = _fixture.Services.CreateScope();
+        using var scope = R.ScopeOf(_fixture, tenant);
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var values = await RollupAggregate.ValuesAsync(session, pair.Header, rollup, source, [header], Ct, null, log);
 
@@ -558,9 +565,9 @@ public class RollupWriteTests
             Exception? exception, Func<TState, Exception?, string> formatter) => Lines.Add(formatter(state, exception));
     }
 
-    private async Task<(string Json, Guid Version)> DocumentAsync(Guid id)
+    private async Task<(string Json, Guid Version)> DocumentAsync(Guid id, string tenant = R.Tenant)
     {
-        using var scope = _fixture.Services.CreateScope();
+        using var scope = R.ScopeOf(_fixture, tenant);
         var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
         var content = (await session.LoadAsync<Content>(id, Ct))!;
         return (JsonSerializer.Serialize(content.Data), (await session.MetadataForAsync(content, Ct))!.CurrentVersion);

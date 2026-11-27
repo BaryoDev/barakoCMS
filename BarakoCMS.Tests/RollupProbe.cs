@@ -7,6 +7,7 @@ using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using barakoCMS.Infrastructure.Jobs;
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Rollups;
 using barakoCMS.Models;
 using Probe = BarakoCMS.Tests.TokenFieldProbe;
@@ -50,11 +51,12 @@ internal static class RollupProbe
     /// </summary>
     public static async Task<Pair> StorePairAsync(
         IntegrationTestFixture fixture, SensitivityLevel level = SensitivityLevel.Public, bool deliverable = false,
-        SensitivityLevel hours = SensitivityLevel.Public, SensitivityLevel teacher = SensitivityLevel.Public)
+        SensitivityLevel hours = SensitivityLevel.Public, SensitivityLevel teacher = SensitivityLevel.Public,
+        string tenant = Tenant)
     {
         var header = "rh" + Guid.NewGuid().ToString("n")[..10];
         var line = "rl" + Guid.NewGuid().ToString("n")[..10];
-        using var scope = fixture.Services.CreateScope();
+        using var scope = ScopeOf(fixture, tenant);
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         session.Store(new ContentTypeDefinition
         {
@@ -86,9 +88,10 @@ internal static class RollupProbe
     /// <summary>An entry written through the writer with the status and level given, as a write that goes around the API leaves it.</summary>
     public static async Task<Guid> SeedAsync(
         IntegrationTestFixture fixture, string type, Dictionary<string, object> data,
-        ContentStatus status = ContentStatus.Published, SensitivityLevel level = SensitivityLevel.Public)
+        ContentStatus status = ContentStatus.Published, SensitivityLevel level = SensitivityLevel.Public,
+        string tenant = Tenant)
     {
-        using var scope = fixture.Services.CreateScope();
+        using var scope = ScopeOf(fixture, tenant);
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var writer = scope.ServiceProvider.GetRequiredService<barakoCMS.Core.Interfaces.IContentWriter>();
         var id = Guid.NewGuid();
@@ -102,9 +105,10 @@ internal static class RollupProbe
     /// Entries written through the writer in one transaction, so no drain can see some of them and
     /// not the rest.
     /// </summary>
-    public static async Task SeedManyAsync(IntegrationTestFixture fixture, string type, IEnumerable<Dictionary<string, object>> entries)
+    public static async Task SeedManyAsync(IntegrationTestFixture fixture, string type, IEnumerable<Dictionary<string, object>> entries,
+        string tenant = Tenant)
     {
-        using var scope = fixture.Services.CreateScope();
+        using var scope = ScopeOf(fixture, tenant);
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var writer = scope.ServiceProvider.GetRequiredService<barakoCMS.Core.Interfaces.IContentWriter>();
         foreach (var data in entries)
@@ -121,9 +125,9 @@ internal static class RollupProbe
     /// Takes the drains the writes queued out of the queue, so a test that reads the state between a
     /// write and its drain does not meet the queue's own drain. The marks stay for the test's drain.
     /// </summary>
-    public static async Task DropQueuedDrainsAsync(IntegrationTestFixture fixture)
+    public static async Task DropQueuedDrainsAsync(IntegrationTestFixture fixture, string tenant = Tenant)
     {
-        using var scope = fixture.Services.CreateScope();
+        using var scope = ScopeOf(fixture, tenant);
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         session.DeleteWhere<JobRecord>(j => j.State == JobState.Pending && j.CommandType.Contains("RollupDrainCommand"));
         await session.SaveChangesAsync(Ct);
@@ -131,11 +135,12 @@ internal static class RollupProbe
 
     public static Task<Guid> SeedLineAsync(
         IntegrationTestFixture fixture, Pair pair, Guid teacher, decimal hours,
-        ContentStatus status = ContentStatus.Published, SensitivityLevel level = SensitivityLevel.Public) =>
-        SeedAsync(fixture, pair.Line, new() { ["Teacher"] = teacher.ToString(), ["Hours"] = hours }, status, level);
+        ContentStatus status = ContentStatus.Published, SensitivityLevel level = SensitivityLevel.Public,
+        string tenant = Tenant) =>
+        SeedAsync(fixture, pair.Line, new() { ["Teacher"] = teacher.ToString(), ["Hours"] = hours }, status, level, tenant);
 
     /// <summary>Runs the drain over the default tenant, as the queued job would.</summary>
-    public static async Task DrainAsync(IntegrationTestFixture fixture)
+    public static async Task DrainAsync(IntegrationTestFixture fixture, string tenant = Tenant)
     {
         var store = fixture.Services.GetRequiredService<IDocumentStore>();
         var configuration = fixture.Services.GetRequiredService<IConfiguration>();
@@ -143,7 +148,7 @@ internal static class RollupProbe
         {
             try
             {
-                await RollupDrain.RunAsync(store, configuration, Tenant, Ct);
+                await RollupDrain.RunAsync(store, configuration, tenant, Ct);
                 return;
             }
             catch (Exception e) when (attempt < 5 && TestHelpers.LostConcurrencyCheck(e))
@@ -154,14 +159,70 @@ internal static class RollupProbe
     }
 
     /// <summary>The ids that have a mark waiting.</summary>
-    public static async Task<List<Guid>> MarkedAsync(IntegrationTestFixture fixture)
+    public static async Task<List<Guid>> MarkedAsync(IntegrationTestFixture fixture, string tenant = Tenant)
     {
-        using var scope = fixture.Services.CreateScope();
+        using var scope = ScopeOf(fixture, tenant);
         var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
         return (await session.Query<RollupMark>().ToListAsync(Ct)).Select(m => m.Id).ToList();
     }
 
-    public static Task<Content> StoredAsync(IntegrationTestFixture fixture, Guid id) => Probe.StoredAsync(fixture, id);
+    public static async Task<Content> StoredAsync(IntegrationTestFixture fixture, Guid id, string tenant = Tenant)
+    {
+        using var scope = ScopeOf(fixture, tenant);
+        var content = await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<Content>(id, Ct);
+        content.Should().NotBeNull();
+        return content!;
+    }
+
+    /// <summary>A scope whose sessions read and write the tenant's partition.</summary>
+    public static IServiceScope ScopeOf(IntegrationTestFixture fixture, string tenant = Tenant) =>
+        tenant == Tenant ? fixture.Services.CreateScope() : fixture.Services.CreateScopeForTenant(tenant);
+
+    /// <summary>
+    /// A tenant made for one test, with a SuperAdmin of its own, so no other test's drain job can take
+    /// the marks or the values the test reads between a write and its own drain.
+    /// </summary>
+    public static async Task<(string Slug, HttpClient Client)> OwnTenantAsync(IntegrationTestFixture fixture)
+    {
+        var slug = $"ro-{Guid.NewGuid():N}"[..14];
+        var userId = Guid.NewGuid();
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
+            session.Store(new User
+            {
+                Id = userId, Username = $"ro-{Guid.NewGuid():n}"[..14], Email = $"ro-{Guid.NewGuid():n}@example.com",
+                RoleIds = [SystemRoles.SuperAdminRoleId],
+            });
+            session.Store(new Membership
+            {
+                Id = Guid.NewGuid(), UserId = userId, TenantSlug = slug, Status = MembershipStatus.Active,
+                RoleIds = [SystemRoles.SuperAdminRoleId],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+            "Bearer", fixture.CreateToken(
+                ["SuperAdmin"], userId.ToString(), new Dictionary<string, string> { ["tenant"] = slug }));
+        client.DefaultRequestHeaders.Add("X-Tenant", slug);
+        client.DefaultRequestHeaders.Add(TestRemoteIpFilter.Header, $"10.9.{Random.Shared.Next(1, 250)}.{Random.Shared.Next(1, 250)}");
+        return (slug, client);
+    }
+
+    /// <summary>An entry made through the API by the client given.</summary>
+    public static async Task<Guid> CreateAsync(HttpClient client, string type, Dictionary<string, object> data)
+    {
+        var response = await client.PostAsJsonAsync(
+            "/api/contents",
+            new barakoCMS.Features.Content.Create.Request { ContentType = type, Data = data, Status = ContentStatus.Published },
+            ApiJson.Options, Ct);
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body);
+        return JsonDocument.Parse(body).RootElement.GetProperty("id").GetGuid();
+    }
 
     /// <summary>A stored number, or null when the entry holds none.</summary>
     public static decimal? Num(Content entry, string field)
@@ -172,9 +233,10 @@ internal static class RollupProbe
     }
 
     /// <summary>The entry's rollups, read from the document and not from a response.</summary>
-    public static async Task<(decimal? Count, decimal? Total, decimal? Peak)> ValuesAsync(IntegrationTestFixture fixture, Guid header)
+    public static async Task<(decimal? Count, decimal? Total, decimal? Peak)> ValuesAsync(
+        IntegrationTestFixture fixture, Guid header, string tenant = Tenant)
     {
-        var entry = await StoredAsync(fixture, header);
+        var entry = await StoredAsync(fixture, header, tenant);
         return (Num(entry, "Count"), Num(entry, "Total"), Num(entry, "Peak"));
     }
 
