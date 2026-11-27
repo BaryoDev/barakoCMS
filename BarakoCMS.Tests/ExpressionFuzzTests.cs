@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using barakoCMS.Core.Expressions;
 using FluentAssertions;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 using static BarakoCMS.Tests.ExpressionKit;
 
@@ -149,6 +150,79 @@ public class ExpressionFuzzTests
         }
     }
 
+    private static readonly FakeTimeProvider FuzzClock = new(Start);
+
+    private static ValueResolver Resolver(int seed, int index)
+    {
+        var random = new Random(unchecked((seed * 100_003) + index));
+        return name => RandomValue(random, name.IsSystem ? SystemType(name.Name) : Resolve(name.Name));
+    }
+
+    private static ExprType? SystemType(string name) => name is "createdAt" or "updatedAt" ? ExprType.Date : ExprType.Text;
+
+    /// <summary>A value for a field of the given type, with some values of a type it does not have.</summary>
+    internal static object? RandomValue(Random random, ExprType? type)
+    {
+        var roll = random.Next(100);
+        if (roll < 5)
+        {
+            return null;
+        }
+
+        if (roll < 20 || type is null)
+        {
+            return RandomOf(random, (ExprType)random.Next(5), wrongOnly: true);
+        }
+
+        return RandomOf(random, type.Value, wrongOnly: false);
+    }
+
+    private static object? RandomOf(Random random, ExprType type, bool wrongOnly)
+    {
+        if (wrongOnly && random.Next(4) == 0)
+        {
+            return random.Next(2) == 0 ? NextGuid(random) : TimeSpan.FromMinutes(random.Next(1000));
+        }
+
+        switch (type)
+        {
+            case ExprType.Number:
+                object[] numbers =
+                [
+                    decimal.MaxValue, decimal.MinValue, 0m, 1.5m, -3m, 100000000m, 7, int.MaxValue, int.MinValue, long.MaxValue, long.MinValue,
+                    1.5d, 1e300d, -1e300d, double.NaN, double.PositiveInfinity, 7.9e28d, 8e28d, 2.5f, float.MaxValue, float.MinValue, 1e29f, float.NaN,
+                ];
+                return numbers[random.Next(numbers.Length)];
+            case ExprType.Text:
+                return random.Next(4) switch
+                {
+                    0 => string.Empty,
+                    1 => "  ",
+                    2 => "Ada Lovelace",
+                    _ => new string((char)('a' + random.Next(26)), random.Next(1, 20_001)),
+                };
+            case ExprType.Bool:
+                return random.Next(2) == 0;
+            case ExprType.Date:
+                object[] dates =
+                [
+                    DateTime.MinValue, DateTime.MaxValue, new DateTime(2026, 11, 27, 10, 30, 0, DateTimeKind.Utc), DateTimeOffset.MinValue,
+                    DateTimeOffset.MaxValue, new DateTimeOffset(2026, 2, 28, 23, 0, 0, TimeSpan.FromHours(8)), DateOnly.MinValue, DateOnly.MaxValue,
+                    new DateOnly(2024, 2, 29),
+                ];
+                return dates[random.Next(dates.Length)];
+            default:
+                return NextGuid(random);
+        }
+    }
+
+    private static Guid NextGuid(Random random)
+    {
+        var bytes = new byte[16];
+        random.NextBytes(bytes);
+        return new Guid(bytes);
+    }
+
     [Fact]
     public void Ten_thousand_inputs_parse_or_give_a_parse_error_within_50_ms()
     {
@@ -161,7 +235,7 @@ public class ExpressionFuzzTests
             var checkedWarm = Check(warm);
             if (checkedWarm.IsValid)
             {
-                ExpressionEngine.Evaluate(checkedWarm.Expression!, _ => null);
+                ExpressionEngine.Evaluate(checkedWarm.Expression!, Resolver(seed, 0), FuzzClock);
             }
         }
 
@@ -171,6 +245,9 @@ public class ExpressionFuzzTests
         for (var i = 0; i < inputs.Count; i++)
         {
             var source = inputs[i];
+            var resolver = Resolver(seed, i);
+            var problem = string.Empty;
+            var isRefused = false;
             var clock = Stopwatch.StartNew();
             try
             {
@@ -178,18 +255,26 @@ public class ExpressionFuzzTests
                 if (result.IsValid)
                 {
                     parsed++;
-                    ExpressionEngine.Evaluate(result.Expression!, _ => null);
+                    ExpressionEngine.Evaluate(result.Expression!, resolver, FuzzClock);
                 }
                 else
                 {
+                    isRefused = true;
                     refused++;
-                    result.Errors.Should().NotBeEmpty();
-                    result.Errors.Should().OnlyContain(e => e.Position >= 0 && !string.IsNullOrEmpty(e.Rule));
+                    problem = result.Errors.Count > 0 && result.Errors.All(e => e.Position >= 0 && !string.IsNullOrEmpty(e.Rule))
+                        ? string.Empty
+                        : "a refusal without a rule and a position";
                 }
             }
             catch (Exception e)
             {
-                failures.Add($"#{i} threw {e.GetType().Name}: {e.Message} on {Describe(source)}");
+                problem = $"threw {e.GetType().Name}: {e.Message}";
+            }
+
+            clock.Stop();
+            if (problem.Length > 0)
+            {
+                failures.Add($"#{i} {(isRefused ? "refused" : "ran")} with {problem} on {Describe(source)}");
             }
 
             if (clock.Elapsed > Slowest)
@@ -209,19 +294,47 @@ public class ExpressionFuzzTests
     [InlineData(3)]
     public void Other_seeds_hold_too(int seed)
     {
-        foreach (var source in Inputs(seed, 1500))
+        var inputs = Inputs(seed, 1500);
+        for (var i = 0; i < inputs.Count; i++)
         {
+            var source = inputs[i];
+            var resolver = Resolver(seed, i);
             var act = () =>
             {
                 var result = Check(source);
                 if (result.IsValid)
                 {
-                    ExpressionEngine.Evaluate(result.Expression!, _ => null);
+                    ExpressionEngine.Evaluate(result.Expression!, resolver, FuzzClock);
                 }
             };
 
             act.Should().NotThrow($"seed {seed}, input {Describe(source)}");
         }
+    }
+
+    [Fact]
+    public void The_typed_values_cover_the_edges_and_repeat_for_one_seed()
+    {
+        var seen = new HashSet<Type>();
+        var random = new Random(5);
+        for (var i = 0; i < 4000; i++)
+        {
+            foreach (var type in new ExprType?[] { ExprType.Number, ExprType.Text, ExprType.Bool, ExprType.Date, null })
+            {
+                if (RandomValue(random, type) is { } value)
+                {
+                    seen.Add(value.GetType());
+                }
+            }
+        }
+
+        seen.Should().Contain([typeof(decimal), typeof(int), typeof(long), typeof(double), typeof(float), typeof(string), typeof(DateTime),
+            typeof(DateTimeOffset), typeof(DateOnly), typeof(Guid), typeof(bool), typeof(TimeSpan)]);
+
+        var one = Resolver(9, 3);
+        var two = Resolver(9, 3);
+        var name = new NameRef("Qty", false);
+        Enumerable.Range(0, 50).Select(_ => one(name)).Should().Equal(Enumerable.Range(0, 50).Select(_ => two(name)));
     }
 
     private static string Describe(string source) =>
