@@ -66,6 +66,15 @@ page showing it empties with no error. A field change keeps them in step:
 `POST /api/config/apply` follows the same rules: a document leaving out a field a binding names is
 refused with 409, and so is a document changing a type while a field change runs on it.
 
+## Connector grants
+
+A [connector grant](connectors.md#granting-fields) names `Type.Field`. A remove or a rename of a
+field is refused with 409 while a connector's `allowedFields` names it, and deleting a content type
+is refused with 409 while a grant names the type. The refusal names each connector by slug. Take
+the entry out of the connector, then change the field. A rename was not made to carry the grant
+along, because the grant decides what leaves the system and a new name should be granted on
+purpose. `POST /api/config/apply` follows the same rule.
+
 ## The job
 
 The change is stored and queued in the same commit as the request, and a worker applies it in
