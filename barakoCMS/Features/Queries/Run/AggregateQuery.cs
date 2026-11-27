@@ -644,43 +644,16 @@ internal sealed partial class AggregateQuery(
         };
     }
 
-    private static string Find(string field, string alias, string expression) =>
-        $"(SELECT {expression} FROM jsonb_each({alias}.data -> 'Data') e WHERE lower(e.key) = lower('{field}') LIMIT 1)";
+    // A field the schema declares, matched against a name that passed NamePattern.
+    private static string Key(string field) => $"lower('{field}')";
 
-    private static string Text(string field, string alias) => Find(field, alias, "e.value #>> '{}'");
+    private static string Text(string field, string alias) => EntryFieldSql.Text(Key(field), alias);
 
-    private static string Number(string field, string alias) =>
-        Find(field, alias, "CASE WHEN jsonb_typeof(e.value) = 'number' THEN (e.value #>> '{}')::numeric END");
+    private static string Number(string field, string alias) => EntryFieldSql.Number(Key(field), alias);
 
-    private const string Day = @"[1-9][0-9]{3}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])";
-    private const string Clock = @"[T ]([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.][0-9]{1,9})?)?";
-    private const string Offset = @"(Z|[+-](0[0-9]|1[0-5]):?[0-5][0-9])";
+    private static string DateValue(string field, string alias, string zone) => EntryFieldSql.DateValue(Key(field), alias, zone);
 
-    /// <summary>
-    /// A stored date as an instant. A value with no zone on it is read in the site's zone, not the
-    /// session's. A value that is not a real calendar date is null, so it is left out of buckets and
-    /// ranges instead of failing the whole run.
-    /// </summary>
-    private static string DateValue(string field, string alias, string zone)
-    {
-        const string s = "(e.value #>> '{}')";
-        const string inMonth =
-            "substr(" + s + ", 9, 2)::int <= extract(day from ((substr(" + s + ", 1, 7) || '-01')::date + interval '1 month' - interval '1 day'))";
-
-        return Find(field, alias,
-            "CASE WHEN jsonb_typeof(e.value) = 'string' THEN CASE "
-          + $"WHEN {s} ~ '^{Day}$' THEN CASE WHEN {inMonth} THEN ({s}::date)::timestamp AT TIME ZONE {zone} END "
-          + $"WHEN {s} ~ '^{Day}{Clock}$' THEN CASE WHEN {inMonth} THEN {s}::timestamp AT TIME ZONE {zone} END "
-          + $"WHEN {s} ~ '^{Day}{Clock}{Offset}$' THEN CASE WHEN {inMonth} THEN {s}::timestamptz END "
-          + "END END");
-    }
-
-    /// <summary>The ids a reference field holds, lower case, whether it holds one or a list.</summary>
-    private static string References(string field) =>
-        Find(field, "d",
-            "CASE jsonb_typeof(e.value) "
-          + "WHEN 'array' THEN ARRAY(SELECT lower(x) FROM jsonb_array_elements_text(e.value) x) "
-          + "WHEN 'string' THEN ARRAY[lower(e.value #>> '{}')] END");
+    private static string References(string field) => EntryFieldSql.References(Key(field), "d");
 
     /// <summary>
     /// One command made of Marten's own commands and the parameters added here. Every parameter ends

@@ -66,12 +66,18 @@ internal static class FieldChanges
     /// the definition, then drops the old name. A remove takes the field off the definition first,
     /// so nobody reads it, then drops the values. A sensitivity change follows the rule its endpoint
     /// always had: raising rebuilds the search text before the definition changes, lowering after.
+    /// A rollup adds a recount at the new level, which goes the other way: lowering recounts first,
+    /// when the new value counts fewer entries and a stricter reader only sees an undercount, and
+    /// raising recounts last, once readers are already held to the new level.
     /// </remarks>
     public static IReadOnlyList<Work> Plan(FieldChange change) => change.Kind switch
     {
         FieldChangeKind.Rename => [Work.CopyToNewName, Work.Define, Work.DropOldName],
         FieldChangeKind.Convert => [Work.Convert, Work.Define],
         FieldChangeKind.Remove => [Work.Define, Work.DropField],
+        FieldChangeKind.Sensitivity when change.CountsRollup => change.DefinitionFirst
+            ? [Work.Recompute, Work.Define, Work.SearchText]
+            : [Work.SearchText, Work.Define, Work.Recompute],
         FieldChangeKind.Sensitivity => change.DefinitionFirst ? [Work.Define, Work.SearchText] : [Work.SearchText, Work.Define],
         FieldChangeKind.Recompute => [Work.Recompute],
         _ => throw new InvalidOperationException($"No plan for a {change.Kind} change."),
@@ -172,6 +178,24 @@ internal static class FieldChanges
     {
         foreach (var type in contentTypes.Select(t => t.ToLower()).Distinct().Order(StringComparer.Ordinal))
             await LockTypeSharedAsync(session, type, ct);
+    }
+
+    /// <summary>
+    /// Takes the exclusive lock on <paramref name="own"/> and the shared lock on each of the others,
+    /// all in lowest lowered name first order, so two saves that point at each other cannot wait on
+    /// one another's second lock.
+    /// </summary>
+    public static async Task LockTypesAsync(IDocumentSession session, string own, IEnumerable<string> others, CancellationToken ct)
+    {
+        var ownKey = own.ToLower();
+        var names = others.Select(t => t.ToLower()).Append(ownKey).Distinct().Order(StringComparer.Ordinal);
+        foreach (var name in names)
+        {
+            if (name == ownKey)
+                await LockTypeAsync(session, name, ct);
+            else
+                await LockTypeSharedAsync(session, name, ct);
+        }
     }
 
     /// <summary>Whether a change is small enough for the request that asked for it to run.</summary>
@@ -312,15 +336,17 @@ internal static class FieldChanges
             return;
         }
 
+        var rollups = await RollupValuesAsync(session, work, change, definition, batch, ct);
         var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), configuration) { WritesForFieldChange = true };
         foreach (var content in batch)
         {
-            if (Rewrite(work, change, definition, content) is { } @event)
+            if (Rewrite(work, change, definition, content, rollups?.GetValueOrDefault(content.Id)) is { } @event)
             {
                 await writer.AppendAsync(content, @event, ct);
 
-                // A rename touches an entry twice; it is counted once, when its old name goes.
-                if (work != Work.CopyToNewName)
+                // A rename touches an entry twice; it is counted once, when its old name goes. A
+                // rollup's recount is counted with the search text step.
+                if (work != Work.CopyToNewName && !(work == Work.Recompute && change.Kind == FieldChangeKind.Sensitivity))
                 {
                     change.Processed++;
                 }
@@ -330,6 +356,24 @@ internal static class FieldChanges
         change.Cursor = batch[^1].Id;
         session.Store(change);
         await session.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// The rollup values a recompute writes with the entries: all of the type's, or for a sensitivity
+    /// change, the changed field's counted at the level the change takes it to.
+    /// </summary>
+    private static async Task<Dictionary<Guid, Dictionary<string, object?>>?> RollupValuesAsync(
+        IDocumentSession session, Work work, FieldChange change, ContentTypeDefinition definition, IReadOnlyList<Content> batch, CancellationToken ct)
+    {
+        if (work != Work.Recompute)
+        {
+            return null;
+        }
+
+        var ids = batch.Select(c => c.Id).ToList();
+        return change.Kind == FieldChangeKind.Sensitivity
+            ? await Rollups.RollupRecompute.ValuesAsync(session, definition, ids, ct, change.Field, change.ToSensitivity)
+            : await Rollups.RollupRecompute.ValuesAsync(session, definition, ids, ct);
     }
 
     /// <summary>The definition step, with the block bindings a rename carries, committed with the step's progress.</summary>
@@ -357,7 +401,8 @@ internal static class FieldChanges
     }
 
     /// <summary>The event that rewrites one entry for a step, or null when the entry needs nothing.</summary>
-    private static object? Rewrite(Work work, FieldChange change, ContentTypeDefinition definition, Content content)
+    private static object? Rewrite(
+        Work work, FieldChange change, ContentTypeDefinition definition, Content content, Dictionary<string, object?>? rollups = null)
     {
         var data = new Dictionary<string, object>(content.Data);
         var oldKey = KeyOf(data, change.Field);
@@ -408,7 +453,9 @@ internal static class FieldChanges
                         change.ToSensitivity ?? SensitivityLevel.Public, rebuilt, change.RequestedBy, occurredAt);
 
             case Work.Recompute:
-                // The values the entry would be written with now, nothing else touched.
+                // The values the entry would be written with now, nothing else touched. A rollup is
+                // set before the computed fields that read it.
+                SetRollups(data, rollups);
                 ComputedFields.Apply(definition.Fields, data);
                 return SameJson(data, content.Data)
                     ? null
@@ -416,6 +463,18 @@ internal static class FieldChanges
 
             default:
                 return null;
+        }
+    }
+
+    private static void SetRollups(Dictionary<string, object> data, Dictionary<string, object?>? rollups)
+    {
+        foreach (var (name, value) in rollups ?? [])
+        {
+            var key = KeyOf(data, name) ?? name;
+            if (value is null)
+                data.Remove(key);
+            else
+                data[key] = value;
         }
     }
 
@@ -496,19 +555,22 @@ internal static class FieldChanges
     public static async Task<FieldChange?> RecomputeAsync(
         IDocumentSession session, ContentTypeDefinition definition, IEnumerable<FieldDefinition>? before, Guid requestedBy, CancellationToken ct)
     {
-        if (ChangedFormulas(before, definition.Fields) is not { Count: > 0 } changed)
-        {
-            return null;
-        }
+        var changed = ChangedFormulas(before, definition.Fields).Concat(Rollups.RollupRecompute.Changed(before, definition.Fields)).ToList();
+        return changed.Count == 0 ? null : await StartRecomputeAsync(session, definition.Name, changed[0], requestedBy, ct);
+    }
 
-        var lowered = definition.Name.ToLower();
+    /// <summary>Starts a recompute of the type's entries, or null when it has none.</summary>
+    private static async Task<FieldChange?> StartRecomputeAsync(
+        IDocumentSession session, string contentType, string field, Guid requestedBy, CancellationToken ct)
+    {
+        var lowered = contentType.ToLower();
         if (!await session.Query<Content>().AnyAsync(c => c.ContentType.ToLower() == lowered, ct))
         {
             return null;
         }
 
         return await StartAsync(
-            session, new FieldChange { ContentType = definition.Name, Field = changed[0], Kind = FieldChangeKind.Recompute, RequestedBy = requestedBy }, ct);
+            session, new FieldChange { ContentType = contentType, Field = field, Kind = FieldChangeKind.Recompute, RequestedBy = requestedBy }, ct);
     }
 
     /// <summary>The key the data holds a field under, matched ignoring case as every reader matches it.</summary>

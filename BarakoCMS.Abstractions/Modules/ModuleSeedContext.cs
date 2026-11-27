@@ -31,6 +31,13 @@ internal sealed class ModuleSeedContext : IModuleSeedContext
     {
         ArgumentNullException.ThrowIfNull(definition);
 
+        // A rollup reads another type and is checked against the stored set, which a seed does not do.
+        if (definition.Fields?.Any(f => f?.Rollup is not null) == true)
+        {
+            throw new InvalidOperationException(
+                $"Content type '{definition.Name}' declares a rollup field. A module cannot seed one: add it through the content-type API.");
+        }
+
         var existing = await Session.Query<ContentTypeDefinition>()
             .FirstOrDefaultAsync(t => t.Name == definition.Name, cancellationToken);
         if (existing is null)

@@ -30,7 +30,9 @@ internal sealed class ContentTypeConfigProvider(
     ICallerCapabilities capabilities,
     IConfiguration configuration,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
-    barakoCMS.Infrastructure.Realtime.TopicRegistry topics) : IConfigProvider
+    barakoCMS.Infrastructure.Realtime.TopicRegistry topics,
+    ISensitivityService sensitivity,
+    IPermissionResolver permissions) : IConfigProvider
 {
     public string Section => "contentTypes";
 
@@ -80,11 +82,9 @@ internal sealed class ContentTypeConfigProvider(
         stored = (await session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
         var conflicts = new List<string>();
         var topicOwners = new Dictionary<string, string>(StringComparer.Ordinal);
+        var resolvedTypes = new List<(string Key, ContentTypeDefinition Type, ContentTypeDefinition? Match)>();
 
-        foreach (var duplicate in desired.Keys.GroupBy(barakoCMS.Core.ContentTypeName.Normalize).Where(g => g.Count() > 1))
-        {
-            errors.Add($"{string.Join(", ", duplicate)} name the same content type '{duplicate.Key}'.");
-        }
+        errors.AddRange(DuplicateNames(desired.Keys));
 
         foreach (var (key, document) in desired.OrderBy(d => d.Key, StringComparer.Ordinal))
         {
@@ -102,6 +102,7 @@ internal sealed class ContentTypeConfigProvider(
 
             var (type, match, _) = resolved.Value;
             if (!TopicFree(topicOwners, key, type, errors)) continue;
+            resolvedTypes.Add((key, type, match));
 
             if (match is null)
             {
@@ -129,8 +130,32 @@ internal sealed class ContentTypeConfigProvider(
             }
         }
 
+        errors.AddRange(await RollupErrorsAsync(resolvedTypes, caller, ct));
         var refusals = await DisclosureRulesAsync(disclosures, caller, errors, ct);
         return new ConfigSectionPlan { Section = Section, Changes = changes, Errors = errors, Refusals = refusals, Conflicts = conflicts };
+    }
+
+    private static IEnumerable<string> DuplicateNames(IEnumerable<string> keys) =>
+        keys.GroupBy(barakoCMS.Core.ContentTypeName.Normalize).Where(g => g.Count() > 1)
+            .Select(d => $"{string.Join(", ", d)} name the same content type '{d.Key}'.");
+
+    /// <summary>
+    /// What the document's types would break in rollups, and what is wrong with their rollups.
+    /// After every type is read, so a rollup and the type it summarises can arrive together.
+    /// </summary>
+    private async Task<List<string>> RollupErrorsAsync(
+        List<(string Key, ContentTypeDefinition Type, ContentTypeDefinition? Match)> resolved, ConfigCaller caller, CancellationToken ct)
+    {
+        var errors = new List<string>();
+        var pending = resolved.Select(r => r.Type).ToList();
+        foreach (var (key, type, match) in resolved)
+        {
+            var found = await ContentTypeUpsert.RollupErrorsAsync(
+                session, type, match, pending, caller.Principal, sensitivity, permissions, ct);
+            errors.AddRange(found.Select(e => $"'{key}': {e}"));
+        }
+
+        return errors;
     }
 
     /// <summary>

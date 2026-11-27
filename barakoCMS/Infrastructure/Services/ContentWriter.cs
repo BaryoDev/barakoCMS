@@ -83,7 +83,14 @@ public sealed class ContentWriter : IContentWriter
 
     /// <inheritdoc />
     [Obsolete("Use CreateAsync. Removal planned for barakoCMS 6.0.")]
-    public Content Create(ContentCreated @event) => CreateCore(@event);
+    public Content Create(ContentCreated @event)
+    {
+        var created = CreateCore(@event);
+        if (!WritesFromRollupDrain)
+            Rollups.RollupMarks.Note(_session, null, created);
+
+        return created;
+    }
 
     /// <inheritdoc />
     public async Task<Content> CreateAsync(ContentCreated @event, CancellationToken cancellationToken)
@@ -114,7 +121,9 @@ public sealed class ContentWriter : IContentWriter
             ? await _origin.HeadersAsync(_session, node, cancellationToken)
             : null;
 
-        return CreateCore(@event, append, headers);
+        var created = CreateCore(@event, append, headers);
+        await NoteAsync(null, created, cancellationToken);
+        return created;
     }
 
     private Content CreateCore(ContentCreated @event, bool append = true, Dictionary<string, object>? headers = null)
@@ -143,7 +152,10 @@ public sealed class ContentWriter : IContentWriter
     [Obsolete("Use AppendAsync. Removal planned for barakoCMS 6.0.")]
     public void Append(Content content, object @event)
     {
+        var before = Rollups.EntryFacts.Of(content);
         ApplyToDocument(content, @event);
+        if (!WritesFromRollupDrain)
+            Rollups.RollupMarks.Note(_session, before, content);
 
         _session.Events.Append(content.Id, @event);
         _session.Store(content);
@@ -188,12 +200,16 @@ public sealed class ContentWriter : IContentWriter
             }
         }
 
+        // The committed state, as the refresh left it and before the event changes it.
+        var before = Rollups.EntryFacts.Of(content);
+
         // After the refresh, so the token put back is the committed one.
         await _tokens.KeepAsync(content, @event, cancellationToken);
         ApplyToDocument(content, @event);
 
         await RefuseWhileFieldChangeRunsAsync(content.ContentType, cancellationToken);
         await EnforceUniquenessAsync(content, cancellationToken);
+        await NoteAsync(before, content, cancellationToken);
 
         _session.Store(content);
         _staged.Add(content.Id);
@@ -312,6 +328,7 @@ public sealed class ContentWriter : IContentWriter
             }
         }
 
+        var before = Rollups.EntryFacts.Of(content);
         foreach (var @event in events)
         {
             // After the refresh, so the token put back is the committed one.
@@ -321,6 +338,7 @@ public sealed class ContentWriter : IContentWriter
 
         await RefuseWhileFieldChangeRunsAsync(content.ContentType, cancellationToken);
         await EnforceUniquenessAsync(content, cancellationToken);
+        await NoteAsync(before, content, cancellationToken);
 
         _session.Store(content);
     }
@@ -448,6 +466,15 @@ public sealed class ContentWriter : IContentWriter
     /// </remarks>
     /// <summary>Set on the writer the field change job writes with: its writes are the ones the refusal below waits for.</summary>
     internal bool WritesForFieldChange { get; init; }
+
+    /// <summary>
+    /// Set on the writer the rollup drain writes with. What it writes is a recomputed rollup, which
+    /// changes nothing a rollup counts, so it marks nothing.
+    /// </summary>
+    internal bool WritesFromRollupDrain { get; init; }
+
+    private Task NoteAsync(Rollups.EntryFacts? before, Content? after, CancellationToken cancellationToken) =>
+        WritesFromRollupDrain ? Task.CompletedTask : Rollups.RollupMarks.NoteAsync(_session, before, after, cancellationToken);
 
     /// <summary>
     /// Refuses a write to a type while a field change runs on it, whichever path the write came by:

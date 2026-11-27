@@ -57,7 +57,9 @@ internal class Endpoint(
     IConfiguration configuration,
     barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
-    IContentSourcingPolicy sourcing) : Endpoint<Request, Response>
+    IContentSourcingPolicy sourcing,
+    ISensitivityService sensitivity,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
@@ -76,13 +78,42 @@ internal class Endpoint(
     /// </summary>
     private static List<string> IntroducedComputedErrors(ContentTypeDefinition def, FieldDefinition field, Request req, List<string> roles)
     {
+        var proposedField = ProposedField(field, req, roles);
+        var proposed = def.Fields.Select(f => f == field ? proposedField : f).ToList();
+        var already = barakoCMS.Core.Validation.ComputedFields.DefinitionErrors(def.Fields).ToHashSet();
+        return barakoCMS.Core.Validation.ComputedFields.DefinitionErrors(proposed).Where(e => !already.Contains(e)).ToList();
+    }
+
+    private static FieldDefinition ProposedField(FieldDefinition field, Request req, List<string> roles)
+    {
         var proposedField = System.Text.Json.JsonSerializer.Deserialize<FieldDefinition>(System.Text.Json.JsonSerializer.Serialize(field))!;
         proposedField.Sensitivity = req.Sensitivity;
         proposedField.VisibleToRoles = [.. roles];
         proposedField.Mask = barakoCMS.Core.Validation.SensitivityRank.IsUniform(req.Sensitivity) ? FieldMask.Default : req.Mask ?? FieldMask.Default;
-        var proposed = def.Fields.Select(f => f == field ? proposedField : f).ToList();
-        var already = barakoCMS.Core.Validation.ComputedFields.DefinitionErrors(def.Fields).ToHashSet();
-        return barakoCMS.Core.Validation.ComputedFields.DefinitionErrors(proposed).Where(e => !already.Contains(e)).ToList();
+        return proposedField;
+    }
+
+    /// <summary>
+    /// What is wrong with sending a uniform level for this field. Refused rather than dropped: a caller
+    /// who sends both a level and a role list believes the field is restricted to the list.
+    /// </summary>
+    private static string? UniformShapeError(FieldDefinition field, Request req)
+    {
+        var to = req.Sensitivity;
+        if (!barakoCMS.Core.Validation.SensitivityRank.IsUniform(to))
+        {
+            return null;
+        }
+
+        if (barakoCMS.Core.Validation.TokenFields.IsToken(field.Type))
+        {
+            return $"'{field.Name}' is a token and cannot be made {to}. Keep it Hidden or Sensitive, "
+                + "and name the roles that may read it in visibleToRoles.";
+        }
+
+        return req.VisibleToRoles is { Count: > 0 } || req.Mask is not null and not FieldMask.Default
+            ? $"A {to} field cannot carry visibleToRoles or a mask: everyone it applies to reads it alike."
+            : null;
     }
 
     private async Task<string> DisclosureErrorAsync(ContentTypeDefinition def, FieldDefinition field, SensitivityLevel from, SensitivityLevel to, CancellationToken ct)
@@ -127,21 +158,9 @@ internal class Endpoint(
         var to = req.Sensitivity;
         var lowering = barakoCMS.Core.Validation.SensitivityRank.IsLowering(from, to);
 
-        if (barakoCMS.Core.Validation.SensitivityRank.IsUniform(to) && barakoCMS.Core.Validation.TokenFields.IsToken(field.Type))
+        if (UniformShapeError(field, req) is { } shape)
         {
-            AddError(
-                $"'{field.Name}' is a token and cannot be made {to}. Keep it Hidden or Sensitive, "
-                + "and name the roles that may read it in visibleToRoles.");
-            await Send.ErrorsAsync(400, ct);
-            return;
-        }
-
-        if (barakoCMS.Core.Validation.SensitivityRank.IsUniform(to)
-            && (req.VisibleToRoles is { Count: > 0 } || req.Mask is not null and not FieldMask.Default))
-        {
-            // Refused rather than dropped. A caller who sends both believes they have restricted the
-            // field to a role list, and a silent drop leaves them believing it.
-            AddError($"A {to} field cannot carry visibleToRoles or a mask: everyone it applies to reads it alike.");
+            AddError(shape);
             await Send.ErrorsAsync(400, ct);
             return;
         }
@@ -199,6 +218,17 @@ internal class Endpoint(
             foreach (var error in introduced)
                 AddError(error);
             await Send.ErrorsAsync(400, ct);
+            return;
+        }
+
+        var rollupErrors = await barakoCMS.Core.Validation.RollupFields.IntroducedAsync(
+            session, def, field, ProposedField(field, req, target.VisibleToRoles),
+            new barakoCMS.Core.Validation.RollupCaller(User, sensitivity, permissions), ct);
+        if (rollupErrors.Count > 0)
+        {
+            foreach (var error in rollupErrors)
+                AddError(error);
+            await Send.ErrorsAsync(409, ct);
             return;
         }
 
@@ -266,6 +296,7 @@ internal class Endpoint(
         VisibleToRoles = roleIds,
         Mask = barakoCMS.Core.Validation.SensitivityRank.IsUniform(req.Sensitivity) ? FieldMask.Default : req.Mask ?? FieldMask.Default,
         DefinitionFirst = barakoCMS.Core.Validation.SensitivityRank.IsLowering(field.Sensitivity, req.Sensitivity),
+        CountsRollup = field.Rollup is not null,
         RequestedBy = actorId,
     };
 

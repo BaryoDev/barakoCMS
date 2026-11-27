@@ -533,6 +533,16 @@ public class FieldDefinition
     /// </remarks>
     public ComputedDefinition? Computed { get; set; }
 
+    /// <summary>
+    /// A summary of the entries of another type that reference this field's entry, kept by the
+    /// server. Null, the default, is an ordinary field.
+    /// </summary>
+    /// <remarks>
+    /// The value is stored with the entry and updated shortly after a related entry is written, and
+    /// read only: a write that sets it is refused. Checked when the type is saved.
+    /// </remarks>
+    public RollupDefinition? Rollup { get; set; }
+
     public bool IsRequired { get; set; }
     public object? DefaultValue { get; set; }
     public Dictionary<string, object> ValidationRules { get; set; } = new(); // min, max, regex, etc.
@@ -605,4 +615,23 @@ public class ComputedDefinition
 
     /// <summary>A formula over the entry's fields, written data.Field, instead of fn and args. Checked when the type is saved and worked out inside every write. A formula may not read the clock or a system name. Null for a rule that uses fn.</summary>
     public string? Expression { get; set; }
+}
+
+/// <summary>What a rollup field summarises: the entries of <see cref="From"/> that point at this entry through <see cref="Via"/>.</summary>
+public class RollupDefinition
+{
+    /// <summary>The content type whose entries are summarised.</summary>
+    public string From { get; set; } = string.Empty;
+
+    /// <summary>A single reference field of <see cref="From"/> that names an entry of this type.</summary>
+    public string Via { get; set; } = string.Empty;
+
+    /// <summary>One of count, sum, min, max, avg.</summary>
+    public string Fn { get; set; } = string.Empty;
+
+    /// <summary>The field of <see cref="From"/> that is summarised. Absent for count.</summary>
+    public string? Field { get; set; }
+
+    /// <summary>Decimal places a sum or an average is rounded to, 0 to 10. Null keeps a sum exact and rounds an average to 2.</summary>
+    public int? Round { get; set; }
 }

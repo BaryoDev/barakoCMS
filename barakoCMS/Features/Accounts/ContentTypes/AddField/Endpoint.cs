@@ -33,6 +33,12 @@ internal sealed class Endpoint(
 
     private async Task RefuseWhatTheTenantsHoldAsync(TenantAccount account, ContentTypeDefinition definition, FieldDefinition field, CancellationToken ct)
     {
+        if (field.Rollup is not null)
+        {
+            AddError("A rollup is not supported on an account-owned type: its entries live in each tenant, and a rollup follows one tenant's entries.");
+            ThrowIfAnyErrors();
+        }
+
         var tenantIds = await AccountContentTypes.TenantIdsAsync(session, account.Id, ct);
         foreach (var id in tenantIds)
         {

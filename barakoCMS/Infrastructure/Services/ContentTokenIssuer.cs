@@ -42,6 +42,9 @@ internal sealed class ContentTokenIssuer(IDocumentSession session, ILogger? log 
     private sealed record Owned(IReadOnlyList<FieldDefinition> Tokens, string? Number, IReadOnlyList<FieldDefinition> Fields)
     {
         public static readonly Owned Nothing = new([], null, []);
+
+        /// <summary>The rollup fields, whose values the drain writes and no other write may.</summary>
+        public IEnumerable<FieldDefinition> Rollups => Fields.Where(f => f.Rollup is not null);
     }
     private readonly HashSet<string> _issued = new(StringComparer.Ordinal);
 
@@ -53,6 +56,12 @@ internal sealed class ContentTokenIssuer(IDocumentSession session, ILogger? log 
         {
             RemoveKeys(created.Data, field.Name);
             created.Data[field.Name] = NewToken(field);
+        }
+
+        // A new entry holds no rollup value. The drain sets it, as it does for every header.
+        foreach (var rollup in owned.Rollups)
+        {
+            RemoveKeys(created.Data, rollup.Name);
         }
 
         ComputedFields.Apply(owned.Fields, created.Data, log);
@@ -86,7 +95,24 @@ internal sealed class ContentTokenIssuer(IDocumentSession session, ILogger? log 
                 updated.Data[field.Name] = NewToken(field);
         }
 
+        KeepRollups(content, updated, owned);
         ComputedFields.Apply(owned.Fields, updated.Data, log);
+    }
+
+    /// <summary>Puts the stored rollup values back, so an update that leaves them out does not drop them.</summary>
+    private static void KeepRollups(Content content, ContentUpdated updated, Owned owned)
+    {
+        foreach (var field in owned.Rollups)
+        {
+            var storedKey = content.Data.Keys.FirstOrDefault(k => Matches(k, field.Name));
+            var stored = storedKey is null ? null : content.Data[storedKey];
+
+            RemoveKeys(updated.Data, field.Name);
+            if (storedKey is not null && stored is not null)
+            {
+                updated.Data[storedKey] = stored;
+            }
+        }
     }
 
     /// <summary>Puts the stored number back into a data update, or leaves the field out when the entry has none.</summary>

@@ -43,13 +43,36 @@ internal sealed class Endpoint(
     BlueprintCatalog catalog,
     barakoCMS.Core.Interfaces.IContentSourcingPolicy sourcing,
     barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
         Post("/api/content-types/blueprints/{name}");
         // Applying a blueprint is creating content types, so it asks for what the create asks for.
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
+    }
+
+    private async Task RefuseUnstorableAsync(string blueprint, List<ContentTypeDefinition> types, CancellationToken ct)
+    {
+        await RefuseStandingSourcingAsync(types, ct);
+        await RefuseLimitedAudienceAsync(types, ct);
+        await RefuseBadRollupsAsync(blueprint, types, ct);
+    }
+
+    /// <summary>A rollup reads another type, so it is checked against the set as stored with the blueprint's types.</summary>
+    private async Task RefuseBadRollupsAsync(string blueprint, List<ContentTypeDefinition> types, CancellationToken ct)
+    {
+        foreach (var type in types)
+        {
+            var errors = await barakoCMS.Infrastructure.Services.ContentTypeUpsert.RollupErrorsAsync(
+                session, type, null, types, User, sensitivity, permissions, ct);
+            if (errors.Count > 0)
+            {
+                ThrowError($"Blueprint '{blueprint}' was not applied: {type.Name}: {errors[0]}", 400);
+            }
+        }
     }
 
     private async Task RefuseStandingSourcingAsync(List<ContentTypeDefinition> types, CancellationToken ct)
@@ -126,8 +149,7 @@ internal sealed class Endpoint(
                 409);
         }
 
-        await RefuseStandingSourcingAsync(types, ct);
-        await RefuseLimitedAudienceAsync(types, ct);
+        await RefuseUnstorableAsync(entry.Name, types, ct);
 
         // A blueprint file names roles, and a definition is stored with their ids, as on create.
         await barakoCMS.Core.RoleReferences.ToIdsAsync(session, types.SelectMany(t => t.Fields ?? []), ct);

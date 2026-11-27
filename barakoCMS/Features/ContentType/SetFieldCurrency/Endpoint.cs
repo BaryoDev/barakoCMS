@@ -30,7 +30,9 @@ namespace barakoCMS.Features.ContentType.SetFieldCurrency;
 /// </remarks>
 internal class Endpoint(
     IDocumentSession session,
-    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<Request, Response>
+    barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
+    barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<Request, Response>
 {
     // The field's value by key without regard to case, as the entry validator reads it. A number is
     // compared as numeric, never as a float. Text and anything else that is not a number or null
@@ -51,6 +53,28 @@ internal class Endpoint(
         // Changing what a field accepts is modelling, the same gate as adding the field.
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
         Definition.RefusesWhileFieldChangeRuns();
+    }
+
+    private void AddCountErrors(FieldDefinition field, int notFitting, int relabelled, int scale, string? currency)
+    {
+        if (notFitting > 0)
+        {
+            AddError(
+                $"{notFitting} {(notFitting == 1 ? "entry holds" : "entries hold")} a value in "
+                + $"'{field.Name}' with more than {scale} decimal {(scale == 1 ? "place" : "places")}, "
+                + "or one that is not a number. They are left as they are, and each is refused on "
+                + "its next save until the amount is corrected.");
+        }
+
+        if (relabelled > 0)
+        {
+            AddError(
+                $"{relabelled} {(relabelled == 1 ? "entry holds" : "entries hold")} an amount in "
+                + $"'{field.Name}' stored as {field.Currency}. Nothing is converted, so each would "
+                + $"be read as {currency}.");
+        }
+
+        AddError("Resend with force set to true to go ahead anyway.");
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct)
@@ -102,6 +126,18 @@ internal class Endpoint(
             return;
         }
 
+        var changed = barakoCMS.Features.Public.Events.ContentChangeListener.WithSensitivity(field, field.Sensitivity);
+        changed.Currency = req.Currency;
+        changed.Scale = req.Scale;
+        var rollupErrors = await RollupFields.IntroducedAsync(
+            session, def, field, changed, new RollupCaller(User, sensitivity, permissions), ct);
+        if (rollupErrors.Count > 0)
+        {
+            foreach (var error in rollupErrors) AddError(error);
+            await Send.ErrorsAsync(409, ct);
+            return;
+        }
+
         var notFitting = declares
             ? await CountAsync(def.Name, NotFittingSql, [field.Name, scale], ct)
             : 0;
@@ -113,24 +149,7 @@ internal class Endpoint(
 
         if ((notFitting > 0 || relabelled > 0) && !req.Force)
         {
-            if (notFitting > 0)
-            {
-                AddError(
-                    $"{notFitting} {(notFitting == 1 ? "entry holds" : "entries hold")} a value in "
-                    + $"'{field.Name}' with more than {scale} decimal {(scale == 1 ? "place" : "places")}, "
-                    + "or one that is not a number. They are left as they are, and each is refused on "
-                    + "its next save until the amount is corrected.");
-            }
-
-            if (relabelled > 0)
-            {
-                AddError(
-                    $"{relabelled} {(relabelled == 1 ? "entry holds" : "entries hold")} an amount in "
-                    + $"'{field.Name}' stored as {field.Currency}. Nothing is converted, so each would "
-                    + $"be read as {currency}.");
-            }
-
-            AddError("Resend with force set to true to go ahead anyway.");
+            AddCountErrors(field, notFitting, relabelled, scale, currency);
             await Send.ErrorsAsync(409, ct);
             return;
         }

@@ -1,3 +1,4 @@
+using barakoCMS.Core.Validation;
 using barakoCMS.Infrastructure.Audit;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Jobs;
@@ -29,6 +30,8 @@ internal class Endpoint(
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var name = barakoCMS.Core.ContentTypeName.Normalize(Route<string>("name") ?? string.Empty);
+        // The type's lock, so a rollup added to it meanwhile is seen below.
+        await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeAsync(session, name, ct);
         var def = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == name, ct);
         if (def is null)
         {
@@ -124,7 +127,7 @@ internal class Endpoint(
             }
         }
 
-        return [];
+        return RollupFields.LinesErrors(header, child, asked).ToList();
     }
 
     private static bool IsNumber(FieldDefinition field) =>

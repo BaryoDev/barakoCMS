@@ -1059,6 +1059,8 @@ public static class ServiceCollectionExtensions
         MapPendingCdnPurges(options);
         MapOnDemandDocuments(options);
         options.Schema.For<barakoCMS.Modules.ModuleSeededType>().MultiTenanted().DocumentAlias("module_seeded_types");
+        // migrations/6.0.0/rollup-marks.sql creates the table in an existing database.
+        options.Schema.For<barakoCMS.Infrastructure.Rollups.RollupMark>().MultiTenanted().DocumentAlias("rollup_marks");
         // Global: a webhook carries no tenant, and the receiver has to find a replay before it
         // knows whose data the event touches.
         options.Schema.For<InboundWebhookEvent>()

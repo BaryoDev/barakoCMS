@@ -61,6 +61,9 @@ internal sealed class Request
     /// <summary>How the server computes the field from other fields of the entry. Makes the field read only.</summary>
     public ComputedDefinition? Computed { get; set; }
 
+    /// <summary>What the server summarises from the entries of another type. Makes the field read only.</summary>
+    public RollupDefinition? Rollup { get; set; }
+
     public bool IsRequired { get; set; }
     public object? DefaultValue { get; set; }
     public Dictionary<string, object>? ValidationRules { get; set; }
@@ -145,7 +148,9 @@ internal sealed class Endpoint(
     IDocumentSession session,
     barakoCMS.Infrastructure.Services.IContentTypeValidatorService validator,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
-    barakoCMS.Core.Interfaces.IContentSourcingPolicy sourcing) : Endpoint<Request, Response>
+    barakoCMS.Core.Interfaces.IContentSourcingPolicy sourcing,
+    barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
@@ -176,6 +181,7 @@ internal sealed class Endpoint(
             ShownWhenListedIn = req.ShownWhenListedIn,
             TokenLength = req.TokenLength,
             Computed = req.Computed,
+            Rollup = req.Rollup,
             IsRequired = req.IsRequired,
             DefaultValue = req.DefaultValue,
             ValidationRules = req.ValidationRules ?? new Dictionary<string, object>(),
@@ -237,7 +243,7 @@ internal sealed class Endpoint(
             ThrowIfAnyErrors();
         }
 
-        await RefuseWhatExistingEntriesBreakAsync(definition, field, ct);
+        await RefuseBadRollupAsync(definition, merged, field, ct);
 
         if (req.DryRun)
         {
@@ -294,6 +300,20 @@ internal sealed class Endpoint(
         }
 
         await Send.NotFoundAsync(ct);
+    }
+
+    /// <summary>Refuses a rollup the other types' fields do not support, as the type would be with it.</summary>
+    private async Task RefuseBadRollupAsync(ContentTypeDefinition definition, List<FieldDefinition> merged, FieldDefinition field, CancellationToken ct)
+    {
+        var candidate = new ContentTypeDefinition { Name = definition.Name, Fields = merged, Lines = definition.Lines };
+        var caller = new barakoCMS.Core.Validation.RollupCaller(User, sensitivity, permissions);
+        foreach (var error in await barakoCMS.Core.Validation.RollupFields.DefinitionErrorsAsync(session, candidate, null, caller, ct))
+        {
+            AddError(error);
+        }
+
+        ThrowIfAnyErrors();
+        await RefuseWhatExistingEntriesBreakAsync(definition, field, ct);
     }
 
     private async Task RefuseWhatExistingEntriesBreakAsync(ContentTypeDefinition definition, FieldDefinition field, CancellationToken ct)

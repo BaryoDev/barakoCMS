@@ -237,13 +237,15 @@ else
     bad "its no-transaction marker is read from the file"
 fi
 
-# A file under a release after 5.9.0 is the plan from 5.9.0, with its rollback, so the 5.9 check
-# stops being the empty-plan case and starts applying it.
+# A file under a release after 5.9.0 joins the plan from 5.9.0, with its rollback, beside the
+# files the repo already ships after 5.9.0.
+plan "$ROOT" 5.9.0
+shipped="$out"
 plan "$repo" 5.9.0
-expect "from 5.9.0 a file of a later release is the whole plan" \
+expect "from 5.9.0 a file of a later release joins the plan beside the shipped ones" \
     "core migrations/9.9.0/a-change.sql
 core migrations/9.9.0/b-change.sql
-rollback migrations/9.9.0/rollback-b-change.sql" "$out"
+rollback migrations/9.9.0/rollback-b-change.sql" "$(grep -vxF -f <(printf '%s\n' "$shipped") <<< "$out")"
 
 repo="$work/new-module"
 copy_repo "$repo"
