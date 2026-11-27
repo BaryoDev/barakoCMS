@@ -144,6 +144,77 @@ public class ComputedExpressionWriterTests
         Computed(after).Should().Be("7");
     }
 
+    private static FieldDefinition[] FnOrder() =>
+    [
+        Plain("Qty", "decimal"),
+        Plain("Cost", "decimal"),
+        Plain("Note", "string"),
+        new() { Name = "Total", DisplayName = "Total", Type = "decimal", Computed = new ComputedDefinition { Fn = "add", Args = ["Qty", "Cost"] } },
+    ];
+
+    private async Task<HttpResponseMessage> RollbackToFirstAsync(string admin, Guid id)
+    {
+        var client = Probe.ClientFor(_fixture, admin);
+        var history = JsonDocument.Parse(await (await client.GetAsync($"/api/contents/{id}/history", Ct)).Content.ReadAsStringAsync(Ct));
+        var first = history.RootElement.GetProperty("items")[0].GetProperty("versionId").GetGuid();
+        return await client.PostAsync($"/api/contents/{id}/rollback/{first}", null, Ct);
+    }
+
+    /// <summary>
+    /// The restored version holds the value its own inputs gave. The entry holds other inputs now, so
+    /// that value differs from the stored one, and the restore used to be refused for it.
+    /// </summary>
+    [Theory]
+    [InlineData(false, "12")]
+    [InlineData(true, "7")]
+    public async Task A_rollback_across_an_input_change_works_the_value_out_from_the_restored_inputs(bool functionRule, string expected)
+    {
+        var type = await Probe.StoreTypeAsync(_fixture, "wr", deliverable: false, functionRule ? FnOrder() : Order());
+        var admin = await Probe.AdminAsync(_fixture);
+        var id = await Probe.CreateAsync(_fixture, admin, type, new() { ["Qty"] = 3, ["Cost"] = 4, ["Note"] = "a" }, ContentStatus.Published);
+        (await Probe.UpdateAsync(_fixture, admin, id, new() { ["Qty"] = 5, ["Cost"] = 4, ["Note"] = "b" }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        Computed(await Probe.StoredAsync(_fixture, id)).Should().NotBe(expected, "the inputs changed, so the stored value moved");
+
+        var rollback = await RollbackToFirstAsync(admin, id);
+
+        rollback.StatusCode.Should().Be(HttpStatusCode.OK, await rollback.Content.ReadAsStringAsync(Ct));
+        var after = await Probe.StoredAsync(_fixture, id);
+        after.Data["Note"].ToString().Should().Be("a");
+        after.Data["Qty"].ToString().Should().Be("3");
+        Computed(after).Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task A_rollback_after_a_completed_recompute_works_the_value_out_from_the_restored_inputs()
+    {
+        var type = await Probe.StoreTypeAsync(_fixture, "wr", deliverable: false, Order());
+        var admin = await Probe.AdminAsync(_fixture);
+        var id = await Probe.CreateAsync(_fixture, admin, type, new() { ["Qty"] = 3, ["Cost"] = 4, ["Note"] = "a" }, ContentStatus.Published);
+        (await Probe.UpdateAsync(_fixture, admin, id, new() { ["Qty"] = 3, ["Cost"] = 4, ["Note"] = "b" }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var slug = JasperFx.StorageConstants.DefaultTenantId;
+        await using (var session = store.LightweightSession(slug))
+        {
+            var definition = await session.Query<ContentTypeDefinition>().FirstAsync(d => d.Name == type, Ct);
+            var before = definition.Fields.Select(f => new FieldDefinition { Name = f.Name, DisplayName = f.DisplayName, Type = f.Type, Computed = f.Computed }).ToList();
+            definition.Fields.Single(f => f.Name == "Total").Computed = new ComputedDefinition { Expression = "Qty + Cost" };
+            session.Store(definition);
+            (await ComputedRecompute.StartAsync(session, definition, before, Guid.NewGuid(), Ct)).Should().BeNull();
+            await session.SaveChangesAsync(Ct);
+        }
+
+        await RunRecomputeAsync(store, slug, type);
+        Computed(await Probe.StoredAsync(_fixture, id)).Should().Be("7", "the recompute moved the stored value off the version's");
+
+        var rollback = await RollbackToFirstAsync(admin, id);
+
+        rollback.StatusCode.Should().Be(HttpStatusCode.OK, await rollback.Content.ReadAsStringAsync(Ct));
+        Computed(await Probe.StoredAsync(_fixture, id)).Should().Be("7");
+    }
+
     // The writes that go around the endpoints.
 
     [Fact]
