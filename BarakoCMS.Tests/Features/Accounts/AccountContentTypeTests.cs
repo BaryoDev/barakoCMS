@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using BarakoCMS.Diagnostics;
+using BarakoCMS.Tests.Jobs;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Infrastructure.Multitenancy;
@@ -876,5 +877,43 @@ public class AccountContentTypeTests
         var stored = await read.LoadAsync<Content>(entry, Ct);
         decimal.Parse(stored!.Data["Total"].ToString()!, System.Globalization.CultureInfo.InvariantCulture)
             .Should().Be(10m);
+    }
+
+    [Fact]
+    public async Task The_recompute_job_of_a_formula_field_is_stored_in_the_tenant_whose_entries_it_works_out()
+    {
+        var account = await AccountAsync();
+        var held = await TenantAsync(account.Id);
+        var manager = await ManagerAsync(account.Id);
+        var name = Unique("sale");
+        (await manager.PostAsJsonAsync($"/api/accounts/{account.Slug}/content-types", new
+        {
+            name,
+            displayName = "Sale",
+            fields = new[]
+            {
+                new { name = "Qty", displayName = "Qty", type = "decimal", isRequired = false },
+                new { name = "Cost", displayName = "Cost", type = "decimal", isRequired = false },
+            },
+        }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        await StoreInTenantAsync(held, new Content { Id = Guid.NewGuid(), ContentType = name, Data = new() { ["Qty"] = 4m, ["Cost"] = 2.5m } });
+
+        var added = await manager.PostAsJsonAsync($"/api/accounts/{account.Slug}/content-types/{name}/fields", new
+        {
+            fieldName = "Total",
+            displayName = "Total",
+            type = "decimal",
+            computed = new { expression = "Qty * Cost" },
+        }, Ct);
+        added.StatusCode.Should().Be(HttpStatusCode.OK, await added.Content.ReadAsStringAsync(Ct));
+
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using var read = store.QuerySession(held);
+        var change = await read.Query<FieldChange>().SingleAsync(c => c.ContentType == name && c.Kind == FieldChangeKind.Recompute, Ct);
+
+        var jobs = await QueuedJobs.ForChangeAsync(store, change.Id, Ct);
+
+        jobs.Should().ContainSingle("the change was saved running, and a change with no job locks its type for good");
+        jobs[0].TenantId.Should().Be(held, "the job belongs to the tenant of the change, not the request's");
     }
 }

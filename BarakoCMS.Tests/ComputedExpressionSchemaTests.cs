@@ -10,6 +10,7 @@ using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using BarakoCMS.Tests.Features.Tenants;
+using BarakoCMS.Tests.Jobs;
 
 namespace BarakoCMS.Tests;
 
@@ -595,6 +596,184 @@ public class ComputedExpressionSchemaTests
         await RunRecomputeAsync(slug, type);
 
         (await EntriesAsync(slug, type)).Single().Data["Total"].ToString().Should().Be("12");
+    }
+
+    [Fact]
+    public async Task A_bundle_import_that_changes_a_formula_commits_the_recompute_job_with_the_change()
+    {
+        var (slug, admin) = await TenantAsync();
+        var type = NewName();
+        (await CreateTypeAsync(admin, type, ApiFields("Qty + Cost"))).StatusCode.Should().Be(HttpStatusCode.OK);
+        await CreateEntryAsync(admin, type, 3m, 4m);
+
+        var imported = await admin.PostAsJsonAsync("/api/portability/import", new
+        {
+            dryRun = false,
+            contentTypes = new[] { new { name = type, displayName = type, isPubliclyDeliverable = true, fields = ApiFields("Qty * Cost") } },
+            contents = Array.Empty<object>(),
+        }, Ct);
+        imported.StatusCode.Should().Be(HttpStatusCode.OK, await imported.Content.ReadAsStringAsync(Ct));
+
+        await AssertJobCommittedAsync(slug, type);
+    }
+
+    [Fact]
+    public async Task A_config_apply_that_changes_a_formula_commits_the_recompute_job_with_the_change()
+    {
+        var (slug, admin) = await TenantAsync();
+        var type = NewName();
+        (await CreateTypeAsync(admin, type, ApiFields("Qty + Cost"))).StatusCode.Should().Be(HttpStatusCode.OK);
+        await CreateEntryAsync(admin, type, 3m, 4m);
+
+        var applied = await admin.PostAsJsonAsync("/api/config/apply", ConfigDocument(type, ApiFields("Qty * Cost"), allowDestructive: true), Ct);
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, await applied.Content.ReadAsStringAsync(Ct));
+
+        await AssertJobCommittedAsync(slug, type);
+    }
+
+    [Fact]
+    public async Task A_config_apply_that_changes_a_formula_has_the_queue_work_it_out_with_no_hand_run()
+    {
+        var (slug, admin) = await TenantAsync();
+        var type = NewName();
+        (await CreateTypeAsync(admin, type, ApiFields("Qty + Cost"))).StatusCode.Should().Be(HttpStatusCode.OK);
+        await CreateEntryAsync(admin, type, 3m, 4m);
+
+        var applied = await admin.PostAsJsonAsync("/api/config/apply", ConfigDocument(type, ApiFields("Qty * Cost"), allowDestructive: true), Ct);
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, await applied.Content.ReadAsStringAsync(Ct));
+
+        await CompletedWithinProbeAsync(slug, type);
+        (await EntriesAsync(slug, type)).Single().Data["Total"].ToString().Should().Be("12");
+    }
+
+    [Fact]
+    public async Task A_bundle_import_that_changes_a_formula_has_the_queue_work_it_out_with_no_hand_run()
+    {
+        var (slug, admin) = await TenantAsync();
+        var type = NewName();
+        (await CreateTypeAsync(admin, type, ApiFields("Qty + Cost"))).StatusCode.Should().Be(HttpStatusCode.OK);
+        await CreateEntryAsync(admin, type, 3m, 4m);
+
+        var imported = await admin.PostAsJsonAsync("/api/portability/import", new
+        {
+            dryRun = false,
+            contentTypes = new[] { new { name = type, displayName = type, isPubliclyDeliverable = true, fields = ApiFields("Qty * Cost") } },
+            contents = Array.Empty<object>(),
+        }, Ct);
+        imported.StatusCode.Should().Be(HttpStatusCode.OK, await imported.Content.ReadAsStringAsync(Ct));
+
+        await CompletedWithinProbeAsync(slug, type);
+        (await EntriesAsync(slug, type)).Single().Data["Total"].ToString().Should().Be("12");
+    }
+
+    /// <summary>
+    /// A wake at the batch's flush finds nothing, as the job is not committed yet. Holding the flush
+    /// open makes that certain: the worker looks, finds nothing and waits for its next storage poll,
+    /// 60 s away. Only a wake after the commit finishes the change inside the deadline.
+    /// </summary>
+    [Fact]
+    public async Task A_recompute_queued_in_a_content_batch_is_woken_after_the_batch_commits_not_at_its_flush()
+    {
+        var (slug, admin) = await TenantAsync();
+        var type = NewName();
+        (await CreateTypeAsync(admin, type, ApiFields("Qty + Cost"))).StatusCode.Should().Be(HttpStatusCode.OK);
+        await CreateEntryAsync(admin, type, 3m, 4m);
+
+        await using var scope = _fixture.Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.TenantContext>().Slug = slug;
+        var runner = scope.ServiceProvider.GetRequiredService<IContentBatchRunner>();
+        await runner.RunAsync(async (services, ct) =>
+        {
+            var session = services.GetRequiredService<IDocumentSession>();
+            (await FieldChanges.StartAsync(session, new FieldChange { ContentType = type, Field = "Total", Kind = FieldChangeKind.Recompute }, ct))
+                .Should().BeNull("no change is running on the type");
+
+            // After the job's own listener, so the worker has looked and gone back to waiting
+            // before the batch commits.
+            session.Listeners.Add(new HoldTheFlush(TimeSpan.FromSeconds(2)));
+            return new ContentBatchOutcome<bool>(true, Commit: true);
+        }, Ct);
+
+        await CompletedWithinProbeAsync(slug, type);
+    }
+
+    private sealed class HoldTheFlush(TimeSpan hold) : DocumentSessionListenerBase
+    {
+        public override Task AfterCommitAsync(IDocumentSession session, Marten.Services.IChangeSet commit, CancellationToken token) =>
+            Task.Delay(hold, token);
+    }
+
+    /// <summary>
+    /// The worker polls storage every 60 s, so a change still running at this deadline was never
+    /// woken after its commit.
+    /// </summary>
+    private async Task CompletedWithinProbeAsync(string slug, string type)
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        while (DateTime.UtcNow < deadline)
+        {
+            await using var session = store.QuerySession(slug);
+            var change = await session.Query<FieldChange>()
+                .SingleAsync(c => c.ContentType == type && c.Kind == FieldChangeKind.Recompute, Ct);
+            if (change.State == FieldChangeState.Completed)
+            {
+                return;
+            }
+
+            await Task.Delay(100, Ct);
+        }
+
+        throw new Xunit.Sdk.XunitException($"The recompute of {type} did not complete within 20 s of the commit.");
+    }
+
+    [Fact]
+    public async Task A_plan_and_a_refused_apply_that_change_a_formula_commit_no_job()
+    {
+        var (slug, admin) = await TenantAsync();
+        var type = NewName();
+        object[] withNote = [.. ApiFields("Qty + Cost"), new { name = "Note", type = "string" }];
+        (await CreateTypeAsync(admin, type, withNote)).StatusCode.Should().Be(HttpStatusCode.OK);
+        await CreateEntryAsync(admin, type, 3m, 4m);
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var before = await QueuedJobs.FieldChangeCountAsync(store, slug, Ct);
+
+        // Dropping Note is destructive, so the apply is refused and rolled back; a plan always is.
+        var document = ConfigDocument(type, ApiFields("Qty * Cost"), allowDestructive: false);
+        var plan = await admin.PostAsJsonAsync("/api/config/plan", document, Ct);
+        plan.StatusCode.Should().Be(HttpStatusCode.OK, await plan.Content.ReadAsStringAsync(Ct));
+        var refused = await admin.PostAsJsonAsync("/api/config/apply", document, Ct);
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict, await refused.Content.ReadAsStringAsync(Ct));
+
+        await using var session = store.QuerySession(slug);
+        (await session.Query<FieldChange>().CountAsync(c => c.ContentType == type, Ct)).Should().Be(0, "the apply was rolled back");
+        (await QueuedJobs.FieldChangeCountAsync(store, slug, Ct)).Should().Be(before, "no job may outlive the change it was queued for");
+    }
+
+    private static Dictionary<string, object> ConfigDocument(string type, object[] fields, bool allowDestructive) => new()
+    {
+        ["document"] = new
+        {
+            version = 1,
+            contentTypes = new Dictionary<string, object>
+            {
+                [type] = new { name = type, displayName = type, isPubliclyDeliverable = true, fields },
+            },
+        },
+        ["allowDestructive"] = allowDestructive,
+    };
+
+    /// <summary>The change the write started is saved running, and its job committed with it, in its tenant.</summary>
+    private async Task AssertJobCommittedAsync(string slug, string type)
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using var session = store.QuerySession(slug);
+        var change = await session.Query<FieldChange>().SingleAsync(c => c.ContentType == type && c.Kind == FieldChangeKind.Recompute, Ct);
+
+        var jobs = await QueuedJobs.ForChangeAsync(store, change.Id, Ct);
+
+        jobs.Should().ContainSingle("a change saved running with no job locks its type for good");
+        jobs[0].TenantId.Should().Be(slug);
     }
 
     [Fact]
