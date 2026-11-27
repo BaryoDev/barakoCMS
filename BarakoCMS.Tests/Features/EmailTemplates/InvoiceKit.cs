@@ -22,7 +22,7 @@ namespace BarakoCMS.Tests.Features.EmailTemplates;
 /// lines in a tenant of their own, a saved query for the lines, a template that names it, and a
 /// send of that template as the invoice's author.
 /// </summary>
-internal sealed class InvoiceKit(IntegrationTestFixture fixture)
+internal sealed class InvoiceKit(IntegrationTestFixture fixture, string? tenant = null)
 {
     /// <summary>The template of the issue, character for character.</summary>
     public const string Template = """
@@ -43,7 +43,7 @@ internal sealed class InvoiceKit(IntegrationTestFixture fixture)
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    public string Tenant { get; } = QueryKit.Tenant();
+    public string Tenant { get; } = tenant ?? QueryKit.Tenant();
 
     public IDocumentStore Store => fixture.Services.GetRequiredService<IDocumentStore>();
 
