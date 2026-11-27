@@ -107,6 +107,42 @@ public class RollupReadTests
     }
 
     [Fact]
+    public async Task A_reader_who_may_not_read_the_window_field_is_shown_no_definition()
+    {
+        var (header, line) = ("rh" + Guid.NewGuid().ToString("n")[..10], "rl" + Guid.NewGuid().ToString("n")[..10]);
+        using (var scope = R.ScopeOf(_fixture))
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = line, DisplayName = line,
+                Fields = [R.Reference("Teacher", header), R.Plain("Day", "date")],
+            });
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = header, DisplayName = header,
+                Fields =
+                [
+                    R.Plain("Name", "string"),
+                    R.Rollup("Recent", "int", line, "Teacher", "count", windowKey: "Day", window: "last7Days"),
+                    R.Rollup("Made", "int", line, "Teacher", "count", windowKey: "createdAt", window: "thisMonth"),
+                ],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var token = await R.ReaderAsync(_fixture, null, (header, null), (line, ["Teacher"]));
+        var shape = await ShapeAsync(token, header);
+
+        Field(shape, "Recent").Should().NotBeNull();
+        HasDefinition(Field(shape, "Recent")!.Value).Should().BeFalse("the reader may not read Day");
+        HasDefinition(Field(shape, "Made")!.Value).Should().BeTrue("createdAt is not a field the reader needs to read");
+
+        var whole = await ShapeAsync(await R.ReaderAsync(_fixture, null, (header, null), (line, null)), header);
+        HasDefinition(Field(whole, "Recent")!.Value).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task A_reader_who_may_not_read_the_summed_type_is_shown_the_field_and_no_definition()
     {
         var (shape, _) = await ShapeForAsync(SystemCapabilities.ViewSensitive, p => [(p.Header, null)]);

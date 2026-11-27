@@ -13973,6 +13973,14 @@
           "via": {
             "description": "A single reference field of From that names an entry of this type.",
             "type": "string"
+          },
+          "where": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Counts only the entries whose date falls in a window: one key, createdAt or a date or datetime field of From, and one word, today, last7Days, last30Days, thisMonth, lastMonth or thisYear, in the site's time zone. Null counts every entry.",
+            "nullable": true,
+            "type": "object"
           }
         },
         "type": "object"

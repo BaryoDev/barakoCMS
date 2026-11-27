@@ -36,13 +36,17 @@ internal static class RollupProbe
 
     public static FieldDefinition Rollup(
         string name, string type, string from, string via, string fn, string? field = null,
-        SensitivityLevel level = SensitivityLevel.Public, int? round = null) => new()
+        SensitivityLevel level = SensitivityLevel.Public, int? round = null, string? windowKey = null, string? window = null) => new()
     {
         Name = name,
         DisplayName = name,
         Type = type,
         Sensitivity = level,
-        Rollup = new RollupDefinition { From = from, Via = via, Fn = fn, Field = field, Round = round },
+        Rollup = new RollupDefinition
+        {
+            From = from, Via = via, Fn = fn, Field = field, Round = round,
+            Where = windowKey is null ? null : new Dictionary<string, string> { [windowKey] = window ?? "today" },
+        },
     };
 
     /// <summary>
