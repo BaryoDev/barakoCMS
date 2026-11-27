@@ -67,7 +67,8 @@ internal interface IContextQueryRunner
 internal sealed class QueryRunner(
     IQuerySession session,
     IPermissionResolver? permissions = null,
-    ISensitivityService? sensitivity = null) : IQueryRunner, IContextQueryRunner
+    ISensitivityService? sensitivity = null,
+    IBranchScopeGuard? branches = null) : IQueryRunner, IContextQueryRunner
 {
     /// <summary>How long the statement that reads the rows may run. A run that passes it is cancelled and answers with a message.</summary>
     public static readonly TimeSpan StatementTimeout = TimeSpan.FromSeconds(15);
@@ -95,7 +96,7 @@ internal sealed class QueryRunner(
     private sealed record Followed(FieldDefinition Reference, ContentTypeDefinition Target, FieldDefinition Field);
 
     /// <summary>Who the reads are checked as, with the services that decide what they may see.</summary>
-    private sealed class Reader(User? user, IPermissionResolver permissions, ISensitivityService sensitivity)
+    private sealed class Reader(User? user, IPermissionResolver permissions, ISensitivityService sensitivity, IBranchScopeGuard? branches)
     {
         public User? User { get; } = user;
 
@@ -123,7 +124,15 @@ internal sealed class QueryRunner(
         /// </summary>
         public async Task<Dictionary<string, object>?> ShownAsync(Content entry, CancellationToken ct)
         {
+            // The same order as the read of one entry: an entry of another branch is hidden as one that
+            // does not exist, then the read rule, then the sensitivity of the document.
+            if (branches is not null && !await branches.MayAccessAsync(Principal, entry, ct)) return null;
             if (User is not null && !await permissions.CanPerformActionAsync(User, entry.ContentType, "read", entry, ct)) return null;
+
+            // An entry whose whole document is withheld is left out, whether the read would show it
+            // as hidden or as a shell with its data cleared: either way this reader has no values to
+            // match on, and a row that is present is a fact about them.
+            if (!await sensitivity.MaySeeDocumentAsync(entry.Sensitivity, Principal, ct)) return null;
 
             var shown = new Dictionary<string, object>(entry.Data, StringComparer.OrdinalIgnoreCase);
             return await sensitivity.ApplyAsync(entry, shown, Http, ct) ? null : shown;
@@ -188,7 +197,7 @@ internal sealed class QueryRunner(
                 if (user is null) return Refuse("The user this run reads as no longer exists.");
             }
 
-            reader = new Reader(user, permissions, sensitivity);
+            reader = new Reader(user, permissions, sensitivity, branches);
             if (!await reader.MayReadTypeAsync(schema.Name, ct))
             {
                 return Refuse($"The user this run reads as may not read '{Safe(schema.Name)}'.");
@@ -452,6 +461,16 @@ internal sealed class QueryRunner(
 
             if (check.Reader is { } reader)
             {
+                // Every field the query depends on, not only the ones it returns: a filter or a sort
+                // on a field this reader is not shown on a row would tell them which rows hold what
+                // without the value ever appearing.
+                var depends = definition.Filters.Select(f => f.Field)
+                    .Concat(definition.SortField is null ? [] : [definition.SortField])
+                    .Concat(definition.Fields.Select(f => f.Contains('.') ? f[..f.IndexOf('.')] : f))
+                    .Where(n => !IsSystemField(n))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
                 var kept = new List<Content>(rows.Count);
                 foreach (var row in rows)
                 {
@@ -460,10 +479,9 @@ internal sealed class QueryRunner(
 
                     // A field the query names that this reader is shown masked is not left out of the
                     // row, because a step that goes on without it is working from less than it asked for.
-                    foreach (var field in definition.Fields)
+                    foreach (var name in depends)
                     {
-                        var name = field.Contains('.') ? field[..field.IndexOf('.')] : field;
-                        if (!IsSystemField(name) && !Reader.Unchanged(row, shown, name))
+                        if (!Reader.Unchanged(row, shown, name))
                         {
                             return QueryResult.Refused(
                                 $"The user this run reads as may not read '{Safe(name)}' on an entry the query matched, so the query was not used.");
@@ -474,7 +492,23 @@ internal sealed class QueryRunner(
                 }
 
                 rows = kept;
-                targets = await FollowedEntriesAsync(rows, check.Follows, reader, limit.Token);
+                var followed = await FollowedEntriesAsync(rows, check.Follows, reader, limit.Token);
+                targets = followed?.Entries;
+
+                if (followed is not null && check.Follows is not null)
+                {
+                    foreach (var row in rows)
+                    {
+                        foreach (var follow in check.Follows.Values)
+                        {
+                            if (followed.Masked.Contains((ReferenceId(row, follow), follow.Field.Name.ToLowerInvariant())))
+                            {
+                                return QueryResult.Refused(
+                                    $"The user this run reads as may not read '{Safe(follow.Reference.Name + "." + follow.Field.Name)}' on an entry the query matched, so the query was not used.");
+                            }
+                        }
+                    }
+                }
             }
         }
         catch (Exception e) when (!ct.IsCancellationRequested && TimedOut(e))
@@ -537,7 +571,7 @@ internal sealed class QueryRunner(
     /// with the fields shown to them. An entry that is not there, not of the type the field names,
     /// or not readable is left out, so its value is absent, the same as for a template.
     /// </summary>
-    private async Task<Dictionary<Guid, Content>?> FollowedEntriesAsync(
+    private async Task<FollowedSet?> FollowedEntriesAsync(
         List<Content> rows, Dictionary<string, Followed>? follows, Reader reader, CancellationToken ct)
     {
         if (follows is null || rows.Count == 0) return null;
@@ -548,10 +582,11 @@ internal sealed class QueryRunner(
             .Distinct()
             .ToArray();
 
-        if (ids.Length == 0) return [];
+        if (ids.Length == 0) return new FollowedSet([], []);
 
         var found = await session.Query<Content>().Where(c => c.Id.In(ids)).ToListAsync(ct);
         var readable = new Dictionary<Guid, Content>(found.Count);
+        var masked = new HashSet<(Guid, string)>();
         foreach (var entry in found)
         {
             if (await reader.ShownAsync(entry, ct) is not { } shown) continue;
@@ -561,6 +596,7 @@ internal sealed class QueryRunner(
             foreach (var (key, value) in entry.Data)
             {
                 if (shown.TryGetValue(key, out var seen) && ReferenceEquals(value, seen)) data[key] = value;
+                else masked.Add((entry.Id, key.ToLowerInvariant()));
             }
 
             readable[entry.Id] = new Content
@@ -569,8 +605,11 @@ internal sealed class QueryRunner(
             };
         }
 
-        return readable;
+        return new FollowedSet(readable, masked);
     }
+
+    /// <summary>The referenced entries the reader may read, and the fields of them that were shown masked, by id and lower-case name.</summary>
+    private sealed record FollowedSet(Dictionary<Guid, Content> Entries, HashSet<(Guid, string)> Masked);
 
     private static Guid ReferenceId(Content row, Followed follow)
     {
