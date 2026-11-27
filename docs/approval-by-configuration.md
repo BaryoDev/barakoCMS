@@ -712,7 +712,9 @@ actions.1.count > 3 and data.Total >= 100
 `==` and `=` both compare. `{{data.X}}` around a name is read as the name. A step output that is a
 plain number is a number, and every other output is text, so an output holding a quote or `{{...}}`
 is only a value to compare and never part of the formula. A right side that is unquoted and holds
-`and`, `or`, `not` or any of `()<>=!` is read as an expression, so quote it to keep the old compare.
+`and`, `or`, `not` or any of `()<>=!` is read as an expression first. If that cannot be built, for
+example `{{data.Stage}} == Not started`, the old compare is used. Quote the value to always get the
+old compare.
 
 A condition that cannot be read or has no value is false, and the action result and the log say why,
 with no value in them. `today()` and `now()` read the site's time zone.

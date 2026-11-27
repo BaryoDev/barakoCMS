@@ -83,6 +83,55 @@ public class ConditionExpressionTests
         verdict.Result.Should().Be(expected);
     }
 
+    private static Content EntryWith(string field, string value) => new()
+    {
+        Id = Guid.NewGuid(),
+        ContentType = "post",
+        Status = ContentStatus.Published,
+        Data = new Dictionary<string, object> { [field] = value },
+    };
+
+    [Theory]
+    [InlineData("Stage", "Not started", "{{data.Stage}} == Not started")]
+    [InlineData("Band", "Rock and Roll", "{{data.Band}} == Rock and Roll")]
+    [InlineData("Title", "Q1 (draft)", "{{data.Title}} == Q1 (draft)")]
+    [InlineData("X", "a=b", "{{data.X}} == a=b")]
+    [InlineData("Stage", "NOT STARTED", "{{data.Stage}} == Not started")]
+    [InlineData("Stage", "Started", "{{data.Stage}} != Not started")]
+    public void An_old_form_value_with_an_operator_word_still_compares(string field, string value, string condition)
+    {
+        var verdict = ConditionExpression.Run(ConditionExpression.Prepare(condition, EntryWith(field, value), NoOutputs), null);
+
+        verdict.Result.Should().BeTrue();
+        verdict.Note.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("Stage", "Done", "{{data.Stage}} == Not started")]
+    [InlineData("Band", "Rock", "{{data.Band}} == Rock and Roll")]
+    [InlineData("Title", "Q1", "{{data.Title}} == Q1 (draft)")]
+    [InlineData("X", "a", "{{data.X}} == a=b")]
+    [InlineData("Stage", "Not started", "{{data.Stage}} != Not started")]
+    public void An_old_form_value_with_an_operator_word_does_not_match_a_different_value(string field, string value, string condition)
+    {
+        var verdict = ConditionExpression.Run(ConditionExpression.Prepare(condition, EntryWith(field, value), NoOutputs), null);
+
+        verdict.Result.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("{{ status }} == \"Draft\"")]
+    [InlineData("{{Status}} == Draft")]
+    [InlineData("{{createdAt}} < \"2020-01-01\"")]
+    [InlineData("{{ createdAt }} < \"2020-01-01\"")]
+    [InlineData("Status = \"Draft\"")]
+    [InlineData("CreatedAt > \"2020-01-01\"")]
+    [InlineData("{{ data.X }} == a")]
+    public void A_condition_that_reads_the_entry_is_seen_as_reading_it_in_any_case_or_spacing(string c)
+    {
+        ConditionExpression.ReadsTheEntry(c).Should().BeTrue();
+    }
+
     private static IReadOnlyDictionary<int, IReadOnlyDictionary<string, string>> Outputs(params (string Name, string Value)[] values) =>
         new Dictionary<int, IReadOnlyDictionary<string, string>>
         {
@@ -211,7 +260,7 @@ public class ConditionExpressionTests
         var erased = new ErasedContent(Guid.NewGuid(), "post");
         var action = new ConditionalAction(new Mock<IServiceProvider>().Object, NullLogger<ConditionalAction>.Instance);
 
-        foreach (var condition in new[] { "{{data.Priority}} == High", "data.Priority == \"High\"", "status == \"Published\"" })
+        foreach (var condition in new[] { "{{data.Priority}} == High", "data.Priority == \"High\"", "status == \"Published\"", "{{ status }} == \"Draft\"" })
         {
             var result = await action.RunAsync(new Dictionary<string, string> { ["Condition"] = condition, ["ThenActions"] = "[]" }, erased, Ct);
             result.Succeeded.Should().BeFalse(condition);

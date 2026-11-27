@@ -59,36 +59,49 @@ internal static partial class ConditionExpression
     {
         if (condition.Contains("{{data.") || condition.Contains("{{status}}")) return true;
 
-        var tokens = new List<Token>();
-        var read = StepOrdinal().Replace(condition, m => m.Groups["step"].Success ? $"actions._{m.Groups["step"].Value}." : m.Value);
-        if (Lexer.TryLex(read, tokens) is not null) return false;
-
-        foreach (var token in tokens)
+        try
         {
-            if (token.Kind == TokenKind.Name
-                && token.Text is "data" or "status" or "createdAt" or "updatedAt")
-            {
-                return true;
-            }
-        }
+            // Read it the way Prepare does, so spacing and case in a placeholder do not hide a name.
+            var named = Hole().Replace(condition, m => m.Groups["name"].Success ? m.Groups["name"].Value : m.Value);
+            var read = StepOrdinal().Replace(named, m => m.Groups["step"].Success ? $"actions._{m.Groups["step"].Value}." : m.Value);
+            var tokens = new List<Token>();
+            if (Lexer.TryLex(read, tokens) is not null) return false;
 
-        return false;
+            foreach (var token in tokens)
+            {
+                if (token.Kind == TokenKind.Name
+                    && (token.Text.Equals("data", StringComparison.OrdinalIgnoreCase)
+                        || token.Text.Equals("status", StringComparison.OrdinalIgnoreCase)
+                        || token.Text.Equals("createdAt", StringComparison.OrdinalIgnoreCase)
+                        || token.Text.Equals("updatedAt", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // A condition too slow to read is not decided on a placeholder.
+            return true;
+        }
     }
 
     public static Prepared Prepare(string condition, barakoCMS.Models.Content content, IReadOnlyDictionary<int, IReadOnlyDictionary<string, string>> outputs)
     {
         try
         {
-            if (TryLegacy(condition, content, out var legacy)) return new Prepared(null, null, legacy, null);
+            if (TryLegacy(condition, content, strict: true, out var legacy)) return new Prepared(null, null, legacy, null);
 
             var bindings = new Bindings(content, outputs);
             var named = Hole().Replace(condition, m => m.Groups["name"].Success ? m.Groups["name"].Value : m.Value);
             var rewritten = bindings.Rewrite(StepOrdinal().Replace(named, m => m.Groups["step"].Success ? $"actions._{m.Groups["step"].Value}." : m.Value));
-            if (rewritten is null) return Failed(bindings.Error);
+            if (rewritten is null) return OldCompareOr(condition, content, Failed(bindings.Error));
 
             var parsed = ExpressionEngine.ParseAndCheck(rewritten, bindings.TypeOf, refuseClock: false);
             return parsed.Expression is null
-                ? Failed($"The condition could not be evaluated: {Describe(parsed.Errors.FirstOrDefault())}.")
+                ? OldCompareOr(condition, content, Failed($"The condition could not be evaluated: {Describe(parsed.Errors.FirstOrDefault())}."))
                 : new Prepared(parsed.Expression, bindings, null, null);
         }
         catch (RegexMatchTimeoutException)
@@ -116,8 +129,18 @@ internal static partial class ConditionExpression
     private static string Describe(ExpressionError? error) =>
         error is null ? "it is not valid" : $"{error.Message} (rule {error.Rule}, position {error.Position})";
 
-    /// <summary>The old form, compared as it always was. False when the condition is not that form.</summary>
-    private static bool TryLegacy(string condition, barakoCMS.Models.Content content, out bool result)
+    /// <summary>
+    /// A condition that could not be built as an expression is still the old compare when it has that
+    /// form, so a stored <c>{{data.Stage}} == Not started</c> keeps the meaning it always had.
+    /// </summary>
+    private static Prepared OldCompareOr(string condition, barakoCMS.Models.Content content, Prepared failed) =>
+        TryLegacy(condition, content, strict: false, out var legacy) ? new Prepared(null, null, legacy, null) : failed;
+
+    /// <summary>
+    /// The old form, compared as it always was. False when the condition is not that form. When
+    /// <paramref name="strict"/>, a plain right side that reads like an expression is left to the expression path.
+    /// </summary>
+    private static bool TryLegacy(string condition, barakoCMS.Models.Content content, bool strict, out bool result)
     {
         result = false;
         var parts = condition.Split(new[] { "==", "!=" }, StringSplitOptions.TrimEntries);
@@ -128,7 +151,7 @@ internal static partial class ConditionExpression
         var quoted = parts[1].Trim().Length >= 2 && parts[1].Trim()[0] == '"' && parts[1].Trim()[^1] == '"';
         if (!variable.StartsWith("{{", StringComparison.Ordinal) || !variable.EndsWith("}}", StringComparison.Ordinal)) return false;
         if (variable.IndexOf("{{", 2, StringComparison.Ordinal) >= 0 || variable.IndexOf("}}", StringComparison.Ordinal) != variable.Length - 2) return false;
-        if (!quoted && Operator().IsMatch(expected)) return false;
+        if (strict && !quoted && Operator().IsMatch(expected)) return false;
 
         var actual = "";
         if (variable.Contains("{{data."))
