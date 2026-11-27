@@ -292,7 +292,7 @@ internal sealed class Endpoint(
         }
         else
         {
-            var target = new FieldDefinition { Name = field.Name, DisplayName = field.DisplayName, Sensitivity = field.Sensitivity };
+            var target = new FieldDefinition { Name = field.Name, DisplayName = field.DisplayName, Sensitivity = field.Sensitivity, Computed = field.Computed };
             barakoCMS.Core.Validation.FieldConversion.Retype(target, change);
             var fields = definition.Fields.Select(f => f == field ? target : f).ToList();
             var (valid, errors) = validator.Validate(definition.Name, definition.DisplayName, fields, definition.Fields);

@@ -485,6 +485,23 @@ public class ComputedExpressionSchemaTests
     }
 
     [Fact]
+    public async Task Converting_a_formula_field_to_a_type_its_result_does_not_fit_is_a_400_and_starts_nothing()
+    {
+        var (slug, admin) = await TenantAsync();
+        var type = NewName();
+        (await CreateTypeAsync(admin, type, ApiFields("Qty * Cost"))).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var convert = await admin.PostAsJsonAsync($"/api/content-types/{type}/fields/Total/change", new { toType = "string" }, Ct);
+
+        convert.StatusCode.Should().Be(HttpStatusCode.BadRequest, await convert.Content.ReadAsStringAsync(Ct));
+        (await convert.Content.ReadAsStringAsync(Ct)).Should().Contain("'Total'").And.Contain("gives number").And.Contain("not string");
+        await using var session = _fixture.Services.GetRequiredService<IDocumentStore>().QuerySession(slug);
+        var stored = await session.Query<ContentTypeDefinition>().SingleAsync(d => d.Name == type, Ct);
+        stored.Fields.Single(f => f.Name == "Total").Type.Should().Be("decimal");
+        (await session.Query<FieldChange>().AnyAsync(c => c.ContentType == type, Ct)).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task A_stored_formula_reads_back_as_written()
     {
         var (slug, admin) = await TenantAsync();
