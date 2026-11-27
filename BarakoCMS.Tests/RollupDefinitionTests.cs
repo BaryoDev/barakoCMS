@@ -158,6 +158,13 @@ public class RollupDefinitionTests
     private async Task<FieldDefinition?> StoredFieldAsync(string type, string field) =>
         (await Probe.StoredTypeAsync(_fixture, type)).Fields.FirstOrDefault(f => f.Name == field);
 
+    private async Task AssertNotStoredAsync(string type)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        (await session.Query<ContentTypeDefinition>().AnyAsync(d => d.Name == type, Ct)).Should().BeFalse("a refused create stores nothing");
+    }
+
     private async Task AssertRefusedAsync(HttpResponseMessage res, string expected, HttpStatusCode status = HttpStatusCode.BadRequest)
     {
         var body = await BodyAsync(res);
@@ -247,7 +254,7 @@ public class RollupDefinitionTests
         var res = await CreateAsync(await AdminAsync(), header, RollupField("Count", "int", line, "Teacher", "count"));
 
         await AssertRefusedAsync(res, "more widely readable than the reference");
-        (await StoredFieldAsync(header, "Count")).Should().BeNull();
+        await AssertNotStoredAsync(header);
     }
 
     [Fact]
@@ -269,7 +276,7 @@ public class RollupDefinitionTests
         var res = await CreateAsync(saver, header, RollupField("Count", "int", line, "Teacher", "count", sensitivity: "Sensitive"));
 
         await AssertRefusedAsync(res, $"You may not read '{line}.Teacher'");
-        (await StoredFieldAsync(header, "Count")).Should().BeNull();
+        await AssertNotStoredAsync(header);
     }
 
     [Fact]
@@ -519,7 +526,8 @@ public class RollupDefinitionTests
 
         var errors = await RollupFields.BreaksAsync(session, line, null, Ct);
 
-        errors.Should().ContainSingle(e => e.Contains($"{header}.Count") || e.Contains($"{header}.Total"));
+        errors.Should().ContainSingle(e => e.Contains($"{header}.Count"));
+        errors.Should().ContainSingle(e => e.Contains($"{header}.Total"));
         errors.Should().OnlyContain(e => e.Contains("cannot be deleted"));
     }
 
