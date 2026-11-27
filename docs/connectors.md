@@ -376,8 +376,8 @@ saved query from a workflow. The first row's fields become the step's outputs, s
 - An aggregate query is refused: "An aggregate query computes figures for a signed-in reader and
   cannot feed a workflow."
 - No match is a success with empty outputs, and the attempt's note says so.
-- The run record keeps the number of rows and the ids of the entries (up to 20, and a count of the
-  rest) in the attempt's note, and the outputs the workflow captured. `GET /api/workflow-runs/{id}`
+- The run record keeps the number of rows the query returned (a limit caps it) in the attempt's
+  note, and the outputs the workflow captured. It lists no entry ids. `GET /api/workflow-runs/{id}`
   never serves a Query step's `outputs`, for any viewer, since they are entry values read as another
   user. The next step still reads them. Rows are not kept beyond the step.
 

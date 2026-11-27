@@ -53,7 +53,7 @@ public class QueryActionTests(IntegrationTestFixture factory)
         var run = await flow.RunAsync(enrollment, flow.QueryStep("Email"), QueryFlow.Then());
 
         run.Actions[0].Status.Should().Be(AttemptStatus.Succeeded);
-        run.Actions[0].Error.Should().Contain("matched no entries");
+        run.Actions[0].Error.Should().Contain("returned no entries");
         run.Actions[0].Outputs!["Email"].Should().BeEmpty();
         QueryFlow.SentTo(run, 1).Should().BeEmpty();
     }
@@ -79,7 +79,8 @@ public class QueryActionTests(IntegrationTestFixture factory)
 
         run.Actions[0].Status.Should().Be(AttemptStatus.Succeeded, run.Actions[0].Error);
         QueryFlow.SentTo(run, 1).Should().Be("lower@example.com");
-        run.Actions[0].Error.Should().Contain("matched 2 entries").And.Contain("first row was kept");
+        // The limit is one, so one row came back. The note counts rows returned, not rows that matched.
+        run.Actions[0].Error.Should().Contain("returned 1 entry").And.NotContain("first row was kept");
     }
 
     [Fact]

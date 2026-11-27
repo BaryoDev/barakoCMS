@@ -8,7 +8,7 @@ using Marten;
 namespace BarakoCMS.Tests.Features.Connectors;
 
 /// <summary>
-/// What a run keeps of a Query step: how many rows and which entries, and only the outputs the
+/// What a run keeps of a Query step: how many rows, and only the outputs the
 /// workflow captured. Nobody reading the run sees a value.
 /// </summary>
 [Collection("Integration1")]
@@ -30,7 +30,7 @@ public class QueryRunRecordTests(IntegrationTestFixture factory)
     }
 
     [Fact]
-    public async Task The_stored_run_holds_the_count_and_the_ids_and_no_value_that_was_not_captured()
+    public async Task The_stored_run_holds_the_count_and_no_id_and_no_value_that_was_not_captured()
     {
         var (flow, run, student) = await RunAsync("kept@example.com", "NeverCaptured");
 
@@ -38,10 +38,11 @@ public class QueryRunRecordTests(IntegrationTestFixture factory)
         var stored = await session.Json.FindByIdAsync<WorkflowRun>(run.Id, Ct);
 
         stored.Should().NotBeNull();
-        stored!.Should().Contain(student.Id.ToString()).And.Contain("matched 1 entry");
+        stored!.Should().Contain("returned 1 entry");
+        stored.Should().NotContain(student.Id.ToString(), "the note keeps a count, not the entries' ids");
         stored.Should().NotContain("NeverCaptured", "Name was selected by the query but the workflow did not capture it");
         run.Actions[0].Outputs.Should().BeEquivalentTo(new Dictionary<string, string> { ["Email"] = "kept@example.com" });
-        run.Actions[0].Error.Should().NotContain("kept@example.com", "the note says how many and which, never a value");
+        run.Actions[0].Error.Should().NotContain("kept@example.com", "the note says how many, never a value");
     }
 
     [Fact]
@@ -60,7 +61,7 @@ public class QueryRunRecordTests(IntegrationTestFixture factory)
             query.GetProperty("actionType").GetString().Should().Be("Query");
             query.TryGetProperty("outputs", out var outputs).Should().BeTrue();
             outputs.ValueKind.Should().Be(JsonValueKind.Null);
-            query.GetProperty("error").GetString().Should().Contain("matched 1 entry");
+            query.GetProperty("error").GetString().Should().Contain("returned 1 entry");
         }
 
         // Someone who may view runs through the Admin role but holds no read on the type.

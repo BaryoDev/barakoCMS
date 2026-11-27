@@ -56,17 +56,21 @@ internal sealed class QueryFlow(IntegrationTestFixture factory)
 
     public async Task SaveQueryAsync(string select = "Email, Name", int limit = 1, string? sort = null, Action<QueryDefinition>? shape = null)
     {
-        var parsed = barakoCMS.Core.Expressions.QueryText.Parse(
+        var parsed = barakoCMS.Infrastructure.Connectors.QueryText.Parse(
             $"from {Students} where Number = @data.StudentNo{(sort is null ? "" : " order by " + sort)} select {select} limit {limit}");
         parsed.Ok.Should().BeTrue(parsed.Error);
 
+        await using var session = Store.LightweightSession();
+
+        // A second save under the same slug replaces the first: the slug is unique.
+        var existing = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == QuerySlug, Ct);
+
         var definition = parsed.Definition!;
-        definition.Id = Guid.NewGuid();
+        definition.Id = existing?.Id ?? Guid.NewGuid();
         definition.Name = "Student by number";
         definition.Slug = QuerySlug;
         shape?.Invoke(definition);
 
-        await using var session = Store.LightweightSession();
         session.Store(definition);
         await session.SaveChangesAsync(Ct);
     }
@@ -94,7 +98,13 @@ internal sealed class QueryFlow(IntegrationTestFixture factory)
 
         await Harness.WithHostedRunnerPausedAsync(async () =>
         {
-            var seeded = await Harness.SeedRunAsync(workflowId, contentId, attempts);
+            // No event sequence, which is the engine called in line with the change: the user behind
+            // a create is the entry's author. A sequence with no event stored is nobody.
+            var seeded = await Harness.SeedRunAsync(workflowId, contentId, attempts, shape: r =>
+            {
+                r.TriggerEvent = WorkflowEvents.Created;
+                r.TriggeringEventSequence = 0;
+            });
             await Harness.DrainAsync();
             run = await Harness.LoadRunAsync(seeded.Id);
         });

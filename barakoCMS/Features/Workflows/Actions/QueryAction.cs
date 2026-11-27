@@ -45,9 +45,6 @@ internal sealed class QueryAction(
 {
     public const string SlugParameter = "Query";
 
-    /// <summary>How many entry ids the attempt's note lists. The count is always whole.</summary>
-    internal const int MaxIdsRecorded = 20;
-
     public string Type => "Query";
 
     [Obsolete("Implement RunAsync instead.")]
@@ -109,7 +106,8 @@ internal sealed class QueryAction(
 
         if (!result.Ok)
         {
-            return WorkflowActionResult.Failure($"Query '{slug}': {result.Refusal}");
+            // A refusal is the same answer when asked again, so it is not retried.
+            return WorkflowActionResult.PermanentFailure($"Query '{slug}': {result.Refusal}");
         }
 
         var names = new List<string>();
@@ -153,15 +151,17 @@ internal sealed class QueryAction(
         return WorkflowActionResult.Success(outputs) with { Note = Note(slug, result) };
     }
 
-    /// <summary>What the record says about the rows: how many, and which entries. Never a value.</summary>
+    /// <summary>What the record says about the rows: how many came back. Never a value, and no id.</summary>
+    /// <remarks>
+    /// The count is the rows the query returned, so a limit caps it. The ids are not listed: the
+    /// runner stores an attempt's error through the credential redaction, which takes out anything
+    /// shaped like a GUID, and a run viewer may not read the type the entries belong to.
+    /// </remarks>
     internal static string Note(string slug, QueryResult result)
     {
-        if (result.Count == 0) return $"Query '{slug}' matched no entries, so its outputs are empty.";
+        if (result.Count == 0) return $"Query '{slug}' returned no entries, so its outputs are empty.";
 
-        var ids = result.Ids.Take(MaxIdsRecorded).Select(id => id.ToString()).ToList();
-        var more = result.Ids.Count > ids.Count ? $" and {result.Ids.Count - ids.Count} more" : string.Empty;
-        return $"Query '{slug}' matched {result.Count} {(result.Count == 1 ? "entry" : "entries")}"
-            + (ids.Count > 0 ? $": {string.Join(", ", ids)}{more}." : ".")
+        return $"Query '{slug}' returned {result.Count} {(result.Count == 1 ? "entry" : "entries")}."
             + (result.Count > 1 ? " The first row was kept." : string.Empty);
     }
 
