@@ -187,6 +187,32 @@ internal static class UniquenessRules
             : IsType(field.Type, "email") ? EmailKind
             : PlainKind);
 
+    /// <summary>Why a rule may not name this field, or null when it may.</summary>
+    private static string? FieldProblem(string label, string name, FieldDefinition? field)
+    {
+        if (field is null)
+        {
+            return $"Uniqueness rule '{label}' names the field '{Shorten(name)}', which the type does not declare.";
+        }
+
+        if (field.Computed is { } computed && ComputedFields.HasExpression(computed))
+        {
+            return $"Uniqueness rule '{label}' names the field '{field.Name}', which a formula computes. "
+                + "A rule cannot compare a formula field, because a recompute would refuse the second entry that works out the same value.";
+        }
+
+        if (!IsComparable(field.Type) || field.Multiple)
+        {
+            return $"Uniqueness rule '{label}' names the field '{field.Name}', and a rule compares a field "
+                + $"holding one text, number or boolean: {string.Join(", ", FieldTypes)}, and a choice that takes one option.";
+        }
+
+        return field.Sensitivity != SensitivityLevel.Public
+            ? $"Uniqueness rule '{label}' names the field '{field.Name}', which is {field.Sensitivity}. "
+                + "A refusal would tell a caller who may not read the field that an entry holds the value they sent."
+            : null;
+    }
+
     private static List<string> Problems(
         UniquenessRule? rule, IReadOnlyCollection<FieldDefinition> fields, LifecycleDefinition? lifecycle)
     {
@@ -244,25 +270,9 @@ internal static class UniquenessRules
                     continue;
 
                 var field = fields.FirstOrDefault(f => f is not null && Matches(f.Name, name));
-
-                if (field is null)
+                if (FieldProblem(label, name, field) is { } problem)
                 {
-                    errors.Add($"Uniqueness rule '{label}' names the field '{Shorten(name)}', which the type does not declare.");
-                }
-                else if (field.Computed is { } computed && ComputedFields.HasExpression(computed))
-                {
-                    errors.Add($"Uniqueness rule '{label}' names the field '{field.Name}', which a formula computes. "
-                        + "A rule cannot compare a formula field, because a recompute would refuse the second entry that works out the same value.");
-                }
-                else if (!IsComparable(field.Type) || field.Multiple)
-                {
-                    errors.Add($"Uniqueness rule '{label}' names the field '{field.Name}', and a rule compares a field "
-                        + $"holding one text, number or boolean: {string.Join(", ", FieldTypes)}, and a choice that takes one option.");
-                }
-                else if (field.Sensitivity != SensitivityLevel.Public)
-                {
-                    errors.Add($"Uniqueness rule '{label}' names the field '{field.Name}', which is {field.Sensitivity}. "
-                        + "A refusal would tell a caller who may not read the field that an entry holds the value they sent.");
+                    errors.Add(problem);
                 }
             }
         }

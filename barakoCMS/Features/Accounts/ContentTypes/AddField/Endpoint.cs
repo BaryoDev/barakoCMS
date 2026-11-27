@@ -120,7 +120,6 @@ internal sealed class Endpoint(
             return;
         }
 
-        var before = definition.Fields.ToList();
         definition.Fields.Add(field);
         definition.UpdatedAt = DateTime.UtcNow;
         session.Store(owned);
@@ -135,7 +134,7 @@ internal sealed class Endpoint(
             ThrowIfAnyErrors(StatusCodes.Status409Conflict);
         }
 
-        await StartRecomputesAsync(account, definition, before, ct);
+        await StartRecomputesAsync(account, definition, definition.Fields.Where(f => !ReferenceEquals(f, field)).ToList(), ct);
 
         await Send.OkAsync(new ContentType.AddField.Response
         {

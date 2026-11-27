@@ -10,10 +10,10 @@
 92 BarakoCMS.ExternalAuth/SocialSignIn.cs::SocialSignIn.IssueForUserAsync
 91 BarakoCMS.Files/Features/Upload/Endpoint.cs::Endpoint.HandleAsync
 124 BarakoCMS.Files/SkiaImageResizer.cs::SkiaImageResizer.ResizeAsync
-95 BarakoCMS.Portability/ImportEndpoint.cs::ImportEndpoint.HandleAsync
+74 BarakoCMS.Portability/ImportEndpoint.cs::ImportEndpoint.HandleAsync
 96 barakoCMS/Core/Validation/FieldRules.cs::FieldRules.DefinitionErrors
 90 barakoCMS/Core/Validation/FieldRules.cs::FieldRules.ValueErrors
-93 barakoCMS/Core/Validation/UniquenessRules.cs::UniquenessRules.Problems
+82 barakoCMS/Core/Validation/UniquenessRules.cs::UniquenessRules.Problems
 86 barakoCMS/Data/DataSeeder.cs::DataSeeder.BackfillSearchTextAsync
 95 barakoCMS/Data/DataSeeder.cs::DataSeeder.SeedUsersAsync
 73 barakoCMS/Extensions/ServiceCollectionExtensions.cs::ServiceCollectionExtensions.AddHstsAndCors
@@ -37,7 +37,7 @@
 187 barakoCMS/Features/Content/List/Endpoint.cs::Endpoint.HandleAsync
 81 barakoCMS/Features/Content/Schedule/Endpoint.cs::Endpoint.HandleAsync
 232 barakoCMS/Features/Content/Update/Endpoint.cs::Endpoint.HandleAsync
-99 barakoCMS/Features/ContentType/AddField/Endpoint.cs::Endpoint.HandleAsync
+97 barakoCMS/Features/ContentType/AddField/Endpoint.cs::Endpoint.HandleAsync
 97 barakoCMS/Features/ContentType/Blueprints/Apply/Endpoint.cs::Endpoint.HandleAsync
 74 barakoCMS/Features/ContentType/Blueprints/BlueprintCatalog.cs::BlueprintCatalog.ValidateTypes
 183 barakoCMS/Features/ContentType/Create/Endpoint.cs::Endpoint.HandleAsync
@@ -64,7 +64,7 @@
 73 barakoCMS/Features/Workflows/Actions/CreateContentAction.cs::CreateContentAction.RunAsync
 125 barakoCMS/Features/Workflows/Actions/EmailAction.cs::EmailAction.RunAsync
 86 barakoCMS/Features/Workflows/Actions/PublishAction.cs::PublishAction.RunAsync
-369 barakoCMS/Features/Workflows/Actions/UpdateFieldAction.cs::UpdateFieldAction.RunAsync
+366 barakoCMS/Features/Workflows/Actions/UpdateFieldAction.cs::UpdateFieldAction.RunAsync
 188 barakoCMS/Features/Workflows/Actions/WebhookAction.cs::WebhookAction.RunAsync
 82 barakoCMS/Features/Workflows/DryRunWorkflow/Endpoint.cs::Endpoint.HandleAsync
 86 barakoCMS/Features/Workflows/Outbox/SignedHttpOutboxTransport.cs::SignedHttpOutboxTransport.SendAsync
