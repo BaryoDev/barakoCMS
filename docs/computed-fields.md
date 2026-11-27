@@ -119,10 +119,36 @@ Public or Members rollup counts Published entries only. A Sensitive or Hidden ro
 Draft and Scheduled ones. For `sum`, `min`, `max` and `avg`, an entry whose value is not a number
 (or a valid date) is skipped, and it still counts toward `count`.
 
+### Counting a window
+
+`where` limits a rollup to the entries whose date falls in a window: one key and one word.
+
+```json
+{ "name": "HoursThisMonth", "type": "decimal",
+  "rollup": { "from": "timeEntry", "via": "Teacher", "fn": "sum", "field": "Hours",
+              "where": { "createdAt": "thisMonth" } } }
+```
+
+The key is `createdAt`, the entry's created time, or a `date` or `datetime` field of `from`. The
+word is `today`, `last7Days`, `last30Days`, `thisMonth`, `lastMonth` or `thisYear`, matched without
+case and stored as written here. They are the words a query takes, and mean the same thing.
+
+The window follows the site's `TimeZone` setting. With no site, no setting or a zone the server
+does not know, the zone is UTC, and an unknown zone logs one warning per recount. An entry counts
+when its local date, in that zone, is inside the window. A `date` field is taken as the date it
+holds. An entry whose window field is empty or is not a date is outside the window, never an error.
+
+A window moves with the calendar, so a header's value can change with no write. The sweep (below)
+recounts for that. A change to the site's time zone takes effect on each header's next recount, and
+the next daily sweep recounts every windowed header.
+
 ### Rules a type is saved under
 
 A rollup is refused when `from` does not exist, `via` is not a single reference to this type, or
-the summed field has a type `fn` cannot use. It cannot be required, have a default, be unique, be
+the summed field has a type `fn` cannot use. A `where` holds exactly one key and a known word, and
+a key other than `createdAt` names a `date` or `datetime` field of `from` that is not owner-hidden,
+is no stricter than the rollup, and that the saver may read. A windowed count tells which entries
+fall in the window, which is why the level matters even for `count`. It cannot be required, have a default, be unique, be
 computed, be a line total field, or be owner-hidden. Its level must be at least as strict as the
 level of `field` and of `via`, even for `count`, because a count over a Sensitive reference would
 publish how many entries point at each header. The saver must be able to read `field` and `via`.
@@ -130,8 +156,8 @@ Account-owned types do not take rollups. Neither do branch scoped types: a store
 entries of every branch, and a branch scoped type is read only within its branch.
 
 A change to `from` that would break a rollup is refused with a 409 naming it: renaming or
-removing `via` or `field`, changing their type, raising them above the rollup's level, changing the
-summed currency, turning on branch scoping for `from`, or deleting `from`.
+removing `via`, `field` or the window field, changing their type, raising them above the rollup's
+level, making the window field owner-hidden, changing the summed currency, turning on branch scoping for `from`, or deleting `from`.
 
 ### Writes
 
@@ -152,10 +178,37 @@ The recompute writes the header through the same path as a field change, so the 
 moves and an `If-Match` taken before the change gets a 412. History records the change, the
 header's own update time is untouched, and no workflow starts.
 
+An entry read through `GET /api/contents/{id}`, the slug read and the lines read carries
+`rollupsAt`: when a recount last changed a rollup value on it, in UTC. It is null for a type with
+no rollups and for a header never recounted. It moves only when a value changes, because a recount
+that finds the same values writes nothing, so it says when the numbers last moved and not when
+they were last checked. The backfill of a computed field and a replay of old events leave it alone.
+It is not in topic or listener payloads.
+
+### The daily sweep
+
+A window moves with the calendar, and a write can be lost in the window the Lag section describes.
+So a background service recounts on a schedule. Once per local day, in the site's zone, it marks
+every header of every type that has a windowed rollup. On local Mondays it marks every header of
+every type that has any rollup. The marks go through the same drain a write uses.
+
+It runs 500 headers per transaction, keeps its place in a `RollupSweepState` document, and picks
+up where it stopped after a restart. A lock per tenant keeps two instances from sweeping at once.
+A tenant that has no rollups costs one small read and one state write per day.
+
 ### Cost
 
-Each recompute scans the tenant's entries of `from` once per rollup field, in batches of up to 100
-headers. There is no index for it yet. A very large `from` type should wait for one.
+A recount runs one grouped query per 100 marked headers for each rollup field. A rollup without a
+window, or one windowed on a field, reads every entry of `from` in the tenant for each query. A
+rollup windowed on `createdAt` reads only the entries in the window, through an index on the
+content type and the created time. A type with 10,000 headers is 100 queries per windowed rollup
+per day. A large `from` type should window a rollup on `createdAt` where it can.
+
+The index is `mt_doc_contents_idx_content_type_created_at_tenant`. A site that creates its schema
+on its own runs `migrations/6.0.0/content-type-created-at-tenant-index.sql` before the upgrade.
+The sweep state has its own script, `migrations/6.0.0/rollup-sweep-state.sql`, and both have a
+`rollback-` script. Rolling back to a build with rollups but no windows leaves the definition's
+`where` in place, and that build counts a windowed rollup over all time.
 
 ### Adding or changing a rollup
 
