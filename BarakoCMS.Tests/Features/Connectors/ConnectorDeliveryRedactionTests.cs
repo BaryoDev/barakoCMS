@@ -290,6 +290,21 @@ public class ConnectorDeliveryRedactionTests
         headers["x-ref"].Should().Be(Marker);
     }
 
+    [Fact]
+    public void A_granted_value_in_the_path_or_query_never_reaches_the_stored_row_and_is_still_what_is_sent()
+    {
+        var composed = new ComposedRequest(
+            "GET", "https://api.example/people/123-45-6789/notes?ssn=123-45-6789", new(), null, null);
+        var connector = new Connector { Id = Guid.NewGuid(), Slug = "crm", BaseUrl = "https://api.example" };
+        var context = new ConnectorDeliveryContext("lookup", Guid.NewGuid(), Guid.NewGuid(), "ContentCreated", 1);
+
+        var row = new ConnectorDeliveryDraft(composed).ToRow(connector, context, new ConnectorCallResult(true, 200, 1, null));
+
+        row.Url.Should().Be("https://api.example");
+        row.Url.Should().NotContain("123-45-6789");
+        composed.Url.Should().Contain("123-45-6789", "the value actually sent is not changed");
+    }
+
     private static HttpRequestMessage Request(ComposedRequest composed)
     {
         var request = new HttpRequestMessage(new HttpMethod(composed.Method), composed.Url);

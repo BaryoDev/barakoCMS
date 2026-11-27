@@ -301,9 +301,10 @@ operator wrote under an ordinary name is stored with its value, and reading it w
 configured needs `manage_requests`, which this list does not ask for.
 
 **Granted fields.** A request header whose template holds a granted field that is not Public is
-stored as `[redacted]`, whatever its name. The URL is already cut to scheme, host and port, and the
-request body is not stored. A response body is stored as returned: the connector's answer may quote
-what was sent, and it is readable by `view_webhook_response_bodies` holders as before.
+stored as `[redacted]`, whatever its name. The URL is already cut to scheme, host and port, so a
+granted value in the path or query never reaches the row, and the request body is not stored. A
+response body is stored as returned: the connector's answer may quote what was sent, and it is
+readable by `view_webhook_response_bodies` holders as before.
 
 **Retention** is the webhook delivery sweep in [webhooks.md](webhooks.md): the rows are the same
 document, so `Webhooks:DeliveryLogRetentionDays` removes them and
