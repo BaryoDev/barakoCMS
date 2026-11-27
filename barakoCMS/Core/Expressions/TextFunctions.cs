@@ -44,6 +44,7 @@ internal static class TextFunctions
         return text;
     }
 
+    /// <summary>Joins the parts that are not null, empty or whitespace only, as the concat computed field does. Gives null when none is left.</summary>
     private static object? Concat(Evaluator ev, CallNode call, object?[] a)
     {
         var parts = new List<string>();
@@ -54,6 +55,9 @@ internal static class TextFunctions
                 continue;
 
             var text = ToText(value);
+            if (string.IsNullOrWhiteSpace(text))
+                continue;
+
             parts.Add(text);
             total += text.Length;
             ev.Bound(total, call.Position);
