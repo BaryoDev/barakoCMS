@@ -60,7 +60,7 @@ public sealed class ContentWriter : IContentWriter
         _policy = policy;
         _documentTypesAppend = documentTypesAppend;
         _batch = batch;
-        _tokens = new ContentTokenIssuer(session);
+        _tokens = new ContentTokenIssuer(session, logger);
         _uniqueness = new ContentUniqueness(session, logger);
         _origin = new Envelope.OriginSequence(new Numbering.GaplessNumberAllocator(TimeProvider.System));
     }

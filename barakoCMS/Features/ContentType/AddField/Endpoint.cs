@@ -252,9 +252,7 @@ internal sealed class Endpoint(
             return;
         }
 
-        definition.Fields.Add(field);
-        definition.UpdatedAt = DateTime.UtcNow;
-        session.Store(definition);
+        await AddAndStoreAsync(definition, field, ct);
 
         // The field stores role ids. The entry holds each id with the name it has now.
         var roles = await RoleAudit.RoleListsAsync(session, [field.VisibleToRoles], [], ct);
@@ -326,6 +324,24 @@ internal sealed class Endpoint(
                     + "all invalid. Give the field a defaultValue, or add it as optional.");
                 ThrowIfAnyErrors();
             }
+        }
+    }
+
+    /// <summary>
+    /// Adds the field and stores the type. A formula over entries already stored is worked out for
+    /// them by the field change job; one already running on the type answers 409.
+    /// </summary>
+    private async Task AddAndStoreAsync(ContentTypeDefinition definition, FieldDefinition field, CancellationToken ct)
+    {
+        var before = definition.Fields.ToList();
+        definition.Fields.Add(field);
+        definition.UpdatedAt = DateTime.UtcNow;
+        session.Store(definition);
+        if (await barakoCMS.Infrastructure.Services.ComputedRecompute.StartAsync(
+                session, definition, before, ActingCaller.IdOf(User) ?? Guid.Empty, ct) is { } busy)
+        {
+            AddError(busy);
+            ThrowIfAnyErrors(StatusCodes.Status409Conflict);
         }
     }
 }

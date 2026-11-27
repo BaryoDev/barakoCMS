@@ -570,7 +570,7 @@ public static class DataSeeder
         Console.WriteLine("[DataSeeder] Created Attendance Confirmation Email workflow");
     }
 
-    private static async Task SeedAttendanceRecordsAsync(IDocumentSession session)
+    internal static async Task SeedAttendanceRecordsAsync(IDocumentSession session)
     {
         var recordCount = await session.Query<Content>()
             .Where(c => c.ContentType == "AttendanceRecord")
@@ -582,8 +582,13 @@ public static class DataSeeder
             return;
         }
 
+        // Stored straight, so the type's computed fields are worked out here, as a write would.
+        var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == "AttendanceRecord");
         foreach (var record in SampleAttendanceRecords())
         {
+            if (definition is not null)
+                barakoCMS.Core.Validation.ComputedFields.Apply(definition.Fields, record.Data);
+
             session.Store(record);
             Console.WriteLine($"[DataSeeder] Created attendance record: {record.Data["FirstName"]} {record.Data["LastName"]}");
         }

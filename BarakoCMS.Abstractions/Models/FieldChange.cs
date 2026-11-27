@@ -14,6 +14,9 @@ public enum FieldChangeKind
 
     /// <summary>The field's sensitivity changes, and every entry's search text is rebuilt for it.</summary>
     Sensitivity = 3,
+
+    /// <summary>A computed field's formula changed, and every entry's computed values are worked out again.</summary>
+    Recompute = 4,
 }
 
 /// <summary>Where a field change is.</summary>

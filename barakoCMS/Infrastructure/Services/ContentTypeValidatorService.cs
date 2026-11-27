@@ -232,7 +232,7 @@ public class ContentTypeValidatorService : IContentTypeValidatorService
         var carried = new HashSet<FieldDefinition>(ReferenceEqualityComparer.Instance);
         foreach (var field in fields.Where(f => f is not null && stored.Contains(f) && ComputedFields.IsComputed(f)))
         {
-            var inputs = (field.Computed!.Args ?? []).Select(a => fields.FirstOrDefault(f => f is not null && string.Equals(f.Name, a, StringComparison.OrdinalIgnoreCase)));
+            var inputs = ComputedFields.Inputs(field.Computed!).Select(a => fields.FirstOrDefault(f => f is not null && string.Equals(f.Name, a, StringComparison.OrdinalIgnoreCase)));
             if (inputs.All(i => i is null || stored.Contains(i)))
                 carried.Add(field);
         }

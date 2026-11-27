@@ -3,7 +3,7 @@ namespace barakoCMS.Core.Expressions;
 /// <summary>A formula that parsed and passed the type check. Only <see cref="ExpressionEngine"/> makes one.</summary>
 internal sealed class CheckedExpression
 {
-    internal CheckedExpression(Node root, ExprType type, int nodeCount, int sourceLength, IReadOnlyList<string> fields, bool usesClock)
+    internal CheckedExpression(Node root, ExprType type, int nodeCount, int sourceLength, IReadOnlyList<string> fields, bool usesClock, IReadOnlyList<string> systemNames)
     {
         Root = root;
         Type = type;
@@ -11,6 +11,7 @@ internal sealed class CheckedExpression
         SourceLength = sourceLength;
         Fields = fields;
         UsesClock = usesClock;
+        SystemNames = systemNames;
     }
 
     internal Node Root { get; }
@@ -26,6 +27,9 @@ internal sealed class CheckedExpression
     public IReadOnlyList<string> Fields { get; }
 
     public bool UsesClock { get; }
+
+    /// <summary>The system names (id, status, createdAt, updatedAt) the formula reads, once each.</summary>
+    public IReadOnlyList<string> SystemNames { get; }
 }
 
 internal sealed record ParseResult(CheckedExpression? Expression, IReadOnlyList<ExpressionError> Errors)

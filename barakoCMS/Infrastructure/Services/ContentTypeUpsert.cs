@@ -457,7 +457,7 @@ public static class ContentTypeUpsert
     /// rules keeps the stored ones. A field a stored rule compares and the definition leaves out
     /// would switch the rule off with nothing said.
     /// </remarks>
-    private static IEnumerable<string> UniquenessChanges(
+    internal static IEnumerable<string> UniquenessChanges(
         ContentTypeDefinition type, ContentTypeDefinition stored, Wording wording)
     {
         var route = $"PUT /api/content-types/{stored.Name}/uniqueness";
@@ -472,6 +472,16 @@ public static class ContentTypeUpsert
         {
             foreach (var name in rule?.Fields ?? [])
             {
+                // The stored rule stays, so a formula on a field it compares is refused here, the way
+                // a new type's rules are refused over a formula field.
+                if (type.Fields.FirstOrDefault(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is { Computed: { } formula } computed
+                    && barakoCMS.Core.Validation.ComputedFields.HasExpression(formula))
+                {
+                    yield return $"Uniqueness rule '{rule!.Name}' names the field '{computed.Name}', which a formula computes. "
+                                 + "A rule cannot compare a formula field. Keep the rule's field as it is stored.";
+                    continue;
+                }
+
                 if (string.Equals(name, UniquenessRule.CreatedByField, StringComparison.OrdinalIgnoreCase)
                     || !stored.Fields.Any(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
                     || type.Fields.Any(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
@@ -585,8 +595,7 @@ public static class ContentTypeUpsert
     private static bool TakesPartInComputation(ContentTypeDefinition type, FieldDefinition field, FieldDefinition held) =>
         field.Computed is not null
         || held.Computed is not null
-        || type.Fields.Any(f => f.Computed?.Args is { } args
-            && args.Any(a => string.Equals(a, field.Name, StringComparison.OrdinalIgnoreCase)));
+        || type.Fields.Any(f => barakoCMS.Core.Validation.ComputedFields.Reads(f.Computed, field.Name));
 
     /// <summary>
     /// Same level, role list, mask and computation as the stored field. A field matched to its

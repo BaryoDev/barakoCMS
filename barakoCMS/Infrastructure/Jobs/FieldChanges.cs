@@ -57,6 +57,7 @@ internal static class FieldChanges
         Convert,
         DropField,
         SearchText,
+        Recompute,
     }
 
     /// <summary>The steps a change runs, in order.</summary>
@@ -72,6 +73,7 @@ internal static class FieldChanges
         FieldChangeKind.Convert => [Work.Convert, Work.Define],
         FieldChangeKind.Remove => [Work.Define, Work.DropField],
         FieldChangeKind.Sensitivity => change.DefinitionFirst ? [Work.Define, Work.SearchText] : [Work.SearchText, Work.Define],
+        FieldChangeKind.Recompute => [Work.Recompute],
         _ => throw new InvalidOperationException($"No plan for a {change.Kind} change."),
     };
 
@@ -240,7 +242,12 @@ internal static class FieldChanges
         change.Error = null;
 
         var lowered = change.ContentType.ToLower();
-        var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
+
+        // An account-owned type is not stored in the tenant, and a backfill of its formula runs once
+        // per tenant. The other kinds change a type the tenant stores, and write it back.
+        var definition = change.Kind == FieldChangeKind.Recompute
+            ? await AccountContentTypes.ResolveAsync(session, change.ContentType, ct)
+            : await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
         if (change.Step >= plan.Count || definition is null)
         {
             change.State = FieldChangeState.Completed;
@@ -367,6 +374,13 @@ internal static class FieldChanges
                         content.Id, change.Field, change.FromSensitivity ?? SensitivityLevel.Public,
                         change.ToSensitivity ?? SensitivityLevel.Public, rebuilt, change.RequestedBy, occurredAt);
 
+            case Work.Recompute:
+                // The values the entry would be written with now, nothing else touched.
+                ComputedFields.Apply(definition.Fields, data);
+                return SameJson(data, content.Data)
+                    ? null
+                    : new ContentFieldChanged(content.Id, change.Field, data, SearchText(content, definition, data), change.RequestedBy, occurredAt);
+
             default:
                 return null;
         }
@@ -421,6 +435,47 @@ internal static class FieldChanges
                 field.Mask = change.Mask ?? FieldMask.Default;
                 break;
         }
+    }
+
+    /// <summary>
+    /// The computed fields whose formula is new or different in <paramref name="after"/>. Only a rule
+    /// that holds an expression counts, so a type of <c>Fn</c> rules is saved as it always was.
+    /// </summary>
+    internal static List<string> ChangedFormulas(IEnumerable<FieldDefinition>? before, IEnumerable<FieldDefinition> after)
+    {
+        string Key(ComputedDefinition? c) => c is null ? string.Empty : JsonSerializer.Serialize(c);
+
+        var held = (before ?? []).Where(f => f is not null).ToList();
+        return after
+            .Where(f => f is { Computed: { } c } && ComputedFields.HasExpression(c))
+            .Where(f => held.FirstOrDefault(h => string.Equals(h.Name, f.Name, StringComparison.OrdinalIgnoreCase)) is not { } was
+                || Key(was.Computed) != Key(f.Computed))
+            .Select(f => f.Name)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Starts the backfill for a type whose formulas changed, on <paramref name="session"/>, so it
+    /// commits with the definition. Null when nothing needs it or it was started; the change already
+    /// running on the type when there is one, which the caller refuses.
+    /// </summary>
+    /// <remarks>A type with no entries has nothing to rewrite, and starts no job.</remarks>
+    public static async Task<FieldChange?> RecomputeAsync(
+        IDocumentSession session, ContentTypeDefinition definition, IEnumerable<FieldDefinition>? before, Guid requestedBy, CancellationToken ct)
+    {
+        if (ChangedFormulas(before, definition.Fields) is not { Count: > 0 } changed)
+        {
+            return null;
+        }
+
+        var lowered = definition.Name.ToLower();
+        if (!await session.Query<Content>().AnyAsync(c => c.ContentType.ToLower() == lowered, ct))
+        {
+            return null;
+        }
+
+        return await StartAsync(
+            session, new FieldChange { ContentType = definition.Name, Field = changed[0], Kind = FieldChangeKind.Recompute, RequestedBy = requestedBy }, ct);
     }
 
     /// <summary>The key the data holds a field under, matched ignoring case as every reader matches it.</summary>

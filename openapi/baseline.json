@@ -11443,7 +11443,7 @@
       },
       "BarakoCMSModelsComputedDefinition": {
         "additionalProperties": false,
-        "description": "A computed field's function and what it reads: { \"fn\": \"hours\", \"args\": [\"TimeIn\", \"TimeOut\"], \"round\": 2 }.",
+        "description": "A computed field's rule: a function and what it reads, { \"fn\": \"hours\", \"args\": [\"TimeIn\", \"TimeOut\"], \"round\": 2 }, or a formula, { \"expression\": \"data.Qty * data.Price\" }. A rule has one or the other.",
         "properties": {
           "args": {
             "description": "Field names of the same entry. Numeric functions also take a number written out.",
@@ -11451,6 +11451,11 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "expression": {
+            "description": "A formula over the entry's fields, written data.Field, instead of fn and args. Checked when the type is saved and worked out inside every write. A formula may not read the clock or a system name. Null for a rule that uses fn.",
+            "nullable": true,
+            "type": "string"
           },
           "fn": {
             "description": "One of add, subtract, multiply, divide, round, min, max, hours, days, duration, concat, coalesce.",
