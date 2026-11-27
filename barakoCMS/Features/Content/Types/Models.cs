@@ -24,7 +24,8 @@ internal sealed record ReadableField(
     string? Currency,
     int? Scale,
     ComputedDefinition? Computed,
-    string? BlockSchema)
+    string? BlockSchema,
+    RollupDefinition? Rollup = null)
 {
     // A computation that reads a field the caller cannot see would name it, so it is left out. A
     // formula goes whole or not at all, and one that does not parse is read as naming every field.
@@ -48,7 +49,9 @@ internal sealed record ReadableField(
         f.Currency,
         f.Scale,
         ReadableComputed(f.Computed, hidden),
-        string.Equals(f.Type, "blocks", StringComparison.OrdinalIgnoreCase) ? BlockSchemaRoute : null);
+        string.Equals(f.Type, "blocks", StringComparison.OrdinalIgnoreCase) ? BlockSchemaRoute : null,
+        // A rollup names the type it counts, which is left out when the caller may not read it.
+        f.Rollup is { } rollup && unreadableTypes.Contains(rollup.From) ? null : f.Rollup);
 }
 
 internal sealed record ReadableTypeResponse(
@@ -90,7 +93,7 @@ internal sealed record ReadableTypeResponse(
         // permission check runs on the definition that route would return; a name that cannot be
         // resolved to one type counts as unreadable. ItemType is a scalar type and is not touched.
         var unreadable = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var targets = visible.Select(f => f.ReferenceType)
+        var targets = visible.Select(f => f.ReferenceType).Concat(visible.Select(f => f.Rollup?.From))
             .Where(n => !string.IsNullOrEmpty(n)).Select(n => n!).Distinct(StringComparer.Ordinal);
         foreach (var name in targets)
         {
