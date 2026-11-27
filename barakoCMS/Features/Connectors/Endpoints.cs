@@ -30,6 +30,31 @@ internal static class ConnectorGate
 {
     internal static readonly IReadOnlyList<string> LegacyRoles = CapabilityGate.AdminLegacyRoles;
 
+    internal static readonly RequiredCapability ManageGate = new(SystemCapabilities.ManageConnectors, [.. LegacyRoles]);
+
+    /// <summary>Whether the signed-in caller may manage connectors, and so see what they may send.</summary>
+    internal static Task<bool> MayManageAsync(HttpContext http, CancellationToken ct) =>
+        CapabilityGateProcessor.HoldsAsync(http, ManageGate, ct);
+
+    /// <summary>
+    /// The audit entries for a change of the grant: the lists before and after, as field names. Left
+    /// out when neither list holds anything, so a connector without grants audits as it always did.
+    /// </summary>
+    internal static Dictionary<string, object> WithGrants(
+        Dictionary<string, object>? extra, IEnumerable<string>? before, IEnumerable<string>? after)
+    {
+        var merged = extra is null ? new Dictionary<string, object>() : new Dictionary<string, object>(extra);
+        var (was, now) = (ConnectorGrants.Line(before), ConnectorGrants.Line(after));
+        if (was.Length > 0 || now.Length > 0)
+        {
+            merged["allowedFieldsBefore"] = was;
+            merged["allowedFieldsAfter"] = now;
+        }
+
+        return merged;
+    }
+
+    /// <param name="actorName">The name to record, when it is not the caller's: a file applied by the host is <c>config:&lt;file&gt;</c>.</param>
     internal static Task AuditAsync(
         IDocumentSession session,
         string tenantSlug,
@@ -37,7 +62,8 @@ internal static class ConnectorGate
         Connector connector,
         System.Security.Claims.ClaimsPrincipal user,
         Dictionary<string, object>? extra = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? actorName = null)
     {
         var actorId = Guid.TryParse(user.FindFirst("UserId")?.Value, out var parsed) ? parsed : (Guid?)null;
 
@@ -56,7 +82,7 @@ internal static class ConnectorGate
             foreach (var pair in extra) metadata[pair.Key] = pair.Value;
         }
 
-        return AuditLog.RecordAsync(session, tenantSlug, action, actorId, user.FindFirst("Username")?.Value,
+        return AuditLog.RecordAsync(session, tenantSlug, action, actorId, actorName ?? user.FindFirst("Username")?.Value,
             targetType: nameof(Connector), targetId: connector.Id.ToString(), metadata: metadata, ct: ct);
     }
 }
@@ -73,8 +99,9 @@ internal sealed class ListConnectorsEndpoint(
     public override async Task HandleAsync(ListRequest req, CancellationToken ct)
     {
         var page = await session.Query<Connector>().OrderBy(c => c.Name).ToPagedResponseAsync(req, ct);
+        var showGrants = await ConnectorGate.MayManageAsync(HttpContext, ct);
 
-        await Send.ResponseAsync(page.Map(ConnectorResponse.From), cancellation: ct);
+        await Send.ResponseAsync(page.Map(c => ConnectorResponse.From(c, showGrants)), cancellation: ct);
     }
 }
 
@@ -104,13 +131,14 @@ internal sealed class GetConnectorEndpoint(IQuerySession session) : EndpointWith
             return;
         }
 
-        await Send.ResponseAsync(ConnectorResponse.From(connector), cancellation: ct);
+        await Send.ResponseAsync(ConnectorResponse.From(connector, await ConnectorGate.MayManageAsync(HttpContext, ct)), cancellation: ct);
     }
 }
 
 internal sealed class CreateConnectorEndpoint(
     IDocumentSession session,
     IConnectorSecretProtector protector,
+    ISensitivityService sensitivity,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<SaveConnectorRequest, ConnectorResponse>
 {
     public override void Configure()
@@ -142,6 +170,14 @@ internal sealed class CreateConnectorEndpoint(
             return;
         }
 
+        var grants = await ConnectorGrantRules.NextAsync(
+            session, sensitivity, ConfigCaller.ForUser(User), req.AllowedFields, stored: null, moved: false, ct);
+        if (grants.Refusal is not null)
+        {
+            ThrowError(grants.Refusal, grants.Forbidden ? 403 : 400);
+            return;
+        }
+
         var connector = new Connector
         {
             Id = Guid.NewGuid(),
@@ -152,16 +188,18 @@ internal sealed class CreateConnectorEndpoint(
             Settings = req.Settings,
             Enabled = req.Enabled,
             ProbePath = string.IsNullOrWhiteSpace(req.ProbePath) ? "/" : req.ProbePath.Trim(),
+            AllowedFields = grants.Entries,
         };
 
         connector.SecretKeys = StoreSecrets(connector.Id, req.Secrets);
         await ConnectorInboundWriter.ApplyAsync(session, protector, connector, req.Inbound, [], ct);
         session.Store(connector);
 
-        await ConnectorGate.AuditAsync(session, tenant.Slug, "connector.created", connector, User, ct: ct);
+        await ConnectorGate.AuditAsync(session, tenant.Slug, "connector.created", connector, User,
+            extra: ConnectorGate.WithGrants(null, null, connector.AllowedFields), ct: ct);
         await session.SaveChangesAsync(ct);
 
-        await Send.ResponseAsync(ConnectorResponse.From(connector), cancellation: ct);
+        await Send.ResponseAsync(ConnectorResponse.From(connector, showGrants: true), cancellation: ct);
     }
 
     private List<string> StoreSecrets(Guid connectorId, Dictionary<string, string>? secrets)
@@ -190,6 +228,7 @@ internal sealed class CreateConnectorEndpoint(
 internal sealed class UpdateConnectorEndpoint(
     IDocumentSession session,
     IConnectorSecretProtector protector,
+    ISensitivityService sensitivity,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<SaveConnectorRequest, ConnectorResponse>
 {
     public override void Configure()
@@ -236,10 +275,56 @@ internal sealed class UpdateConnectorEndpoint(
 
         await RequireSecretsReenteredAsync(connector, req, ct);
 
-        // The client secret goes to the token URL and nowhere else, so the same reasoning applies to
-        // it: an edit must not send a secret its editor cannot read somewhere nobody entered it for.
-        // The whole URL is compared, not the origin. A token endpoint is one exact address, and
-        // another path on a shared identity host can be another party's.
+        await RequireClientSecretReenteredAsync(connector, req, ct);
+
+        // Before anything is changed, so a refused grant leaves the connector as it was. A move of
+        // the base URL clears the stored grant and judges the list sent with it as all new.
+        var grantsBefore = connector.AllowedFields is null ? null : new List<string>(connector.AllowedFields);
+        var grants = await ConnectorGrantRules.NextAsync(
+            session, sensitivity, ConfigCaller.ForUser(User), req.AllowedFields, connector.AllowedFields,
+            ConnectorOrigin.Moved(connector.BaseUrl, req.BaseUrl), ct);
+        if (grants.Refusal is not null)
+        {
+            ThrowError(grants.Refusal, grants.Forbidden ? 403 : 400);
+            return;
+        }
+
+        connector.Name = req.Name.Trim();
+        connector.BaseUrl = req.BaseUrl.Trim();
+        connector.Auth = Enum.Parse<ConnectorAuth>(req.Auth, ignoreCase: true);
+        connector.Settings = req.Settings;
+        connector.Enabled = req.Enabled;
+        connector.ProbePath = string.IsNullOrWhiteSpace(req.ProbePath) ? "/" : req.ProbePath.Trim();
+        connector.AllowedFields = grants.Entries;
+        connector.UpdatedAt = DateTime.UtcNow;
+
+        var changedSecrets = await ApplySecretsAsync(connector, req.Secrets, ct);
+
+        await ConnectorInboundWriter.ApplyAsync(session, protector, connector, req.Inbound, changedSecrets, ct);
+
+        session.Store(connector);
+
+        await ConnectorGate.AuditAsync(session, tenant.Slug, "connector.updated", connector, User,
+            extra: ConnectorGate.WithGrants(
+                changedSecrets.Count > 0
+                    ? new Dictionary<string, object> { ["secretsChanged"] = string.Join(", ", changedSecrets) }
+                    : null,
+                grantsBefore, connector.AllowedFields),
+            ct: ct);
+
+        await session.SaveChangesAsync(ct);
+
+        await Send.ResponseAsync(ConnectorResponse.From(connector, showGrants: true), cancellation: ct);
+    }
+
+    /// <summary>
+    /// The client secret goes to the token URL and nowhere else, so the same reasoning applies to
+    /// it: an edit must not send a secret its editor cannot read somewhere nobody entered it for.
+    /// The whole URL is compared, not the origin. A token endpoint is one exact address, and
+    /// another path on a shared identity host can be another party's.
+    /// </summary>
+    private async Task RequireClientSecretReenteredAsync(Connector connector, SaveConnectorRequest req, CancellationToken ct)
+    {
         var tokenUrl = req.Settings?.GetValueOrDefault(ConnectorSettingKeys.TokenUrl)?.Trim();
 
         if (!string.IsNullOrEmpty(tokenUrl)
@@ -255,30 +340,6 @@ internal sealed class UpdateConnectorEndpoint(
 
             ThrowIfAnyErrors();
         }
-
-        connector.Name = req.Name.Trim();
-        connector.BaseUrl = req.BaseUrl.Trim();
-        connector.Auth = Enum.Parse<ConnectorAuth>(req.Auth, ignoreCase: true);
-        connector.Settings = req.Settings;
-        connector.Enabled = req.Enabled;
-        connector.ProbePath = string.IsNullOrWhiteSpace(req.ProbePath) ? "/" : req.ProbePath.Trim();
-        connector.UpdatedAt = DateTime.UtcNow;
-
-        var changedSecrets = await ApplySecretsAsync(connector, req.Secrets, ct);
-
-        await ConnectorInboundWriter.ApplyAsync(session, protector, connector, req.Inbound, changedSecrets, ct);
-
-        session.Store(connector);
-
-        await ConnectorGate.AuditAsync(session, tenant.Slug, "connector.updated", connector, User,
-            extra: changedSecrets.Count > 0
-                ? new Dictionary<string, object> { ["secretsChanged"] = string.Join(", ", changedSecrets) }
-                : null,
-            ct: ct);
-
-        await session.SaveChangesAsync(ct);
-
-        await Send.ResponseAsync(ConnectorResponse.From(connector), cancellation: ct);
     }
 
     private async Task RequireSecretsReenteredAsync(Connector connector, SaveConnectorRequest req, CancellationToken ct)
@@ -396,7 +457,8 @@ internal sealed class DeleteConnectorEndpoint(
         foreach (var secret in secrets) session.Delete(secret);
         session.Delete(connector);
 
-        await ConnectorGate.AuditAsync(session, tenant.Slug, "connector.deleted", connector, User, ct: ct);
+        await ConnectorGate.AuditAsync(session, tenant.Slug, "connector.deleted", connector, User,
+            extra: ConnectorGate.WithGrants(null, connector.AllowedFields, null), ct: ct);
         await session.SaveChangesAsync(ct);
 
         await Send.NoContentAsync(ct);

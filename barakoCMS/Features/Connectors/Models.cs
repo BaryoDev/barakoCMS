@@ -27,12 +27,18 @@ internal sealed class ConnectorResponse
     /// <summary>Null for a connector with no inbound section.</summary>
     public InboundResponse? Inbound { get; init; }
 
+    /// <summary>
+    /// The fields this connector may send besides the Public ones. Only a caller who may manage
+    /// connectors sees them, so it is null for anyone else and on a connector with none.
+    /// </summary>
+    public List<string>? AllowedFields { get; init; }
+
     public DateTime? LastTestedAt { get; init; }
     public string? LastTestResult { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 
-    public static ConnectorResponse From(Connector c) => new()
+    public static ConnectorResponse From(Connector c, bool showGrants = false) => new()
     {
         Id = c.Id,
         Name = c.Name,
@@ -51,6 +57,7 @@ internal sealed class ConnectorResponse
                 AllowedEvents = c.Inbound.AllowedEvents,
                 SecretSet = c.SecretKeys.Contains(ConnectorSecretKeys.InboundSecret),
             },
+        AllowedFields = showGrants && c.AllowedFields is { Count: > 0 } ? [.. c.AllowedFields] : null,
         LastTestedAt = c.LastTestedAt,
         LastTestResult = c.LastTestResult,
         CreatedAt = c.CreatedAt,
@@ -107,6 +114,13 @@ internal class SaveConnectorRequest
     /// How this party signs what it sends to us. Absent on update leaves the stored section alone.
     /// </summary>
     public SaveConnectorInbound? Inbound { get; set; }
+
+    /// <summary>
+    /// The Sensitive or Members fields this connector may send, as <c>Type.Field</c>. Absent keeps
+    /// the stored list and an empty list clears it. Changing the base URL clears the stored list, so a
+    /// list sent with the move is checked as if every entry were new.
+    /// </summary>
+    public List<string>? AllowedFields { get; set; }
 }
 
 internal sealed class TestConnectorResponse
