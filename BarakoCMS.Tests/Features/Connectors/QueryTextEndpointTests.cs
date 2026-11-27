@@ -179,4 +179,88 @@ public class QueryTextEndpointTests(IntegrationTestFixture factory)
         answer.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await answer.Content.ReadAsStringAsync(Ct)).Should().NotContain("yyyy");
     }
+
+    [Fact]
+    public async Task A_stored_query_on_status_reads_the_data_field_when_the_type_declares_one()
+    {
+        var admin = await new WorkflowStopHarness(factory).AdminAsync();
+        var type = TypeName();
+        await QueryKit.SeedAsync(
+            factory.Services.GetRequiredService<IDocumentStore>(), null,
+            Type(type, Field("Status"), Field("Name")),
+            [
+                Entry(type, new() { ["Status"] = "open", ["Name"] = "a" }),
+                Entry(type, new() { ["Status"] = "closed", ["Name"] = "b" }),
+            ], Ct);
+        var slug = Slug();
+
+        var saved = await admin.PostAsJsonAsync("/api/queries", new
+        {
+            name = "Open", slug, contentType = type, fields = new[] { "Name", "Status" }, limit = 5,
+            filters = new[] { new { field = "status", op = "eq", value = "open" } },
+        }, Ct);
+        saved.StatusCode.Should().Be(HttpStatusCode.OK, await saved.Content.ReadAsStringAsync(Ct));
+
+        var preview = await (await admin.PostAsync($"/api/queries/{slug}/preview", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+        preview.GetProperty("ok").GetBoolean().Should().BeTrue(preview.ToString());
+        preview.GetProperty("count").GetInt32().Should().Be(1);
+        preview.GetProperty("rows")[0].GetProperty("Name").GetString().Should().Be("a");
+    }
+
+    [Fact]
+    public async Task Text_given_with_a_limit_or_descending_is_refused_and_not_overwritten()
+    {
+        var admin = await new WorkflowStopHarness(factory).AdminAsync();
+        var type = await SeedStudentsAsync();
+
+        foreach (var extra in new object[] { new { limit = 7 }, new { descending = true } })
+        {
+            var body = new Dictionary<string, object?> { ["name"] = "Both", ["slug"] = Slug(), ["text"] = $"from {type} select Email limit 3" };
+            foreach (var p in extra.GetType().GetProperties()) body[p.Name] = p.GetValue(extra);
+
+            var refused = await admin.PostAsJsonAsync("/api/queries", body, Ct);
+
+            refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("text or as its parts");
+        }
+    }
+
+    [Fact]
+    public async Task Filters_that_are_null_or_hold_a_null_and_fields_that_hold_a_null_are_a_400()
+    {
+        var admin = await new WorkflowStopHarness(factory).AdminAsync();
+        var type = await SeedStudentsAsync();
+
+        var bodies = new[]
+        {
+            "\"filters\": null, \"fields\": [\"Email\"]",
+            "\"filters\": [null], \"fields\": [\"Email\"]",
+            "\"filters\": [], \"fields\": [null]",
+            "\"filters\": [{\"field\": \"Number\", \"param\": \"id\", \"op\": \"eq\"}, null], \"fields\": [\"Email\"]",
+        };
+
+        foreach (var tail in bodies)
+        {
+            var json = $"{{ \"name\": \"n\", \"slug\": \"{Slug()}\", \"contentType\": \"{type}\", {tail} }}";
+            var answer = await admin.PostAsync("/api/queries", new StringContent(json, System.Text.Encoding.UTF8, "application/json"), Ct);
+
+            answer.StatusCode.Should().Be(HttpStatusCode.BadRequest, tail + " " + await answer.Content.ReadAsStringAsync(Ct));
+        }
+    }
+
+    [Fact]
+    public async Task A_query_that_lists_more_than_fifty_fields_is_refused_at_save()
+    {
+        var admin = await new WorkflowStopHarness(factory).AdminAsync();
+        var type = await SeedStudentsAsync();
+
+        var refused = await admin.PostAsJsonAsync("/api/queries", new
+        {
+            name = "Wide", slug = Slug(), contentType = type, filters = Array.Empty<object>(),
+            fields = Enumerable.Range(0, 51).Select(i => "Email").ToArray(),
+        }, Ct);
+
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("at most 50 fields, filters or measures");
+    }
 }

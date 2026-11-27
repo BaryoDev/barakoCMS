@@ -129,10 +129,28 @@ internal static class QueryForms
     /// Whether a query uses what only a step's run reads: a parameter, a system field or a followed
     /// reference. Every other query is read exactly as it always was.
     /// </summary>
-    public static bool NeedsAContext(QueryDefinition q) =>
-        q.Filters.Any(f => f.Param is not null || Array.IndexOf(barakoCMS.Infrastructure.Connectors.QueryText.SystemFields, f.Field) >= 0)
-        || (q.SortField is not null && Array.IndexOf(barakoCMS.Infrastructure.Connectors.QueryText.SystemFields, q.SortField) >= 0)
-        || q.Fields.Any(f => f.Contains('.') || Array.IndexOf(barakoCMS.Infrastructure.Connectors.QueryText.SystemFields, f) >= 0);
+    /// <remarks>
+    /// A name the type declares, in any case, is that field and not a system field: a type may have a
+    /// <c>Status</c>, and a query that said <c>status</c> read it before system fields existed. Nulls
+    /// are skipped, so a body with one reaches the runner's own 400.
+    /// </remarks>
+    public static async Task<bool> NeedsAContextAsync(IQuerySession session, QueryDefinition q, CancellationToken ct)
+    {
+        var schema = await session.Query<ContentTypeDefinition>().FirstNamedAsync(q.ContentType, ct);
+        return NeedsAContext(q, schema);
+    }
+
+    public static bool NeedsAContext(QueryDefinition q, ContentTypeDefinition? schema)
+    {
+        bool System(string? name) =>
+            name is not null
+            && Array.IndexOf(barakoCMS.Infrastructure.Connectors.QueryText.SystemFields, name) >= 0
+            && schema?.Fields.Any(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)) != true;
+
+        return (q.Filters ?? []).Any(f => f is not null && (f.Param is not null || System(f.Field)))
+            || System(q.SortField)
+            || (q.Fields ?? []).Any(f => f is not null && (f.Contains('.') || System(f)));
+    }
 
     public static Guid UserIdOf(System.Security.Claims.ClaimsPrincipal user) =>
         Guid.TryParse(user.FindFirst("UserId")?.Value, out var id) ? id : Guid.Empty;
@@ -245,6 +263,16 @@ internal sealed class SaveQueryEndpoint(
         return null;
     }
 
+    private static string? ListRefusal(SaveQueryRequest req)
+    {
+        if (req.Filters is null || req.Filters.Any(f => f is null)) return "Filters must be a list of filters, empty if there are none.";
+        if (req.Fields is not null && req.Fields.Any(f => string.IsNullOrWhiteSpace(f))) return "Every field needs a name.";
+        if (req.Measures is not null && req.Measures.Any(m => m is null)) return "Every measure needs a function and a name.";
+        if (req.GroupBy is not null && req.GroupBy.Any(g => g is null)) return "Every group needs a field.";
+
+        return barakoCMS.Infrastructure.Connectors.QueryText.TermRefusal(req.Fields?.Count ?? 0, req.Filters.Count, req.Measures?.Count ?? 0);
+    }
+
     /// <summary>Fills the members from the text, or says why it cannot be read or why it was given with them.</summary>
     private static string? ReadText(SaveQueryRequest req)
     {
@@ -252,9 +280,9 @@ internal sealed class SaveQueryEndpoint(
 
         if (!string.IsNullOrWhiteSpace(req.ContentType) || req.Filters is { Count: > 0 } || req.Fields is { Count: > 0 }
             || !string.IsNullOrWhiteSpace(req.SortField) || req.Range is not null || req.GroupBy is { Count: > 0 }
-            || req.Measures is { Count: > 0 })
+            || req.Measures is { Count: > 0 } || req.Limit != QueryDefinition.DefaultLimit || req.Descending)
         {
-            return "Give the query as text or as its parts, not both.";
+            return "Give the query as text or as its parts, not both. A limit and a descending order are written in the text.";
         }
 
         var read = barakoCMS.Infrastructure.Connectors.QueryText.Parse(req.Text);
@@ -287,6 +315,12 @@ internal sealed class SaveQueryEndpoint(
         var shapeRefusal = ShapeRefusal(req);
         if (shapeRefusal is not null) { ThrowError(shapeRefusal, 400); return; }
 
+        // Nulls and sizes are answered here, before anything reads the lists. A body can say
+        // "filters": null or put a null in a list, and a query may not carry more terms than the
+        // text form allows.
+        var listRefusal = ListRefusal(req);
+        if (listRefusal is not null) { ThrowError(listRefusal, 400); return; }
+
         var existing = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == req.Slug, ct);
         // A deleted query still holds the slug. Saving over it reuses the row, so creating after a
         // delete works as it always did, and the old definition is gone for good.
@@ -318,7 +352,7 @@ internal sealed class SaveQueryEndpoint(
         var refusal = definition.IsAggregate
             ? (await new Run.AggregateQuery(session, permissions, sensitivity)
                 .RunAsync(definition, User, null, null, execute: false, ct)).Refusal
-            : QueryForms.NeedsAContext(definition)
+            : await QueryForms.NeedsAContextAsync(session, definition, ct)
                 // Judged for whoever saves it, the same way a step reads, so a query that names a
                 // field its author may not read is refused here and not at the first run.
                 ? await contextRunner.ValidateAsync(
@@ -528,7 +562,7 @@ internal sealed class PreviewQueryEndpoint(
             return;
         }
 
-        if (!definition.IsAggregate && (QueryForms.NeedsAContext(definition) || req.Parameters is { Count: > 0 }))
+        if (!definition.IsAggregate && (req.Parameters is { Count: > 0 } || await QueryForms.NeedsAContextAsync(session, definition, ct)))
         {
             // The values are the ones the caller typed, bound as values. The rows are read as the
             // caller, the way a step reads as the user behind its event.
