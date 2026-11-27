@@ -20,13 +20,24 @@ internal sealed class RollupDrainCommand : ICommand
 /// <remarks>
 /// Built from the root container on a worker, so it opens its own sessions for the tenant the
 /// command names. A failure is thrown, so the queue retries it with backoff; the marks are still
-/// there, because a mark is deleted in the commit that wrote what it asked for.
+/// there, because a mark is deleted in the commit that wrote what it asked for. A user write that
+/// commits between the drain's read of a header and its own commit makes the drain lose on the
+/// header's version: that is no failure, so it is queued again a second later and nothing is logged.
 /// </remarks>
 internal sealed class RollupDrainCommandHandler(IDocumentStore store, IConfiguration configuration)
     : ICommandHandler<RollupDrainCommand>
 {
-    public Task ExecuteAsync(RollupDrainCommand command, CancellationToken ct) =>
-        RollupDrain.RunAsync(store, configuration, command.TenantId, ct);
+    public async Task ExecuteAsync(RollupDrainCommand command, CancellationToken ct)
+    {
+        try
+        {
+            await RollupDrain.RunAsync(store, configuration, command.TenantId, ct);
+        }
+        catch (Exception e) when (ConcurrencyConflict.Is(e))
+        {
+            await RollupDrain.QueueAsync(store, command.TenantId, RollupDrain.ConflictRetry, ct);
+        }
+    }
 }
 
 /// <summary>The drain: marks in, recomputed header values out, one transaction a batch.</summary>
@@ -43,14 +54,20 @@ internal static class RollupDrain
     /// <summary>How long a drain waits before looking again at marks it could not take.</summary>
     public static readonly TimeSpan BlockedRetry = TimeSpan.FromMinutes(1);
 
+    /// <summary>How long a drain waits after a user write got in between its read and its commit.</summary>
+    public static readonly TimeSpan ConflictRetry = TimeSpan.FromSeconds(1);
+
     private sealed record Outcome(int Done, bool Blocked, bool More);
 
-    public static async Task RunAsync(IDocumentStore store, IConfiguration configuration, string tenant, CancellationToken ct)
+    /// <param name="listener">Added to each batch's session. Only a test passes one, to act between the drain's read and its commit.</param>
+    public static async Task RunAsync(
+        IDocumentStore store, IConfiguration configuration, string tenant, CancellationToken ct,
+        IDocumentSessionListener? listener = null)
     {
         var last = new Outcome(0, false, false);
         for (var batch = 0; batch < MaxBatches; batch++)
         {
-            last = await BatchAsync(store, configuration, tenant, ct);
+            last = await BatchAsync(store, configuration, tenant, listener, ct);
             if (last.Done == 0)
             {
                 break;
@@ -61,20 +78,30 @@ internal static class RollupDrain
         var more = last.Done > 0 && last.More;
         if (more || last.Blocked)
         {
-            await using var session = store.LightweightSession(tenant);
-            using (JobEnqueue.On(session))
-            {
-                var wait = more ? TimeSpan.FromSeconds(1) : BlockedRetry;
-                await new RollupDrainCommand { TenantId = tenant }.QueueJobAsync(DateTime.UtcNow.Add(wait), ct: ct);
-            }
-
-            await session.SaveChangesAsync(ct);
+            await QueueAsync(store, tenant, more ? TimeSpan.FromSeconds(1) : BlockedRetry, ct);
         }
     }
 
-    private static async Task<Outcome> BatchAsync(IDocumentStore store, IConfiguration configuration, string tenant, CancellationToken ct)
+    internal static async Task QueueAsync(IDocumentStore store, string tenant, TimeSpan wait, CancellationToken ct)
     {
         await using var session = store.LightweightSession(tenant);
+        using (JobEnqueue.On(session))
+        {
+            await new RollupDrainCommand { TenantId = tenant }.QueueJobAsync(DateTime.UtcNow.Add(wait), ct: ct);
+        }
+
+        await session.SaveChangesAsync(ct);
+    }
+
+    private static async Task<Outcome> BatchAsync(
+        IDocumentStore store, IConfiguration configuration, string tenant, IDocumentSessionListener? listener, CancellationToken ct)
+    {
+        await using var session = store.LightweightSession(tenant);
+        if (listener is not null)
+        {
+            session.Listeners.Add(listener);
+        }
+
         await session.BeginTransactionAsync(ct);
         await session.QueryAsync<int>(
             "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct, $"barakocms:rollup-drain:{tenant}");
@@ -137,16 +164,10 @@ internal static class RollupDrain
             return;
         }
 
-        // The rows are locked before they are read, so a user write to one waits and then fails on
-        // its version, and the drain's full-data event never overwrites an edit made after the read.
-        // Only rows of the header type: a stored reference can name an entry of another type, and
-        // that entry is not this drain's to write.
-        var schema = session.DocumentStore.Options.DatabaseSchemaName;
-        await session.QueryAsync<Guid>(
-            $"select d.id from {schema}.mt_doc_contents d where d.tenant_id = ? and lower(d.data ->> 'ContentType') = ? "
-            + $"and d.id in ({string.Join(", ", ids.Select(_ => "?"))}) order by d.id for update",
-            ct, [session.TenantId, header.Name.ToLowerInvariant(), .. ids.Cast<object>()]);
-
+        // The rows are not locked. A header is stored with the version it was read at, so a user
+        // write that commits before this batch does makes the batch lose on that version, write
+        // nothing and keep its marks. Locking the rows first took the document row before the stream
+        // row, the reverse of a user write, and the two could deadlock.
         var values = new Dictionary<FieldDefinition, Dictionary<Guid, object?>>();
         foreach (var rollup in rollups)
         {
@@ -159,6 +180,8 @@ internal static class RollupDrain
 
         foreach (var content in await session.LoadManyAsync<Content>(ct, ids))
         {
+            // Only entries of the header type: a stored reference can name an entry of another
+            // type, and that entry is not this drain's to write.
             if (!ContentTypeName.Same(content.ContentType, header.Name))
             {
                 continue;

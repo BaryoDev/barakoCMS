@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using barakoCMS.Features.Workflows;
 using barakoCMS.Features.Workflows.Actions;
+using barakoCMS.Infrastructure.Rollups;
 using barakoCMS.Infrastructure.Services;
 using Probe = BarakoCMS.Tests.TokenFieldProbe;
 using R = BarakoCMS.Tests.RollupProbe;
@@ -333,6 +334,47 @@ public class RollupWriteTests
         after.Json.Should().Be(before.Json, "the drain writes headers of its own type only");
         after.Version.Should().Be(before.Version);
         (await R.MarkedAsync(_fixture)).Should().NotContain(stranger, "and the mark is not left to be retried for ever");
+    }
+
+    [Fact]
+    public async Task A_user_edit_that_commits_before_the_drain_does_is_kept_and_the_next_drain_recounts()
+    {
+        var (pair, admin, header) = await StartAsync();
+        await R.LineAsync(_fixture, admin, pair, header, 4);
+        var edit = new EditBeforeCommit(async () =>
+        {
+            var res = await R.Client(_fixture, admin).PutAsJsonAsync(
+                $"/api/contents/{header}", new { id = header, data = new Dictionary<string, object> { ["Name"] = "edited" } }, Ct);
+            res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
+        });
+
+        var run = async () => await RollupDrain.RunAsync(
+            _fixture.Services.GetRequiredService<IDocumentStore>(), _fixture.Services.GetRequiredService<IConfiguration>(),
+            R.Tenant, Ct, edit);
+
+        (await run.Should().ThrowAsync<Exception>()).Which.Should().Match<Exception>(e => TestHelpers.LostConcurrencyCheck(e));
+        var held = await R.StoredAsync(_fixture, header);
+        Convert.ToString(held.Data["Name"]).Should().Be("edited", "the drain lost and wrote nothing over the edit");
+        R.Num(held, "Count").Should().NotBe(1);
+        (await R.MarkedAsync(_fixture)).Should().Contain(header, "the mark stays, so the retry has work");
+
+        await R.DrainAsync(_fixture);
+
+        (await R.ValuesAsync(_fixture, header)).Should().Be((1m, 4m, 4m));
+        Convert.ToString((await R.StoredAsync(_fixture, header)).Data["Name"]).Should().Be("edited");
+    }
+
+    private sealed class EditBeforeCommit(Func<Task> edit) : DocumentSessionListenerBase
+    {
+        private int _ran;
+
+        public override async Task BeforeSaveChangesAsync(IDocumentSession session, CancellationToken token)
+        {
+            if (Interlocked.Exchange(ref _ran, 1) == 0)
+            {
+                await edit();
+            }
+        }
     }
 
     private async Task<(string Json, Guid Version)> DocumentAsync(Guid id)
