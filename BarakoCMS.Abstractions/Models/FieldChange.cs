@@ -118,6 +118,6 @@ public sealed class FieldChange
     /// <summary>When an operator abandoned the change. Null for a change nobody abandoned.</summary>
     public DateTimeOffset? AbandonedAt { get; set; }
 
-    /// <summary>The user id of the operator who abandoned the change.</summary>
+    /// <summary>The user or principal id of the operator who abandoned the change.</summary>
     public Guid? AbandonedBy { get; set; }
 }

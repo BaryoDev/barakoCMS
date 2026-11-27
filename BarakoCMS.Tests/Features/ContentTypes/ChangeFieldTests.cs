@@ -539,7 +539,7 @@ public class ChangeFieldTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_batch_that_read_the_change_before_the_abandon_cannot_move_it_back_to_running()
+    public async Task A_save_from_a_read_taken_before_the_abandon_cannot_move_the_change_back_to_running()
     {
         var type = await TypeWithEntriesAsync(0);
         var id = await StalledRecomputeAsync(type);
@@ -624,6 +624,124 @@ public class ChangeFieldTests : IAsyncLifetime
         }
 
         (await AbandonAsync(id)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    private async Task<JobRecord> StoreJobAsync(Guid changeId, JobState state, DateTime dequeueAfter)
+    {
+        var job = new JobRecord
+        {
+            TrackingID = Guid.NewGuid(), QueueID = "not-a-queue", CommandType = typeof(FieldChangeCommand).FullName!,
+            CommandJson = JsonSerializer.Serialize(new { TenantId = "*DEFAULT*", ChangeId = changeId }),
+            State = state, CreatedAt = DateTime.UtcNow,
+            ExecuteAfter = DateTime.UtcNow, DequeueAfter = dequeueAfter, ExpireOn = DateTime.UtcNow.AddHours(2),
+        };
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(job);
+        await session.SaveChangesAsync(Ct);
+        return job;
+    }
+
+    private async Task DeleteJobAsync(JobRecord job)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Delete<JobRecord>(job.TrackingID);
+        await session.SaveChangesAsync(Ct);
+    }
+
+    [Fact]
+    public async Task A_job_the_queue_gave_up_on_does_not_stop_an_abandon_but_one_with_a_lease_does()
+    {
+        var type = await TypeWithEntriesAsync(1);
+        var id = await StalledRecomputeAsync(type);
+        var leased = await StoreJobAsync(id, JobState.Running, DateTime.UtcNow.AddHours(1));
+        var dead = await StoreJobAsync(id, JobState.DeadLettered, DateTime.UtcNow.AddHours(1));
+        try
+        {
+            var refused = await AbandonAsync(id);
+            refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
+            (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("still queued or running");
+            (await StoredChangeAsync(id)).State.Should().Be(FieldChangeState.Running);
+
+            await DeleteJobAsync(leased);
+            (await AbandonAsync(id)).StatusCode.Should().Be(HttpStatusCode.OK, "only the dead-lettered record is left");
+        }
+        finally
+        {
+            await DeleteJobAsync(leased);
+            await DeleteJobAsync(dead);
+        }
+    }
+
+    /// <summary>Holds the type's exclusive lock in a session of its own, as an abandon or a definition edit in flight does.</summary>
+    private async Task<IDocumentSession> HoldTypeLockAsync(string type)
+    {
+        var holder = _fixture.Services.GetRequiredService<IDocumentStore>().LightweightSession();
+        await FieldChanges.LockTypeAsync(holder, type, Ct);
+        return holder;
+    }
+
+    [Fact]
+    public async Task A_recompute_batch_waits_for_the_types_lock_and_runs_once_it_is_released()
+    {
+        var type = await TypeWithEntriesAsync(1);
+        var id = await StalledRecomputeAsync(type);
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var configuration = _fixture.Services.GetRequiredService<IConfiguration>();
+        var holder = await HoldTypeLockAsync(type);
+        Task<FieldChange?> run;
+        try
+        {
+            run = FieldChanges.RunAsync(store, configuration, "*DEFAULT*", id, maxBatches: 1, Ct);
+            await Task.Delay(500, Ct);
+            run.IsCompleted.Should().BeFalse("the batch reads the change under the lock the holder has");
+            (await StoredChangeAsync(id)).Cursor.Should().BeNull();
+        }
+        finally
+        {
+            await holder.DisposeAsync();
+        }
+
+        var ran = await run;
+
+        ran!.State.Should().Be(FieldChangeState.Running);
+        ran.Cursor.Should().NotBeNull("the batch ran after the lock was released");
+    }
+
+    [Fact]
+    public async Task A_recompute_batch_waiting_on_the_lock_finds_the_abandon_that_committed_first_and_stops()
+    {
+        var type = await TypeWithEntriesAsync(1);
+        var id = await StalledRecomputeAsync(type);
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var configuration = _fixture.Services.GetRequiredService<IConfiguration>();
+        var holder = await HoldTypeLockAsync(type);
+        Task<FieldChange?> run;
+        try
+        {
+            run = FieldChanges.RunAsync(store, configuration, "*DEFAULT*", id, maxBatches: 1, Ct);
+            await Task.Delay(500, Ct);
+            run.IsCompleted.Should().BeFalse("the batch waits on the lock");
+
+            var change = (await holder.LoadAsync<FieldChange>(id, Ct))!;
+            change.State = FieldChangeState.Abandoned;
+            change.AbandonedAt = DateTimeOffset.UtcNow;
+            holder.Store(change);
+            await holder.SaveChangesAsync(Ct);
+        }
+        finally
+        {
+            await holder.DisposeAsync();
+        }
+
+        // Without the lock the batch would have read the change as running, and its save would have
+        // been refused by the concurrency check, throwing here. With it, the batch sees the abandon.
+        var ran = await run;
+
+        ran!.State.Should().Be(FieldChangeState.Abandoned);
+        var stored = await StoredChangeAsync(id);
+        (stored.State, stored.Cursor, stored.Processed).Should().Be((FieldChangeState.Abandoned, (Guid?)null, 0));
     }
 
     [Fact]

@@ -127,8 +127,8 @@ the type's writes refused.
 
 A change whose job keeps failing on one entry fails every resume, and while it is `running` the
 type refuses writes and edits. Abandoning a recompute is the way out. The change takes the state
-`abandoned`, with `abandonedAt` and `abandonedBy` (the caller's user id), the type is free again,
-and the job does nothing if it runs later. It needs `manage_content_types`, and it is recorded in
+`abandoned`, with `abandonedAt` and `abandonedBy` (the caller's user id, or the principal id for a
+service principal key), the type is free again, and the job does nothing if it runs later. It needs `manage_content_types`, and it is recorded in
 the audit log as `contenttype.field_change.abandoned` with the change's id, type, field and
 counts. No entry value is recorded.
 
@@ -142,3 +142,7 @@ abandoned. Resume this change instead." and are resumed until they finish.
 A change that completed or was already abandoned is a 409. So is one whose job is still queued or
 running, since abandoning under a live job would race it. Abandon it once the queue has given up
 on the job. Another tenant's change is a 404. An abandoned change is not resumed.
+
+Entries the job did not reach keep their old computed value until their next write. To work the
+value out again for all of them, change the formula, which starts a new recompute. Fix the entry
+that failed first, or the new recompute stops on it too.

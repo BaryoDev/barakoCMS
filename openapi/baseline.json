@@ -4159,7 +4159,7 @@
             "type": "string"
           },
           "abandonedBy": {
-            "description": "The user id of the operator who abandoned it.",
+            "description": "The user or principal id of the operator who abandoned it.",
             "format": "guid",
             "nullable": true,
             "type": "string"

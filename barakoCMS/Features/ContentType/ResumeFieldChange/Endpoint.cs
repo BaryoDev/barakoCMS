@@ -56,7 +56,16 @@ internal sealed class Endpoint(IDocumentSession session) : Endpoint<Request, Fie
         change.UpdatedAt = DateTimeOffset.UtcNow;
         session.Store(change);
         await new FieldChangeCommand { TenantId = session.TenantId, ChangeId = change.Id }.QueueJobAsync(ct: ct);
-        await session.SaveChangesAsync(ct);
+        try
+        {
+            await session.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ConcurrencyConflict.Is(ex))
+        {
+            // The change moved since it was read, by an abandon or by a batch. Nothing was queued.
+            ThrowError("The change moved just now. Nothing was changed. Send the request again.", StatusCodes.Status409Conflict);
+        }
+
         await Send.ResponseAsync(FieldChangeResponse.From(change), 202, ct);
     }
 }
