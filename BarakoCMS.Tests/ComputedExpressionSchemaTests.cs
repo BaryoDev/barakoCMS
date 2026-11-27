@@ -632,7 +632,7 @@ public class ComputedExpressionSchemaTests
     }
 
     [Fact]
-    public async Task A_config_apply_wakes_the_recompute_job_when_its_batch_commits()
+    public async Task A_config_apply_that_changes_a_formula_has_the_queue_work_it_out_with_no_hand_run()
     {
         var (slug, admin) = await TenantAsync();
         var type = NewName();
@@ -647,7 +647,7 @@ public class ComputedExpressionSchemaTests
     }
 
     [Fact]
-    public async Task A_bundle_import_wakes_the_recompute_job_when_its_batch_commits()
+    public async Task A_bundle_import_that_changes_a_formula_has_the_queue_work_it_out_with_no_hand_run()
     {
         var (slug, admin) = await TenantAsync();
         var type = NewName();
@@ -667,8 +667,45 @@ public class ComputedExpressionSchemaTests
     }
 
     /// <summary>
-    /// The worker polls storage every 60 s, so a wake that fired before the batch committed leaves
-    /// the change running far past this deadline.
+    /// A wake at the batch's flush finds nothing, as the job is not committed yet. Holding the flush
+    /// open makes that certain: the worker looks, finds nothing and waits for its next storage poll,
+    /// 60 s away. Only a wake after the commit finishes the change inside the deadline.
+    /// </summary>
+    [Fact]
+    public async Task A_recompute_queued_in_a_content_batch_is_woken_after_the_batch_commits_not_at_its_flush()
+    {
+        var (slug, admin) = await TenantAsync();
+        var type = NewName();
+        (await CreateTypeAsync(admin, type, ApiFields("Qty + Cost"))).StatusCode.Should().Be(HttpStatusCode.OK);
+        await CreateEntryAsync(admin, type, 3m, 4m);
+
+        await using var scope = _fixture.Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Multitenancy.TenantContext>().Slug = slug;
+        var runner = scope.ServiceProvider.GetRequiredService<IContentBatchRunner>();
+        await runner.RunAsync(async (services, ct) =>
+        {
+            var session = services.GetRequiredService<IDocumentSession>();
+            (await FieldChanges.StartAsync(session, new FieldChange { ContentType = type, Field = "Total", Kind = FieldChangeKind.Recompute }, ct))
+                .Should().BeNull("no change is running on the type");
+
+            // After the job's own listener, so the worker has looked and gone back to waiting
+            // before the batch commits.
+            session.Listeners.Add(new HoldTheFlush(TimeSpan.FromSeconds(2)));
+            return new ContentBatchOutcome<bool>(true, Commit: true);
+        }, Ct);
+
+        await CompletedWithinProbeAsync(slug, type);
+    }
+
+    private sealed class HoldTheFlush(TimeSpan hold) : DocumentSessionListenerBase
+    {
+        public override Task AfterCommitAsync(IDocumentSession session, Marten.Services.IChangeSet commit, CancellationToken token) =>
+            Task.Delay(hold, token);
+    }
+
+    /// <summary>
+    /// The worker polls storage every 60 s, so a change still running at this deadline was never
+    /// woken after its commit.
     /// </summary>
     private async Task CompletedWithinProbeAsync(string slug, string type)
     {

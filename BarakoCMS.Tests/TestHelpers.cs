@@ -48,9 +48,13 @@ public static class TestHelpers
     /// <summary>
     /// True when a save lost an optimistic concurrency check. Marten throws one ConcurrencyException
     /// when one document lost, and an AggregateException holding one per document when several did.
+    /// Two writers that both make an entry's first event race on starting its stream, and the one
+    /// that loses gets a stream id collision instead.
     /// </summary>
     public static bool LostConcurrencyCheck(Exception e) =>
-        e is JasperFx.ConcurrencyException
-        || e is AggregateException { InnerExceptions.Count: > 0 } all
-            && all.InnerExceptions.All(inner => inner is JasperFx.ConcurrencyException);
+        Lost(e)
+        || e is AggregateException { InnerExceptions.Count: > 0 } all && all.InnerExceptions.All(Lost);
+
+    private static bool Lost(Exception e) =>
+        e is JasperFx.ConcurrencyException or Marten.Exceptions.ExistingStreamIdCollisionException;
 }
