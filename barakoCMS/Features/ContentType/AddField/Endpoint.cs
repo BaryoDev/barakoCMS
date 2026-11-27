@@ -256,6 +256,14 @@ internal sealed class Endpoint(
         definition.UpdatedAt = DateTime.UtcNow;
         session.Store(definition);
 
+        // A formula over entries already stored is worked out for them by the field change job.
+        if (await barakoCMS.Infrastructure.Services.ComputedRecompute.StartAsync(
+                session, definition, definition.Fields.Where(f => !ReferenceEquals(f, field)), ActingCaller.IdOf(User) ?? Guid.Empty, ct) is { } busy)
+        {
+            AddError(busy);
+            ThrowIfAnyErrors(StatusCodes.Status409Conflict);
+        }
+
         // The field stores role ids. The entry holds each id with the name it has now.
         var roles = await RoleAudit.RoleListsAsync(session, [field.VisibleToRoles], [], ct);
 

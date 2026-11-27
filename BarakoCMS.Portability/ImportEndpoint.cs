@@ -73,7 +73,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         var existing = (await _session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
         await CheckTypesAsync(bundleTypes, existing, configuration, ct);
 
-        var (toStore, created, reindex) = Upsert(bundleTypes, existing, report);
+        var (toStore, created, reindex, recompute) = Upsert(bundleTypes, existing, report);
 
         // Each record is checked against its type as this bundle leaves it, not as it is stored.
         // No singleton cap: an import is a restore and lands what the bundle holds.
@@ -127,6 +127,28 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
 
             var refused = await BundleEntries.WriteAsync(
                 session, scope.GetRequiredService<IContentCreator>(), prepared, userId, HttpContext, batch, token);
+
+            // A formula that changed is worked out again for the entries already stored, by the
+            // field change job, after this commits. Started once the bundle's own entries are
+            // written, because a write to the type waits while a field change runs on it.
+            var blocked = new List<ValidationFailure>();
+            if (refused.Count == 0)
+            {
+                foreach (var (definition, before) in recompute)
+                {
+                    if (await ComputedRecompute.StartAsync(session, definition, before, userId, token) is { } busy)
+                    {
+                        blocked.Add(new ValidationFailure($"contentTypes.{definition.Name}", busy));
+                    }
+                }
+
+                await session.SaveChangesAsync(token);
+            }
+
+            if (blocked.Count > 0)
+            {
+                refused = [.. blocked];
+            }
 
             var commit = refused.Count == 0 && !req.DryRun;
             if (commit)
@@ -232,12 +254,14 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
     /// one. A new type joins <paramref name="existing"/> whether or not this is a dry run, so records
     /// later in the same bundle resolve against a type this bundle creates.
     /// </summary>
-    private static (List<ContentTypeDefinition> ToStore, List<ContentTypeDefinition> Created, List<ContentTypeDefinition> Reindex) Upsert(
+    private static (List<ContentTypeDefinition> ToStore, List<ContentTypeDefinition> Created, List<ContentTypeDefinition> Reindex,
+        List<(ContentTypeDefinition Definition, List<FieldDefinition> Before)> Recompute) Upsert(
         List<ContentTypeDefinition> bundleTypes, List<ContentTypeDefinition> existing, ImportReport report)
     {
         var toStore = new List<ContentTypeDefinition>();
         var created = new List<ContentTypeDefinition>();
         var reindex = new List<ContentTypeDefinition>();
+        var recompute = new List<(ContentTypeDefinition, List<FieldDefinition>)>();
 
         foreach (var type in bundleTypes.Where(t => !string.IsNullOrWhiteSpace(t.Name)))
         {
@@ -245,8 +269,14 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             {
                 report.ContentTypesUpdated++;
                 var hiddenBefore = OwnerHiddenReindex.HiddenNames(match);
+                var fieldsBefore = match.Fields;
                 ContentTypeUpsert.MergeInto(match, type);
                 toStore.Add(match);
+                if (ComputedRecompute.Needed(fieldsBefore, match))
+                {
+                    recompute.Add((match, fieldsBefore));
+                }
+
                 if (OwnerHiddenReindex.Gained(hiddenBefore, match))
                 {
                     reindex.Add(match);
@@ -262,7 +292,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             created.Add(definition);
         }
 
-        return (toStore, created, reindex);
+        return (toStore, created, reindex, recompute);
     }
 
     private static string Shorten(string name) => name.Length > 100 ? name[..100] + "..." : name;
