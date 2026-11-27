@@ -24,7 +24,14 @@ public class ComputedExpressionSchemaTests
     private static readonly ContentTypeValidatorService Validator = new();
     private readonly IntegrationTestFixture _fixture;
 
-    public ComputedExpressionSchemaTests(IntegrationTestFixture fixture) => _fixture = fixture;
+    public ComputedExpressionSchemaTests(IntegrationTestFixture fixture)
+    {
+        _fixture = fixture;
+
+        // The recompute tests wait on the queue's wake. A host started earlier in the process owns
+        // the static job queues until they are taken back, and its worker never sees this database.
+        FastEndpointsResolver.ClaimJobQueues(fixture.Services);
+    }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 

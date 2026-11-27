@@ -2,6 +2,7 @@
   "serial": {
     "BarakoTestHostTests.cs": "starts hosts of its own or checks the fixture itself, which a second live fixture would disturb",
     "BuildIdentityEndpointTests.cs": "sets process-wide environment variables or switches",
+    "ComputedExpressionSchemaTests.cs": "queues FastEndpoints jobs through the process-wide JobQueues static, which every host start overwrites",
     "DataSeederTests.cs": "sets process-wide environment variables or switches",
     "DerivedHostReleaseTests.cs": "starts hosts of its own or checks the fixture itself, which a second live fixture would disturb",
     "EnabledModuleEndpointTests.cs": "sets process-wide environment variables or switches",
