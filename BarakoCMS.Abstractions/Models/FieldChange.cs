@@ -27,6 +27,12 @@ public enum FieldChangeState
 
     /// <summary>Every step is done.</summary>
     Completed = 1,
+
+    /// <summary>
+    /// An operator stopped it. Only a recompute is abandoned. The type's writes are accepted again
+    /// and the job does nothing if it runs.
+    /// </summary>
+    Abandoned = 2,
 }
 
 /// <summary>
@@ -108,4 +114,10 @@ public sealed class FieldChange
     public DateTimeOffset UpdatedAt { get; set; }
 
     public DateTimeOffset? CompletedAt { get; set; }
+
+    /// <summary>When an operator abandoned the change. Null for a change nobody abandoned.</summary>
+    public DateTimeOffset? AbandonedAt { get; set; }
+
+    /// <summary>The user or principal id of the operator who abandoned the change.</summary>
+    public Guid? AbandonedBy { get; set; }
 }

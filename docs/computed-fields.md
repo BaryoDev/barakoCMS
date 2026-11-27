@@ -73,7 +73,10 @@ text of the formula.
 Changing an `expression`, or adding a computed field with one, on a type that has entries starts a
 background job that works the value out again for every entry. It is a field change of kind
 `recompute`, and it follows the rules in [field-changes.md](field-changes.md#recomputing-a-formula).
-A change to an `fn` rule does not start one.
+A change to an `fn` rule does not start one. If the job gets stuck and the type stays write-locked,
+an operator can abandon the recompute, see
+[Abandoning a recompute](field-changes.md#abandoning-a-recompute). Entries the job had not reached
+keep their old value until their next write.
 
 A bundle import treats a changed `expression` as a change of computation, in the same way.
 

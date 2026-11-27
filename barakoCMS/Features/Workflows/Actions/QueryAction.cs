@@ -48,7 +48,10 @@ internal sealed class QueryAction(
 
     public string Type => "Query";
 
-    [Obsolete("Implement RunAsync instead.")]
+    /// <summary>
+    /// Only here because the interface still declares it. A Query step needs its context to read as
+    /// the user behind the run, so the older path refuses rather than reading as nobody.
+    /// </summary>
     public Task ExecuteAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct) =>
         throw new NotSupportedException("A Query step runs with its context, so it reads as the user behind the run.");
 

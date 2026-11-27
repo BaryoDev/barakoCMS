@@ -85,6 +85,12 @@ internal sealed class FieldChangeResponse
     public DateTimeOffset StartedAt { get; init; }
     public DateTimeOffset? CompletedAt { get; init; }
 
+    /// <summary>When an operator abandoned the change. Null for a change nobody abandoned.</summary>
+    public DateTimeOffset? AbandonedAt { get; init; }
+
+    /// <summary>The user or principal id of the operator who abandoned it.</summary>
+    public Guid? AbandonedBy { get; init; }
+
     public static FieldChangeResponse From(FieldChange c) => new()
     {
         Id = c.Id,
@@ -100,6 +106,8 @@ internal sealed class FieldChangeResponse
         Error = c.Error,
         StartedAt = c.StartedAt,
         CompletedAt = c.CompletedAt,
+        AbandonedAt = c.AbandonedAt,
+        AbandonedBy = c.AbandonedBy,
     };
 }
 

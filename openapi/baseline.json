@@ -3888,6 +3888,10 @@
         },
         "type": "object"
       },
+      "BarakoCMSFeaturesContentTypeAbandonFieldChangeRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
       "BarakoCMSFeaturesContentTypeAddFieldRequest": {
         "additionalProperties": false,
         "properties": {
@@ -4148,6 +4152,18 @@
         "additionalProperties": false,
         "description": "A field change as it stands.",
         "properties": {
+          "abandonedAt": {
+            "description": "When an operator abandoned the change. Null for a change nobody abandoned.",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "abandonedBy": {
+            "description": "The user or principal id of the operator who abandoned it.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
           "completedAt": {
             "format": "date-time",
             "nullable": true,
@@ -19232,9 +19248,50 @@
         ]
       }
     },
+    "/api/content-types/field-changes/{id}/abandon": {
+      "post": {
+        "description": "For a recompute whose job keeps failing, so the type is never write-locked for good by one entry\nthat will not save. Only a recompute is abandoned: stopping it part way is safe, because an\nentry not yet rewritten keeps its old computed value and the next write to it works the value\nout again from the current formula. The other kinds leave state a stop cannot undo (a rename's\nvalues under two names, a convert's mixed types, a removed field's values that come back when the\nname is added again), so they answer 409 and are resumed instead. A completed or already\nabandoned change is a 409, and so is one whose job is still queued or running, which abandoning\nwould race. Another tenant's change, like one that does not exist, is a 404.\nThe check and the store sit under the type's lock, the one a change starts under and a batch\ntakes, so an abandon never lands between a batch's read and its commit.",
+        "operationId": "barakoCMSFeaturesContentTypeAbandonFieldChangeEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeChangeFieldFieldChangeResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/content-types/field-changes/{id}/abandon: stops a stuck recompute and frees its type.",
+        "tags": [
+          "ContentType"
+        ]
+      }
+    },
     "/api/content-types/field-changes/{id}/resume": {
       "post": {
-        "description": "For a change whose job stopped, for example after the queue gave up on it. The job starts from\nthe step and entry the change last recorded, so nothing done is done twice. A completed change\nis a 409: there is nothing left to run. So is a change whose job is still queued or running, which\nwould otherwise run beside the new one.",
+        "description": "For a change whose job stopped, for example after the queue gave up on it. The job starts from\nthe step and entry the change last recorded, so nothing done is done twice. A completed or an\nabandoned change is a 409: there is nothing left to run. So is a change whose job is still queued\nor running, which would otherwise run beside the new one.",
         "operationId": "barakoCMSFeaturesContentTypeResumeFieldChangeEndpoint",
         "parameters": [
           {
@@ -19339,7 +19396,7 @@
     },
     "/api/content-types/{name}/fields/{field}/change": {
       "post": {
-        "description": "A label is additive: it touches no entry and is applied at once (200). A rename, a convert (a\nnew type, with a mapping for the stored values) and a remove touch every entry, so each is a\nFieldChange applied by a job (202), whose progress\nGET /api/content-types/field-changes/{id} reports and which\nPOST /api/content-types/field-changes/{id}/resume runs again after it stopped.\n            \nWhile a change runs, the field is read under its old name: the job copies every value to the\nnew name first, then renames the field, then drops the old key. Entry writes to the type are\nrefused until it completes, so no write lands between two batches in a shape the job has\nalready passed. One change at a time per type.\n            \nA rename carries every block binding that sorts or filters on the field along, in the step that\nrenames the field on the type. A remove is refused with 409 while a binding names the field.\n            \nA change that drops stored values is destructive: a remove always, and a convert when some value\nneither maps to nor reads as a value of the new type. It is refused unless the request says\nallowDestructive, and the refusal names how many entries hold a value it would drop.",
+        "description": "A label is additive: it touches no entry and is applied at once (200). A rename, a convert (a\nnew type, with a mapping for the stored values) and a remove touch every entry, so each is a\nFieldChange applied by a job (202), whose progress\nGET /api/content-types/field-changes/{id} reports and which\nPOST /api/content-types/field-changes/{id}/resume runs again after it stopped. A stuck\nrecompute, and no other kind, is stopped with .../abandon.\n            \nWhile a change runs, the field is read under its old name: the job copies every value to the\nnew name first, then renames the field, then drops the old key. Entry writes to the type are\nrefused until it completes, so no write lands between two batches in a shape the job has\nalready passed. One change at a time per type.\n            \nA rename carries every block binding that sorts or filters on the field along, in the step that\nrenames the field on the type. A remove is refused with 409 while a binding names the field.\n            \nA change that drops stored values is destructive: a remove always, and a convert when some value\nneither maps to nor reads as a value of the new type. It is refused unless the request says\nallowDestructive, and the refusal names how many entries hold a value it would drop.",
         "operationId": "barakoCMSFeaturesContentTypeChangeFieldEndpoint",
         "parameters": [
           {
