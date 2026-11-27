@@ -354,7 +354,8 @@ internal sealed class DeleteRequestEndpoint(
 /// </remarks>
 internal sealed class DryRunRequestEndpoint(
     IQuerySession session,
-    IRequestComposer composer) : EndpointWithoutRequest<DryRunResponse>
+    IRequestComposer composer,
+    barakoCMS.Core.Interfaces.ISensitivityService sensitivity) : EndpointWithoutRequest<DryRunResponse>
 {
     public override void Configure()
     {
@@ -407,7 +408,7 @@ internal sealed class DryRunRequestEndpoint(
 
         // No workflow run behind a dry run, so no idempotency key exists to show: the preview
         // composes without one, the same as any other action invoked outside the runner.
-        var composed = await composer.ComposeAsync(definition, connector, content, idempotencyKey: null, ct);
+        var composed = await ComposeAsync(definition, connector, content, ct);
 
         await Send.ResponseAsync(new DryRunResponse
         {
@@ -418,5 +419,23 @@ internal sealed class DryRunRequestEndpoint(
             Headers = composed.Headers,
             Body = composed.Body,
         }, cancellation: ct);
+    }
+
+    /// <summary>
+    /// A granted value the caller may not read is masked where it lands, per hole. A composer that
+    /// cannot mask does not preview a connector that has grants: showing it would show the value.
+    /// </summary>
+    private async Task<ComposedRequest> ComposeAsync(
+        RequestDefinition definition, Connector connector, barakoCMS.Models.Content content, CancellationToken ct)
+    {
+        if (composer is IPreviewRequestComposer preview)
+        {
+            return await preview.PreviewAsync(definition, connector, content,
+                (type, field, entry) => sensitivity.MayReadFieldAsync(type, field, entry, User, ct), ct);
+        }
+
+        return connector.AllowedFields is { Count: > 0 }
+            ? ComposedRequest.Refused("This host's composer cannot mask granted fields, so the preview is not shown.")
+            : await composer.ComposeAsync(definition, connector, content, idempotencyKey: null, ct);
     }
 }
