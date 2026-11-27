@@ -7,11 +7,13 @@ start, then use the headings as a checklist.
 ## Which version you can upgrade from
 
 Upgrade to 6.0 from **5.9.0**, the start CI proves, with the released 5.9.0 image pinned by digest.
-No migration follows it: no file under `migrations/` is newer than 5.9.0, and 5.10.0 ships none
-either, so a 5.10.0 database has the same schema. CI does not start from 5.10.0 or any other 5.x
-release. For any other 5.x release, run `FROM_VERSION=<yours> scripts/upgrade-check.sh --list` from
-a checkout of the 6.0 release first. An empty list means the schema is the one 6.0 declares. A
-list means those files apply before you upgrade.
+Three files follow it, all under `migrations/6.0.0/`: the rollup marks table, the rollup sweep
+state table and an index on `createdAt` for rollup windows. `db-migrate` applies them in the
+upgrade below. 5.10.0 ships no file, so a 5.10.0 database has the same schema as a 5.9.0 one. CI
+does not start from 5.10.0 or any other 5.x release. For any other 5.x release, run
+`FROM_VERSION=<yours> scripts/upgrade-check.sh --list` from a checkout of the 6.0 release first. A
+list of only the 6.0.0 files means the schema is the one 5.9.0 has. A file from an earlier folder
+applies too, before the 6.0.0 ones.
 
 A database from 4.x or from an earlier 5.x release still runs through the plan in
 `migrations/`, and the `Upgrade from 4.x` job still starts from 4.9.0 and 4.1.0. That job proves
@@ -231,9 +233,12 @@ docker compose -f docker-compose.prod.yml run --rm --no-deps app db-assert
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-From 5.9.0 `--status` has no SQL file to list, since none follows 5.9.0. `db-migrate` records
-that and creates any table the 6.0 modules declare that is missing. `db-assert` exits 0 when the
-schema is what 6.0 declares. [deploy-in-production.md](deploy-in-production.md#upgrading) has the
+From 5.9.0 `--status` lists the three 6.0.0 files. `db-migrate` applies them, records them and
+creates any table the 6.0 modules declare that is missing. The index file builds `CONCURRENTLY`,
+outside a transaction, and waits for every transaction older than itself, which with 5.9 stopped is
+none. A build that is interrupted leaves an invalid index and `db-migrate` exits 1;
+[migrations.md](migrations.md#an-index-build-that-was-interrupted) has the fix. `db-assert` exits 0
+when the schema is what 6.0 declares. [deploy-in-production.md](deploy-in-production.md#upgrading) has the
 same steps with the reasons, and [migrations.md](migrations.md) explains the ledger.
 
 A new migration does not need a superuser from 6.0. Run ad hoc SQL as the app role, never as the
@@ -253,13 +258,17 @@ the release the database is on:
 FROM_VERSION=5.8.0 scripts/upgrade-check.sh --list
 ```
 
-From 5.9.0 the list is empty, and so it is from 5.10.0. `--list` builds nothing and starts nothing.
+From 5.9.0 the list is the three 6.0.0 files and their rollback files, and so it is from 5.10.0.
+`--list` builds nothing and starts nothing.
 
 ## Going back to 5.9
 
-No SQL file follows 5.9.0, so there is no rollback file to run. CI proves that 5.9.0 boots again
-and reads every seeded record against a database the 6.0 build has used, connecting as the
-database owner on both sides. It does not prove the way back after the app role job has run,
+With 6.0 stopped, run the three 6.0.0 rollback files newest first, in the order `--list` prints
+them, then remove their rows with `db-migrate --forget core/6.0.0/<name>` from the 6.0 image
+([migrations.md](migrations.md#rolling-back)). The two rollup files leave their tables in place,
+since 5.9 never reads them, and the index file drops the `createdAt` index. CI proves that 5.9.0
+boots again after those files and reads every seeded record against a database the 6.0 build has
+used, connecting as the database owner on both sides. It does not prove the way back after the app role job has run,
 because the job changes object ownership and the check does not run it. After that job, the sure
 way back is the restore from the backup you took first.
 
