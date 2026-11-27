@@ -98,14 +98,26 @@ seed_json() { python3 -c "import sys, json; d = json.load(sys.stdin); print($1)"
 
 # Every item of a list route, all pages, as one JSON array. $1 base url, $2 token, $3 path, $4
 # optional tenant. A list answer is either {"items": [...], "totalPages": n} or a bare array, and
-# the stations route is the second kind. Reading only the first page would pass whenever the
-# record sorted onto it and say nothing about the rest.
+# the stations route is the second kind. A page count that is not a whole number, or is past
+# SEED_MAX_PAGES, prints why on stderr and returns 1 (the caller's fail follows). Reading only the
+# first page would pass whenever the record sorted onto it and say nothing about the rest.
+SEED_MAX_PAGES=100
+
 seed_all() {
     local page=1 body pages lines=""
     while :; do
         body=$(seed_api GET "$1$3?page=$page&pageSize=100" "$2" "" "${4:-}") || return 1
         lines+=$(printf '%s' "$body" | seed_json "json.dumps(d['items'] if isinstance(d, dict) else d)")$'\n'
-        pages=$(printf '%s' "$body" | seed_json "d.get('totalPages', 1) if isinstance(d, dict) else 1")
+        pages=$(printf '%s' "$body" | seed_json "json.dumps(d.get('totalPages', 1) if isinstance(d, dict) else 1)")
+        # A count that is not a whole number would read as "one page" and stop quietly, and a huge
+        # one would loop for as long as the server let it.
+        case "$pages" in
+            ''|*[!0-9]*) echo "GET $3 reports totalPages $pages, which is not a whole number" >&2; return 1 ;;
+        esac
+        if [ "${#pages}" -gt 6 ] || [ "$pages" -gt "$SEED_MAX_PAGES" ]; then
+            echo "GET $3 reports $pages pages, more than the $SEED_MAX_PAGES this reads" >&2
+            return 1
+        fi
         [ "$page" -lt "$pages" ] || break
         page=$((page + 1))
     done

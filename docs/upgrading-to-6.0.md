@@ -51,7 +51,8 @@ remedy for a failed upgrade is a restore.
 Then work through the next five sections: "Settings to change before you upgrade", "Limits and
 checks that start differently", "The upgrade", "Going back to 5.9" and "Code that stops
 compiling". The first two are things 6.0 refuses to start without, or starts differently. The
-third and fourth are the steps and the way back. The last is code.
+third and fourth are the steps and the way back. The fifth is code. "What CI does not seed"
+follows them and says what the upgrade check cannot cover.
 
 ## Settings to change before you upgrade
 
@@ -261,7 +262,7 @@ way back is the restore from the backup you took first.
 ## Code that stops compiling
 
 The members below were marked `[Obsolete]` with "removal planned for barakoCMS 6.0" in 5.x and
-are gone in 6.0. Each line says what to move to. The groups follow the two issues that remove
+are gone in 6.0, once #1383 and #1384 land. Each line says what to move to. The groups follow the two issues that remove
 them: [#1383](https://github.com/BaryoDev/barakoCMS/issues/1383) for the members that name a
 Marten type and [#1384](https://github.com/BaryoDev/barakoCMS/issues/1384) for the rest.
 

@@ -342,6 +342,7 @@ case "\${1:-}" in
         echo "\$id" ;;
     port) echo "127.0.0.1:\$(cat "$state/\$2.port")" ;;
     inspect) cat "$state/running" ;;
+    image) printf 'PATH=/bin\nBARAKO_BUILD_SHA=deadbeef\n' ;;
     exec)
         case " \$* " in
             *" -tAc "*mt_doc_roles*view_sensitive*) cat "$state/seeded-hr-granted" ;;
@@ -449,6 +450,7 @@ seed_check() {
     (
         FROM_VERSION=9.9.9
         SEED_FILE="$d/seed.tsv"
+        : > "$d/seed-calls"
         printf 'es_entry\tE1\ndoc_entry\tD1\nrole\tR1\ngroup\tG1\nredirect\tRD1\nworkflow\tW1\nstation\tS1\napikey\tK1\napikey_secret\tnot-a-secret\ntenant_entry\tT1\n' > "$SEED_FILE"
         fail() { printf 'FAILED: %s\n' "$1"; exit 1; }
         psql_q() { echo 3; }
@@ -456,6 +458,9 @@ seed_check() {
         . scripts/lib-upgrade-data.sh
         seed_api() {
             local body
+            # A reader with no cap would ask for a huge page count's pages one after another.
+            echo >> "$d/seed-calls"
+            [ "$(wc -l < "$d/seed-calls")" -le 300 ] || { echo "stub: more than 300 reads" >&2; return 1; }
             body=$(seed_world "$1" "$2") || { echo "HTTP 404 from $1 $2" >&2; return 1; }
             printf '%s' "$body" | sed "${SEED_MUT:-}"
         }
@@ -531,6 +536,14 @@ seed_read_cases() {
         tenant_fails 's/"name":"Upgrade seed"/"name":"Renamed"/' "the second tenant's name is 'Renamed'"
     expect "a suspended tenant fails" \
         tenant_fails 's/"Active"/"Suspended"/' "the second tenant's status is 'Suspended'"
+    expect "a page count of null fails, and is not read as one page" \
+        seed_fails 's/"totalPages":1/"totalPages":null/' "reports totalPages null, which is not a whole number"
+    expect "a page count of a string fails" \
+        seed_fails 's/"totalPages":1/"totalPages":"x"/' 'reports totalPages "x", which is not a whole number'
+    expect "a page count of 2.0 fails" \
+        seed_fails 's/"totalPages":1/"totalPages":2.0/' "reports totalPages 2.0, which is not a whole number"
+    expect "a page count past the cap fails and does not loop" \
+        seed_fails 's/"totalPages":1/"totalPages":99999999999/' "reports 99999999999 pages, more than the 100 this reads"
     expect "a tenant missing from the list fails" \
         tenant_fails 's/"slug":"upgrade-seed"/"slug":"other"/' "the second tenant's name is 'MISSING'"
 
@@ -564,6 +577,19 @@ seed_read_cases() {
     GIT_SHA="" IMAGE_ENV='BARAKO_BUILD_SHA=abc123' image_check ghcr.io/example/image@sha256:aa > "$output" 2>&1
     expect "a checkout without the tag fails" [ $? -eq 1 ]
     expect "and the message says how to fetch it" grep -q "git fetch --depth=1 origin tag v5.9.0" "$output"
+}
+
+upgrade_image_cases() {
+    echo
+    echo "upgrade-check.sh, from a 5.9.0 image named by digest:"
+    stubs fake-pg
+    fake_docker true
+    run_upgrade FROM_VERSION=5.9.0 IMAGE=ghcr.io/example/image@sha256:aa
+    expect "the run fails" [ $? -ne 0 ]
+    expect "on the check that ties the digest to the v5.9.0 tag" \
+        grep -Eq "FAILED: .*(sha256:aa.*v5\.9\.0|v5\.9\.0.*sha256:aa)" "$output"
+    expect "the old container is never started" not grep -q "^run .*ghcr.io/example/image@sha256:aa" "$state/calls"
+    rm -f "$bin/docker"
 }
 
 # run_upgrade [NAME=value ...]: the assignments are the script's environment.
@@ -828,6 +854,7 @@ script_cases() {
 upgrade_data_cases
 seed_read_cases
 upgrade_cases
+upgrade_image_cases
 
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     docker_lib_cases
