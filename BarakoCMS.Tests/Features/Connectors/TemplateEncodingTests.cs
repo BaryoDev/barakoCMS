@@ -85,6 +85,22 @@ public class TemplateEncodingTests(IntegrationTestFixture fixture)
         parsed.RootElement.EnumerateObject().Select(p => p.Name).Should().Equal("note");
     }
 
+    [Theory]
+    [InlineData("{{Note | lower}}")]
+    [InlineData("{{Note | upper}}")]
+    [InlineData("{{Note | json}}")]
+    public async Task In_a_json_body_a_formatted_value_that_closes_the_string_cannot_add_a_member(string hole)
+    {
+        var subject = await SeedAsync("\",\"admin\":true,\"x\":\"");
+        var definition = RequestKit.Definition(subject, "{\"note\":\"" + hole + "\"}");
+
+        var composed = await RequestKit.ComposeAsync(fixture, subject, definition);
+
+        composed.Ok.Should().BeTrue(composed.Refusal);
+        using var parsed = JsonDocument.Parse(composed.Body!);
+        parsed.RootElement.EnumerateObject().Select(p => p.Name).Should().Equal("note");
+    }
+
     [Fact]
     public async Task In_a_url_path_a_value_is_one_escaped_segment()
     {
