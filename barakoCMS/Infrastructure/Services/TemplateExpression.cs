@@ -59,6 +59,8 @@ internal sealed class FollowedContent : Content;
 /// a <c>data.Field.Other</c> and a loop as written.
 /// </param>
 /// <param name="Notes">Where a resolve records what it left out on purpose. Null records nothing.</param>
+/// <param name="Datasets">The rows each declared dataset read, by the name the template uses. Null when none was prepared.</param>
+/// <param name="Row">The dataset row a loop body is resolving, or null outside one.</param>
 internal sealed record TemplateContext(
     TimeZoneInfo? TimeZone,
     string? Currency,
@@ -66,7 +68,9 @@ internal sealed record TemplateContext(
     TemplateTransition? Transition,
     TemplateLinks? Links = null,
     IReadOnlyDictionary<string, TemplateFollowed>? References = null,
-    List<string>? Notes = null)
+    List<string>? Notes = null,
+    IReadOnlyDictionary<string, TemplateDataset>? Datasets = null,
+    IReadOnlyDictionary<string, object>? Row = null)
 {
     /// <summary>
     /// For a caller that resolves without preparing. Dates are UTC, money carries no code, and the
@@ -77,6 +81,9 @@ internal sealed record TemplateContext(
 
     /// <summary>The context one loop item resolves in: no author, and no reference to follow further.</summary>
     public TemplateContext ForItem() => this with { Author = null, References = null };
+
+    /// <summary>The context one dataset row resolves in: <c>row.Field</c> reads the row, and the entry is still the entry.</summary>
+    public TemplateContext ForRow(IReadOnlyDictionary<string, object> row) => this with { Row = row };
 
     public void Note(string note)
     {
@@ -119,6 +126,15 @@ internal static class TemplateExpression
     /// <summary>The most entries one loop renders. Past it the loop stops and the run says so.</summary>
     public const int MaxLoopItems = 50;
 
+    /// <summary>The most rows a template loop over a dataset renders. A dataset that holds more fails the render.</summary>
+    public const int MaxDatasetRows = 200;
+
+    /// <summary>The longest text a template renders to, in characters. Past it the render fails.</summary>
+    public const int MaxOutputLength = 1_048_576;
+
+    /// <summary>The longest text inside <c>{{= }}</c>, the same as a formula may be anywhere else.</summary>
+    public const int MaxExpressionLength = 2000;
+
     /// <summary>The longest path <c>links.site</c> takes, and the longest name <c>links.transition</c> takes.</summary>
     public const int MaxLinkArgumentLength = 200;
 
@@ -136,7 +152,8 @@ internal static class TemplateExpression
     /// <summary>The longest parameter value a workflow is saved with, in characters.</summary>
     public const int MaxTemplateLength = 262_144;
 
-    private static readonly Regex LoopOpen = new(@"\A\s*\#each\s+data\.(?<field>[A-Za-z0-9_]+)\s*\z", RegexOptions.Compiled);
+    private static readonly Regex LoopOpen = new(
+        @"\A\s*\#each\s+(?:data\.(?<field>[A-Za-z0-9_]+)|(?<dataset>[A-Za-z][A-Za-z0-9_]*))\s*\z", RegexOptions.Compiled, ScanTimeout);
 
     private static readonly Regex LoopClose = new(@"\A\s*/each\s*\z", RegexOptions.Compiled);
 
@@ -161,6 +178,11 @@ internal static class TemplateExpression
 
     private static readonly Regex ZoneId = new(
         @"\A[A-Za-z][A-Za-z0-9_+\-]*(?:/[A-Za-z0-9_+\-]+){0,2}\z", RegexOptions.Compiled);
+
+    private static readonly Regex ClockCall = new(@"\b(?:today|now)\s*\(", RegexOptions.Compiled, ScanTimeout);
+
+    private static readonly Regex FormatTail = new(
+        @"\A\s*(?<format>[A-Za-z]+)(?:\s+""(?<argument>[^""\r\n]*)"")*\s*\z", RegexOptions.Compiled, ScanTimeout);
 
     private static readonly Regex SiteFormat = new(
         @"(?:\||\\u007[cC])(?:\s|\\+[ntr])*(?:date|money)\b|links\.(?:site|public)\b", RegexOptions.Compiled, ScanTimeout);
@@ -193,13 +215,13 @@ internal static class TemplateExpression
         "transition.name", "transition.at", "transition.by.name", "transition.by.email",
     };
 
-    private enum Shape { Plain, Filtered, Between, Link }
+    private enum Shape { Plain, Filtered, Between, Link, Expression }
 
     private sealed record Hole(Shape Shape, string Name, string Word, string Second, IReadOnlyList<string> Arguments);
 
     /// <summary>A date the entry or the transition carries, as opposed to a field that happens to hold one.</summary>
     /// <remarks>Written out round-trip when it has no format, which is what the engine has always done.</remarks>
-    private readonly record struct Moment(DateTime Value);
+    internal readonly record struct Moment(DateTime Value);
 
     /// <summary>The text a hole stands for, before encoding, or null when it is left as written.</summary>
     public static string? Evaluate(string body, Content content, TemplateContext context)
@@ -207,6 +229,8 @@ internal static class TemplateExpression
         if (Parse(body) is not { } hole) return null;
 
         if (hole.Shape == Shape.Link) return LinkTo(hole.Name, hole.Arguments[0], content, context);
+
+        if (hole.Shape == Shape.Expression) return EvaluateExpression(hole, content, context);
 
         if (!TryValue(hole.Name, content, context, out var value))
         {
@@ -222,18 +246,31 @@ internal static class TemplateExpression
                 return TryValue(hole.Second, content, context, out var end) ? Span(hole.Word, value, end) : null;
 
             default:
-                if (ArgumentProblem(hole.Word, hole.Arguments) is not null) return null;
-
-                return hole.Word switch
-                {
-                    "date" => Date(value, hole.Arguments, context),
-                    "money" => Money(value, hole.Arguments, context),
-                    "upper" => Text(value).ToUpperInvariant(),
-                    "lower" => Text(value).ToLowerInvariant(),
-                    "json" => Json(value),
-                    _ => null,
-                };
+                return Format(hole.Word, hole.Arguments, value, context);
         }
+    }
+
+    private static string? Format(string word, IReadOnlyList<string> arguments, object? value, TemplateContext context)
+    {
+        if (ArgumentProblem(word, arguments) is not null) return null;
+
+        return word switch
+        {
+            "date" => Date(value, arguments, context),
+            "money" => Money(value, arguments, context),
+            "upper" => Text(value).ToUpperInvariant(),
+            "lower" => Text(value).ToLowerInvariant(),
+            "json" => Json(value),
+            _ => null,
+        };
+    }
+
+    /// <summary>The text of a <c>{{= }}</c> hole, or null when it is left as written. The reason, never a value, goes on the context.</summary>
+    private static string? EvaluateExpression(Hole hole, Content content, TemplateContext context)
+    {
+        if (!TemplateFormulas.TryEvaluate(hole.Name, content, context, out var value)) return null;
+
+        return hole.Word.Length == 0 ? Text(value) : Format(hole.Word, hole.Arguments, value, context);
     }
 
     /// <summary>
@@ -246,6 +283,8 @@ internal static class TemplateExpression
     /// </remarks>
     public static IReadOnlyList<Content>? LoopItems(Piece loop, TemplateContext context)
     {
+        if (loop.Field is null) return null;
+
         if (loop.Nested
             || context.References is null
             || !context.References.TryGetValue(loop.Field!, out var followed))
@@ -263,6 +302,31 @@ internal static class TemplateExpression
         }
 
         return followed.Items;
+    }
+
+    /// <summary>
+    /// The rows a loop over a dataset renders, or null when the loop is left as written: the template
+    /// declares no such dataset, or the body holds another loop.
+    /// </summary>
+    /// <exception cref="TemplateRenderException">The dataset did not run, or holds more rows than a template loop renders.</exception>
+    public static IReadOnlyList<Dictionary<string, object>>? DatasetRows(Piece loop, TemplateContext context)
+    {
+        if (loop.Dataset is null || loop.Nested
+            || context.Datasets is null || !context.Datasets.TryGetValue(loop.Dataset, out var dataset))
+        {
+            return null;
+        }
+
+        if (dataset.Failure is not null) throw new TemplateRenderException(dataset.Failure);
+
+        if (dataset.Rows.Count > MaxDatasetRows)
+        {
+            throw new TemplateRenderException(string.Create(
+                CultureInfo.InvariantCulture,
+                $"The dataset '{loop.Dataset}' holds more than {MaxDatasetRows} rows, which is the most a template renders."));
+        }
+
+        return dataset.Rows;
     }
 
     /// <summary>The transition names a template links to, through <c>links.transition</c> and <c>links.action</c>.</summary>
@@ -347,10 +411,12 @@ internal static class TemplateExpression
     /// <param name="Length">How long it is, markers included.</param>
     /// <param name="Hole">The <see cref="Token"/> match of a hole.</param>
     /// <param name="Field">The reference field a loop is over.</param>
+    /// <param name="Dataset">The dataset a loop is over, when it is over one and not over a reference field.</param>
     /// <param name="Body">The template text between a loop's markers.</param>
     /// <param name="Nested">Whether another opening marker sits between a loop's markers.</param>
     public readonly record struct Piece(
-        PieceKind Kind, int Start, int Length, Match? Hole = null, string? Field = null, string? Body = null, bool Nested = false);
+        PieceKind Kind, int Start, int Length, Match? Hole = null, string? Field = null, string? Body = null, bool Nested = false,
+        string? Dataset = null);
 
     /// <summary>A template cut into text, holes and loops, in order.</summary>
     /// <remarks>
@@ -368,12 +434,14 @@ internal static class TemplateExpression
         var pieces = new List<Piece>(count * 2 + 1);
 
         var fields = new string?[count];
+        var sets = new string?[count];
         var closes = new bool[count];
         for (var i = 0; i < count; i++)
         {
             var body = matches[i].Groups[1].Value;
             var open = LoopOpen.Match(body);
-            fields[i] = open.Success ? open.Groups["field"].Value : null;
+            fields[i] = open.Success ? (open.Groups["field"].Success ? open.Groups["field"].Value : open.Groups["dataset"].Value) : null;
+            sets[i] = open.Success && open.Groups["dataset"].Success ? open.Groups["dataset"].Value : null;
             closes[i] = !open.Success && LoopClose.IsMatch(body);
         }
 
@@ -402,7 +470,8 @@ internal static class TemplateExpression
 
                 pieces.Add(new Piece(
                     PieceKind.Loop, match.Index, end - match.Index,
-                    Field: fields[index],
+                    Field: sets[index] is null ? fields[index] : null,
+                    Dataset: sets[index],
                     Body: template[bodyStart..matches[close].Index],
                     Nested: nextOpen[index + 1] < close));
 
@@ -422,10 +491,22 @@ internal static class TemplateExpression
     }
 
     /// <summary>Whether a template holds a placeholder that resolves to a user's email address.</summary>
-    public static bool NamesAddress(string? template) =>
-        !string.IsNullOrEmpty(template)
-        && Token.Matches(template).Any(match =>
-            Parse(match.Groups[1].Value) is { } hole && (IsAddress(hole.Name) || IsAddress(hole.Second)));
+    /// <remarks>A template that cannot be read in full is taken to name one, so it is refused as one that does.</remarks>
+    public static bool NamesAddress(string? template)
+    {
+        if (string.IsNullOrEmpty(template)) return false;
+
+        try
+        {
+            return TemplateHoles.Scan(template).Any(hole => hole.Reads.Any(IsAddress))
+                || Token.Matches(template).Any(match =>
+                    Parse(match.Groups[1].Value) is { } hole && (IsAddress(hole.Name) || IsAddress(hole.Second)));
+        }
+        catch (Exception ex) when (ex is TemplateScanException or RegexMatchTimeoutException)
+        {
+            return true;
+        }
+    }
 
     private static bool IsAddress(string name) => name is "createdBy.email" or "transition.by.email";
 
@@ -447,7 +528,7 @@ internal static class TemplateExpression
         {
             if (string.IsNullOrEmpty(template)) continue;
 
-            site |= SiteFormat.IsMatch(template);
+            site |= SiteFormat.IsMatch(template) || (template.Contains("{{=", StringComparison.Ordinal) && ClockCall.IsMatch(template));
             author |= template.Contains("createdBy.", StringComparison.Ordinal);
             transition |= template.Contains("transition.", StringComparison.Ordinal);
         }
@@ -474,6 +555,8 @@ internal static class TemplateExpression
         var plain = Plain.Match(body);
         if (plain.Success) return new Hole(Shape.Plain, plain.Groups[1].Value, string.Empty, string.Empty, []);
 
+        if (body.TrimStart().StartsWith('=')) return ParseExpression(body);
+
         if (body.Length > MaxLength) return null;
 
         var link = Link.Match(body);
@@ -498,6 +581,28 @@ internal static class TemplateExpression
         }
 
         return null;
+    }
+
+    /// <summary><c>= expression</c> or <c>= expression | format "argument"</c>, or null when the format is not one.</summary>
+    private static Hole? ParseExpression(string body)
+    {
+        var text = body.TrimStart()[1..];
+        if (text.Length > MaxExpressionLength + MaxLength) return null;
+
+        var bar = TemplateHoles.FirstBar(text);
+        var source = bar < 0 ? text : text[..bar];
+        if (source.Trim().Length == 0 || source.Length > MaxExpressionLength) return null;
+        if (bar < 0) return new Hole(Shape.Expression, source.Trim(), string.Empty, string.Empty, []);
+
+        var tail = text[(bar + 1)..];
+        if (tail.Length > MaxLength || TemplateHoles.FirstBar(tail) >= 0) return null;
+
+        var format = FormatTail.Match(tail);
+        return format.Success
+            ? new Hole(
+                Shape.Expression, source.Trim(), format.Groups["format"].Value, string.Empty,
+                format.Groups["argument"].Captures.Select(capture => capture.Value).ToList())
+            : null;
     }
 
     /// <summary>
@@ -537,6 +642,13 @@ internal static class TemplateExpression
         if (Parse(body) is not { } hole) return "is not a placeholder";
 
         if (hole.Shape == Shape.Link) return LinkArgumentProblem(hole.Name, hole.Arguments[0]);
+
+        if (hole.Shape == Shape.Expression)
+        {
+            return TemplateFormulas.Problem(hole.Name) is { } formula
+                ? $"holds an expression that cannot be used: {formula}"
+                : hole.Word.Length == 0 ? null : ArgumentProblem(hole.Word, hole.Arguments);
+        }
 
         // Read by the runner after the templates, and only as written, so a format or a duration
         // on one is never applied.
@@ -660,7 +772,7 @@ internal static class TemplateExpression
 
     /// <summary>The value a name stands for. False when the name is not a known variable.</summary>
     /// <remarks>A null or empty value is a known variable with nothing in it, and resolves to nothing.</remarks>
-    private static bool TryValue(string key, Content content, TemplateContext context, out object? value)
+    internal static bool TryValue(string key, Content content, TemplateContext context, out object? value)
     {
         value = null;
 
@@ -671,6 +783,8 @@ internal static class TemplateExpression
         {
             return true;
         }
+
+        if (key.StartsWith("row.", StringComparison.Ordinal)) return TryRow(key[4..], context, out value);
 
         switch (key)
         {
@@ -712,6 +826,24 @@ internal static class TemplateExpression
             return content.Data.TryGetValue(name, out value)
                 || TryFollow(name, context, out value)
                 || content is FollowedContent;
+        }
+
+        return false;
+    }
+
+    /// <summary>A column of the dataset row a loop body is on. False outside a loop and for a column the dataset does not select.</summary>
+    private static bool TryRow(string column, TemplateContext context, out object? value)
+    {
+        value = null;
+        if (context.Row is null) return false;
+
+        foreach (var (key, found) in context.Row)
+        {
+            if (string.Equals(key, column, StringComparison.OrdinalIgnoreCase))
+            {
+                value = found;
+                return true;
+            }
         }
 
         return false;
@@ -776,10 +908,12 @@ internal static class TemplateExpression
         }
     }
 
-    private static string Text(object? value) => value switch
+    internal static string Text(object? value) => value switch
     {
         null => string.Empty,
         Moment moment => moment.Value.ToString("o"),
+        decimal exact => exact.ToString(CultureInfo.InvariantCulture),
+        bool flag => flag ? "true" : "false",
         // A whole list or object is its JSON, so a json field can be filled from it. Its type name is of no use to anyone.
         System.Collections.IDictionary or System.Collections.Generic.IEnumerable<object> => Json(value),
         _ => value.ToString() ?? string.Empty,
@@ -925,7 +1059,7 @@ internal static class TemplateExpression
             ? new DateTimeOffset(value, TimeSpan.Zero)
             : new DateTimeOffset(value.ToUniversalTime(), TimeSpan.Zero);
 
-    private static bool TryNumber(object? value, out decimal number)
+    internal static bool TryNumber(object? value, out decimal number)
     {
         number = 0;
 

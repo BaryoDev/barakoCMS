@@ -115,7 +115,8 @@ public static class TemplateHoles
         return new TemplateHole(HoleForm.Other, whole, reads);
     }
 
-    private static int FirstBar(string text)
+    /// <summary>Where the first <c>|</c> outside a string literal is, or -1. Where an expression ends and its format begins.</summary>
+    public static int FirstBar(string text)
     {
         var quoted = false;
         for (var i = 0; i < text.Length; i++)

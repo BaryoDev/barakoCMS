@@ -712,11 +712,21 @@ public class TemplateVariableExtractor(
                     rendered.Append(value is null ? piece.Hole.Value : Encode(value, encoding));
                     break;
 
+                case TemplateExpression.PieceKind.Loop when piece.Dataset is not null && TemplateExpression.DatasetRows(piece, context) is { } rows:
+                    foreach (var row in rows)
+                    {
+                        rendered.Append(Resolve(piece.Body!, content, encoding, context.ForRow(row)));
+                        CheckSize(rendered);
+                    }
+
+                    break;
+
                 case TemplateExpression.PieceKind.Loop when TemplateExpression.LoopItems(piece, context) is { } items:
                     var itemContext = context.ForItem();
                     foreach (var item in items)
                     {
                         rendered.Append(Resolve(piece.Body!, item, encoding, itemContext));
+                        CheckSize(rendered);
                     }
 
                     break;
@@ -725,9 +735,21 @@ public class TemplateVariableExtractor(
                     rendered.Append(template, piece.Start, piece.Length);
                     break;
             }
+
+            CheckSize(rendered);
         }
 
         return rendered.ToString();
+    }
+
+    /// <summary>Fails the render once it is past <see cref="TemplateExpression.MaxOutputLength"/>. Nothing is cut.</summary>
+    private static void CheckSize(System.Text.StringBuilder rendered)
+    {
+        if (rendered.Length > TemplateExpression.MaxOutputLength)
+        {
+            throw new TemplateRenderException(System.FormattableString.Invariant(
+                $"The template renders to more than {TemplateExpression.MaxOutputLength} characters, which is the most a template renders."));
+        }
     }
 
     private static readonly Regex LineBreaks = new(@"[\r\n\u0085\u2028\u2029]+", RegexOptions.Compiled);
