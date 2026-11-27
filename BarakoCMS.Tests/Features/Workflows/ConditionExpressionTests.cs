@@ -98,6 +98,7 @@ public class ConditionExpressionTests
     [InlineData("X", "a=b", "{{data.X}} == a=b")]
     [InlineData("Stage", "NOT STARTED", "{{data.Stage}} == Not started")]
     [InlineData("Stage", "Started", "{{data.Stage}} != Not started")]
+    [InlineData("Note", "5 not 6", "{{data.Note}} == 5 not 6")]
     public void An_old_form_value_with_an_operator_word_still_compares(string field, string value, string condition)
     {
         var verdict = ConditionExpression.Run(ConditionExpression.Prepare(condition, EntryWith(field, value), NoOutputs), null);
