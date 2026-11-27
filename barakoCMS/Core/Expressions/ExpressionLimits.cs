@@ -15,7 +15,12 @@ internal sealed record ExpressionLimits
 
     public int MaxText { get; init; } = 10_000;
 
-    /// <summary>Work units per evaluation: one per node, and one per 32 characters a text function reads or writes.</summary>
+    /// <summary>
+    /// Work units per evaluation: one per node, and one per 32 characters a text function reads or
+    /// writes. With the default limits the node bound (500) is under this one, so a formula that
+    /// passes the parse can only hit it through text work. The node check against it is for a
+    /// caller that passes a smaller value.
+    /// </summary>
     public int MaxSteps { get; init; } = 2000;
 
     public static ExpressionLimits Default { get; } = new();

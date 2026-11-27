@@ -20,7 +20,7 @@ namespace barakoCMS.Core.Validation;
 /// </remarks>
 internal static class ComputedFields
 {
-    public const int MaxRound = 10;
+    public const int MaxRound = MathFunctions.MaxRound;
 
     private static readonly string[] NumericTypes = ["int", "decimal", "money"];
     private static readonly string[] TextTypes = ["string", "text"];

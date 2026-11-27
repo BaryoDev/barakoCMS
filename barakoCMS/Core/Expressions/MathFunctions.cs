@@ -1,11 +1,12 @@
-using barakoCMS.Core.Validation;
-
 namespace barakoCMS.Core.Expressions;
 
 internal static class MathFunctions
 {
+    /// <summary>The most places <c>round</c> keeps. Computed fields read it from here.</summary>
+    public const int MaxRound = 10;
+
     public static bool IsPlaces(decimal places) =>
-        places == Math.Truncate(places) && places >= 0 && places <= ComputedFields.MaxRound;
+        places == Math.Truncate(places) && places >= 0 && places <= MaxRound;
 
     public static void Register(Action<FunctionDef> add)
     {
@@ -21,7 +22,7 @@ internal static class MathFunctions
     {
         var places = a.Length > 1 ? (decimal)a[1]! : 0m;
         if (!IsPlaces(places))
-            return ev.Local(Rules.ArgumentRange, call.Position, $"round takes places from 0 to {ComputedFields.MaxRound}");
+            return ev.Local(Rules.ArgumentRange, call.Position, $"round takes places from 0 to {MaxRound}");
 
         return Math.Round((decimal)a[0]!, (int)places, MidpointRounding.AwayFromZero);
     }

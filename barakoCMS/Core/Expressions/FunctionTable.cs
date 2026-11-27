@@ -35,7 +35,7 @@ internal static class FunctionTable
     private static Dictionary<string, FunctionDef> Build()
     {
         var table = new Dictionary<string, FunctionDef>(StringComparer.OrdinalIgnoreCase);
-        void Add(FunctionDef f) => table[f.Name] = f;
+        void Add(FunctionDef f) => table.Add(f.Name, f);
 
         MathFunctions.Register(Add);
         LogicFunctions.Register(Add);
