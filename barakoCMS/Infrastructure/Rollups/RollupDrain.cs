@@ -128,7 +128,7 @@ internal static class RollupDrain
             WritesForFieldChange = true,
             WritesFromRollupDrain = true,
         };
-        foreach (var group in taken.GroupBy(m => m.HeaderType.ToLowerInvariant()))
+        foreach (var group in taken.GroupBy(m => m.HeaderType.ToLowerInvariant()).OrderBy(g => g.Min(m => m.Id)))
         {
             await DrainTypeAsync(session, writer, definitions, group.ToList(), ct);
         }
@@ -156,7 +156,7 @@ internal static class RollupDrain
         IDocumentSession session, ContentWriter writer, IReadOnlyList<ContentTypeDefinition> definitions,
         List<RollupMark> marks, CancellationToken ct)
     {
-        var ids = marks.Select(m => m.Id).ToList();
+        var ids = marks.Select(m => m.Id).OrderBy(i => i).ToList();
         var header = definitions.FirstOrDefault(d => ContentTypeName.Same(d.Name, marks[0].HeaderType));
         var rollups = header?.Fields.Where(f => f?.Rollup is not null).ToList() ?? [];
         if (header is null || rollups.Count == 0)
@@ -178,7 +178,7 @@ internal static class RollupDrain
             }
         }
 
-        foreach (var content in await session.LoadManyAsync<Content>(ct, ids))
+        foreach (var content in (await session.LoadManyAsync<Content>(ct, ids)).OrderBy(c => c.Id))
         {
             // Only entries of the header type: a stored reference can name an entry of another
             // type, and that entry is not this drain's to write.
