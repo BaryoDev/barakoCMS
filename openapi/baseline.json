@@ -6684,21 +6684,6 @@
           }
         ]
       },
-      "BarakoCMSFeaturesQueriesPreviewQueryRequest": {
-        "additionalProperties": false,
-        "description": "A preview of a saved query: the values its parameters take, when it has any.",
-        "properties": {
-          "parameters": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "description": "The value of each parameter by its name without the at sign, for example data.StudentNo.",
-            "nullable": true,
-            "type": "object"
-          }
-        },
-        "type": "object"
-      },
       "BarakoCMSFeaturesQueriesQueryPreviewResponse": {
         "additionalProperties": false,
         "properties": {
@@ -24191,18 +24176,6 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BarakoCMSFeaturesQueriesPreviewQueryRequest"
-              }
-            }
-          },
-          "description": "",
-          "x-name": "PreviewQueryRequest",
-          "x-position": 1
-        },
         "responses": {
           "200": {
             "content": {
