@@ -20,4 +20,23 @@ internal static class ConnectorOrigin
         (uri.Scheme.ToLowerInvariant(), uri.IdnHost.ToLowerInvariant(), uri.Port);
 
     internal static bool Same(string? a, string? b) => Of(a) is { } left && Of(b) is { } right && left == right;
+
+    /// <summary>
+    /// Whether the base URL moved: a different scheme, host or port (case ignored), a different path
+    /// (case counts, a trailing slash does not) or a different query. A URL that does not parse
+    /// counts as moved unless it is the same text, so a grant is dropped when in doubt.
+    /// </summary>
+    internal static bool Moved(string? before, string? after)
+    {
+        if (string.Equals(before?.Trim(), after?.Trim(), StringComparison.Ordinal)) return false;
+        if (!Uri.TryCreate(before?.Trim(), UriKind.Absolute, out var left)
+            || !Uri.TryCreate(after?.Trim(), UriKind.Absolute, out var right))
+        {
+            return true;
+        }
+
+        return Of(left) != Of(right)
+            || !string.Equals(left.AbsolutePath.TrimEnd('/'), right.AbsolutePath.TrimEnd('/'), StringComparison.Ordinal)
+            || !string.Equals(left.Query, right.Query, StringComparison.Ordinal);
+    }
 }

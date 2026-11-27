@@ -2869,6 +2869,14 @@
         "additionalProperties": false,
         "description": "A connector as the API describes it.",
         "properties": {
+          "allowedFields": {
+            "description": "The fields this connector may send besides the Public ones. Only a caller who may manage\nconnectors sees them, so it is null for anyone else and on a connector with none.",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "auth": {
             "type": "string"
           },
@@ -2979,6 +2987,14 @@
       "BarakoCMSFeaturesConnectorsSaveConnectorRequest": {
         "additionalProperties": false,
         "properties": {
+          "allowedFields": {
+            "description": "The Sensitive or Members fields this connector may send, as Type.Field. Absent keeps\nthe stored list and an empty list clears it. Changing the base URL clears the stored list, so a\nlist sent with the move is checked as if every entry were new.",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true,
+            "type": "array"
+          },
           "auth": {
             "type": "string"
           },
@@ -7046,6 +7062,11 @@
             "type": "object"
           },
           "method": {
+            "type": "string"
+          },
+          "note": {
+            "description": "A fixed line about what the preview leaves out, or null.",
+            "nullable": true,
             "type": "string"
           },
           "refusal": {

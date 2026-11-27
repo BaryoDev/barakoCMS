@@ -62,6 +62,14 @@ public class Connector
     /// </summary>
     public ConnectorInbound? Inbound { get; set; }
 
+    /// <summary>
+    /// The fields this connector may send, as <c>Type.Field</c>, on top of the Public ones. A Request
+    /// template may name a Sensitive or Members field only when it is listed here for that content
+    /// type. A Hidden field cannot be listed. Null or empty means Public fields only. A connector
+    /// stored before this existed reads as null and sends what it always sent.
+    /// </summary>
+    public List<string>? AllowedFields { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

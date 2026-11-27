@@ -66,6 +66,16 @@ internal sealed class Endpoint(
             ThrowIfAnyErrors(StatusCodes.Status409Conflict);
         }
 
+        // A connector's grant naming the type would be left naming nothing. It fails closed, but the
+        // connector would stop sending what it was set up to, so the delete says so first.
+        var granted = await barakoCMS.Infrastructure.Connectors.ConnectorGrants.NamingInTenantsAsync(
+            store, tenantIds, TenantScopes.SlugFor, name, ct);
+        if (granted.Count > 0)
+        {
+            AddError(barakoCMS.Infrastructure.Connectors.ConnectorGrants.Refusal($"\"{name}\"", granted));
+            ThrowIfAnyErrors(StatusCodes.Status409Conflict);
+        }
+
         if (req.DryRun == true)
         {
             var slugs = tenantIds.Select(TenantScopes.SlugFor).ToList();

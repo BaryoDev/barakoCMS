@@ -67,12 +67,27 @@ internal interface IContextQueryRunner
     Task<string?> ValidateAsync(QueryDefinition definition, QueryRunContext context, CancellationToken ct);
 }
 
+/// <summary>
+/// The run a connector's request makes: the Public fields, and the Sensitive or Members ones the
+/// connector has been granted.
+/// </summary>
+/// <remarks>
+/// Projection, filter and sort may name a granted field, and a followed <c>Reference.Field</c> needs
+/// the field granted on the type the reference points at. The grants are the connector's, so the run
+/// reads as nobody. An entry whose own level is Hidden is left out whenever a granted field is
+/// used, the same way a webhook never sends one.
+/// </remarks>
+internal interface IGrantedQueryRunner
+{
+    Task<QueryResult> RunAsync(QueryDefinition definition, ISet<string> grants, CancellationToken ct);
+}
+
 internal sealed class QueryRunner(
     IQuerySession session,
     IPermissionResolver? permissions = null,
     ISensitivityService? sensitivity = null,
     IBranchScopeGuard? branches = null,
-    Microsoft.Extensions.Logging.ILogger<QueryRunner>? logger = null) : IQueryRunner, IContextQueryRunner
+    Microsoft.Extensions.Logging.ILogger<QueryRunner>? logger = null) : IQueryRunner, IContextQueryRunner, IGrantedQueryRunner
 {
     /// <summary>How long the statement that reads the rows may run. A run that passes it is cancelled and answers with a message.</summary>
     public static readonly TimeSpan StatementTimeout = TimeSpan.FromSeconds(15);
@@ -186,15 +201,17 @@ internal sealed class QueryRunner(
     async Task<string?> IContextQueryRunner.ValidateAsync(QueryDefinition definition, QueryRunContext context, CancellationToken ct) =>
         (await CheckAsync(definition, context, ct)).Refusal;
 
-    private async Task<Checked> CheckAsync(QueryDefinition definition, QueryRunContext? context, CancellationToken ct)
+    private async Task<Checked> CheckAsync(
+        QueryDefinition definition, QueryRunContext? context, CancellationToken ct, ISet<string>? grants = null)
     {
         if (definition.IsAggregate)
         {
             return Refuse("An aggregate query computes figures for a signed-in reader and cannot feed a workflow. Run it from the queries API.");
         }
 
-        var schema = await session.Query<ContentTypeDefinition>()
-            .FirstNamedAsync(definition.ContentType, ct);
+        // The account's definition wins over a tenant's own copy, as it does for the composer, so a
+        // copy stored with looser rules does not decide what a query may read.
+        var schema = await AccountContentTypes.ResolveAsync(session, definition.ContentType, ct);
 
         if (schema is null)
         {
@@ -204,7 +221,7 @@ internal sealed class QueryRunner(
         var (reader, readerRefusal) = await ReaderForAsync(schema, context, ct);
         if (readerRefusal is not null) return Refuse(readerRefusal);
 
-        var allowed = await AllowedFieldsAsync(schema, reader, ct);
+        var allowed = await AllowedFieldsAsync(schema, reader, ct, grants);
 
         if (ListsRefusal(definition) is { } listsRefusal) return Refuse(listsRefusal);
 
@@ -228,7 +245,7 @@ internal sealed class QueryRunner(
             return Refuse("Fields must name at least one field. A query with no projection would send whatever the schema grows.");
         }
 
-        var (follows, fieldRefusal) = await CheckFieldsAsync(definition, schema, allowed, reader, context, ct);
+        var (follows, fieldRefusal) = await CheckFieldsAsync(definition, schema, allowed, reader, context, ct, grants);
         if (fieldRefusal is not null) return Refuse(fieldRefusal);
 
         if (definition.Limit is < 1 or > QueryDefinition.MaxLimit)
@@ -270,13 +287,14 @@ internal sealed class QueryRunner(
     }
 
     /// <summary>The fields of the type this run may name, with their types: what the reader may read, or the Public ones.</summary>
-    private static async Task<Dictionary<string, string>> AllowedFieldsAsync(ContentTypeDefinition schema, Reader? reader, CancellationToken ct)
+    private static async Task<Dictionary<string, string>> AllowedFieldsAsync(
+        ContentTypeDefinition schema, Reader? reader, CancellationToken ct, ISet<string>? grants = null)
     {
         var allowed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var f in schema.Fields)
         {
             if (reader is null
-                    ? f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f)
+                    ? ConnectorGrants.Passes(grants, schema.Name, f)
                     : await reader.MayReadFieldAsync(schema.Name, f, ct))
             {
                 allowed[f.Name] = f.Type ?? string.Empty;
@@ -309,14 +327,14 @@ internal sealed class QueryRunner(
     /// <summary>Checks each selected field: a followed reference is resolved, anything else must be allowed or a system field.</summary>
     private async Task<(Dictionary<string, Followed>? Follows, string? Refusal)> CheckFieldsAsync(
         QueryDefinition definition, ContentTypeDefinition schema, Dictionary<string, string> allowed,
-        Reader? reader, QueryRunContext? context, CancellationToken ct)
+        Reader? reader, QueryRunContext? context, CancellationToken ct, ISet<string>? grants = null)
     {
         Dictionary<string, Followed>? follows = null;
         foreach (var field in definition.Fields)
         {
-            if (field.Contains('.') && context is not null)
+            if (field.Contains('.') && (context is not null || grants is not null))
             {
-                var (followed, refusal) = await FollowAsync(field, schema, allowed, reader, ct);
+                var (followed, refusal) = await FollowAsync(field, schema, allowed, reader, ct, grants);
                 if (refusal is not null) return (null, refusal);
                 (follows ??= new(StringComparer.Ordinal))[field] = followed!;
                 continue;
@@ -336,9 +354,13 @@ internal sealed class QueryRunner(
     /// reader may read, to a field this reader may read on the type it points at.
     /// </summary>
     private async Task<(Followed? Followed, string? Refusal)> FollowAsync(
-        string name, ContentTypeDefinition schema, Dictionary<string, string> allowed, Reader? reader, CancellationToken ct)
+        string name, ContentTypeDefinition schema, Dictionary<string, string> allowed, Reader? reader, CancellationToken ct,
+        ISet<string>? grants = null)
     {
-        if (reader?.User is null)
+        // A connector's run reads as nobody: the reference field and the field followed to are each
+        // judged by the grants, the second on the type the reference points at.
+        var byGrant = reader is null && grants is not null;
+        if (!byGrant && reader?.User is null)
         {
             return (null, $"'{Safe(name)}' follows a reference, which needs a user to read as, and this run has none.");
         }
@@ -358,11 +380,13 @@ internal sealed class QueryRunner(
             return (null, $"'{Safe(name)}' cannot be returned from '{schema.Name}'. Only a single reference field that names its type can be followed.");
         }
 
-        var target = await session.Query<ContentTypeDefinition>().FirstNamedAsync(reference.ReferenceType, ct);
+        var resolved = await AccountContentTypes.ResolveManyAsync(session, [reference.ReferenceType], ct);
+        var target = resolved.GetValueOrDefault(reference.ReferenceType);
         var field = target?.Fields.FirstOrDefault(f => string.Equals(f.Name, parts[1], StringComparison.OrdinalIgnoreCase));
         if (target is null || field is null
-            || !await reader.MayReadTypeAsync(target.Name, ct)
-            || !await reader.MayReadFieldAsync(target.Name, field, ct))
+            || (byGrant
+                ? !ConnectorGrants.Passes(grants, target.Name, field)
+                : !await reader!.MayReadTypeAsync(target.Name, ct) || !await reader.MayReadFieldAsync(target.Name, field, ct)))
         {
             return (null, $"'{Safe(name)}' cannot be returned from '{schema.Name}'. The field is not one the user this run reads as may read.");
         }
@@ -428,22 +452,33 @@ internal sealed class QueryRunner(
     public async Task<QueryResult> RunAsync(QueryDefinition definition, CancellationToken ct) =>
         await RunCoreAsync(definition, null, ct);
 
+    async Task<QueryResult> IGrantedQueryRunner.RunAsync(QueryDefinition definition, ISet<string> grants, CancellationToken ct) =>
+        await RunCoreAsync(definition, null, ct, grants);
+
     async Task<QueryResult> IContextQueryRunner.RunAsync(QueryDefinition definition, QueryRunContext context, CancellationToken ct) =>
         await RunCoreAsync(definition, context, ct);
 
-    private async Task<QueryResult> RunCoreAsync(QueryDefinition definition, QueryRunContext? context, CancellationToken ct)
+    private async Task<QueryResult> RunCoreAsync(
+        QueryDefinition definition, QueryRunContext? context, CancellationToken ct, ISet<string>? grants = null)
     {
         // Re-validated at run time, not only when it was saved. A field that was Public when
         // somebody wrote this query can be raised to Sensitive afterwards, and the query would go on
         // returning it into third-party payloads with nothing anywhere saying so.
-        var check = await CheckAsync(definition, context, ct);
+        var check = await CheckAsync(definition, context, ct, grants);
         if (check.Refusal is not null) return QueryResult.Refused(check.Refusal);
 
         var named = await session.Query<ContentTypeDefinition>()
             .Where(barakoCMS.Core.ContentTypeName.Named(definition.ContentType)).ToListAsync(ct);
-        var schema = barakoCMS.Core.ContentTypeName.Pick(named, definition.ContentType)!;
+        var schema = (await AccountContentTypes.ResolveAsync(session, definition.ContentType, ct))!;
 
         var scoped = await ScopedQueryAsync(named, schema, check.Reader, ct);
+
+        // A granted field never leaves from an entry whose own level is Hidden.
+        if (grants is not null && ConnectorGrants.QueryReadsNonPublic(definition, schema))
+        {
+            scoped = scoped.Where(c => c.Sensitivity != SensitivityLevel.Hidden);
+        }
+
         var (filtered, filterRefusal) = ApplyFilters(scoped, definition, schema, context);
         if (filterRefusal is not null) return QueryResult.Refused(filterRefusal);
         var query = Ordered(filtered!, definition, schema, context);
@@ -465,6 +500,10 @@ internal sealed class QueryRunner(
             if (check.Reader is not { } reader)
             {
                 rows = [.. await query.Take(definition.Limit).ToListAsync(limit.Token)];
+                if (grants is not null && check.Follows is not null)
+                {
+                    targets = await FollowedByGrantsAsync(rows, check.Follows, limit.Token);
+                }
             }
             else
             {
@@ -480,6 +519,29 @@ internal sealed class QueryRunner(
         }
 
         return new QueryResult(Project(rows, definition, schema, check, targets, context), null) { Ids = [.. rows.Select(r => r.Id)] };
+    }
+
+    /// <summary>
+    /// The entries the selected references point at, for a run that reads as nobody. An entry that is
+    /// not there, not of the type the field names, or Hidden by its own level is left out, so its
+    /// value is absent.
+    /// </summary>
+    private async Task<Dictionary<Guid, Content>> FollowedByGrantsAsync(
+        List<Content> rows, Dictionary<string, Followed> follows, CancellationToken ct)
+    {
+        var ids = rows
+            .SelectMany(r => follows.Values.Select(f => ReferenceId(r, f)))
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToArray();
+
+        if (ids.Length == 0) return [];
+
+        var types = follows.Values.Select(f => f.Target.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var found = await session.Query<Content>().Where(c => c.Id.In(ids)).ToListAsync(ct);
+        return found
+            .Where(e => e.Sensitivity != SensitivityLevel.Hidden && types.Contains(e.ContentType))
+            .ToDictionary(e => e.Id);
     }
 
     /// <summary>The entries of the type, less any this reader may not see at all by their level.</summary>

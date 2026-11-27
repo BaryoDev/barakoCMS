@@ -20,7 +20,8 @@ internal sealed record ConnectorConfig(
     bool Enabled,
     string? ProbePath,
     List<string>? Secrets,
-    ConnectorInboundConfig? Inbound = null)
+    ConnectorInboundConfig? Inbound = null,
+    List<string>? AllowedFields = null)
 {
     public static ConnectorConfig Of(Connector connector) => new(
         connector.Name, connector.BaseUrl, connector.Auth.ToString(),
@@ -38,6 +39,7 @@ internal sealed record ConnectorConfig(
         Settings = new Dictionary<string, string>(Settings ?? [], StringComparer.Ordinal),
         ProbePath = string.IsNullOrWhiteSpace(ProbePath) ? "/" : ProbePath.Trim(),
         Secrets = null,
+        AllowedFields = null,
         Inbound = Inbound is null ? null : ConnectorInboundConfig.Normalised(Inbound.Scheme, Inbound.AllowedEvents),
     };
 }
@@ -61,6 +63,12 @@ internal sealed record ConnectorInboundConfig(string? Scheme, List<string>? Allo
 /// tenant does not hold is a note: set it with <c>PUT /api/connectors/{slug}</c>.
 /// </para>
 /// <para>
+/// <c>allowedFields</c> lists the Sensitive or Members fields the connector may send, as
+/// <c>Type.Field</c>. Only a caller who may manage connectors is given it by an export. Absent in a
+/// document keeps the stored list, an empty list clears it, and a base URL that moves clears it,
+/// so a promotion of an export taken without it never drops a grant.
+/// </para>
+/// <para>
 /// A held secret the document does not list is cleared, destructively. So is every held secret when
 /// the base URL moves to another origin, and the client secret when the token URL changes: the rule
 /// <c>PUT /api/connectors/{slug}</c> applies, since a credential entered for one address must not be
@@ -68,7 +76,12 @@ internal sealed record ConnectorInboundConfig(string? Scheme, List<string>? Allo
 /// its secrets, destructively.
 /// </para>
 /// </remarks>
-internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantContext tenant) : IConfigProvider
+internal sealed class ConnectorConfigProvider(
+    IDocumentSession session,
+    TenantContext tenant,
+    ISensitivityService sensitivity,
+    ICallerCapabilities capabilities,
+    IConfiguration configuration) : IConfigProvider
 {
     public string Section => "connectors";
 
@@ -81,11 +94,23 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
     public async Task<ConfigSectionExport?> ExportAsync(ConfigCaller caller, CancellationToken ct)
     {
         var connectors = await session.Query<Connector>().ToListAsync(ct);
+        var showGrants = await MayManageGrantsAsync(caller, ct);
+
         return new ConfigSectionExport
         {
-            Documents = connectors.ToDictionary(c => c.Slug, c => ConfigJson.ToElement(ConnectorConfig.Of(c)), StringComparer.Ordinal),
+            Documents = connectors.ToDictionary(
+                c => c.Slug,
+                c => ConfigJson.ToElement(ConnectorConfig.Of(c) with
+                {
+                    AllowedFields = showGrants && c.AllowedFields is { Count: > 0 } ? [.. c.AllowedFields] : null,
+                }),
+                StringComparer.Ordinal),
         };
     }
+
+    /// <summary>Whether grants are shown to this caller: the host applying a file, or a manager of connectors.</summary>
+    private async Task<bool> MayManageGrantsAsync(ConfigCaller caller, CancellationToken ct) =>
+        caller.Principal is not { } principal || await capabilities.HoldsAsync(principal, WriteCapability, ct);
 
     public async Task<ConfigSectionPlan> PlanAsync(
         IReadOnlyDictionary<string, JsonElement> desired, ConfigCaller caller, CancellationToken ct)
@@ -95,6 +120,11 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
         var changes = new List<ConfigChange>();
         var stored = (await session.Query<Connector>().ToListAsync(ct)).ToDictionary(c => c.Slug, StringComparer.Ordinal);
 
+        // The export's rule: a plan shows a grant only to a caller who may manage connectors. For any
+        // other caller it never reads or compares the stored list, so what it says cannot tell a
+        // stored entry from one that is not, or a changed grant from an unchanged one.
+        var showGrants = await MayManageGrantsAsync(caller, ct);
+
         foreach (var (slug, document) in desired.OrderBy(d => d.Key, StringComparer.Ordinal))
         {
             if (Read(slug, document, errors) is not { } config)
@@ -103,6 +133,18 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
             }
 
             stored.TryGetValue(slug, out var current);
+            var grants = showGrants ? await NextGrantsAsync(config, current, caller, ct) : new GrantOutcome(null, null);
+            if (grants.Refusal is not null)
+            {
+                errors.Add($"'{slug}': {grants.Refusal}");
+                continue;
+            }
+
+            if (!showGrants && config.AllowedFields is not null)
+            {
+                notes.Add($"'{slug}': allowed fields are planned only for callers who may manage connectors.");
+            }
+
             var missing = (config.Secrets ?? []).Except(current?.SecretKeys ?? [], StringComparer.Ordinal).ToList();
             if (missing.Count > 0)
             {
@@ -110,7 +152,7 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
                           + $"{(missing.Count == 1 ? "it" : "them")} with PUT /api/connectors/{slug} after the apply.");
             }
 
-            if (Plan(slug, config, current, document) is { } change)
+            if (Plan(slug, config, current, document, grants.Entries, showGrants) is { } change)
             {
                 changes.Add(change);
             }
@@ -128,6 +170,7 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
     {
         var errors = new List<string>();
         var actor = caller.Principal ?? new System.Security.Claims.ClaimsPrincipal();
+        var actorName = caller.IsSystem ? $"config:{FileName()}" : null;
 
         foreach (var change in plan.Changes)
         {
@@ -146,7 +189,8 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
                     }
 
                     session.Delete(current);
-                    await ConnectorGate.AuditAsync(session, tenant.Slug, "connector.deleted", current, actor, ct: ct);
+                    await ConnectorGate.AuditAsync(session, tenant.Slug, "connector.deleted", current, actor,
+                        extra: ConnectorGate.WithGrants(null, current.AllowedFields, null), ct: ct, actorName: actorName);
                 }
 
                 continue;
@@ -157,6 +201,14 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
                 continue;
             }
 
+            var grants = await NextGrantsAsync(config, current, caller, ct, locking: true);
+            if (grants.Refusal is not null)
+            {
+                errors.Add($"'{change.Key}': {grants.Refusal}");
+                continue;
+            }
+
+            var grantsBefore = current?.AllowedFields is null ? null : new List<string>(current.AllowedFields);
             var connector = current ?? new Connector { Id = Guid.NewGuid(), Slug = change.Key, CreatedAt = DateTime.UtcNow };
             var cleared = Cleared(config, current).ToHashSet(StringComparer.Ordinal);
             foreach (var secret in secrets.Where(s => cleared.Contains(s.Key)))
@@ -164,30 +216,53 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
                 session.Delete(secret);
             }
 
-            connector.Name = config.Name!.Trim();
-            connector.BaseUrl = config.BaseUrl!.Trim();
-            connector.Auth = Enum.Parse<ConnectorAuth>(config.Auth!, ignoreCase: true);
-            connector.Settings = config.Settings ?? [];
-            connector.Enabled = config.Enabled;
-            connector.ProbePath = string.IsNullOrWhiteSpace(config.ProbePath) ? "/" : config.ProbePath.Trim();
-            connector.Inbound = config.Inbound is null
-                ? null
-                : new ConnectorInbound
-                {
-                    Scheme = Enum.Parse<InboundWebhookScheme>(config.Inbound.Scheme!, ignoreCase: true).ToString(),
-                    AllowedEvents = ConnectorInboundConfig.Normalised(config.Inbound.Scheme, config.Inbound.AllowedEvents).AllowedEvents!,
-                };
-            connector.SecretKeys = connector.SecretKeys.Where(k => !cleared.Contains(k)).ToList();
+            Assign(connector, config, cleared);
+            connector.AllowedFields = grants.Entries;
             connector.UpdatedAt = DateTime.UtcNow;
             session.Store(connector);
 
             await ConnectorGate.AuditAsync(session, tenant.Slug, current is null ? "connector.created" : "connector.updated", connector, actor,
-                extra: cleared.Count > 0 ? new Dictionary<string, object> { ["secretsChanged"] = string.Join(", ", cleared.Select(k => $"{k} cleared")) } : null,
-                ct: ct);
+                extra: ConnectorGate.WithGrants(
+                    cleared.Count > 0 ? new Dictionary<string, object> { ["secretsChanged"] = string.Join(", ", cleared.Select(k => $"{k} cleared")) } : null,
+                    grantsBefore, connector.AllowedFields),
+                ct: ct, actorName: actorName);
         }
 
         return errors;
     }
+
+    /// <summary>Copies the document's own fields onto the connector. The grant and the audit are the caller's.</summary>
+    private static void Assign(Connector connector, ConnectorConfig config, HashSet<string> cleared)
+    {
+        connector.Name = config.Name!.Trim();
+        connector.BaseUrl = config.BaseUrl!.Trim();
+        connector.Auth = Enum.Parse<ConnectorAuth>(config.Auth!, ignoreCase: true);
+        connector.Settings = config.Settings ?? [];
+        connector.Enabled = config.Enabled;
+        connector.ProbePath = string.IsNullOrWhiteSpace(config.ProbePath) ? "/" : config.ProbePath.Trim();
+        connector.Inbound = config.Inbound is null
+            ? null
+            : new ConnectorInbound
+            {
+                Scheme = Enum.Parse<InboundWebhookScheme>(config.Inbound.Scheme!, ignoreCase: true).ToString(),
+                AllowedEvents = ConnectorInboundConfig.Normalised(config.Inbound.Scheme, config.Inbound.AllowedEvents).AllowedEvents!,
+            };
+        connector.SecretKeys = connector.SecretKeys.Where(k => !cleared.Contains(k)).ToList();
+    }
+
+    /// <summary>
+    /// The grant the connector holds after this document, or why it cannot be. A caller with no
+    /// principal is the host applying a file: it skips the read right and nothing else.
+    /// </summary>
+    private Task<GrantOutcome> NextGrantsAsync(
+        ConnectorConfig config, Connector? current, ConfigCaller caller, CancellationToken ct, bool locking = false) =>
+        ConnectorGrantRules.NextAsync(
+            session, sensitivity, caller, config.AllowedFields, current?.AllowedFields,
+            current is not null && ConnectorOrigin.Moved(current.BaseUrl, config.BaseUrl), ct, locking ? session : null);
+
+    /// <summary>The name of the file the host was configured to apply, for the audit actor.</summary>
+    private string FileName() =>
+        Path.GetFileName(configuration[barakoCMS.Data.SeedFile.Key] ?? string.Empty) is { Length: > 0 } name ? name : "seed";
 
     /// <summary>The document, checked the way the connector endpoints check a save, or null.</summary>
     private static ConnectorConfig? Read(string slug, JsonElement document, List<string> errors)
@@ -252,7 +327,8 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
         || secrets.ValueKind == JsonValueKind.Null
         || (secrets.ValueKind == JsonValueKind.Array && secrets.EnumerateArray().All(s => s.ValueKind == JsonValueKind.String));
 
-    private static ConfigChange? Plan(string slug, ConnectorConfig config, Connector? current, JsonElement document)
+    private static ConfigChange? Plan(
+        string slug, ConnectorConfig config, Connector? current, JsonElement document, List<string>? grants, bool showGrants)
     {
         if (current is null)
         {
@@ -266,7 +342,8 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
         var held = ConnectorConfig.Of(current).WithoutSecrets();
         var wanted = config.WithoutSecrets();
         var cleared = Cleared(config, current).ToList();
-        if (ConfigJson.Same(held, wanted) && cleared.Count == 0)
+        var grantsChanged = showGrants && !ConnectorGrants.SetOf(current.AllowedFields).SetEquals(grants ?? []);
+        if (ConfigJson.Same(held, wanted) && cleared.Count == 0 && !grantsChanged)
         {
             return null;
         }
@@ -280,6 +357,11 @@ internal sealed class ConnectorConfigProvider(IDocumentSession session, TenantCo
         if (!ConfigJson.Same(held with { BaseUrl = null }, wanted with { BaseUrl = null }))
         {
             details.Add("name, auth, settings, probe path, inbound or enabled change");
+        }
+
+        if (grantsChanged)
+        {
+            details.Add($"allowed fields change from [{ConnectorGrants.Line(current.AllowedFields)}] to [{ConnectorGrants.Line(grants)}]");
         }
 
         details.AddRange(cleared.Select(k => $"secret {k} is cleared and has to be set again"));

@@ -208,6 +208,63 @@ The workflow lists the names it wants kept in the step's `capture`, and a later 
 - A value that holds `{{createdBy.email}}` or `{{actions.0.token}}` is kept and passed on as that
   text. It is never run as a template.
 
+## Granting fields
+
+A Request composes only Public fields by default. `allowedFields` lets one connector send named
+fields that are Sensitive or Members, and no other connector gets them. Each entry is `Type.Field`,
+a top level field of a content type, compared ignoring case: `Invoice.AccountNumber`. At most 200
+entries. A grant is not a way round the Hidden level: a Hidden field cannot be granted, and neither
+can a field its owner can hide per entry (`shownWhenListedIn`). An entry whose own sensitivity is
+Hidden is never sent through a grant.
+
+- **Who may grant.** Saving `allowedFields` needs `manage_connectors`, and read rights on each
+  field the save adds, so nobody grants a field they could not read. Taking an entry out needs no
+  read right. `allowedFields` left out keeps the stored list, an empty list clears it, and an entry
+  already on the connector stays when it is sent again, without a read check. The apply of a
+  configuration file or a seed skips the read check only. Everything else above applies to it.
+- **Who sees it.** Only a `manage_connectors` holder sees `allowedFields`, in the list, a read, the
+  configuration export and every response. An export without it, applied back, keeps the stored
+  grant, and its plan does not call that a destructive change. A plan for any other caller never
+  reads the stored list, counts it toward the change status or checks an entry. A document that
+  sends `allowedFields` gets one fixed note that grants are planned only for callers who may
+  manage connectors.
+- **While a field change runs.** A save that adds an entry takes the content type's field change
+  lock, the one the block bindings take. It answers 409 while a field change is running on a type
+  an added entry names. This covers create, update and a configuration apply, not a plan.
+- **Moving `baseUrl` clears the grant.** A change of scheme, host or port, of the path (compared
+  as written, a trailing slash ignored) or of the query counts. A list sent in the same request as
+  the move is judged as all new entries. The move and the clear happen together or not at all. A
+  seed that skips the move as destructive keeps the grant too.
+- **Run time.** Every attempt reads each field's level again. A field that was revoked, raised to
+  Hidden, renamed, or whose type was deleted is refused on the next run, with the field named and
+  never its value. A grant naming a type or a field that no longer exists fails closed.
+- **Where a granted field may go.** In the path, headers and body of a Request, in a collection
+  sync, and in the rows of a `{{query.*}}` hole: a query's projection, filter and sort may name a
+  granted field, and a followed `Reference.Field` needs a grant on the referenced type. A
+  top level field is judged by its first segment, so `{{data.Product.Name}}` is judged as
+  `Product`. Expressions, loops and `row.*` holes are still refused in a Request, granted or not.
+  Email and SMS steps, webhooks and Publish are not changed by a grant.
+- **Dry run.** `POST /api/requests/{slug}/dry-run/{entryId}` masks a granted value with `***` in
+  the URL, the headers and the body when the caller may not read that field, one hole at a time.
+  Whether a query hole is masked is decided from the caller and the schema before any row is read:
+  it is masked when the query reads a granted field the caller does not read on every entry (a field
+  with a per-entry rule counts as not read), or follows a reference. A masked preview shows one row
+  with a key for each field the query projects and `***` for every value, does not run the query,
+  skips the "matched no rows" refusal, and adds a `note` saying the rows and whether the query
+  matches are not shown. The same request previews identically whether it would match nothing or
+  many entries. A caller who reads every field sees the real rows and the real refusal.
+- **Saving a workflow.** A saver who cannot read a granted field that one of the workflow's Request
+  templates names, or that a `{{query.*}}` row projects, filters, sorts on or follows, is refused,
+  and the field is named. A Request whose path is itself templated (`{{` in the slug) names no
+  connector until it runs, so each request in the tenant whose connector has grants is checked as
+  if the step named it, with the same checks. With no granted connector nothing changes. The read check runs when a workflow is
+  saved, so a later request edit or a later grant is the connector admin's call.
+- **Changing the type.** Removing or renaming a field, or deleting a content type, answers 409
+  naming the connector while a grant names it (see [field-changes.md](field-changes.md)).
+- **Audit.** The connector's create, update and delete rows hold the old and new lists as field
+  names, never values. The actor is the user for the API, and `config:<file name>` for a file or
+  seed apply.
+
 ## The delivery log
 
 Every send a workflow's `Request` action makes through a connector leaves one row, the way a
@@ -258,6 +315,12 @@ a webhook delivery.
 `requestHeaders` needs `view_webhook_response_bodies` too, and is `null` without it. A header an
 operator wrote under an ordinary name is stored with its value, and reading it where it is
 configured needs `manage_requests`, which this list does not ask for.
+
+**Granted fields.** A request header whose template holds a granted field that is not Public is
+stored as `[redacted]`, whatever its name. The URL is already cut to scheme, host and port, so a
+granted value in the path or query never reaches the row, and the request body is not stored. A
+response body is stored as returned: the connector's answer may quote what was sent, and it is
+readable by `view_webhook_response_bodies` holders as before.
 
 **Retention** is the webhook delivery sweep in [webhooks.md](webhooks.md): the rows are the same
 document, so `Webhooks:DeliveryLogRetentionDays` removes them and

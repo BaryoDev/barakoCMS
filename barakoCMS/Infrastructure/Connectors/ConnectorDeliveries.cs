@@ -378,8 +378,18 @@ internal static class ConnectorDeliveryRedaction
         var kept = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var plain = new List<(string Name, string Value)>();
 
+        // A header whose template read a granted field is stored redacted: the grant lets the value
+        // leave for the third party, not be copied into a row a delivery viewer reads.
+        var granted = new HashSet<string>(composed.RedactedHeaders, StringComparer.OrdinalIgnoreCase);
+
         foreach (var (name, raw) in request.Headers.NonValidated)
         {
+            if (granted.Contains(name))
+            {
+                kept[name] = Marker;
+                continue;
+            }
+
             var values = raw.ToList();
             var sent = string.Join(", ", values);
             var composedValues = written.GetValueOrDefault(name) ?? [];
@@ -414,7 +424,7 @@ internal static class ConnectorDeliveryRedaction
         {
             foreach (var (name, values) in request.Content.Headers)
             {
-                kept[name] = string.Join(", ", values);
+                kept[name] = granted.Contains(name) ? Marker : string.Join(", ", values);
             }
         }
 

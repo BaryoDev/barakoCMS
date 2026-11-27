@@ -258,6 +258,53 @@ public class ConnectorDeliveryRedactionTests
         body.Should().BeNull();
     }
 
+    [Fact]
+    public void A_header_that_holds_a_granted_value_is_stored_redacted_and_a_plain_one_beside_it_is_kept()
+    {
+        var composed = new ComposedRequest(
+            "POST", "https://api.example/things", new() { ["X-Ref"] = "123-45-6789", ["X-Trace"] = "trace-1" }, "{}", "application/json")
+        {
+            RedactedHeaders = ["X-Ref"],
+        };
+
+        using var request = Request(composed);
+        var headers = ConnectorDeliveryRedaction.Headers(request, composed, new HashSet<string>());
+
+        headers["X-Ref"].Should().Be(Marker);
+        headers["X-Trace"].Should().Be("trace-1");
+        headers.Values.Should().NotContain(v => v.Contains("123-45-6789"));
+    }
+
+    [Fact]
+    public void A_granted_header_is_redacted_whatever_the_case_of_its_name()
+    {
+        var composed = new ComposedRequest(
+            "POST", "https://api.example/things", new() { ["x-ref"] = "123-45-6789" }, "{}", "application/json")
+        {
+            RedactedHeaders = ["X-REF"],
+        };
+
+        using var request = Request(composed);
+        var headers = ConnectorDeliveryRedaction.Headers(request, composed, new HashSet<string>());
+
+        headers["x-ref"].Should().Be(Marker);
+    }
+
+    [Fact]
+    public void A_granted_value_in_the_path_or_query_never_reaches_the_stored_row_and_is_still_what_is_sent()
+    {
+        var composed = new ComposedRequest(
+            "GET", "https://api.example/people/123-45-6789/notes?ssn=123-45-6789", new(), null, null);
+        var connector = new Connector { Id = Guid.NewGuid(), Slug = "crm", BaseUrl = "https://api.example" };
+        var context = new ConnectorDeliveryContext("lookup", Guid.NewGuid(), Guid.NewGuid(), "ContentCreated", 1);
+
+        var row = new ConnectorDeliveryDraft(composed).ToRow(connector, context, new ConnectorCallResult(true, 200, 1, null));
+
+        row.Url.Should().Be("https://api.example");
+        row.Url.Should().NotContain("123-45-6789");
+        composed.Url.Should().Contain("123-45-6789", "the value actually sent is not changed");
+    }
+
     private static HttpRequestMessage Request(ComposedRequest composed)
     {
         var request = new HttpRequestMessage(new HttpMethod(composed.Method), composed.Url);

@@ -46,8 +46,10 @@ internal static class WorkflowSaveRights
             .Where(name => name.Length > 0 && !name.Contains("{{"))
             .Distinct(StringComparer.Ordinal)
             .ToList();
+        var requests = RequestSlugs(workflow);
         var missing = new List<string>();
-        if (needs.Count == 0 && capabilities.Count == 0 && queries.Count == 0 && templates.Count == 0) return missing;
+        if (needs.Count == 0 && capabilities.Count == 0 && queries.Count == 0 && templates.Count == 0 && requests.Count == 0 && !HasTemplatedRequest(workflow))
+            return missing;
 
         User? user = null;
         if (Guid.TryParse(principal.FindFirst("UserId")?.Value, out var id))
@@ -91,6 +93,137 @@ internal static class WorkflowSaveRights
         }
 
         missing.AddRange(await TemplateDatasetsMissingAsync(session, permissions, sensitivity, user, templates, ct));
+        missing.AddRange(await RequestGrantsMissingAsync(session, permissions, sensitivity, principal, user, workflow, requests, ct));
+        missing.AddRange(await TemplatedRequestMissingAsync(session, permissions, sensitivity, principal, user, workflow, missing, ct));
+        return missing;
+    }
+
+    /// <summary>Whether a Request step names its request by a template, which the engine resolves from entry data at run time.</summary>
+    private static bool HasTemplatedRequest(WorkflowDefinition workflow) =>
+        Flatten(workflow).Any(a => string.Equals(a.Type, "Request", StringComparison.OrdinalIgnoreCase)
+            && (a.Parameters.GetValueOrDefault("Request") ?? "").Contains("{{"));
+
+    /// <summary>
+    /// A templated slug can name any request of the tenant, so each request whose connector has
+    /// grants is checked as if the step named it: the same function, so the same checks in the
+    /// same order. A tenant with no granted connector asks for nothing, so a workflow written
+    /// before grants existed still saves. What a plain slug already reported is not said twice.
+    /// </summary>
+    private static async Task<List<string>> TemplatedRequestMissingAsync(
+        IDocumentSession session, IPermissionResolver permissions, barakoCMS.Core.Interfaces.ISensitivityService? sensitivity,
+        ClaimsPrincipal principal, User? user, WorkflowDefinition workflow, List<string> already, CancellationToken ct)
+    {
+        if (!HasTemplatedRequest(workflow)) return [];
+
+        var granted = (await session.Query<Connector>().ToListAsync(ct))
+            .Where(c => c.AllowedFields is { Count: > 0 })
+            .Select(c => c.Slug)
+            .ToHashSet(StringComparer.Ordinal);
+        if (granted.Count == 0) return [];
+
+        var slugs = (await session.Query<RequestDefinition>().ToListAsync(ct))
+            .Where(r => granted.Contains(r.ConnectorSlug))
+            .Select(r => r.Slug)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(slug => slug, StringComparer.Ordinal)
+            .ToList();
+        var found = await RequestGrantsMissingAsync(session, permissions, sensitivity, principal, user, workflow, slugs, ct);
+        return found.Where(m => !already.Contains(m)).ToList();
+    }
+
+    /// <summary>The requests a workflow's Request steps name, by plain slug.</summary>
+    private static List<string> RequestSlugs(WorkflowDefinition workflow) =>
+        Flatten(workflow)
+            .Where(a => string.Equals(a.Type, "Request", StringComparison.OrdinalIgnoreCase))
+            .Select(a => a.Parameters.GetValueOrDefault("Request")?.Trim() ?? "")
+            .Where(slug => slug.Length > 0 && !slug.Contains("{{"))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+    /// <summary>
+    /// A Request step sends what its connector was granted, as the system, so the saver is asked
+    /// then, as for a Query step: they must be able to read each granted field a template of the
+    /// request names, on each type the workflow triggers on. Without a way to ask, they cannot.
+    /// </summary>
+    private static async Task<List<string>> RequestGrantsMissingAsync(
+        IDocumentSession session, IPermissionResolver permissions, barakoCMS.Core.Interfaces.ISensitivityService? sensitivity,
+        ClaimsPrincipal principal, User? user, WorkflowDefinition workflow, List<string> requests, CancellationToken ct)
+    {
+        var missing = new List<string>();
+        var types = workflow.TriggerContentTypes.Append(workflow.TriggerContentType)
+            .Select(t => t?.Trim() ?? "").Where(t => t.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        foreach (var slug in requests)
+        {
+            var request = await session.Query<RequestDefinition>().FirstOrDefaultAsync(r => r.Slug == slug, ct);
+            var connector = request is null
+                ? null
+                : await session.Query<Connector>().FirstOrDefaultAsync(c => c.Slug == request.ConnectorSlug, ct);
+            if (request is null || connector?.AllowedFields is not { Count: > 0 }) continue;
+
+            var grants = barakoCMS.Infrastructure.Connectors.ConnectorGrants.SetOf(connector.AllowedFields);
+            var templates = request.HeaderTemplates.Values.Append(request.PathTemplate).Append(request.BodyTemplate).ToList();
+            missing.AddRange(await QueryRowsMissingAsync(session, permissions, sensitivity, user, request, connector, templates, ct));
+            foreach (var type in types)
+            {
+                var schema = await AccountContentTypes.ResolveAsync(session, type, ct);
+                if (schema is null) continue;
+
+                foreach (var name in templates.SelectMany(t => barakoCMS.Infrastructure.Connectors.ConnectorGrants.GrantedReads(t, schema, grants)).Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    var field = schema.Fields.First(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+                    if (sensitivity is null || !await sensitivity.MayReadFieldAsync(schema.Name, field, null, principal, ct))
+                    {
+                        missing.Add($"You cannot read '{schema.Name}.{field.Name}', which the connector '{connector.Slug}' is granted and the request '{slug}' sends, so you cannot save a workflow that runs it.");
+                    }
+                }
+            }
+        }
+
+        return missing;
+    }
+
+    /// <summary>
+    /// A request whose templates hold <c>{{query.*}}</c> holes sends the rows of its query, and with
+    /// grants those rows carry granted fields. The saver must be able to read all the query reads,
+    /// as for a Query step, including a followed reference field on the type it points at. A query
+    /// that cannot be found or judged refuses, since nothing says what it would send.
+    /// </summary>
+    private static async Task<List<string>> QueryRowsMissingAsync(
+        IDocumentSession session, IPermissionResolver permissions, barakoCMS.Core.Interfaces.ISensitivityService? sensitivity,
+        User? user, RequestDefinition request, Connector connector, List<string?> templates, CancellationToken ct)
+    {
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(request.QuerySlug)
+            || !templates.Any(t => t is not null && t.Contains("query.", StringComparison.OrdinalIgnoreCase)))
+        {
+            return missing;
+        }
+
+        var slug = request.QuerySlug.Trim();
+        var saved = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug && q.DeletedAt == null, ct);
+        string? refusal;
+        if (saved is null)
+        {
+            refusal = "That query could not be found.";
+        }
+        else if (user is null)
+        {
+            refusal = "Who is saving this could not be found.";
+        }
+        else
+        {
+            var runner = new barakoCMS.Infrastructure.Connectors.QueryRunner(session, permissions, sensitivity);
+            refusal = await ((barakoCMS.Infrastructure.Connectors.IContextQueryRunner)runner).ValidateAsync(
+                saved, new barakoCMS.Infrastructure.Connectors.QueryRunContext(null) { AsActor = true, Actor = user.Id }, ct);
+        }
+
+        if (refusal is not null)
+        {
+            missing.Add($"You cannot read everything the saved query '{slug}' reads, which the request '{request.Slug}' sends "
+                        + $"through the connector '{connector.Slug}', so you cannot save a workflow that runs it. {refusal}");
+        }
+
         return missing;
     }
 

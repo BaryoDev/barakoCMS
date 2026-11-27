@@ -13,7 +13,8 @@ internal static class RequestKit
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     public static async Task<Subject> SeedAsync(
-        IntegrationTestFixture fixture, IEnumerable<FieldDefinition> fields, Dictionary<string, object> data)
+        IntegrationTestFixture fixture, IEnumerable<FieldDefinition> fields, Dictionary<string, object> data,
+        IEnumerable<string>? allowedFields = null, SensitivityLevel entryLevel = SensitivityLevel.Public)
     {
         var type = "rk" + Guid.NewGuid().ToString("n")[..10];
         var connectorSlug = "rkc" + Guid.NewGuid().ToString("n")[..10];
@@ -30,11 +31,26 @@ internal static class RequestKit
             Slug = connectorSlug,
             BaseUrl = "https://egress.example",
             Auth = ConnectorAuth.None,
+            AllowedFields = allowedFields?.ToList(),
         });
-        session.Store(new Content { Id = entryId, ContentType = type, Status = ContentStatus.Published, Data = data });
+        session.Store(new Content
+        {
+            Id = entryId, ContentType = type, Status = ContentStatus.Published, Data = data, Sensitivity = entryLevel,
+        });
 
         await session.SaveChangesAsync(Ct);
         return new Subject(type, entryId, connectorSlug);
+    }
+
+    /// <summary>Replaces what the connector is granted, as a save would have left it.</summary>
+    public static async Task SetGrantsAsync(IntegrationTestFixture fixture, Subject subject, IEnumerable<string>? allowedFields)
+    {
+        using var scope = fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var connector = await session.Query<Connector>().FirstAsync(c => c.Slug == subject.ConnectorSlug, Ct);
+        connector.AllowedFields = allowedFields?.ToList();
+        session.Store(connector);
+        await session.SaveChangesAsync(Ct);
     }
 
     public static RequestDefinition Definition(Subject subject, string? body, string path = "/in") => new()
