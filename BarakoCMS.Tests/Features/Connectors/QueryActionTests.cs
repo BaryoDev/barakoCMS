@@ -126,8 +126,8 @@ public class QueryActionTests(IntegrationTestFixture factory)
         var flow = new QueryFlow(factory);
         await flow.SeedTypesAsync(null, flow.Student("S-1", "one@example.com", "One"));
         await flow.SaveQueryAsync();
-        // Reads Name and nothing else: the query selects Email.
-        var enrollment = await flow.EnrollAsync("S-1", await ActorAsync(flow, ["Name"]));
+        // Reads the filter field and Name, not Email, which the query selects.
+        var enrollment = await flow.EnrollAsync("S-1", await ActorAsync(flow, ["Name", "Number"]));
 
         var run = await flow.RunAsync(enrollment, flow.QueryStep("Email", "Name"), QueryFlow.Then());
 
