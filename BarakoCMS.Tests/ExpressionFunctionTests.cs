@@ -148,7 +148,7 @@ public class ExpressionFunctionTests
         var entry = new Dictionary<string, object> { ["Sum"] = 0.1d + 0.2d };
 
         ComputedFields.Compute(ConcatField("Sum"), entry).Should().Be("0.30000000000000004");
-        ConcatOfExpression("concat(Sum)", entry).Should().Be("0.3");
+        ConcatOfExpression("concat(Sum, \"\")", entry).Should().Be("0.3", "concat takes two parts at least, and an empty one adds nothing");
     }
 
     [Theory]
