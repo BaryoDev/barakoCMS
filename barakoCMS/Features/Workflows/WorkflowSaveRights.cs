@@ -62,9 +62,10 @@ internal static class WorkflowSaveRights
                 missing.Add(label);
         }
 
-        // A Query step reads as the user behind the event, not as whoever saved it, so what it may
-        // name is judged for the saver here: a workflow cannot be used to put a field the author
-        // may not read into a message. A query that does not exist yet is checked when it runs.
+        // A Query step reads as the user behind the event, not as whoever saved it. This check holds
+        // only at save: it judges the saver, so an author cannot name a field they may not read. It
+        // does not bind later runs, which check again as the event's actor, and a query saved or
+        // changed after the workflow is checked only then.
         if (queries.Count > 0)
         {
             var runner = new barakoCMS.Infrastructure.Connectors.QueryRunner(session, permissions, sensitivity);

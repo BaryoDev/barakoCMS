@@ -27,8 +27,9 @@ namespace barakoCMS.Features.Workflows.Actions;
 /// nobody behind the event only Public fields are read. A field the user may not read fails the step
 /// with a message, and is never dropped.
 ///
-/// The attempt records how many rows matched and the ids of the entries, never a value. Values are
-/// kept only as an output the workflow captured, which is how every output is kept.
+/// The attempt records how many rows the query returned, never a value and no entry id. Values,
+/// and an id if the query selects <c>id</c>, are kept only as an output the workflow captured,
+/// which is how every output is kept.
 /// </remarks>
 [barakoCMS.Infrastructure.Attributes.WorkflowActionMetadata(
     Description = "Read entries with a saved query and pass the first row's fields to later steps",
@@ -106,8 +107,10 @@ internal sealed class QueryAction(
 
         if (!result.Ok)
         {
-            // A refusal is the same answer when asked again, so it is not retried.
-            return WorkflowActionResult.PermanentFailure($"Query '{slug}': {result.Refusal}");
+            // A refusal is the same answer when asked again, so it is not retried. A run that took too
+            // long may not be, so that one is.
+            var refused = $"Query '{slug}': {result.Refusal}";
+            return result.TimedOut ? WorkflowActionResult.Failure(refused) : WorkflowActionResult.PermanentFailure(refused);
         }
 
         var names = new List<string>();
