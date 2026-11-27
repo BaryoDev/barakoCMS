@@ -55,6 +55,11 @@ internal sealed class Endpoint(
             return;
         }
 
+        if (req.NewName is not null || req.Remove)
+        {
+            await RefuseWhileGrantedAsync(definition, field, ct);
+        }
+
         if (req.NewName is not null || req.Remove || req.ToType is not null)
         {
             RefuseUnlessPublic(field);
@@ -262,6 +267,22 @@ internal sealed class Endpoint(
         await AuditAsync(definition, field.Name, classification, change, ct);
         await session.SaveChangesAsync(ct);
         await Send.ResponseAsync(new Response { Classification = classification, Change = FieldChangeResponse.From(change) }, 202, ct);
+    }
+
+    /// <summary>Refuses, with 409, removing or renaming a field a connector is granted.</summary>
+    /// <remarks>
+    /// Under the type's field-change lock, so a grant saved while this request runs is either found
+    /// here or refused where it is saved. A grant left naming a field that is gone fails closed, but
+    /// it is better to say so now than to leave a connector that no longer sends what it was set up to.
+    /// </remarks>
+    private async Task RefuseWhileGrantedAsync(ContentTypeDefinition definition, FieldDefinition field, CancellationToken ct)
+    {
+        await FieldChanges.LockTypeAsync(session, definition.Name, ct);
+        if (await barakoCMS.Infrastructure.Connectors.ConnectorGrants.NamingAsync(session, definition.Name, field.Name, ct) is { Count: > 0 } connectors)
+        {
+            AddError(barakoCMS.Infrastructure.Connectors.ConnectorGrants.Refusal($"'{definition.Name}.{field.Name}'", connectors));
+            ThrowIfAnyErrors(StatusCodes.Status409Conflict);
+        }
     }
 
     /// <summary>Refuses, with 409, removing a field a block binding sorts or filters on.</summary>

@@ -181,8 +181,8 @@ internal sealed class ContentTypeConfigProvider(
     }
 
     /// <summary>
-    /// The refusal the field change route gives for removing a field a block binding names, for each
-    /// stored field <paramref name="type"/> leaves out that one does.
+    /// The refusal the field change route gives for removing a field a block binding names or a
+    /// connector is granted, for each stored field <paramref name="type"/> leaves out that one does.
     /// </summary>
     private async Task<List<string>> RemovedFieldsBindingsNameAsync(
         ContentTypeDefinition stored, ContentTypeDefinition type, CancellationToken ct)
@@ -190,6 +190,12 @@ internal sealed class ContentTypeConfigProvider(
         var conflicts = new List<string>();
         foreach (var removed in stored.Fields.Where(f => !type.Fields.Any(t => t.Name.Equals(f.Name, StringComparison.OrdinalIgnoreCase))))
         {
+            var granted = await barakoCMS.Infrastructure.Connectors.ConnectorGrants.NamingAsync(session, stored.Name, removed.Name, ct);
+            if (granted.Count > 0)
+            {
+                conflicts.Add($"'{stored.Name}': {barakoCMS.Infrastructure.Connectors.ConnectorGrants.Refusal($"'{stored.Name}.{removed.Name}'", granted)}");
+            }
+
             var bindings = await barakoCMS.Features.Blocks.Bindings.BindingFields.NamingAsync(session, stored.Name, removed.Name, ct);
             if (bindings.Count > 0)
             {
