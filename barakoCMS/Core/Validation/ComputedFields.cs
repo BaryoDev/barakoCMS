@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using barakoCMS.Core.Expressions;
 using barakoCMS.Models;
 
 namespace barakoCMS.Core.Validation;
@@ -382,9 +383,9 @@ internal static class ComputedFields
             var span = to - from;
             var amount = fn switch
             {
-                "hours" => (decimal)span.TotalHours,
-                "days" => (decimal)span.TotalDays,
-                _ => (decimal)span.TotalMinutes,
+                "hours" => DateMath.Hours(span),
+                "days" => DateMath.Days(span),
+                _ => DateMath.Minutes(span),
             };
             return Shape(field, amount);
         }
