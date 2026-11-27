@@ -488,9 +488,9 @@ public class ComputedExpressionWriterTests
                     return;
                 }
             }
-            catch (Exception e) when (TestHelpers.LostConcurrencyCheck(e))
+            catch (Exception e) when (TestHelpers.LostConcurrencyCheck(e) || e is Marten.Exceptions.ExistingStreamIdCollisionException)
             {
-                // The queued job committed the same batch first; the next run reads its progress.
+                // The queued job committed the same batch first (or started the same entry's stream); the next run reads its progress.
             }
         }
 
