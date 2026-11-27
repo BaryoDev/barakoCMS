@@ -426,8 +426,14 @@ internal class UpdateFieldAction : IWorkflowAction
                 // and write the document plainly, the same shape of write this action always made
                 // for this content before #571. The marker staged above still commits with it in
                 // the same SaveChangesAsync below.
+                //
+                // The writer is also what puts the server's tokens, number and computed values into
+                // an update, so the same issuer does it here, or this entry would keep a computed
+                // value that no longer matches the field just set.
+                var owned = new barakoCMS.Infrastructure.Services.ContentTokenIssuer(_session, _logger);
                 foreach (var @event in events)
                 {
+                    await owned.KeepAsync(targetContent, @event, ct);
                     barakoCMS.Infrastructure.Services.ContentProjection.Apply(targetContent, @event, DateTime.UtcNow);
                 }
 
