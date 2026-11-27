@@ -16,8 +16,9 @@ name: Release (master)
 #   gate -> test -> verify-packages -> build images
 #        (beside them: release-assets, the production bundle and the OpenAPI document)
 #        -> deploy-playground (and prove it is running THIS commit)
-#        -> approval on the `nuget` environment
-#        -> publish-packages, publish-images
+#        -> publish-images (needs the playground and release-assets; no approval)
+#        -> approval on the `nuget` environment (also needs release-assets)
+#        -> publish-packages
 #        -> tag v<version> and write the GitHub Release
 #
 # Publishing used to come before the deploy, which put the one step that cannot be
@@ -625,8 +626,9 @@ jobs:
     name: Publish public images
     # Also behind the playground now. An image tag is mutable, so this is not the irreversible step,
     # but publishing :latest for a build nobody has run is still how a bad version reaches whoever
-    # pulls next.
-    needs: [gate, build-images, deploy-playground]
+    # pulls next. It waits for release-assets too, so a bundle or an OpenAPI document that fails its
+    # checks stops the version tags and :latest from moving.
+    needs: [gate, build-images, deploy-playground, release-assets]
     # Signed as release.yml@refs/heads/master and verified as that, so a run from another branch
     # must not publish.
     if: needs.gate.outputs.should_release == 'true' && github.ref == 'refs/heads/master'
@@ -928,9 +930,9 @@ jobs:
         run: bash scripts/check-deployed-build.sh https://playground.baryo.dev/barakocms-api "$EXPECTED_SHA"
 
   # The production bundle (#1436) and the OpenAPI document (#1438) the release attaches. Built here,
-  # before the approval, so a bundle that is missing a file or an API that differs from the reviewed
-  # baseline stops the release while nothing irreversible has happened. tag-release only attaches
-  # what this job made. It holds contents: read and nothing else, because it runs a build and starts
+  # before anything is published: publish-images and publish-packages both wait for it, so a bundle
+  # that is missing a file or an API that differs from the baseline stops the release before an
+  # image tag moves or a package reaches NuGet. tag-release only attaches what this job made. It holds contents: read and nothing else, because it runs a build and starts
   # the Suite; the job that can write to the release never runs either.
   #
   # The scripts are the same ones CI runs on a pull request (scripts/prod-bundle-check.sh and the

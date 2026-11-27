@@ -877,7 +877,9 @@ against an empty database with Swagger on, so the file covers core plus the modu
 carries: Import, Files, Files.S3, Email.Smtp, ExternalAuth, FeatureFlags, Portability, AI, Diagnostics
 and Pages. It has no per-type delivery paths because the database it was taken from has no content
 types. The job fails when the file differs from `openapi/baseline.json`, when it is empty, or when it
-has no paths. `scripts/openapi-fetch.sh` writes it, and the same script refreshes the baseline.
+has no paths. `scripts/openapi-fetch.sh` writes it, and the same script refreshes the baseline. CI makes
+the same byte comparison on every pull request, so a change that adds an endpoint refreshes
+`openapi/baseline.json` in the same pull request.
 
 ## Stability and deprecation
 

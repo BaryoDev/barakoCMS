@@ -6,10 +6,11 @@
 #
 # Fails when the document is missing or empty, is not a JSON object, has no paths, or has no
 # /api/public/{type}, the path every instance serves for public delivery. With a baseline, it also
-# fails when the document is not byte for byte the baseline. The release job passes
-# openapi/baseline.json, so a release cannot ship an API nobody reviewed. CI on a pull request
-# passes no baseline: a pull request may add an endpoint and refresh the baseline later, and
-# scripts/openapi-contract-check.sh is what judges that.
+# fails when the document is not byte for byte the baseline. The release job and the openapi job
+# in ci.yml both pass openapi/baseline.json, so a pull request that changes the served API has to
+# refresh the baseline in the same change, and a release cannot ship an API nobody reviewed.
+# scripts/openapi-contract-check.sh is what judges whether a change breaks a consumer; this is the
+# check that the baseline is current.
 #
 # The document is the one scripts/openapi-fetch.sh writes, which is already normalised (sorted keys,
 # no "servers"), so a byte comparison is a fair one.
@@ -44,7 +45,7 @@ if [ -n "$BASELINE" ]; then
   [ -s "$BASELINE" ] || fail "the baseline $BASELINE is missing or empty"
   if ! cmp -s "$DOC" "$BASELINE"; then
     diff -u "$BASELINE" "$DOC" | head -60 >&2 || true
-    fail "the served document differs from $BASELINE. Write the baseline with scripts/openapi-fetch.sh, review the diff and commit it before releasing"
+    fail "the served document differs from $BASELINE. Refresh the baseline with: bash scripts/openapi-fetch.sh $BASELINE   then review the diff and commit it in the same pull request"
   fi
   echo "openapi-release-check: identical to $BASELINE" >&2
 fi

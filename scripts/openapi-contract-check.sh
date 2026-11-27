@@ -8,8 +8,9 @@
 #   3. The gate is shown to fail on a rename planted in that document.
 #   4. With a base ref: if this change edits the baseline, the edit is printed for the reviewer,
 #      and an edit that is itself breaking must move a contract version in the same diff.
-#   5. The served document is diffed against the baseline. A break fails. An addition passes, and
-#      is listed so the baseline can be refreshed in a reviewed commit.
+#   5. The served document is diffed against the baseline. A break fails. An addition passes this
+#      gate and is listed. The openapi job in ci.yml then runs scripts/openapi-release-check.sh with
+#      the baseline, which fails until the baseline is refreshed in the same change.
 #
 # The baseline is never written here. Accepting a change is running
 #   bash scripts/openapi-fetch.sh openapi/baseline.json
@@ -91,7 +92,7 @@ fi
 
 oasdiff changelog "$BASELINE" "$CURRENT" > "$OUT_DIR/additions.txt" 2>&1 || true
 if grep -qE '^[0-9]+ changes?:' "$OUT_DIR/additions.txt"; then
-    echo "::notice::The API has additions the baseline does not list yet. Refresh it with scripts/openapi-fetch.sh $BASELINE in a reviewed commit."
+    echo "::notice::The API has additions the baseline does not list yet. Refresh it with scripts/openapi-fetch.sh $BASELINE in the same pull request."
     {
         echo "## OpenAPI contract: additions not yet in the baseline"
         echo '```'

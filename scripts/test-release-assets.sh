@@ -42,6 +42,11 @@ echo '{"paths":{"/api/schemas":{}}}' > "$WORK/nopublic.json"
 refuses bash scripts/openapi-release-check.sh "$WORK/nopublic.json"; check "a document without /api/public/{type} fails" $?
 printf '{"openapi":"3.0.0","paths":{"/api/public/{type}":{},"/api/schemas":{},"/api/new":{}}}\n' > "$WORK/changed.json"
 refuses bash scripts/openapi-release-check.sh "$WORK/changed.json" "$GOOD"; check "a document that differs from the baseline fails" $?
+# An addition the baseline does not list is the case a pull request produces. It must fail, and the
+# message must name the command that refreshes the baseline.
+msg="$(bash scripts/openapi-release-check.sh "$WORK/changed.json" "$GOOD" 2>&1 || true)"
+printf '%s' "$msg" | grep -qF 'bash scripts/openapi-fetch.sh'; check "an addition missing from the baseline fails, naming the refresh command" $?
+printf '%s' "$msg" | grep -qF '/api/new'; check "the failure shows the added path" $?
 
 echo "Production bundle"
 SRC="$WORK/src"
