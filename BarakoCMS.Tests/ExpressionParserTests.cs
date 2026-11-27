@@ -157,7 +157,7 @@ public class ExpressionParserTests
         }, false);
 
         parsed.IsValid.Should().BeTrue(string.Join("; ", parsed.Errors));
-        asked.Should().OnlyContain(f => f == "id" || f == "status" || f == "createdAt", "the resolver is asked about a system name only to catch a field that shares it");
+        asked.Distinct().Should().BeEquivalentTo(new[] { "id", "status", "createdAt" }, "the resolver is asked about a system name only to catch a field that shares it");
         parsed.Expression!.Fields.Should().BeEmpty("system names are not fields of the type");
 
         var values = new Dictionary<string, object?> { ["id"] = "abc", ["status"] = "open", ["createdAt"] = new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero) };
@@ -341,6 +341,7 @@ public class ExpressionParserTests
         Run(string.Join(" and ", Enumerable.Repeat("true", 200))).Value.Should().Be(true);
         Run("false" + string.Concat(Enumerable.Repeat(" or false", 199)) + " or true").Value.Should().Be(true);
 
+        Check(Chain(499, " + ")).IsValid.Should().BeTrue("499 operands and the chain make 500 nodes");
         Refused(Chain(500, " + ")).Rule.Should().Be(R.NodeLimit, "the chain is bounded by the node limit");
     }
 
@@ -354,6 +355,22 @@ public class ExpressionParserTests
         var broken = Run("1 + 2 + 1 / 0 + 4");
         broken.Value.Should().BeNull();
         broken.Note!.Rule.Should().Be(R.DivisionByZero);
+
+        broken.Note!.Position.Should().Be(10, "the note names the operator that failed");
+        Run("1 + 2 / 0").Note!.Position.Should().Be(6);
+
+        const string Max = "79228162514264337593543950335";
+        var overflowed = Run($"1 + 2 + {Max} + 1 / 0 - 5");
+        overflowed.Value.Should().BeNull();
+        overflowed.Note!.Rule.Should().Be(R.Overflow, "the first failure in the chain is the one reported");
+        overflowed.Note.Position.Should().Be(6);
+
+        var shortAnd = Run("true and false and 1 / 0 = 1");
+        shortAnd.Value.Should().Be(false);
+        shortAnd.Note.Should().BeNull("the operands after a decisive one are not evaluated");
+        var shortOr = Run("false or true or 1 / 0 = 1");
+        shortOr.Value.Should().Be(true);
+        shortOr.Note.Should().BeNull();
 
         Refused("1 + 2 + \"a\" + 4").Position.Should().Be(6, "the error names the operator whose right side is wrong");
         Run("null or true or false").Value.Should().Be(true);
