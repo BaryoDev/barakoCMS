@@ -377,7 +377,8 @@ public class ComputedExpressionSchemaTests
         stored.Uniqueness = Unique("OneTotal", "Total");
         var incoming = TypeOf(Fields(new ComputedDefinition { Expression = "Qty * Cost" }));
 
-        var errors = ContentTypeUpsert.DefinitionErrors(Validator, incoming, stored, 100);
+        // Config apply and bundle import both reach this through ContentTypeUpsert.ErrorsAsync.
+        var errors = ContentTypeUpsert.UniquenessChanges(incoming, stored, ContentTypeUpsert.Wording.Config).ToList();
 
         errors.Should().ContainSingle(e => e.Contains("'OneTotal'") && e.Contains("'Total'") && e.Contains("formula"));
     }

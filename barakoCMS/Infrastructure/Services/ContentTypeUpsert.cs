@@ -457,7 +457,7 @@ public static class ContentTypeUpsert
     /// rules keeps the stored ones. A field a stored rule compares and the definition leaves out
     /// would switch the rule off with nothing said.
     /// </remarks>
-    private static IEnumerable<string> UniquenessChanges(
+    internal static IEnumerable<string> UniquenessChanges(
         ContentTypeDefinition type, ContentTypeDefinition stored, Wording wording)
     {
         var route = $"PUT /api/content-types/{stored.Name}/uniqueness";
