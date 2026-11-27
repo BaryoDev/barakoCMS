@@ -259,6 +259,14 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             {
                 AddError(new ValidationFailure($"contentTypes[{i}]", $"Content type '{Shorten(type.Name)}': {error}"));
             }
+
+            var pending = bundleTypes.Where(t => !string.IsNullOrWhiteSpace(t.Name)).ToList();
+            foreach (var error in await ContentTypeUpsert.RollupErrorsAsync(
+                         _session, type, match, pending, User, Resolve<barakoCMS.Core.Interfaces.ISensitivityService>(),
+                         Resolve<barakoCMS.Infrastructure.Services.IPermissionResolver>(), ct))
+            {
+                AddError(new ValidationFailure($"contentTypes[{i}]", $"Content type '{Shorten(type.Name)}': {error}"));
+            }
         }
 
         // Records are checked against the types as this bundle leaves them, so there is no point

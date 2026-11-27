@@ -324,7 +324,7 @@ internal static class ComputedFields
     /// more of its value than the input does would hand that caller a part of what the input hides.
     /// Public and Members fields are never masked.
     /// </remarks>
-    private static IEnumerable<string> ReadAudienceErrors(FieldDefinition field, FieldDefinition input)
+    internal static IEnumerable<string> ReadAudienceErrors(FieldDefinition field, FieldDefinition input)
     {
         if (RoleListError(field, input) is { } roleError)
             yield return roleError;

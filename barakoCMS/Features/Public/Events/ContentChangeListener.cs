@@ -361,6 +361,7 @@ internal sealed class ContentChangeListener(
         FileFollowsEntry = f.FileFollowsEntry,
         TokenLength = f.TokenLength,
         Computed = f.Computed,
+        Rollup = f.Rollup,
         IsRequired = f.IsRequired,
         DefaultValue = f.DefaultValue,
         ValidationRules = f.ValidationRules,

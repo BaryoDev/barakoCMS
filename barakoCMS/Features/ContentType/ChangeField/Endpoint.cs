@@ -122,6 +122,9 @@ internal sealed class Endpoint(
     private async Task RenameAsync(ContentTypeDefinition definition, FieldDefinition field, string newName, bool dryRun, CancellationToken ct)
     {
         await RefuseWhileHeaderNamesAsync(definition, field, ct);
+        var renamedField = barakoCMS.Features.Public.Events.ContentChangeListener.WithSensitivity(field, field.Sensitivity);
+        renamedField.Name = newName;
+        await RefuseWhileRolledUpAsync(definition, field, renamedField, ct);
         if (string.Equals(newName, field.Name, StringComparison.OrdinalIgnoreCase))
         {
             AddError($"'{newName}' differs from '{field.Name}' only in case, and fields are matched ignoring case.");
@@ -233,6 +236,8 @@ internal sealed class Endpoint(
             ConvertErrors(definition, field, change);
         }
 
+        await RefuseWhileRolledUpAsync(definition, field, req.Remove ? null : Retyped(field, change), ct);
+
         change.ValuesLost = await ChangeFieldValues.LostAsync(session, definition, change, ct);
         var destructive = change.Kind == FieldChangeKind.Remove || change.ValuesLost > 0;
         if (destructive && !req.AllowDestructive)
@@ -267,6 +272,31 @@ internal sealed class Endpoint(
         await AuditAsync(definition, field.Name, classification, change, ct);
         await session.SaveChangesAsync(ct);
         await Send.ResponseAsync(new Response { Classification = classification, Change = FieldChangeResponse.From(change) }, 202, ct);
+    }
+
+    private static FieldDefinition Retyped(FieldDefinition field, FieldChange change)
+    {
+        var copy = barakoCMS.Features.Public.Events.ContentChangeListener.WithSensitivity(field, field.Sensitivity);
+        barakoCMS.Core.Validation.FieldConversion.Retype(copy, change);
+        return copy;
+    }
+
+    /// <summary>Refuses, with 409, a change to a field that a rollup over this type reads or reaches its entries through.</summary>
+    /// <param name="replacement">The field as it would be, or null when it is removed.</param>
+    private async Task RefuseWhileRolledUpAsync(
+        ContentTypeDefinition definition, FieldDefinition field, FieldDefinition? replacement, CancellationToken ct)
+    {
+        var fields = definition.Fields
+            .Select(f => f == field ? replacement : f)
+            .OfType<FieldDefinition>()
+            .ToList();
+        var proposed = new ContentTypeDefinition { Name = definition.Name, Fields = fields, Lines = definition.Lines };
+        foreach (var error in await barakoCMS.Core.Validation.RollupFields.BreaksAsync(session, definition.Name, proposed, ct))
+        {
+            AddError(error);
+        }
+
+        ThrowIfAnyErrors(StatusCodes.Status409Conflict);
     }
 
     /// <summary>Refuses, with 409, removing or renaming a field a connector is granted.</summary>
@@ -306,6 +336,10 @@ internal sealed class Endpoint(
         if (!barakoCMS.Core.Validation.FieldConversion.Targets.Contains(change.ToType!))
         {
             AddError($"A field converts to one of {string.Join(", ", barakoCMS.Core.Validation.FieldConversion.Targets)}.");
+        }
+        else if (field.Rollup is not null)
+        {
+            AddError($"'{field.Name}' is a rollup the server sets, so it does not convert. Remove it and add it again as the type you want.");
         }
         else if (!barakoCMS.Core.Validation.FieldConversion.Sources.Contains(field.Type.ToLowerInvariant()) || field.Multiple)
         {

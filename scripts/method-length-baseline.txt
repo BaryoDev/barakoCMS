@@ -38,13 +38,13 @@
 81 barakoCMS/Features/Content/Schedule/Endpoint.cs::Endpoint.HandleAsync
 232 barakoCMS/Features/Content/Update/Endpoint.cs::Endpoint.HandleAsync
 97 barakoCMS/Features/ContentType/AddField/Endpoint.cs::Endpoint.HandleAsync
-97 barakoCMS/Features/ContentType/Blueprints/Apply/Endpoint.cs::Endpoint.HandleAsync
+96 barakoCMS/Features/ContentType/Blueprints/Apply/Endpoint.cs::Endpoint.HandleAsync
 74 barakoCMS/Features/ContentType/Blueprints/BlueprintCatalog.cs::BlueprintCatalog.ValidateTypes
 183 barakoCMS/Features/ContentType/Create/Endpoint.cs::Endpoint.HandleAsync
-128 barakoCMS/Features/ContentType/SetFieldCurrency/Endpoint.cs::Endpoint.HandleAsync
+123 barakoCMS/Features/ContentType/SetFieldCurrency/Endpoint.cs::Endpoint.HandleAsync
 102 barakoCMS/Features/ContentType/SetFieldOptions/Endpoint.cs::Endpoint.HandleAsync
 94 barakoCMS/Features/ContentType/SetFieldPresentation/Endpoint.cs::Endpoint.HandleAsync
-157 barakoCMS/Features/ContentType/SetFieldSensitivity/Endpoint.cs::Endpoint.HandleAsync
+156 barakoCMS/Features/ContentType/SetFieldSensitivity/Endpoint.cs::Endpoint.HandleAsync
 71 barakoCMS/Features/ContentType/SetPublicDelivery/Endpoint.cs::Endpoint.HandleAsync
 86 barakoCMS/Features/ContentType/SetUniqueness/Endpoint.cs::Endpoint.HandleAsync
 83 barakoCMS/Features/EmailTemplates/EmailTemplateRenderer.cs::EmailTemplateRenderer.RenderAsync

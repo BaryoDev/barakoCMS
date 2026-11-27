@@ -139,6 +139,26 @@ public static class ContentTypeUpsert
         return errors;
     }
 
+    /// <summary>
+    /// What writing <paramref name="type"/> would break in rollups, and what is wrong with its own
+    /// rollups that another type decides. <paramref name="pending"/> is every type written in the
+    /// same set, which count as stored. A null <paramref name="principal"/> is the system.
+    /// </summary>
+    public static async Task<List<string>> RollupErrorsAsync(
+        IDocumentSession session, ContentTypeDefinition type, ContentTypeDefinition? stored,
+        IReadOnlyCollection<ContentTypeDefinition> pending, System.Security.Claims.ClaimsPrincipal? principal,
+        ISensitivityService sensitivity, IPermissionResolver permissions, CancellationToken ct)
+    {
+        var caller = principal is null ? null : new barakoCMS.Core.Validation.RollupCaller(principal, sensitivity, permissions);
+        var errors = await barakoCMS.Core.Validation.RollupFields.DefinitionErrorsAsync(session, type, pending, caller, ct);
+        if (stored is not null)
+        {
+            errors.AddRange(await barakoCMS.Core.Validation.RollupFields.BreaksAsync(session, stored.Name, type, ct, pending));
+        }
+
+        return errors;
+    }
+
     /// <summary>The stored type with <paramref name="type"/> written over it, the way an upsert stores it.</summary>
     public static void MergeInto(ContentTypeDefinition stored, ContentTypeDefinition type)
     {
@@ -595,6 +615,8 @@ public static class ContentTypeUpsert
     private static bool TakesPartInComputation(ContentTypeDefinition type, FieldDefinition field, FieldDefinition held) =>
         field.Computed is not null
         || held.Computed is not null
+        || field.Rollup is not null
+        || held.Rollup is not null
         || type.Fields.Any(f => barakoCMS.Core.Validation.ComputedFields.Reads(f.Computed, field.Name));
 
     /// <summary>
@@ -605,7 +627,7 @@ public static class ContentTypeUpsert
     private static bool SameAudience(FieldDefinition field, FieldDefinition held)
     {
         string Key(FieldDefinition f) => System.Text.Json.JsonSerializer.Serialize(
-            new object?[] { f.Sensitivity, f.VisibleToRoles ?? [], f.Mask, f.Computed });
+            new object?[] { f.Sensitivity, f.VisibleToRoles ?? [], f.Mask, f.Computed, f.Rollup });
 
         return Key(field) == Key(held);
     }

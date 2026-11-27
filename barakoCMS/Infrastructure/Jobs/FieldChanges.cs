@@ -174,6 +174,24 @@ internal static class FieldChanges
             await LockTypeSharedAsync(session, type, ct);
     }
 
+    /// <summary>
+    /// Takes the exclusive lock on <paramref name="own"/> and the shared lock on each of the others,
+    /// all in lowest lowered name first order, so two saves that point at each other cannot wait on
+    /// one another's second lock.
+    /// </summary>
+    public static async Task LockTypesAsync(IDocumentSession session, string own, IEnumerable<string> others, CancellationToken ct)
+    {
+        var ownKey = own.ToLower();
+        var names = others.Select(t => t.ToLower()).Append(ownKey).Distinct().Order(StringComparer.Ordinal);
+        foreach (var name in names)
+        {
+            if (name == ownKey)
+                await LockTypeAsync(session, name, ct);
+            else
+                await LockTypeSharedAsync(session, name, ct);
+        }
+    }
+
     /// <summary>Whether a change is small enough for the request that asked for it to run.</summary>
     public static bool RunsInline(FieldChange change) => change.Total <= BatchSize;
 

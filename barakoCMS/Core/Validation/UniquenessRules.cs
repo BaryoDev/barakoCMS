@@ -201,6 +201,12 @@ internal static class UniquenessRules
                 + "A rule cannot compare a formula field, because a recompute would refuse the second entry that works out the same value.";
         }
 
+        if (field.Rollup is not null)
+        {
+            return $"Uniqueness rule '{label}' names the field '{field.Name}', which is a rollup the server sets. "
+                + "A rollup follows the entries it summarises, so two entries can come to hold the same value after both were saved.";
+        }
+
         if (!IsComparable(field.Type) || field.Multiple)
         {
             return $"Uniqueness rule '{label}' names the field '{field.Name}', and a rule compares a field "

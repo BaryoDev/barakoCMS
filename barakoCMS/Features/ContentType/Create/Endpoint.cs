@@ -90,7 +90,9 @@ internal class Endpoint(
     barakoCMS.Infrastructure.Services.IContentTypeValidatorService validator,
     barakoCMS.Infrastructure.OpenApi.DeliveryDocumentCache openApiCache,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant,
-    barakoCMS.Core.Interfaces.IContentSourcingPolicy sourcing) : Endpoint<Request, Response>
+    barakoCMS.Core.Interfaces.IContentSourcingPolicy sourcing,
+    barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
+    barakoCMS.Infrastructure.Services.IPermissionResolver permissions) : Endpoint<Request, Response>
 {
     public override void Configure()
     {
@@ -101,6 +103,24 @@ internal class Endpoint(
         // may not create the type those settings live on. It read "Only admins can change schema"
         // from the original commit and was never revisited. See #448.
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
+    }
+
+    /// <summary>Entries under the name that clash with a token field, and a rollup the stored types do not support.</summary>
+    private async Task RefuseFieldClashesAsync(Request req, string slug, CancellationToken ct)
+    {
+        await RefuseTokenCollisionsAsync(req, slug, ct);
+        if (!req.Fields.Any(f => barakoCMS.Core.Validation.RollupFields.IsRollup(f)))
+        {
+            return;
+        }
+
+        var candidate = new ContentTypeDefinition { Name = slug, Fields = req.Fields };
+        var errors = await barakoCMS.Infrastructure.Services.ContentTypeUpsert.RollupErrorsAsync(
+            session, candidate, null, [candidate], User, sensitivity, permissions, ct);
+        if (errors.Count > 0)
+        {
+            ThrowError(string.Join(" ", errors), 400);
+        }
     }
 
     /// <summary>
@@ -191,7 +211,7 @@ internal class Endpoint(
         await RefuseTakenNameAsync(slug, storedNames, ct);
 
         // Entries can exist under a name with no type, holding whatever keys their writers chose.
-        await RefuseTokenCollisionsAsync(req, slug, ct);
+        await RefuseFieldClashesAsync(req, slug, ct);
 
         if (req.IsPubliclyDeliverable
             && await barakoCMS.Infrastructure.Services.PublicDeliveryAudience.TypeRefusalAsync(session, slug, ct) is { } limited)
