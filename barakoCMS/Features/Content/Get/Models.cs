@@ -41,6 +41,17 @@ internal class Response
 
     /// <summary>When the scheduler will apply it, or null if nothing is armed. Always UTC.</summary>
     public DateTimeOffset? ScheduledSensitivityAt { get; set; }
+
+    /// <summary>
+    /// When the rollup drain last changed a rollup value on this entry, or null for a type with no
+    /// rollups and for an entry never recounted. Always UTC.
+    /// </summary>
+    /// <remarks>
+    /// Moves only when a value changes, so it says when the numbers last moved, not when they were
+    /// last checked. A rollup lags its entries by the drain, and this tells a reader how stale it is.
+    /// </remarks>
+    public DateTimeOffset? RollupsAt { get; set; }
+
     /// <summary>
     /// Event-stream version. Send this back in an update's Version field for optimistic concurrency.
     /// </summary>

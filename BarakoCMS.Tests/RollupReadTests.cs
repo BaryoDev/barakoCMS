@@ -3,6 +3,8 @@ using System.Text.Json;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
+using barakoCMS.Events;
+using barakoCMS.Infrastructure.Rollups;
 using barakoCMS.Models;
 using Probe = BarakoCMS.Tests.TokenFieldProbe;
 using R = BarakoCMS.Tests.RollupProbe;
@@ -229,6 +231,73 @@ public class RollupReadTests
         await StoreCountAsync(header, 77m);
 
         (await R.PublicNumberAsync(_fixture, pair.Header, header, "Count")).Should().Be(77m);
+    }
+
+    private async Task<JsonElement> EntryAsync(string token, Guid id)
+    {
+        var res = await R.Client(_fixture, token).GetAsync($"/api/contents/{id}", Ct);
+        var body = await res.Content.ReadAsStringAsync(Ct);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, body);
+        return JsonDocument.Parse(body).RootElement.Clone();
+    }
+
+    [Fact]
+    public async Task Rollups_at_is_null_before_the_first_recount_and_set_after_it()
+    {
+        var admin = await Probe.AdminAsync(_fixture);
+        var pair = await R.StorePairAsync(_fixture, SensitivityLevel.Public);
+        var header = await R.HeaderAsync(_fixture, admin, pair);
+        await R.DropQueuedDrainsAsync(_fixture);
+
+        var before = await EntryAsync(admin, header);
+        before.GetProperty("rollupsAt").ValueKind.Should().Be(JsonValueKind.Null);
+        (await R.StoredAsync(_fixture, header)).RollupsAt.Should().BeNull();
+
+        await R.SeedLineAsync(_fixture, pair, header, 4);
+        var started = DateTime.UtcNow.AddMinutes(-1);
+        await R.DrainAsync(_fixture);
+
+        var after = await EntryAsync(admin, header);
+        after.GetProperty("rollupsAt").GetDateTimeOffset().UtcDateTime.Should().BeAfter(started);
+        (await R.StoredAsync(_fixture, header)).RollupsAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task A_recount_that_finds_the_same_values_leaves_rollups_at_alone()
+    {
+        var admin = await Probe.AdminAsync(_fixture);
+        var pair = await R.StorePairAsync(_fixture, SensitivityLevel.Public);
+        var header = await R.HeaderAsync(_fixture, admin, pair);
+        await R.SeedLineAsync(_fixture, pair, header, 4);
+        await R.DrainAsync(_fixture);
+        var first = (await R.StoredAsync(_fixture, header)).RollupsAt;
+        first.Should().NotBeNull();
+
+        using (var scope = R.ScopeOf(_fixture))
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new RollupMark { Id = header, HeaderType = pair.Header, MarkedAt = DateTimeOffset.UtcNow });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        await R.DrainAsync(_fixture);
+
+        (await R.StoredAsync(_fixture, header)).RollupsAt.Should().Be(first);
+    }
+
+    [Fact]
+    public void An_event_with_no_rollups_at_leaves_the_entry_s_alone()
+    {
+        var stamp = new DateTime(2026, 11, 1, 8, 0, 0, DateTimeKind.Utc);
+        var entry = new Content { Id = Guid.NewGuid(), RollupsAt = stamp };
+        var plain = new ContentFieldChanged(entry.Id, "Count", new() { ["Count"] = 2 }, null, Guid.Empty, stamp.AddDays(5));
+        var counted = plain with { RollupsAt = stamp.AddDays(5) };
+
+        entry.Apply(plain, plain.OccurredAt);
+        entry.RollupsAt.Should().Be(stamp);
+
+        entry.Apply(counted, counted.OccurredAt);
+        entry.RollupsAt.Should().Be(stamp.AddDays(5));
     }
 
     private async Task StoreCountAsync(Guid id, decimal value)

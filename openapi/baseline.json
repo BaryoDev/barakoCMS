@@ -3496,6 +3496,12 @@
             "nullable": true,
             "type": "string"
           },
+          "rollupsAt": {
+            "description": "When the rollup drain last changed a rollup value on this entry, or null for a type with no\nrollups and for an entry never recounted. Always UTC.",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
           "scheduledPublishAt": {
             "description": "When the scheduler will publish this, or null if nothing is armed. Always UTC.",
             "format": "date-time",

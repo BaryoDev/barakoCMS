@@ -256,7 +256,10 @@ internal static class RollupDrain
 
             var text = FieldChanges.SearchText(preview, header, data);
             yield return new ContentFieldChanged(
-                content.Id, moved[i].Name, new Dictionary<string, object>(data), text, Guid.Empty, at);
+                content.Id, moved[i].Name, new Dictionary<string, object>(data), text, Guid.Empty, at)
+            {
+                RollupsAt = at,
+            };
         }
     }
 

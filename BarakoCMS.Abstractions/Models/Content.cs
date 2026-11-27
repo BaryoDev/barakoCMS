@@ -70,6 +70,13 @@ public class Content
     // Versioning is handled by Marten, but we can track who updated it
     public Guid LastModifiedBy { get; set; }
 
+    /// <summary>When the rollup drain last changed a rollup value on this entry, or null if it never has.</summary>
+    /// <remarks>
+    /// Moves only when a value changes, because a recount that finds the same values writes nothing.
+    /// Not moved by the computed backfill or by a replay of an event that carries no time.
+    /// </remarks>
+    public DateTime? RollupsAt { get; set; }
+
     /// <summary>
     /// The entry's state within its content type's own lifecycle, or null when the type declares none.
     /// </summary>
@@ -199,6 +206,10 @@ public class Content
     {
         Data = @event.Data;
         SearchText = @event.SearchText;
+        if (@event.RollupsAt is { } recounted)
+        {
+            RollupsAt = recounted;
+        }
     }
 
     // The single-argument forms these replace. Kept because Content ships in the BarakoCMS package
