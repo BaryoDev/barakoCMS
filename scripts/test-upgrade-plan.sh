@@ -193,6 +193,15 @@ else
     bad "from 5.0.0 only the 5.1.0 and newer folders are listed"
 fi
 
+# From 5.9.0, the start the 5.9 upgrade check runs from (#1437), no folder at or before 5.9.0 is
+# listed. The plan may be empty, which upgrade-check.sh reads as "db-assert must pass as it is".
+plan "$ROOT" 5.9.0
+if [ "$code" = 0 ] && ! grep -q ' migrations/[0-4]\.\| migrations/5\.[0-9]\.' <<< "$out"; then
+    ok "from 5.9.0 no folder at or before 5.9.0 is listed"
+else
+    bad "from 5.9.0 no folder at or before 5.9.0 is listed"
+fi
+
 psql_lines "$ROOT" 3.21.0
 if grep -qxF 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/4.2.0/stored-files-parent-index.sql' <<< "$out" \
     && grep -qxF 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f migrations/4.2.0/site-share-links.sql' <<< "$out"; then
@@ -228,6 +237,14 @@ else
     bad "its no-transaction marker is read from the file"
 fi
 
+# A file under a release after 5.9.0 is the plan from 5.9.0, with its rollback, so the 5.9 check
+# stops being the empty-plan case and starts applying it.
+plan "$repo" 5.9.0
+expect "from 5.9.0 a file of a later release is the whole plan" \
+    "core migrations/9.9.0/a-change.sql
+core migrations/9.9.0/b-change.sql
+rollback migrations/9.9.0/rollback-b-change.sql" "$out"
+
 repo="$work/new-module"
 copy_repo "$repo"
 mkdir -p "$repo/migrations/9.9.0"
@@ -251,7 +268,7 @@ echo "== nothing else lists the files by hand =="
 hand=$(grep -nE '^[^#]*docker cp migrations/[0-9]' "$ROOT/scripts/upgrade-check.sh" | grep -v 'event-correlation-early' || true)
 out=$hand
 if [ -z "$hand" ]; then ok "upgrade-check.sh copies no named file but the early 4.6.0 one"; else bad "upgrade-check.sh copies no named file but the early 4.6.0 one"; fi
-for guide in docs/upgrading-to-4.0.md docs/upgrading-to-5.0.md; do
+for guide in docs/upgrading-to-4.0.md docs/upgrading-to-5.0.md docs/upgrading-to-6.0.md; do
     out=$(grep -nE -- '-f migrations/[0-9]' "$ROOT/$guide" 2>&1 || true)
     if [ -f "$ROOT/$guide" ] && [ -z "$out" ]; then ok "$guide has no hand list of psql lines"; else bad "$guide has no hand list of psql lines"; fi
 done

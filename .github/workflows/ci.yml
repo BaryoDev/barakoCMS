@@ -350,6 +350,21 @@ jobs:
         env:
           FROM_VERSION: 4.1.0
 
+      # The newest published 5.9 image, pinned by digest so a retagged image cannot change what this
+      # proves (#1437). 5.9.0 is the only 5.9 release. The script first seeds the data
+      # scripts/lib-upgrade-data.sh describes through the 5.9 API: an event sourced and a document
+      # content type with entries, a workflow, a role, a group, a redirect, a connector, a station, an
+      # API key and a second tenant with its CDN purge settings. It then upgrades to the working
+      # tree's build, reads every record back, runs the stored workflow, rolls back and reads them
+      # back from 5.9.0 again. No migration follows 5.9.0 yet, so db-assert must pass as the database
+      # stands; the first file under a later migrations/ folder joins this plan with no edit here.
+      # When 5.9.1 is published, move the digest and the version together.
+      - name: Prove a 5.9.0 database with data can be upgraded and rolled back
+        run: bash scripts/upgrade-check.sh
+        env:
+          FROM_VERSION: 5.9.0
+          IMAGE: ghcr.io/baryodev/barako-cms@sha256:cc9321214fd39f056cf4066dab5763b9a5ab70d27f89da16293ed55a416100f5
+
       # upgrade-check.sh only runs db-assert. The published image runs BarakoCMS.Suite.dll, which
       # used to ignore its arguments and start a server instead (#662). This runs db-assert,
       # db-patch and db-apply through the Suite on an empty database.

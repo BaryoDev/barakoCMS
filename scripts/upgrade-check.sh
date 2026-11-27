@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
-# Proves the upgrade from a 4.x database to the working tree, and the rollback, against a database
-# that has data in it. 5.0 takes a 4.x database only: a 3.x install upgrades to 4.9 first
-# (docs/upgrading-to-5.0.md), so a 3.x start is refused here.
+# Proves the upgrade from a 4.x or a 5.9 database to the working tree, and the rollback, against a
+# database that has data in it. 5.0 takes a 4.x database only: a 3.x install upgrades to 4.9 first
+# (docs/upgrading-to-5.0.md), so a 3.x start is refused here. 6.0 takes a 5.9 database directly
+# (docs/upgrading-to-6.0.md), and that start is run as FROM_VERSION=5.9.0 (#1437).
 #
 # Nothing in the test suite covers this: IntegrationTestFixture forces Development, so the suite
 # always runs CreateOrUpdate against a fresh database, and production runs CreateOnly against one
@@ -31,6 +32,14 @@
 #  10. FROM_VERSION boots again against the rolled-back database and still serves the record the
 #      new build wrote to, with every event still on its stream
 #
+# A 5.9 start (FROM_VERSION=5.9.0) differs in two ways. It is given more than one content entry:
+# scripts/lib-upgrade-data.sh seeds every kind of record the upgrade carries, reads them back
+# before the upgrade, after it and after the rollback, and the new build runs a workflow the old
+# one stored. And it may have no migration to apply: the files under migrations/ that follow 5.9.0
+# are the plan, and when there are none, steps 2 to 6 become "db-assert must pass as it is". A
+# branch that changes the schema and ships no file then fails there, which is the same fault a
+# dropped file shows on a 4.x start.
+#
 # Step 2 is asserted rather than skipped on purpose. If a future change makes the migration
 # unnecessary, this fails and someone finds out deliberately instead of shipping a stale file.
 # Steps 5 to 7 run the Suite because that is what ghcr.io/baryodev/barako-cms runs. This gate used to
@@ -58,6 +67,8 @@
 #
 # Usage: scripts/upgrade-check.sh                       (FROM_VERSION defaults to the last 4.x release)
 #        FROM_VERSION=4.1.0 scripts/upgrade-check.sh    (a database 4.0 or 4.1 created)
+#        FROM_VERSION=5.9.0 IMAGE=ghcr.io/baryodev/barako-cms@sha256:<digest> scripts/upgrade-check.sh
+#                                                       (a 5.9 database, from the image CI pins)
 #        FROM_VERSION=4.5.0 scripts/upgrade-check.sh --list
 
 set -euo pipefail
@@ -94,6 +105,7 @@ OLD_PUBLISH="$OLD_PORT"
 ADMIN_PASSWORD='UpgradeCheck!123'
 JWT_KEY='upgrade-check-key-that-is-at-least-32-chars-long'
 WORK="$(mktemp -d)"
+SEED_FILE="$WORK/seed.tsv"
 
 cleanup() {
     if [ -n "${HOST_PID:-}" ]; then kill "$HOST_PID" 2>/dev/null || true; wait "$HOST_PID" 2>/dev/null || true; fi
@@ -112,15 +124,25 @@ case "$FROM_VERSION" in
     3.*) fail "FROM_VERSION=${FROM_VERSION}: a 3.x database is not upgraded to this release directly. It upgrades to 4.9 first, as docs/upgrading-to-5.0.md says." ;;
     4.0.*|4.1.*) BEFORE_46=1 ;;
     4.9.*) BEFORE_46=0 ;;
-    *) fail "FROM_VERSION=${FROM_VERSION} is not a start this script knows. Use a 4.0.x, 4.1.x or 4.9.x release." ;;
+    5.9.*) BEFORE_46=0 ;;
+    *) fail "FROM_VERSION=${FROM_VERSION} is not a start this script knows. Use a 4.0.x, 4.1.x, 4.9.x or 5.9.x release." ;;
 esac
+# A 5.x start is given the full seed, and may have no file to apply.
+SEEDED=0
+case "$FROM_VERSION" in 5.*) SEEDED=1 ;; esac
 
 PLAN=$(migration_plan "$FROM_VERSION") || fail "the upgrade plan could not be read from migrations/"
 CORE_FILES=$(awk '$1 == "core" { print $2 }' <<< "$PLAN")
 MODULE_FILES=$(awk '$1 == "module" { print $2 }' <<< "$PLAN")
 ROLLBACK_FILES=$(awk '$1 == "rollback" { print $2 }' <<< "$PLAN")
-[ -n "$CORE_FILES" ] && [ -n "$ROLLBACK_FILES" ] \
-    || fail "the upgrade plan from ${FROM_VERSION} has no core or no rollback files, so this run would prove nothing"
+# A 4.x start with no file would prove nothing: every 4.x release since has a schema change. A 5.9
+# start has none until a release after 5.9.0 ships one, and then it has both a file and its rollback.
+EMPTY_PLAN=0
+if [ -z "$CORE_FILES" ] && [ -z "$MODULE_FILES" ] && [ -z "$ROLLBACK_FILES" ] && [ "$SEEDED" = 1 ]; then
+    EMPTY_PLAN=1
+elif [ -z "$CORE_FILES" ] || [ -z "$ROLLBACK_FILES" ]; then
+    fail "the upgrade plan from ${FROM_VERSION} has no core or no rollback files, so this run would prove nothing"
+fi
 
 # Checks tied to one file, made around it as it runs. A file with none needs nothing here.
 before_file() {
@@ -304,6 +326,16 @@ CONTENT_ID=$(curl -s -X POST "$OLD_URL/api/contents" -H "Authorization: Bearer $
 curl -s -X PUT "$OLD_URL/api/contents/$CONTENT_ID/status" -H "Authorization: Bearer $TOKEN" \
     -H 'Content-Type: application/json' -d '{"newStatus":1}' >/dev/null
 
+# A 5.x start gets one of each kind of record, and reads them back here to prove the seed landed.
+# The second tenant's records are made last: switching tenant retires TOKEN.
+if [ "$SEEDED" = 1 ]; then
+    step "seeding every kind of record on ${FROM_VERSION}, and reading it back"
+    seed_data "$OLD_URL" "$TOKEN"
+    verify_seed_data "$OLD_URL" "$TOKEN" "before the upgrade"
+    seed_tenant_data "$OLD_URL" "$TOKEN" "before the upgrade" seed
+    echo "seeded: $(cut -f1 "$SEED_FILE" | grep -v secret | tr '\n' ' ')"
+fi
+
 # The event correlation file (#691) is documented as one that goes in while the old build is still
 # serving. That holds only because the old build writes an event with an INSERT naming its own
 # columns and never calls the function the file replaces, so it is checked here against a live
@@ -352,14 +384,29 @@ docker stop "$OLD" >/dev/null
 PROGRESSION_BEFORE=$(psql_q "select coalesce(max(last_seq_id), 0) from mt_event_progression where name like '%WorkflowProjection%';")
 echo "workflow projection progression is $PROGRESSION_BEFORE"
 
-step "db-assert must refuse the un-migrated database, on both hosts"
-if run_core db-assert >"$WORK/assert-before-core.log" 2>&1; then
-    fail "core db-assert passed against a ${FROM_VERSION} database. The committed migration is stale: regenerate it with db-patch, or delete it if the working tree no longer needs one."
+if [ "$EMPTY_PLAN" = 1 ]; then
+    # No file follows FROM_VERSION, so the working tree has to match a FROM_VERSION database as it
+    # stands. A schema change with no file under migrations/ fails here, on the core host first.
+    step "no migration follows ${FROM_VERSION}, so db-assert must already pass, on both hosts"
+    run_core db-assert >"$WORK/assert-before-core.log" 2>&1 || {
+        cat "$WORK/assert-before-core.log" >&2
+        fail "core db-assert refused a ${FROM_VERSION} database and no file under migrations/ follows ${FROM_VERSION}. Whatever db-assert lists above needs a migration under the release being deployed."
+    }
+    run_suite db-assert >"$WORK/assert-before-suite.log" 2>&1 || {
+        cat "$WORK/assert-before-suite.log" >&2
+        fail "Suite db-assert refused a ${FROM_VERSION} database that core accepts, and no file under migrations/ follows ${FROM_VERSION}. A module needs a migration under the release being deployed."
+    }
+    echo "accepted as it stands"
+else
+    step "db-assert must refuse the un-migrated database, on both hosts"
+    if run_core db-assert >"$WORK/assert-before-core.log" 2>&1; then
+        fail "core db-assert passed against a ${FROM_VERSION} database. The committed migration is stale: regenerate it with db-patch, or delete it if the working tree no longer needs one."
+    fi
+    if run_suite db-assert >"$WORK/assert-before-suite.log" 2>&1; then
+        fail "Suite db-assert passed against a ${FROM_VERSION} database, where core alone refuses it"
+    fi
+    echo "refused, as it must"
 fi
-if run_suite db-assert >"$WORK/assert-before-suite.log" 2>&1; then
-    fail "Suite db-assert passed against a ${FROM_VERSION} database, where core alone refuses it"
-fi
-echo "refused, as it must"
 
 # Core's files, oldest folder first. On a 4.x start the plan leaves out the 4.0.0 folder: such a
 # database is already past it. The 4.6.0 event correlation file runs after the 4.4.0 one, which
@@ -416,6 +463,12 @@ NEW_TOKEN=$(curl -s -X POST "$NEW_URL/api/auth/login" -H 'Content-Type: applicat
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('accessToken') or d.get('token') or '')")
 [ -n "$NEW_TOKEN" ] || fail "the ${FROM_VERSION} admin cannot sign in to the working tree's build"
 
+if [ "$SEEDED" = 1 ]; then
+    step "every record ${FROM_VERSION} stored reads back from the working tree's build"
+    verify_seed_data "$NEW_URL" "$NEW_TOKEN" "after the upgrade"
+    echo "read back: $(cut -f1 "$SEED_FILE" | grep -v secret | tr '\n' ' ')"
+fi
+
 step "an event appends to the stream that already existed"
 curl -s -X PUT "$NEW_URL/api/contents/$CONTENT_ID/status" -H "Authorization: Bearer $NEW_TOKEN" \
     -H 'Content-Type: application/json' -d '{"newStatus":2}' >/dev/null
@@ -454,6 +507,14 @@ if [ "${PROGRESSION_AFTER:-0}" -le "$PROGRESSION_BEFORE" ]; then
     fail "the workflow projection sat at $PROGRESSION_AFTER after the new event, having been at $PROGRESSION_BEFORE before the upgrade; the daemon did not resume"
 fi
 echo "$PROGRESSION_BEFORE then $PROGRESSION_AFTER"
+
+if [ "$SEEDED" = 1 ]; then
+    step "a workflow ${FROM_VERSION} stored runs on the working tree's build, and the second tenant reads back"
+    verify_seeded_workflow_runs "$NEW_URL" "$NEW_TOKEN"
+    # Last, because the switch retires NEW_TOKEN.
+    seed_tenant_data "$NEW_URL" "$NEW_TOKEN" "after the upgrade"
+    echo "workflow ran, second tenant read back"
+fi
 
 # The rollback. docs/upgrading-to-5.0.md tells an operator to stop the new build first, so this does
 # the same: kill the host process, then apply the rollback files to the same postgres container the forward
@@ -509,11 +570,22 @@ ROLLBACK_STATUS=$(psql_q "select data ->> 'Status' from mt_doc_contents where id
 [ "$ROLLBACK_STATUS" = "2" ] \
     || fail "expected content $CONTENT_ID to still have Status 2 (set by the working tree's build) after rollback, got '$ROLLBACK_STATUS'"
 
+if [ "$SEEDED" = 1 ]; then
+    step "every record ${FROM_VERSION} stored still reads back from ${FROM_VERSION} after the rollback"
+    verify_seed_data "$OLD_URL" "$ROLLBACK_TOKEN" "after the rollback"
+    seed_tenant_data "$OLD_URL" "$ROLLBACK_TOKEN" "after the rollback"
+fi
+
 EVENTS_ROLLED_BACK=$(psql_q "select count(*) from mt_events where stream_id = '$CONTENT_ID';")
 [ "$EVENTS_ROLLED_BACK" = "$EVENTS_AFTER" ] \
     || fail "expected $EVENTS_AFTER events on stream $CONTENT_ID after rollback, found $EVENTS_ROLLED_BACK. A rollback must not lose events."
 echo "${FROM_VERSION} reads it back: FirstName $ROLLBACK_FIRST_NAME, Status $ROLLBACK_STATUS, $EVENTS_ROLLED_BACK events on the stream"
 
-printf '\nThe upgrade from %s to the working tree works on the Suite host, with %s applied first, and rolls back cleanly with %s.\n' \
-    "$FROM_VERSION" "$(joined "$CORE_FILES
+if [ "$EMPTY_PLAN" = 1 ]; then
+    printf '\nThe upgrade from %s to the working tree works on the Suite host with no migration to apply, every seeded record reads back, and %s boots again afterwards.\n' \
+        "$FROM_VERSION" "$FROM_VERSION"
+else
+    printf '\nThe upgrade from %s to the working tree works on the Suite host, with %s applied first, and rolls back cleanly with %s.\n' \
+        "$FROM_VERSION" "$(joined "$CORE_FILES
 $MODULE_FILES")" "$(joined "$ROLLBACK_FILES")"
+fi
