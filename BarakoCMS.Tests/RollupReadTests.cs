@@ -246,8 +246,7 @@ public class RollupReadTests
     {
         var admin = await Probe.AdminAsync(_fixture);
         var pair = await R.StorePairAsync(_fixture, SensitivityLevel.Public);
-        var header = await R.HeaderAsync(_fixture, admin, pair);
-        await R.DropQueuedDrainsAsync(_fixture);
+        var header = await R.StoreUncountedHeaderAsync(_fixture, pair);
 
         var before = await EntryAsync(admin, header);
         before.GetProperty("rollupsAt").ValueKind.Should().Be(JsonValueKind.Null);

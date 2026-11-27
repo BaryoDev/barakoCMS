@@ -106,6 +106,21 @@ internal static class RollupProbe
     }
 
     /// <summary>
+    /// A header stored straight to the database, around the writer, so it has no mark and no drain
+    /// job is queued for it. A header created through the API queues a drain a second later, and
+    /// that drain can run before a test reads the header.
+    /// </summary>
+    public static async Task<Guid> StoreUncountedHeaderAsync(IntegrationTestFixture fixture, Pair pair, string tenant = Tenant)
+    {
+        using var scope = ScopeOf(fixture, tenant);
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var id = Guid.NewGuid();
+        session.Store(new Content { Id = id, ContentType = pair.Header, Data = new() { ["Name"] = "h" }, Status = ContentStatus.Published });
+        await session.SaveChangesAsync(Ct);
+        return id;
+    }
+
+    /// <summary>
     /// Entries written through the writer in one transaction, so no drain can see some of them and
     /// not the rest.
     /// </summary>

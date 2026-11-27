@@ -150,15 +150,16 @@ public class RollupWindowTests
         var manila = await SetupAsync("Asia/Manila", Roll("createdAt", "thisMonth"));
         var inUtc = await HeaderAsync(utc);
         var inManila = await HeaderAsync(manila);
-        var created = Utc("2026-11-30T20:00:00Z");
+        var created = Utc("2026-11-30T15:00:00Z");
         await LineAsync(utc, inUtc, createdAt: created);
         await LineAsync(manila, inManila, createdAt: created);
 
         await DrainAsync(utc, At("2026-11-30T20:30:00Z"));
         await DrainAsync(manila, At("2026-11-30T20:30:00Z"));
 
-        (await ValueAsync(utc, inUtc)).Should().Be(1, "it is still 30 November in UTC, so the entry is this month's");
-        (await ValueAsync(manila, inManila)).Should().Be(0, "it is 1 December in Manila, so the entry is last month's");
+        (await ValueAsync(utc, inUtc)).Should().Be(1, "the entry and the drain are both on 30 November in UTC");
+        (await ValueAsync(manila, inManila)).Should().Be(0,
+            "the entry is 23:00 on 30 November in Manila and the drain runs on 1 December, so the entry is last month's");
     }
 
     [Fact]

@@ -159,12 +159,15 @@ internal static class RollupAggregate
         return (sql, args.ToArray());
     }
 
-    /// <summary>The window field as a column of the inner select. The zone appears twice in the text, so it is bound twice.</summary>
+    /// <summary>
+    /// The window field as a column of the inner select. The value expression names the zone twice
+    /// before the lookup names the key, so the zone is bound twice and then the key.
+    /// </summary>
     private static string FieldWindowSelect(string key, TimeZoneInfo zone, List<object> args)
     {
+        args.Add(zone.Id);
+        args.Add(zone.Id);
         args.Add(key);
-        args.Add(zone.Id);
-        args.Add(zone.Id);
         return ", " + EntryFieldSql.DateValue("lower(?)", "d", "?::text") + " as w";
     }
 
