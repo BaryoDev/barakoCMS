@@ -644,7 +644,12 @@ The bundle is attached to each release and holds everything the compose file mou
 needs Docker and these commands, not a checkout of the repository. Extract with `-p`: under a strict
 umask (027 or 077) tar would otherwise drop the archive's modes, and the role job reads the mounted
 SQL as another user. Upgrading a bundle deploy starts with the new bundle, see
-[deploy-in-production.md](deploy-in-production.md#upgrading).
+[deploy-in-production.md](deploy-in-production.md#upgrading). Copy the old `.env` into the new
+directory and set `BARAKO_TAG` in it to the new version, because a value in `.env` wins over the
+new bundle's default. Keep `COMPOSE_PROJECT_NAME`: for a stack first started from a checkout that
+is the project name `docker inspect` reads off the running container, and the bundle's compose file
+stops with a message when `.env` has none, instead of starting on empty volumes. The Compose plugin
+must be 2.16.0 or later.
 
 The required variables are `DOMAIN_API`, `ACME_EMAIL`, `FRONTEND_ORIGINS`, `BARAKO_TAG`,
 `DB_PASSWORD`, `DB_APP_PASSWORD`, `JWT_KEY` and `ADMIN_PASSWORD`. From the bundle, `BARAKO_TAG` already

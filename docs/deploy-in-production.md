@@ -18,7 +18,9 @@ repository are for other jobs and say so in their headers:
 
 ## What you need
 
-- A machine with Docker and the Compose plugin.
+- A machine with Docker and the Compose plugin, version 2.16.0 or later (`docker compose version`).
+  The bundle's compose file puts a variable in its top-level `name:`, and the plugin reads one there
+  from 2.16.0 (compose-go 1.9.0). An older plugin does not.
 - A DNS A record for the API pointing at it. It must resolve before you start the stack, because
   Caddy requests a certificate on first boot and Let's Encrypt validates over HTTP.
 - Ports 80 and 443 reachable from the internet.
@@ -54,8 +56,9 @@ modes, and the role job reads the mounted `scripts/db-app-role.sql` as another u
 
 The bundle's `.env.prod.example` sets `COMPOSE_PROJECT_NAME=barako-cms`. Compose names the data
 volumes after the project, which defaults to the directory, and each release unpacks into a
-directory named for its version, so keep that line in `.env` or an upgrade starts on an empty
-database.
+directory named for its version, so keep that line in `.env`. The bundle's compose file requires
+it in a top-level `name:` line, so an `.env` without it stops compose with a message that names
+the variable, before anything starts.
 
 The archive is built by `scripts/build-prod-bundle.sh`, and CI starts `postgres`, `app` and
 `db-backup` from an unpacked copy in an empty directory (`scripts/prod-bundle-check.sh`), so a file
@@ -809,26 +812,42 @@ undefined type can still be edited. `RequireContentTypeTests` covers this.
 ## Upgrading
 
 If you deployed from a bundle, its compose file and scripts are still the old release's, so take the
-new bundle first. Download it and its `SHA256SUMS`, check the sum, extract it beside the old
-directory with `tar -xzpf`, copy `.env` across, set `BARAKO_TAG` in it to the new version, and run
-everything below from the new directory:
+new bundle first. Run the snippet from the directory that holds the old bundle's directory (if you
+are inside it, `cd ..` first), with `OLD` and `NEW` set to the two versions, without the v. Set
+`BARAKO_TAG` in the copied `.env` to the new version: a value in `.env` wins over the new bundle's
+default, so a copied old tag keeps running the old image. Run everything below from the new
+directory.
 
 ```sh
-VERSION=6.0.1   # the release you are moving to, without the v
-BASE=https://github.com/BaryoDev/barakoCMS/releases/download/v$VERSION
-curl -fsSLO $BASE/barako-cms-prod-$VERSION.tar.gz
+OLD=6.0.0   # the release you run now
+NEW=6.0.1   # the release you are moving to
+BASE=https://github.com/BaryoDev/barakoCMS/releases/download/v$NEW
+curl -fsSLO $BASE/barako-cms-prod-$NEW.tar.gz
 curl -fsSLO $BASE/SHA256SUMS
 sha256sum -c SHA256SUMS            # on macOS: shasum -a 256 -c SHA256SUMS
-tar -xzpf barako-cms-prod-$VERSION.tar.gz
-cp barako-cms-prod-<old version>/.env barako-cms-prod-$VERSION/.env
-cd barako-cms-prod-$VERSION
-$EDITOR .env                        # BARAKO_TAG=$VERSION; compare it with .env.prod.example for new variables
+tar -xzpf barako-cms-prod-$NEW.tar.gz
+cp barako-cms-prod-$OLD/.env barako-cms-prod-$NEW/.env
+cd barako-cms-prod-$NEW
+$EDITOR .env                        # BARAKO_TAG must equal $NEW; compare with .env.prod.example for new variables
 ```
 
+A stack started from a checkout has no bundle directory, so skip the `cp` line and copy `.env`
+from the checkout instead (`cp /path/to/checkout/.env barako-cms-prod-$NEW/.env`).
+
 The copied `.env` carries `COMPOSE_PROJECT_NAME`, which is what keeps the new directory on the same
-containers and data volumes. A stack first started from a checkout used the checkout directory's
-name as its project name (lowercased); put that in `.env` as `COMPOSE_PROJECT_NAME` before the first
-`up` from a bundle, or the stack starts on new, empty volumes.
+containers and data volumes. A bundle's `.env` has `barako-cms`. A stack first started from a
+checkout used a project name compose took from the checkout directory. While the old stack is
+still running, read the real name off it and copy it into `.env` as `COMPOSE_PROJECT_NAME`
+exactly as printed, before the first `up` from a bundle:
+
+```sh
+docker inspect barako-postgres --format '{{ index .Config.Labels "com.docker.compose.project" }}'
+```
+
+The prefix of the volume names in `docker volume ls` is the same name. If `.env` has no
+`COMPOSE_PROJECT_NAME`, the bundle's compose file now stops compose with the message
+`set COMPOSE_PROJECT_NAME in .env` before anything starts, instead of starting on new, empty
+volumes.
 
 From here the steps are the same for a bundle and a checkout. Change `BARAKO_TAG` first, then pull
 and stop the API. From 6.0 the API connects as the app role,
