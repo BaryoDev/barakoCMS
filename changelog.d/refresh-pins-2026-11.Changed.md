@@ -1,0 +1,1 @@
+- Marten 9.63.0, WolverineFx 6.65.1, SkiaSharp 4.157.0 and OpenFeature 2.14.2, and the .NET 10 SDK and runtime images at their current digests. The example Kubernetes deployment pins barako-cms 5.10.0.
