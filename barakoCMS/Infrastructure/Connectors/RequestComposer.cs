@@ -53,6 +53,20 @@ internal sealed class RequestComposer(
     public async Task<ComposedRequest> ComposeAsync(
         RequestDefinition definition, Connector connector, Content content, string? idempotencyKey, CancellationToken ct)
     {
+        try
+        {
+            return await ComposeCoreAsync(definition, connector, content, idempotencyKey, ct);
+        }
+        catch (TemplateScanException ex)
+        {
+            // A template that cannot be read in full is refused, never sent on a partial read.
+            return ComposedRequest.Refused(ex.Message);
+        }
+    }
+
+    private async Task<ComposedRequest> ComposeCoreAsync(
+        RequestDefinition definition, Connector connector, Content content, string? idempotencyKey, CancellationToken ct)
+    {
         var schema = await session.Query<ContentTypeDefinition>()
             .FirstNamedAsync(content.ContentType, ct);
 
@@ -72,6 +86,8 @@ internal sealed class RequestComposer(
         // Resolved once, before either refusal check, so both a Sensitive field and a bad query hole
         // are checked against the same set of templates and neither is composed while the other
         // could still be the reason nothing should be sent.
+        foreach (var template in templates) TemplateHoles.Guard(template);
+
         var query = await ResolveQueryAsync(definition, templates, ct);
         if (query.Refusal is not null) return ComposedRequest.Refused(query.Refusal);
 
@@ -219,9 +235,9 @@ internal sealed class RequestComposer(
         var names = new List<string>();
         foreach (var template in templates)
         {
-            foreach (Match match in TemplateHoles.Hole.Matches(template ?? string.Empty))
+            foreach (var scanned in TemplateHoles.Scan(template).Where(h => h.Form == HoleForm.Plain))
             {
-                var name = match.Groups[1].Value;
+                var name = scanned.Reads[0];
                 if (name.StartsWith("query.", StringComparison.OrdinalIgnoreCase))
                 {
                     names.Add(name);
@@ -359,17 +375,15 @@ internal sealed class RequestComposer(
     private string Substitute(
         string template, Content content, IReadOnlyList<Dictionary<string, object>> queryRows, Escaping escaping)
     {
-        return TemplateHoles.Hole.Replace(template, match =>
+        return TemplateHoles.Replace(template, name =>
         {
-            var name = match.Groups[1].Value;
-
             if (name.StartsWith("query.", StringComparison.OrdinalIgnoreCase))
             {
                 return SubstituteQuery(name["query.".Length..], queryRows, escaping);
             }
 
             var raw = Value(name, content);
-            if (raw is null) return match.Value;
+            if (raw is null) return null;
 
             return escaping switch
             {

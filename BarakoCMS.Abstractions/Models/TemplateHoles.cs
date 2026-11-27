@@ -41,7 +41,7 @@ public sealed record TemplateHole(HoleForm Form, string Text, IReadOnlyList<stri
 /// </remarks>
 public static class TemplateHoles
 {
-    /// <summary>The longest text the scanner reads. A longer one is read as far as this and no further.</summary>
+    /// <summary>The longest text the scanner reads. A longer one is refused, never read in part.</summary>
     public const int MaxScanLength = 262_144;
 
     private static readonly TimeSpan ScanTimeout = TimeSpan.FromSeconds(2);
@@ -60,26 +60,31 @@ public static class TemplateHoles
     internal static string Bare(string name) =>
         name.StartsWith("data.", StringComparison.OrdinalIgnoreCase) ? name[5..] : name;
 
-    /// <summary>Every hole in <paramref name="template"/>, in order, whatever its form.</summary>
-    public static IEnumerable<TemplateHole> Scan(string? template)
+    /// <summary>
+    /// Every hole in <paramref name="template"/>, in order, whatever its form. The whole template is
+    /// read before anything is returned.
+    /// </summary>
+    /// <exception cref="TemplateScanException">The template is over <see cref="MaxScanLength"/> or the scan timed out. It is never read in part.</exception>
+    public static IReadOnlyList<TemplateHole> Scan(string? template)
     {
-        if (string.IsNullOrEmpty(template)) yield break;
+        if (string.IsNullOrEmpty(template)) return [];
 
-        var text = template.Length > MaxScanLength ? template[..MaxScanLength] : template;
-        MatchCollection matches;
+        Guard(template);
         try
         {
-            matches = Token.Matches(text);
+            return Token.Matches(template).Select(m => Classify(m.Value, m.Groups[1].Value)).ToList();
         }
         catch (RegexMatchTimeoutException)
         {
-            yield break;
+            throw TemplateScanException.Slow();
         }
+    }
 
-        foreach (Match match in matches)
-        {
-            yield return Classify(match.Value, match.Groups[1].Value);
-        }
+    /// <summary>Refuses a template over <see cref="MaxScanLength"/>, so no check reads a template in part.</summary>
+    /// <exception cref="TemplateScanException">The template is too long.</exception>
+    public static void Guard(string? template)
+    {
+        if (template is not null && template.Length > MaxScanLength) throw TemplateScanException.Long();
     }
 
     private static TemplateHole Classify(string whole, string body)
@@ -187,8 +192,18 @@ public static class TemplateHoles
     /// Replaces each plain <c>{{name}}</c> with what <paramref name="value"/> gives, or leaves it as
     /// written when that is null. Every other form is left as written.
     /// </summary>
-    internal static string Replace(string template, Func<string, string?> value) =>
-        Hole.Replace(template, match => value(match.Groups[1].Value) ?? match.Value);
+    internal static string Replace(string template, Func<string, string?> value)
+    {
+        Guard(template);
+        try
+        {
+            return Hole.Replace(template, match => value(match.Groups[1].Value) ?? match.Value);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            throw TemplateScanException.Slow();
+        }
+    }
 
     /// <summary>The name inside each plain or formatted hole of <paramref name="template"/>, in order.</summary>
     public static IEnumerable<string> Names(string? template) =>
@@ -256,4 +271,27 @@ public static class TemplateHoles
 
         return null;
     }
+}
+
+/// <summary>A template that cannot be checked: it is over the length cap, or reading it timed out.</summary>
+/// <remarks>
+/// A check that cannot finish refuses. It never reads a template in part and never counts a timeout
+/// as "no holes". The message names the limit and never any of the template.
+/// </remarks>
+public sealed class TemplateScanException : Exception
+{
+    private TemplateScanException(string message, bool timedOut)
+        : base(message)
+    {
+        TimedOut = timedOut;
+    }
+
+    /// <summary>True when the scan timed out, false when the template was over the length cap.</summary>
+    public bool TimedOut { get; }
+
+    internal static TemplateScanException Long() =>
+        new($"A template may be at most {TemplateHoles.MaxScanLength} characters.", false);
+
+    internal static TemplateScanException Slow() =>
+        new("The template took too long to read, so it was refused.", true);
 }
