@@ -96,6 +96,20 @@ public class TemplateDatasetReadTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public async Task A_dataset_skipped_after_the_first_failure_reports_that_failure_when_the_template_reaches_it_first()
+    {
+        var kit = await SeededAsync("{{#each more}}{{row.Qty}},{{/each}}{{#each lines}}{{row.Qty}},{{/each}}", TwoDatasets);
+        var runner = new Stub((_, _) => Task.FromResult(QueryResult.Refused("Ask the owner for read access.")));
+
+        var (result, sent) = await kit.SendAsync(queries: runner);
+
+        result.Succeeded.Should().BeFalse();
+        result.Error.Should().Contain("'lines'").And.Contain("Ask the owner for read access.").And.NotContain("was not read");
+        sent.Should().BeNull();
+        runner.Calls.Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task The_datasets_share_one_deadline_and_the_second_is_given_what_the_first_left()
     {
         var kit = await SeededAsync(TwoLoops, TwoDatasets);

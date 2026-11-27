@@ -371,7 +371,7 @@ public class TemplateVariableExtractor(
         {
             read[name] = stopped is null
                 ? await ReadDatasetAsync(content, name, slug, actor, DatasetReadBudget - clock.Elapsed, deadline.Token, ct)
-                : Unread(slug, $"The dataset '{TemplateDatasets.Shown(name)}' was not read, because another dataset could not be.", stopped.Transient);
+                : Unread(slug, stopped.Failure!, stopped.Transient);
 
             if (read[name].Failure is not null) stopped ??= read[name];
         }
