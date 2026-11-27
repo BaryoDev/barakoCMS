@@ -138,4 +138,41 @@ public class ConnectorQueryGrantTests(IntegrationTestFixture fixture)
 
         composed.Body.Should().NotContain(NoteValue, "a Hidden entry is not sent through a grant");
     }
+
+    [Fact]
+    public async Task A_query_judges_its_fields_by_the_account_definition_and_not_by_a_looser_tenant_copy()
+    {
+        var subject = await GrantKit.SeedAsync(fixture, []);
+        var type = GrantKit.Name("qga");
+        FieldDefinition Ssn(SensitivityLevel level) =>
+            new() { Name = "Ssn", DisplayName = "Ssn", Type = "string", Sensitivity = level };
+        await GrantKit.StoreAsync(
+            fixture,
+            new AccountContentType
+            {
+                Id = Guid.NewGuid(), AccountId = TenantAccount.DefaultId, Name = type,
+                Definition = new ContentTypeDefinition
+                {
+                    Id = Guid.NewGuid(), Name = type, DisplayName = type, Fields = [Ssn(SensitivityLevel.Sensitive)],
+                },
+            },
+            new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = type, DisplayName = type, Fields = [Ssn(SensitivityLevel.Public)],
+            },
+            new Content { Id = Guid.NewGuid(), ContentType = type, Status = ContentStatus.Published, Data = new() { ["Ssn"] = SsnValue } });
+        var query = new QueryDefinition
+        {
+            Id = Guid.NewGuid(), Slug = GrantKit.Name("qgq"), Name = "Account query", ContentType = type, Fields = ["Ssn"],
+        };
+        await GrantKit.StoreAsync(fixture, query);
+        var definition = RequestKit.Definition(subject, "{{query.rows}}");
+        definition.QuerySlug = query.Slug;
+
+        var composed = await RequestKit.ComposeAsync(fixture, subject, definition);
+
+        composed.Ok.Should().BeFalse("the account's Sensitive Ssn decides, not the tenant's copy");
+        (composed.Body ?? string.Empty).Should().NotContain(SsnValue);
+        (composed.Refusal ?? string.Empty).Should().NotContain(SsnValue);
+    }
 }

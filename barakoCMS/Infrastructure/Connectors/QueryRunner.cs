@@ -209,8 +209,9 @@ internal sealed class QueryRunner(
             return Refuse("An aggregate query computes figures for a signed-in reader and cannot feed a workflow. Run it from the queries API.");
         }
 
-        var schema = await session.Query<ContentTypeDefinition>()
-            .FirstNamedAsync(definition.ContentType, ct);
+        // The account's definition wins over a tenant's own copy, as it does for the composer, so a
+        // copy stored with looser rules does not decide what a query may read.
+        var schema = await AccountContentTypes.ResolveAsync(session, definition.ContentType, ct);
 
         if (schema is null)
         {
@@ -379,7 +380,8 @@ internal sealed class QueryRunner(
             return (null, $"'{Safe(name)}' cannot be returned from '{schema.Name}'. Only a single reference field that names its type can be followed.");
         }
 
-        var target = await session.Query<ContentTypeDefinition>().FirstNamedAsync(reference.ReferenceType, ct);
+        var resolved = await AccountContentTypes.ResolveManyAsync(session, [reference.ReferenceType], ct);
+        var target = resolved.GetValueOrDefault(reference.ReferenceType);
         var field = target?.Fields.FirstOrDefault(f => string.Equals(f.Name, parts[1], StringComparison.OrdinalIgnoreCase));
         if (target is null || field is null
             || (byGrant
@@ -467,7 +469,7 @@ internal sealed class QueryRunner(
 
         var named = await session.Query<ContentTypeDefinition>()
             .Where(barakoCMS.Core.ContentTypeName.Named(definition.ContentType)).ToListAsync(ct);
-        var schema = barakoCMS.Core.ContentTypeName.Pick(named, definition.ContentType)!;
+        var schema = (await AccountContentTypes.ResolveAsync(session, definition.ContentType, ct))!;
 
         var scoped = await ScopedQueryAsync(named, schema, check.Reader, ct);
 

@@ -100,7 +100,8 @@ check) opens a query session per tenant id and never treats a tenant it cannot r
 
 `AccountContentTypes.ResolveAsync` and `ResolveManyAsync` (account first, then the tenant's own) are
 used by entry validation, create, update, the sensitivity service, the sensitive read audit on get,
-list and history, list search and field filters, rollback search text, and the diagnostics
+list and history, list search and field filters, rollback search text, the connector query runner (the type it
+reads and the type a followed reference points at), and the diagnostics
 redactor (which also names every account type's non-Public fields).
 
 Not yet covered, and still reading only the tenant's own types: entry files, status change, counts,
