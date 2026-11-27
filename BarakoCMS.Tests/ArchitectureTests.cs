@@ -317,6 +317,532 @@ public class ArchitectureTests
         }
     }
 
+    // What the formula language must never reach for. The folder is a closed grammar and a fixed
+    // function table, so a way to run text as code or look up a member by name has no place in it.
+    private static readonly string[] ForbiddenInExpressions =
+    [
+        "System.Linq.Dynamic", "System.Text.RegularExpressions",
+        "Microsoft.CodeAnalysis", "System.CodeDom", "System.Runtime.Loader", "System.Management.Automation",
+        "Regex", "dynamic", "Activator", "Assembly.", "MethodInfo", "Type.GetType", "Expression.Lambda",
+        "CSharpScript", "ScriptOptions", "DynamicInvoke", "Process.Start", "Environment.GetEnvironmentVariable",
+        "GetMethod", "GetMethods", "GetProperty", "GetProperties", "GetField", "GetFields", "PropertyInfo", "FieldInfo",
+        "MemberInfo", "BindingFlags", "Enum.Parse", "Jint", "NCalc", "DynamicExpresso", "global::",
+        "File.", "Directory.", "HttpClient", "Socket", "Process",
+    ];
+
+    // Matched anywhere, inside a longer name too, so a line like "namespace X; using System.Reflection;" is caught.
+    private static readonly string[] ForbiddenSubstrings = ["System.Reflection", "System.Linq.Expressions"];
+
+    // typeof and GetType may be written with space before the bracket.
+    private static readonly System.Text.RegularExpressions.Regex[] ForbiddenPatterns =
+    [
+        new(@"\btypeof\s*\(", System.Text.RegularExpressions.RegexOptions.CultureInvariant),
+        new(@"\bGetType\s*\(\s*\)", System.Text.RegularExpressions.RegexOptions.CultureInvariant),
+    ];
+
+    // The only namespaces a file in the folder may bring in, and the folder's own.
+    private static readonly string[] AllowedUsings =
+    [
+        "System", "System.Globalization", "System.Text", "System.Collections.Generic", "System.Linq",
+    ];
+
+    // The scan proves only what it checks: using lines, barakoCMS names written in full, the first
+    // segment of a name relative to the file's own namespace (Validation.X, Features.X, and so on,
+    // read from the namespaces of the barakoCMS assembly), and the words and patterns above. It does
+    // not follow a name through a variable or a type the file is handed.
+    private static readonly Lazy<string[]> RelativeSegments = new(() =>
+        Core.GetTypes()
+            .Select(t => t.Namespace?.Split('.') ?? [])
+            .SelectMany(parts => new[]
+            {
+                parts is ["barakoCMS", var one, ..] ? one : null,
+                parts is ["barakoCMS", "Core", var two, ..] ? two : null,
+            })
+            .OfType<string>()
+            .Where(n => n != "Expressions")
+            .Distinct()
+            .ToArray());
+
+    private const string ExpressionsNamespace = "barakoCMS.Core.Expressions";
+
+    [Fact]
+    public void The_expression_evaluator_uses_no_reflection_pattern_engine_or_scripting()
+    {
+        var folder = Path.Combine(RepoPaths.Root, "barakoCMS", "Core", "Expressions");
+        var files = Directory.GetFiles(folder, "*.cs", SearchOption.AllDirectories);
+        files.Should().NotBeEmpty("a scan that finds no files passes every check below");
+        files.Should().Contain(f => f.EndsWith("Parser.cs", StringComparison.Ordinal));
+
+        var found = new List<string>();
+        foreach (var file in files)
+        {
+            var code = StripComments(File.ReadAllText(file));
+            foreach (var word in ForbiddenInExpressions)
+            {
+                if (ContainsWord(code, word))
+                {
+                    found.Add($"{Path.GetFileName(file)}: {word}");
+                }
+            }
+
+            found.AddRange(ForbiddenSubstrings.Where(w => code.Contains(w, StringComparison.Ordinal)).Select(w => $"{Path.GetFileName(file)}: {w}"));
+            found.AddRange(ForbiddenPatterns.Where(r => r.IsMatch(code)).Select(r => $"{Path.GetFileName(file)}: {r}"));
+            found.AddRange(OutsideNamespaces(code).Select(n => $"{Path.GetFileName(file)}: {n}"));
+        }
+
+        found.Should().BeEmpty("the formula language is hand-written recursive descent over a fixed function table (#1420)");
+    }
+
+    [Fact]
+    public void The_project_adds_no_global_using_for_the_evaluator_folder_to_reach()
+    {
+        var projectFiles = new[] { Path.Combine(RepoPaths.Root, "barakoCMS", "barakoCMS.csproj"), Path.Combine(RepoPaths.Root, "Directory.Build.props") };
+        foreach (var file in projectFiles)
+        {
+            File.Exists(file).Should().BeTrue(file);
+            var usings = XDocument.Load(file).Descendants("Using").Select(e => e.Attribute("Include")?.Value ?? string.Empty).ToArray();
+            usings.Should().NotContain(u => u.StartsWith("System.Reflection", StringComparison.Ordinal)
+                    || u.StartsWith("System.Linq.Expressions", StringComparison.Ordinal),
+                $"{Path.GetFileName(file)} would give the evaluator folder reflection without a using line to scan");
+        }
+
+        var globals = Directory.GetFiles(Path.Combine(RepoPaths.Root, "barakoCMS"), "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .Where(f => System.Text.RegularExpressions.Regex.IsMatch(
+                StripComments(File.ReadAllText(f)),
+                @"\bglobal\s+using\b"))
+            .Select(f => Path.GetRelativePath(RepoPaths.Root, f))
+            .ToArray();
+        globals.Should().BeEmpty("a global using in any file of the project reaches the evaluator folder with no using line to scan");
+    }
+
+    [Fact]
+    public void The_expression_evaluator_scan_catches_what_it_forbids()
+    {
+        ContainsWord("using System.Text.RegularExpressions;", "System.Text.RegularExpressions").Should().BeTrue();
+        ContainsWord("var r = new Regex(\"a\");", "Regex").Should().BeTrue();
+        ContainsWord("dynamic x = 1;", "dynamic").Should().BeTrue();
+        ContainsWord("// Regex is not used", "Regex").Should().BeTrue("the scan itself does not strip, StripComments does");
+        StripComments("// Regex\nvar a = 1; /* dynamic */").Should().NotContain("Regex").And.NotContain("dynamic");
+        ContainsWord("var notDynamicAtAll = 1;", "dynamic").Should().BeFalse("only whole words count");
+        ContainsWord("var t = typeof(string);", "typeof(").Should().BeTrue();
+        ContainsWord("t.GetMethod(\"x\")", "GetMethod").Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("var u = \"http://x\"; new Regex(\"a\");", "a // inside a string is not a comment")]
+    [InlineData("var a = \"/*\"; new Regex(\"a\"); var b = \"*/\";", "a /* inside a string does not open a comment")]
+    [InlineData("// holds /* here\nnew Regex(\"a\");", "a /* inside a line comment does not open a block")]
+    [InlineData("var a = @\"x // \"\" /* y\"; new Regex(\"a\"); var b = @\"*/\";", "a verbatim string with a doubled quote")]
+    [InlineData("var a = $\"{x}//\"; new Regex(\"a\");", "an interpolated string")]
+    [InlineData("var a = $\"{(c ? \"/*\" : \"b\")}\"; new Regex(\"a\"); var b = \"*/\";", "a string inside an interpolation hole")]
+    [InlineData("var a = \"\"\"\n// \"x\" /*\n\"\"\"; new Regex(\"a\"); var b = \"*/\";", "a raw string")]
+    [InlineData("var a = $$\"\"\"{{x}} // {y} /*\"\"\"; new Regex(\"a\"); var b = \"*/\";", "an interpolated raw string")]
+    [InlineData("var q = '\"'; new Regex(\"a\"); var b = \"//\";", "a quote in a char literal does not open a string")]
+    [InlineData("var q = '\\''; new Regex(\"a\"); var b = \"*/\";", "an escaped quote in a char literal")]
+    [InlineData("var a = \"x\\\"//\"; new Regex(\"a\");", "an escaped quote in a regular string")]
+    [InlineData("var a = $\"{d:dd//MM}\"; new Regex(\"a\");", "slashes in a format specifier")]
+    [InlineData("var a = $\"{d:/*}\"; new Regex(\"a\"); var b = \"*/\";", "a block comment marker in a format specifier")]
+    [InlineData("var a = $\"{(d):yy//}\"; new Regex(\"a\");", "a format specifier after a bracketed expression")]
+    [InlineData("var a = $\"{(c ? 1 : 2)}\"; // x\nnew Regex(\"a\");", "a colon inside brackets is not a format specifier")]
+    public void The_comment_stripper_keeps_code_that_follows_a_string_or_a_comment_marker_inside_one(string source, string why)
+    {
+        StripComments(source).Should().Contain("new Regex(", why);
+    }
+
+    [Theory]
+    [InlineData("var a = 1; // new Regex(\"a\")", "a line comment")]
+    [InlineData("var a = 1; /* new Regex(\"a\") */ var b = 2;", "a block comment")]
+    [InlineData("var a = \"x\"; // \"quoted\" new Regex(\"a\")", "a quote inside a comment")]
+    [InlineData("var a = '\"'; // new Regex(\"a\")", "after a char literal holding a quote")]
+    [InlineData("var a = @\"x\"; /* new Regex(\"a\") */", "after a verbatim string")]
+    public void The_comment_stripper_removes_comments(string source, string why)
+    {
+        StripComments(source).Should().NotContain("Regex", why);
+    }
+
+    [Fact]
+    public void The_expression_evaluator_using_scan_refuses_what_is_not_on_the_list()
+    {
+        OutsideNamespaces("using System;\nusing System.Globalization;\nusing barakoCMS.Core.Expressions;\nusing barakoCMS.Core.Expressions.Inner;")
+            .Should().BeEmpty();
+        OutsideNamespaces("namespace barakoCMS.Core.Expressions;\nvar a = 1;").Should().BeEmpty();
+        OutsideNamespaces("using barakoCMS.Core.Validation;").Should().Contain("barakoCMS.Core.Validation");
+        OutsideNamespaces("using static System.Math;").Should().Contain("System.Math");
+        OutsideNamespaces("using M = System.Reflection;").Should().Contain("System.Reflection");
+        OutsideNamespaces("global using System.IO;").Should().Contain("System.IO");
+        OutsideNamespaces("var x = barakoCMS.Core.Validation.ComputedFields.MaxRound;").Should().Contain("barakoCMS.Core.Validation.ComputedFields.MaxRound");
+        OutsideNamespaces("var x = barakoCMS.Core.ExpressionsExtra.Thing;").Should().NotBeEmpty("a namespace that only starts with the folder's name is another namespace");
+        OutsideNamespaces(StripComments("// using barakoCMS.Core.Validation;")).Should().BeEmpty("the scan reads stripped code, as the caller gives it");
+        ContainsWord("var x = global::System.Math.PI;", "global::").Should().BeTrue();
+        OutsideNamespaces("var x = Validation.ComputedFields.MaxRound;").Should().Contain("Validation.ComputedFields");
+        OutsideNamespaces("var x = Infrastructure.Services.Thing.Run();").Should().Contain("Infrastructure.Services");
+        OutsideNamespaces("var x = Features.Content.Thing.Run();").Should().Contain("Features.Content");
+        OutsideNamespaces("var x = Models.Content.Id;").Should().Contain("Models.Content");
+        OutsideNamespaces("var x = Core.Validation.ComputedFields.MaxRound;").Should().Contain("Core.Validation");
+        OutsideNamespaces("var x = Validation . ComputedFields;").Should().NotBeEmpty("space around the dot does not hide it");
+        OutsideNamespaces("var x = System.Validation.Thing; var y = a.Models.B;").Should().BeEmpty("a segment after a dot is another name");
+        RelativeSegments.Value.Should().Contain(["Validation", "Infrastructure", "Features", "Models", "Core"]).And.NotContain("Expressions");
+
+        var all = ForbiddenInExpressions;
+        foreach (var word in new[] { "File.", "Directory.", "HttpClient", "Socket", "Process", "MemberInfo", "GetMethods", "GetProperties", "GetFields" })
+        {
+            all.Should().Contain(word);
+        }
+
+        ContainsWord("var t = File.ReadAllText(p);", "File.").Should().BeTrue();
+        ContainsWord("var t = System.IO.Directory.GetFiles(p);", "Directory.").Should().BeTrue();
+        ContainsWord("var c = new HttpClient();", "HttpClient").Should().BeTrue();
+        ContainsWord("var s = new Socket(a, b, c);", "Socket").Should().BeTrue();
+        ContainsWord("var p = new Process();", "Process").Should().BeTrue();
+        ContainsWord("var f = Profile.Name;", "File.").Should().BeFalse("only whole words count");
+        ContainsWord("var m = t.GetMethods();", "GetMethods").Should().BeTrue();
+        ContainsWord("var m = t.GetProperties();", "GetProperties").Should().BeTrue();
+        ContainsWord("var m = t.GetFields();", "GetFields").Should().BeTrue();
+        ContainsWord("MemberInfo m = null;", "MemberInfo").Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("var t = typeof(string);")]
+    [InlineData("var t = typeof (string);")]
+    [InlineData("var t = typeof\n(string);")]
+    [InlineData("var t = x.GetType();")]
+    [InlineData("var t = x.GetType ( );")]
+    public void The_expression_evaluator_scan_catches_typeof_and_GetType_with_any_spacing(string code)
+    {
+        ForbiddenPatterns.Any(r => r.IsMatch(code)).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("namespace X; using System.Reflection;")]
+    [InlineData("var m = System.Reflection.MethodBase.GetCurrentMethod();")]
+    [InlineData("global using System.Linq.Expressions;")]
+    [InlineData("var e = System.Linq.Expressions.Expression.Constant(1);")]
+    public void The_expression_evaluator_scan_catches_reflection_and_expression_trees_anywhere_in_a_line(string code)
+    {
+        ForbiddenSubstrings.Any(w => code.Contains(w, StringComparison.Ordinal)).Should().BeTrue();
+        ForbiddenPatterns.Any(r => r.IsMatch("var typeofx = 1; var GetTypeName = 2;")).Should().BeFalse("a longer name is not typeof or GetType");
+    }
+
+    /// <summary>The namespaces a file reaches that are not on the list: a using outside it, or a barakoCMS name outside the folder.</summary>
+    private static List<string> OutsideNamespaces(string code)
+    {
+        var outside = new List<string>();
+        var directive = new System.Text.RegularExpressions.Regex(
+            @"^\s*(?:global\s+)?using\s+(?:static\s+)?(?:[A-Za-z_]\w*\s*=\s*)?(?<ns>[A-Za-z_][\w.]*)\s*;",
+            System.Text.RegularExpressions.RegexOptions.Multiline);
+        foreach (System.Text.RegularExpressions.Match match in directive.Matches(code))
+        {
+            var ns = match.Groups["ns"].Value;
+            if (!AllowedUsings.Contains(ns) && !IsInExpressions(ns))
+            {
+                outside.Add(ns);
+            }
+        }
+
+        var ours = new System.Text.RegularExpressions.Regex(@"\bbarakoCMS(?:\.[A-Za-z_]\w*)+");
+        foreach (System.Text.RegularExpressions.Match match in ours.Matches(code))
+        {
+            if (!IsInExpressions(match.Value) && !outside.Contains(match.Value))
+            {
+                outside.Add(match.Value);
+            }
+        }
+
+        var relative = new System.Text.RegularExpressions.Regex(
+            @"(?<![\w.])(?:" + string.Join("|", RelativeSegments.Value) + @")\s*\.\s*[A-Za-z_]\w*");
+        foreach (System.Text.RegularExpressions.Match match in relative.Matches(code))
+        {
+            var name = System.Text.RegularExpressions.Regex.Replace(match.Value, @"\s+", string.Empty);
+            if (!outside.Contains(name))
+            {
+                outside.Add(name);
+            }
+        }
+
+        return outside;
+    }
+
+    private static bool IsInExpressions(string name) =>
+        name == ExpressionsNamespace || name.StartsWith(ExpressionsNamespace + ".", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Removes comments and keeps everything else, string contents included, so a forbidden word in a
+    /// string is still seen. It follows regular, verbatim, interpolated and raw strings, and char
+    /// literals, so a comment marker inside a string is not a comment and a quote inside a comment
+    /// or char literal does not open a string.
+    /// </summary>
+    private static string StripComments(string source)
+    {
+        var output = new System.Text.StringBuilder(source.Length);
+        var at = 0;
+        CopyCode(source, ref at, output, inHole: false);
+        return output.ToString();
+    }
+
+    private static char CharAt(string s, int i) => i >= 0 && i < s.Length ? s[i] : '\0';
+
+    private static void CopyCode(string s, ref int i, System.Text.StringBuilder o, bool inHole)
+    {
+        var depth = 0;
+        var parens = 0;
+        while (i < s.Length)
+        {
+            var c = s[i];
+            if (inHole && c == ':' && depth == 0 && parens == 0 && CharAt(s, i + 1) != ':')
+            {
+                // A format specifier is plain text up to the closing brace, whatever it holds.
+                while (i < s.Length && s[i] != '}')
+                {
+                    o.Append(s[i++]);
+                }
+
+                return;
+            }
+
+            if (c == '/' && CharAt(s, i + 1) == '/')
+            {
+                while (i < s.Length && s[i] != '\n')
+                {
+                    i++;
+                }
+
+                continue;
+            }
+
+            if (c == '/' && CharAt(s, i + 1) == '*')
+            {
+                var end = s.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                i = end < 0 ? s.Length : end + 2;
+                o.Append(' ');
+                continue;
+            }
+
+            if (c == '\'')
+            {
+                CopyCharLiteral(s, ref i, o);
+                continue;
+            }
+
+            if ((c is '"' or '$' or '@') && StringStart(s, i, out var dollars, out var verbatim, out var quotes))
+            {
+                CopyString(s, ref i, o, dollars, verbatim, quotes);
+                continue;
+            }
+
+            if (inHole)
+            {
+                if (c is '(' or '[')
+                {
+                    parens++;
+                }
+                else if (c is ')' or ']')
+                {
+                    parens = Math.Max(0, parens - 1);
+                }
+                else if (c == '{')
+                {
+                    depth++;
+                }
+                else if (c == '}')
+                {
+                    if (depth == 0)
+                    {
+                        return;
+                    }
+
+                    depth--;
+                }
+            }
+
+            o.Append(c);
+            i++;
+        }
+    }
+
+    private static void CopyCharLiteral(string s, ref int i, System.Text.StringBuilder o)
+    {
+        o.Append(s[i++]);
+        if (CharAt(s, i) == '\\' && i + 1 < s.Length)
+        {
+            o.Append(s[i++]);
+            o.Append(s[i++]);
+        }
+
+        while (i < s.Length && s[i] != '\'' && s[i] != '\n')
+        {
+            o.Append(s[i++]);
+        }
+
+        if (CharAt(s, i) == '\'')
+        {
+            o.Append(s[i++]);
+        }
+    }
+
+    private static bool StringStart(string s, int i, out int dollars, out bool verbatim, out int quotes)
+    {
+        dollars = 0;
+        verbatim = false;
+        quotes = 0;
+        var j = i;
+        while (CharAt(s, j) is '$' or '@')
+        {
+            if (s[j] == '$')
+            {
+                dollars++;
+            }
+            else
+            {
+                verbatim = true;
+            }
+
+            j++;
+        }
+
+        while (CharAt(s, j + quotes) == '"')
+        {
+            quotes++;
+        }
+
+        return quotes > 0;
+    }
+
+    private static void CopyString(string s, ref int i, System.Text.StringBuilder o, int dollars, bool verbatim, int quotes)
+    {
+        while (s[i] != '"')
+        {
+            o.Append(s[i++]);
+        }
+
+        var raw = !verbatim && quotes >= 3;
+        if (!raw && quotes >= 2 && !verbatim)
+        {
+            o.Append("\"\"");
+            i += 2;
+            return;
+        }
+
+        var open = raw ? quotes : 1;
+        o.Append('"', open);
+        i += open;
+        while (i < s.Length)
+        {
+            var c = s[i];
+            if (raw && c == '"')
+            {
+                var run = 0;
+                while (CharAt(s, i + run) == '"')
+                {
+                    run++;
+                }
+
+                o.Append('"', run);
+                i += run;
+                if (run >= quotes)
+                {
+                    return;
+                }
+
+                continue;
+            }
+
+            if (!raw && c == '"')
+            {
+                if (verbatim && CharAt(s, i + 1) == '"')
+                {
+                    o.Append("\"\"");
+                    i += 2;
+                    continue;
+                }
+
+                o.Append(c);
+                i++;
+                return;
+            }
+
+            if (!raw && !verbatim && c == '\\')
+            {
+                o.Append(c);
+                i++;
+                if (i < s.Length)
+                {
+                    o.Append(s[i++]);
+                }
+
+                continue;
+            }
+
+            if (!raw && !verbatim && c == '\n')
+            {
+                return;
+            }
+
+            if (dollars > 0 && c == '{')
+            {
+                var run = 0;
+                while (CharAt(s, i + run) == '{')
+                {
+                    run++;
+                }
+
+                var need = raw ? dollars : 1;
+                if (run < need || (!raw && run % 2 == 0))
+                {
+                    o.Append('{', run);
+                    i += run;
+                    continue;
+                }
+
+                var literal = raw ? run - need : run - 1;
+                o.Append('{', literal + need);
+                i += literal + need;
+                CopyCode(s, ref i, o, inHole: true);
+                if (i < s.Length)
+                {
+                    o.Append('}', 1);
+                    i++;
+                    for (var k = 1; k < need && CharAt(s, i) == '}'; k++)
+                    {
+                        o.Append('}');
+                        i++;
+                    }
+                }
+
+                continue;
+            }
+
+            if (dollars > 0 && !raw && c == '}' && CharAt(s, i + 1) == '}')
+            {
+                o.Append("}}");
+                i += 2;
+                continue;
+            }
+
+            o.Append(c);
+            i++;
+        }
+    }
+
+    private static bool ContainsWord(string code, string word)
+    {
+        for (var at = code.IndexOf(word, StringComparison.Ordinal); at >= 0; at = code.IndexOf(word, at + 1, StringComparison.Ordinal))
+        {
+            var before = at == 0 ? ' ' : code[at - 1];
+            var end = at + word.Length;
+            var after = end >= code.Length ? ' ' : code[end];
+            var startsWord = !char.IsLetterOrDigit(word[0]) || !(char.IsLetterOrDigit(before) || before == '_');
+            var endsWord = !char.IsLetterOrDigit(word[^1]) || !(char.IsLetterOrDigit(after) || after == '_');
+            if (startsWord && endsWord)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static bool IsFluentValidator(Type type) =>
         type is { IsClass: true, IsAbstract: false } && InheritsFrom(type, "FluentValidation.AbstractValidator`1");
 

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using barakoCMS.Core.Expressions;
 using barakoCMS.Models;
 
 namespace barakoCMS.Core.Validation;
@@ -19,7 +20,7 @@ namespace barakoCMS.Core.Validation;
 /// </remarks>
 internal static class ComputedFields
 {
-    public const int MaxRound = 10;
+    public const int MaxRound = MathFunctions.MaxRound;
 
     private static readonly string[] NumericTypes = ["int", "decimal", "money"];
     private static readonly string[] TextTypes = ["string", "text"];
@@ -382,9 +383,9 @@ internal static class ComputedFields
             var span = to - from;
             var amount = fn switch
             {
-                "hours" => (decimal)span.TotalHours,
-                "days" => (decimal)span.TotalDays,
-                _ => (decimal)span.TotalMinutes,
+                "hours" => DateMath.Hours(span),
+                "days" => DateMath.Days(span),
+                _ => DateMath.Minutes(span),
             };
             return Shape(field, amount);
         }
