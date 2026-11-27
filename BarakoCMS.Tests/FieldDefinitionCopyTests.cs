@@ -40,6 +40,8 @@ public class FieldDefinitionCopyTests
 
         if (type == typeof(ComputedDefinition)) return new ComputedDefinition { Fn = "add" };
 
+        if (type == typeof(RollupDefinition)) return new RollupDefinition { From = "line", Via = "Order", Fn = "count" };
+
         if (type == typeof(Dictionary<string, object>)) return new Dictionary<string, object> { ["min"] = 1 };
 
         throw new Xunit.Sdk.XunitException(
