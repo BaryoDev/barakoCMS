@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using barakoCMS.Infrastructure.Security;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using Marten;
 
@@ -440,14 +441,15 @@ internal sealed class RequestComposer(
     private string Substitute(
         string template, Content content, IReadOnlyList<Dictionary<string, object>> queryRows, Escaping escaping)
     {
-        return TemplateHoles.Replace(template, name =>
+        return TemplateHoles.Replace(template, (name, format) =>
         {
             if (name.StartsWith("query.", StringComparison.OrdinalIgnoreCase))
             {
-                return SubstituteQuery(name["query.".Length..], queryRows, escaping);
+                return format is null ? SubstituteQuery(name["query.".Length..], queryRows, escaping) : null;
             }
 
             var raw = Value(name, content);
+            if (raw is not null && format is not null) raw = TemplateExpression.ApplyFormat(format, raw, TemplateContext.Unprepared);
             if (raw is null) return null;
 
             return escaping switch

@@ -198,15 +198,29 @@ public static class TemplateHoles
     }
 
     /// <summary>
-    /// Replaces each plain <c>{{name}}</c> with what <paramref name="value"/> gives, or leaves it as
-    /// written when that is null. Every other form is left as written.
+    /// Replaces each plain <c>{{name}}</c> and each formatted <c>{{name | format "argument"}}</c> with
+    /// what <paramref name="value"/> gives for the name and the text after the bar (null for a plain
+    /// hole), or leaves it as written when that is null. Every other form is left as written.
     /// </summary>
-    internal static string Replace(string template, Func<string, string?> value)
+    /// <exception cref="TemplateScanException">The template is over <see cref="MaxScanLength"/> or the scan timed out.</exception>
+    internal static string Replace(string template, Func<string, string?, string?> value)
     {
         Guard(template);
         try
         {
-            return Hole.Replace(template, match => value(match.Groups[1].Value) ?? match.Value);
+            return Token.Replace(template, match =>
+            {
+                var body = match.Groups[1].Value.Trim();
+                var hole = Classify(match.Value, body);
+                var replaced = hole.Form switch
+                {
+                    HoleForm.Plain => value(body, null),
+                    HoleForm.Formatted => value(hole.Reads[0], body[(FirstBar(body) + 1)..]),
+                    _ => null,
+                };
+
+                return replaced ?? match.Value;
+            });
         }
         catch (RegexMatchTimeoutException)
         {

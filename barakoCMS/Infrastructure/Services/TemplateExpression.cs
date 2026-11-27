@@ -250,6 +250,26 @@ internal static class TemplateExpression
         }
     }
 
+    /// <summary>
+    /// The text after the bar of a formatted hole, such as <c>upper</c> or <c>date "yyyy-MM-dd"</c>, applied to
+    /// <paramref name="value"/>. Null when it is not a format this engine has or its arguments do not fit.
+    /// </summary>
+    /// <exception cref="TemplateScanException">Reading the format timed out.</exception>
+    internal static string? ApplyFormat(string tail, object? value, TemplateContext context)
+    {
+        try
+        {
+            var match = FormatTail.Match(tail);
+            return match.Success
+                ? Format(match.Groups["format"].Value, match.Groups["argument"].Captures.Select(c => c.Value).ToList(), value, context)
+                : null;
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            throw TemplateScanException.Slow();
+        }
+    }
+
     private static string? Format(string word, IReadOnlyList<string> arguments, object? value, TemplateContext context)
     {
         if (ArgumentProblem(word, arguments) is not null) return null;
