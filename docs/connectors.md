@@ -312,6 +312,75 @@ under the caller's own field and row rules.
 - A reference measure counts each link. An id listed twice in a reference array counts twice.
 - A query that runs past 30 seconds is refused with a reason.
 
+## Saved queries as text
+
+A saved query can be written as text. `POST /api/queries` takes `text` in place of the parts
+(`contentType`, `filters`, `fields`, `sortField`, `limit`, and the aggregate parts), and every query
+response carries the text it prints back as. Sending `text` together with any part is refused.
+
+```
+from student where Number = @data.StudentNo select Email, BirthDate, Name limit 1
+from invoiceLine where Invoice = @id order by createdAt select Product.Name, Qty, Price, Total limit 200
+```
+
+- Clauses come in this order: `from`, `where` (joined with `and`, at most 10), `in <dateField>
+  <range>`, `group by`, `order by <field> [desc]`, `select`, `limit`. A range is `today`, `last7Days`,
+  `last30Days`, `thisMonth`, `lastMonth`, `thisYear`, or `yyyy-MM-dd to yyyy-MM-dd`.
+- Operators are `=`, `!=`, `<`, `<=`, `>`, `>=` and `contains`. `contains` still matches the text
+  literally, so `%`, `_` and `\` in the value are not wildcards. A number is compared as a decimal.
+- A name is letters, digits and underscores, with one dot where `select` follows a reference:
+  `Product.Name` reads the name of the entry the `Product` field points at. A name that is also a
+  clause word is written in double quotes.
+- The text is at most 2,000 characters and 50 terms. The reader is a hand-written lexer, not a
+  regular expression, and nothing in it builds SQL: a value is a literal or a parameter, and a
+  parameter is bound as a value.
+- A refused text says where and which rule, and repeats no more than a short printable piece of
+  what was written.
+
+**Parameters.** A filter value may be `@id`, `@createdAt`, `@data.Field` or `@actions.N.name`. Only a
+workflow step gives a parameter a value. The older readers (the aggregate `run` route, a request
+definition, a plain preview) refuse a query that has one, by naming the filter. A saved query with no
+parameters runs for every reader exactly as it did before. `POST /api/queries/{slug}/preview` takes
+an optional body, `{ "parameters": { "data.StudentNo": "S-2" } }`, to try a query that has some, as
+the previewing user.
+
+**System fields.** `id`, `status`, `createdAt` and `updatedAt` can be named in `select`, `order by`
+and `where` when a workflow step runs the query. `status` is filterable. A step orders by what you
+gave, and the entry id breaks ties, so a `limit 1` keeps the same row every time.
+
+## The Query workflow step
+
+`{ "type": "Query", "parameters": { "Query": "student-by-number" }, "capture": ["Email"] }` runs a
+saved query from a workflow. The first row's fields become the step's outputs, so a later step reads
+`{{actions.0.Email}}`. See "Passing a value from one action to the next" in docs/workflow-runs.md.
+
+- The query runs as the user behind the event: the one `{{...}}` reads as the actor, which is the
+  event's user, else the entry's creator on `Created`, else its last editor. With nobody behind the
+  event, only Public fields are read. Reads go through the same permission and sensitivity services
+  as `GET /api/contents/{id}`, in the run's own tenant.
+- Which fields a run may name is decided before any row is read, from the type's schema, its rules
+  and the actor's rights, so a refusal never depends on which rows matched. A field the actor may
+  not read fails the step with a message naming it. It is not left out. An entry the actor may not
+  see at all (its sensitivity level) is left out of matching in the database query itself. An entry
+  a read rule or branch rule hides is dropped as rows are paged, and `limit` counts the entries
+  that were kept.
+- Saving a workflow with a Query step refuses an author who may not read a field the saved query
+  names. Rights that were narrowed after the save fail the run, not the save.
+- The `Query` parameter is a saved query's slug. It is never filled in from entry data, so entry
+  data cannot choose which query runs.
+- The query's parameters are bound from the entry that fired the run and from earlier steps, as
+  values. A value in the entry is never read as query text.
+- A reference field is selected as `Product.Name` and its output is named `Product_Name`.
+- Caps: 1,000 rows, 15 seconds on the statement, 20 selected fields, 2,000 characters a value.
+  A value over the cap fails the step and is not cut. Erased entries never match.
+- An aggregate query is refused: "An aggregate query computes figures for a signed-in reader and
+  cannot feed a workflow."
+- No match is a success with empty outputs, and the attempt's note says so.
+- The run record keeps the number of rows and the ids of the entries (up to 20, and a count of the
+  rest) in the attempt's note, and the outputs the workflow captured. `GET /api/workflow-runs/{id}`
+  never serves a Query step's `outputs`, for any viewer, since they are entry values read as another
+  user. The next step still reads them. Rows are not kept beyond the step.
+
 ## Deleting a saved query
 
 `DELETE /api/queries/{slug}` marks the query deleted. It disappears from the list, from `GET` and
