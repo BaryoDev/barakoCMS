@@ -453,7 +453,8 @@ public class ComputedExpressionSchemaTests
 
         await RunRecomputeAsync(slug, type);
 
-        (await EntriesAsync(slug, type)).Select(e => e.Data["Total"].ToString()).Should().BeEquivalentTo("12", "5");
+        // Decimal multiplication keeps the scale, as Fn multiply does: 10 * 0.5 is 5.0.
+        (await EntriesAsync(slug, type)).Select(e => e.Data["Total"].ToString()).Should().BeEquivalentTo("12", "5.0");
     }
 
     [Fact]
