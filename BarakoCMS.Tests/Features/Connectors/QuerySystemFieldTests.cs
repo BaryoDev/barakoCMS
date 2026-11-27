@@ -120,4 +120,72 @@ public class QuerySystemFieldTests(IntegrationTestFixture factory)
             (await runner.RunAsync(definition, Ct)).Ok.Should().BeFalse("a reader that never gave system fields a meaning keeps its rule");
         }
     }
+
+    [Theory]
+    [InlineData("Published,Archived")]
+    [InlineData("Draft,Published")]
+    [InlineData("1")]
+    [InlineData("3")]
+    [InlineData("-1")]
+    [InlineData("Published ,")]
+    [InlineData("")]
+    public async Task A_status_filter_takes_one_status_name_and_nothing_else(string value)
+    {
+        var (type, session, _) = await SeedAsync();
+        await using var _s = session;
+
+        var result = await RunAsync(session, new QueryDefinition
+        {
+            ContentType = type, Fields = ["Name"], Filters = [WhereParam("status", "eq", "wanted")],
+        }, ("wanted", value));
+
+        result.Ok.Should().BeFalse("a comma list is read as flags and a number as a value, and neither is a status");
+        result.Refusal.Should().Contain("not a status");
+    }
+
+    [Theory]
+    [InlineData("published")]
+    [InlineData("PUBLISHED")]
+    [InlineData(" Published ")]
+    public async Task A_status_name_is_read_in_any_case(string value)
+    {
+        var (type, session, rows) = await SeedAsync();
+        await using var _s = session;
+
+        var result = await RunAsync(session, new QueryDefinition
+        {
+            ContentType = type, Fields = ["Name"], Filters = [WhereParam("status", "eq", "wanted")],
+        }, ("wanted", value));
+
+        result.Ok.Should().BeTrue(result.Refusal);
+        result.Ids.Should().BeEquivalentTo([rows[0].Id, rows[2].Id]);
+    }
+
+    [Fact]
+    public async Task A_field_the_type_declares_wins_over_the_system_field_of_the_same_name()
+    {
+        var store = factory.Services.GetRequiredService<IDocumentStore>();
+        var type = TypeName();
+        var open = Entry(type, new() { ["Status"] = "open", ["Name"] = "a" });
+        var closed = Entry(type, new() { ["Status"] = "closed", ["Name"] = "b" });
+        await QueryKit.SeedAsync(store, null, Type(type, Field("Status"), Field("Name")), [open, closed], Ct);
+        var actor = await ActorAsync(store, Ct, (type, null));
+
+        var definition = new QueryDefinition
+        {
+            ContentType = type, Fields = ["status", "Name"], SortField = "status", Filters = [Where("status", "eq", "open")],
+        };
+
+        // Both ways a query is read: with no one behind it, and as a user.
+        using var scope = factory.Services.CreateScope();
+        var runner = scope.ServiceProvider.GetRequiredService<QueryRunner>();
+        foreach (var context in new[] { new QueryRunContext(null), AsActor(actor) })
+        {
+            var result = await runner.RunAsync(definition, context, Ct);
+
+            result.Ok.Should().BeTrue(result.Refusal);
+            result.Ids.Should().Equal(new[] { open.Id }, "the filter reads the data field, which is open on one entry; the entry status is Published on both");
+            result.Rows[0]["status"].Should().Be("open", "the field is the type's, not Content.Status");
+        }
+    }
 }

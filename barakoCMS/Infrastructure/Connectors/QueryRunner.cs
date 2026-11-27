@@ -14,6 +14,9 @@ namespace barakoCMS.Infrastructure.Connectors;
 public sealed record QueryResult(IReadOnlyList<Dictionary<string, object>> Rows, string? Refusal)
 {
     public bool Ok => Refusal is null;
+
+    /// <summary>Whether the run stopped because it took too long, which asking again may not repeat.</summary>
+    public bool TimedOut { get; init; }
     public int Count => Rows.Count;
 
     /// <summary>The ids of the entries the rows came from, in row order. Empty for a run that refused.</summary>
@@ -244,6 +247,18 @@ internal sealed class QueryRunner(
             return Refuse("Filters and Fields must be present, even if Filters is empty.");
         }
 
+        if (definition.Filters.Any(f => f is null) || definition.Fields.Any(string.IsNullOrWhiteSpace))
+        {
+            return Refuse("Every filter needs a field and every field a name.");
+        }
+
+        // The text form stops at this many terms, and so does the list form: each dotted field costs
+        // a read of its own below, outside the statement's time limit.
+        if (QueryText.TermRefusal(definition.Fields.Count, definition.Filters.Count, definition.Measures?.Count ?? 0) is { } tooMany)
+        {
+            return Refuse(tooMany);
+        }
+
         var filterRefusal = ValidateFilters(definition, schema, allowed, context);
         if (filterRefusal is not null)
         {
@@ -252,7 +267,7 @@ internal sealed class QueryRunner(
 
         if (!string.IsNullOrWhiteSpace(definition.SortField)
             && !allowed.ContainsKey(definition.SortField)
-            && !(context is not null && IsSystemField(definition.SortField)))
+            && !IsSystem(schema, definition.SortField, context))
         {
             return Refuse(Unknown(definition.SortField, allowed, schema.Name, "sorted on"));
         }
@@ -275,7 +290,7 @@ internal sealed class QueryRunner(
                 continue;
             }
 
-            if (!allowed.ContainsKey(field) && !(context is not null && IsSystemField(field)))
+            if (!allowed.ContainsKey(field) && !IsSystem(schema, field, context))
             {
                 return Refuse(Unknown(field, allowed, schema.Name, "returned from"));
             }
@@ -345,7 +360,7 @@ internal sealed class QueryRunner(
 
         foreach (var filter in definition.Filters)
         {
-            var system = context is not null && IsSystemField(filter.Field);
+            var system = IsSystem(schema, filter.Field, context);
             if (!system && !allowed.ContainsKey(filter.Field))
             {
                 return Unknown(filter.Field, allowed, schema.Name, "filtered on");
@@ -428,7 +443,7 @@ internal sealed class QueryRunner(
 
         foreach (var filter in definition.Filters)
         {
-            if (context is not null && IsSystemField(filter.Field))
+            if (IsSystem(schema, filter.Field, context))
             {
                 var text = filter.Value;
                 if (filter.Param is not null)
@@ -464,7 +479,7 @@ internal sealed class QueryRunner(
 
         if (!string.IsNullOrWhiteSpace(definition.SortField))
         {
-            query = context is not null && IsSystemField(definition.SortField)
+            query = IsSystem(schema, definition.SortField, context)
                 ? SystemOrder(query, definition.SortField, definition.Descending)
                 : query.OrderBySql(
                     DeliveryQuery.ToOrderBySql(new DeliverySort(canonical[definition.SortField], definition.Descending)));
@@ -501,7 +516,7 @@ internal sealed class QueryRunner(
                 // change whether the run is refused. What is left to drop is an entry a read rule or
                 // a branch withholds, and the limit is counted over the entries that are kept.
                 var selected = definition.Fields.Select(f => f.Contains('.') ? f[..f.IndexOf('.')] : f)
-                    .Where(n => !IsSystemField(n))
+                    .Where(n => !IsSystem(schema, n, context))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
@@ -541,7 +556,10 @@ internal sealed class QueryRunner(
                     {
                         foreach (var follow in check.Follows.Values)
                         {
-                            if (followed.Masked.Contains((ReferenceId(row, follow), follow.Field.Name.ToLowerInvariant())))
+                            var target = ReferenceId(row, follow);
+                            if (followed.Entries.TryGetValue(target, out var entry)
+                                && string.Equals(entry.ContentType, follow.Target.Name, StringComparison.OrdinalIgnoreCase)
+                                && followed.Masked.Contains((target, follow.Field.Name.ToLowerInvariant())))
                             {
                                 return Missed(definition, follow.Reference.Name + "." + follow.Field.Name);
                             }
@@ -553,7 +571,7 @@ internal sealed class QueryRunner(
         catch (Exception e) when (!ct.IsCancellationRequested && TimedOut(e))
         {
             return QueryResult.Refused(
-                $"The query took longer than {timeout.TotalSeconds:0.##} seconds and was stopped. Narrow it with a filter.");
+                $"The query took longer than {timeout.TotalSeconds:0.##} seconds and was stopped. Narrow it with a filter.") with { TimedOut = true };
         }
 
         var projected = new List<Dictionary<string, object>>(rows.Count);
@@ -563,7 +581,7 @@ internal sealed class QueryRunner(
 
             foreach (var field in definition.Fields)
             {
-                if (context is not null && IsSystemField(field))
+                if (IsSystem(schema, field, context))
                 {
                     item[field] = SystemValue(row, field);
                     continue;
@@ -638,8 +656,13 @@ internal sealed class QueryRunner(
         var found = await session.Query<Content>().Where(c => c.Id.In(ids)).ToListAsync(ct);
         var readable = new Dictionary<Guid, Content>(found.Count);
         var masked = new HashSet<(Guid, string)>();
+        var targetTypes = follows.Values.Select(f => f.Target.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in found)
         {
+            // A reference can point at an entry of another type, and such an entry is nothing this
+            // query follows: its fields are not read, masked or counted against the run.
+            if (!targetTypes.Contains(entry.ContentType)) continue;
+
             if (await reader.ShownAsync(entry, ct) is not { } shown) continue;
 
             // Only the fields shown unchanged are kept, in a copy, so a masked value is never handed on.
@@ -696,6 +719,15 @@ internal sealed class QueryRunner(
     /// <summary>Whether this is the exact spelling of a field every entry has: id, status, createdAt or updatedAt.</summary>
     private static bool IsSystemField(string name) => Array.IndexOf(barakoCMS.Infrastructure.Connectors.QueryText.SystemFields, name) >= 0;
 
+    /// <summary>
+    /// Whether a step's run reads this name as a field every entry has. A name the type declares, in
+    /// any case, is that field instead: a type may have a <c>Status</c>, and a query that said
+    /// <c>status</c> read it before system fields existed, as a request still does.
+    /// </summary>
+    private static bool IsSystem(ContentTypeDefinition schema, string? name, QueryRunContext? context) =>
+        context is not null && name is not null && IsSystemField(name)
+        && !schema.Fields.Any(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+
     private static FilterOp[]? SystemOps(string field) => field switch
     {
         "id" or "status" => [FilterOp.Eq, FilterOp.Ne],
@@ -727,8 +759,11 @@ internal sealed class QueryRunner(
                 return (op == FilterOp.Eq ? query.Where(c => c.Id == id) : query.Where(c => c.Id != id), null);
 
             case "status":
+                // One name from the enum and nothing else: TryParse takes a comma list as flags and a
+                // number as a value, and neither is a status.
                 var word = text.Trim();
-                if (word.Length == 0 || char.IsDigit(word[0]) || !Enum.TryParse<ContentStatus>(word, ignoreCase: true, out var status))
+                var named = Enum.GetNames<ContentStatus>().FirstOrDefault(n => string.Equals(n, word, StringComparison.OrdinalIgnoreCase));
+                if (named is null || !Enum.TryParse<ContentStatus>(named, out var status))
                     return (null, $"{what} is not a status. A status is Draft, Published, Archived or Scheduled.");
                 return (op == FilterOp.Eq ? query.Where(c => c.Status == status) : query.Where(c => c.Status != status), null);
 

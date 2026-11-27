@@ -126,4 +126,32 @@ public class QueryReferenceSelectTests(IntegrationTestFixture factory)
         (await runner.RunAsync(Select(s.Lines, "Product.Name"), Ct)).Ok.Should().BeFalse();
         (await ((IContextQueryRunner)runner).RunAsync(Select(s.Lines, "Product.Name"), new QueryRunContext(null), Ct)).Ok.Should().BeFalse();
     }
+
+    [Fact]
+    public async Task A_reference_to_an_entry_of_another_type_with_a_masked_field_of_the_same_name_does_not_refuse_the_run()
+    {
+        var store = factory.Services.GetRequiredService<IDocumentStore>();
+        var lines = TypeName();
+        var products = TypeName();
+        var other = TypeName();
+
+        var product = Entry(products, new() { ["Name"] = "Kettle" });
+        // Written with a direct store, since the validator refuses a reference to the wrong type on write.
+        var notAProduct = Entry(other, new() { ["Name"] = "Hidden name" });
+        var good = Entry(lines, new() { ["Product"] = product.Id.ToString() }, Day(1));
+        var stale = Entry(lines, new() { ["Product"] = notAProduct.Id.ToString() }, Day(2));
+
+        await QueryKit.SeedAsync(store, null, Type(products, Field("Name")), [product], Ct);
+        await QueryKit.SeedAsync(store, null, Type(other, Field("Name", "text", SensitivityLevel.Sensitive)), [notAProduct], Ct);
+        await QueryKit.SeedAsync(store, null, Type(lines, RefField("Product", products)), [good, stale], Ct);
+        var actor = await ActorAsync(store, Ct, (lines, null), (products, null), (other, null));
+
+        using var scope = factory.Services.CreateScope();
+        var result = await scope.ServiceProvider.GetRequiredService<QueryRunner>()
+            .RunAsync(Select(lines, "Product.Name"), AsActor(actor), Ct);
+
+        result.Ok.Should().BeTrue(result.Refusal);
+        result.Rows[0]["Product.Name"].Should().Be("Kettle");
+        result.Rows[1].Should().NotContainKey("Product.Name", "the entry it points at is not a product");
+    }
 }
