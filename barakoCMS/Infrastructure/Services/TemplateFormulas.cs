@@ -240,7 +240,7 @@ internal static class TemplateFormulas
             var path = new List<string> { name };
             while (tokens[end].Kind == TokenKind.Dot && tokens[end + 1].Kind == TokenKind.Name)
             {
-                if (!Touching(tokens, end - 1) || !Touching(tokens, end))
+                if (!Touching(tokens, end - 1, tokens[end - 1].Text.Length) || !Touching(tokens, end, 1))
                 {
                     Error = "A name in an expression is written without spaces around its dots.";
                     return -1;
@@ -253,9 +253,9 @@ internal static class TemplateFormulas
             return Path(path, end, out replacement);
         }
 
-        /// <summary>Whether the token at <paramref name="at"/> runs straight into the next one.</summary>
-        private static bool Touching(List<Token> tokens, int at) =>
-            tokens[at].Position + tokens[at].Text.Length == tokens[at + 1].Position;
+        /// <summary>Whether the token at <paramref name="at"/>, <paramref name="width"/> characters long in the source, runs straight into the next one. A dot token carries no text, so its width is given.</summary>
+        private static bool Touching(List<Token> tokens, int at, int width) =>
+            tokens[at].Position + width == tokens[at + 1].Position;
 
         private int Path(List<string> path, int end, out string? replacement)
         {
