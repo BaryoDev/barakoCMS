@@ -19,6 +19,9 @@ rule** means no check stops a break, and a reviewer has to. Where the two differ
 | Module contract | No change. | May add a member with a default implementation. Does not remove or change one. | May remove or change a member, and raise `MinimumSupported`. |
 | Published images | Same image names, tag scheme and platforms. | Same. | May change. |
 
+One exception to the table: a security fix may tighten a default in a patch or a minor. The release
+notes say so under Security and name the setting that restores the old behaviour.
+
 Deprecation comes first. Something a major removes was marked deprecated in an earlier release.
 On the C# surface that is `[Obsolete]`, with a removal version at least one full major away
 (the rules file at the repository root, section 6, "Public API stability"). On the HTTP surface it is a `Deprecation` header on the response, as in
@@ -74,8 +77,7 @@ repository root, section 6, "Public API stability", is the rule.
 **The module contract.** `ModuleContract.Version` and `ModuleContract.MinimumSupported` are in
 [MODULES.md](../MODULES.md#contract-version). Held by `ModuleContractTests`: the host refuses a
 module that declares a contract outside the range, by name, and accepts one that declares nothing.
-That a minor only adds to the contract is a review rule. `MODULES.md` says a contract change can
-land in a minor; for 6.x, treat a change that removes or alters a member as a major.
+That a minor only adds to the contract is a review rule.
 
 **Published images.** Held in part. Release images are signed and carry provenance
 (`scripts/verify-image-signature.sh`, see [deploy-in-production.md](deploy-in-production.md)). The

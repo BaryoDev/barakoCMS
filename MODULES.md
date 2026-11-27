@@ -273,8 +273,9 @@ middleware runs (see [Middleware](#middleware)). Adding a member with a default 
 not, because a module compiled against the previous version keeps working.
 
 **It is not the CMS version, deliberately.** Core can go 3.21 to 4.0 without touching the contract,
-and a contract change can land in a minor. Tying them together would mean either a major release
-every time a hook gained a parameter, or a silent contract change inside a patch.
+so a major does not force every module to rebuild. From 6.0, a change that moves the number waits
+for a major. A minor only adds members with a default implementation, which leaves the number where
+it is (see [docs/versioning.md](docs/versioning.md)).
 
 **Unstated is accepted.** The default is `0`, meaning the module did not say. Every module written
 before this existed declares nothing, and refusing them to enforce a field they could not have known
