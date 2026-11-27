@@ -13,13 +13,17 @@ name: Release (master)
 #
 # The order runs from cheap and reversible to expensive and permanent:
 #
-#   gate -> test -> verify-packages -> build images
-#        (beside them: release-assets, the production bundle and the OpenAPI document)
-#        -> deploy-playground (and prove it is running THIS commit)
-#        -> publish-images (needs the playground and release-assets; no approval)
-#        -> approval on the `nuget` environment (also needs release-assets)
-#        -> publish-packages
-#        -> tag v<version> and write the GitHub Release
+#   1. gate, then test, then verify-packages, then build-images.
+#   2. release-assets (the production bundle and the OpenAPI document) needs only the gate and runs
+#      beside step 1.
+#   3. build-playground-images pushes the :playground tags, and deploy-playground puts them on the
+#      playground and proves it is running THIS commit. Neither waits for release-assets, so the
+#      playground can go out before release-assets finishes, and when it fails.
+#   4. release-assets gates what is public. publish-images (the version tags and :latest, no
+#      approval) needs the playground and release-assets. publish-packages (NuGet, after the
+#      approval on the `nuget` environment) needs the same two. The two run in parallel.
+#   5. tag-release tags v<version> and writes the GitHub Release, after publish-images,
+#      publish-packages and release-assets.
 #
 # Publishing used to come before the deploy, which put the one step that cannot be
 # undone ahead of the one that finds the failures (#157). NuGet has no delete, only
@@ -931,9 +935,11 @@ jobs:
 
   # The production bundle (#1436) and the OpenAPI document (#1438) the release attaches. Built here,
   # before anything is published: publish-images and publish-packages both wait for it, so a bundle
-  # that is missing a file or an API that differs from the baseline stops the release before an
-  # image tag moves or a package reaches NuGet. tag-release only attaches what this job made. It holds contents: read and nothing else, because it runs a build and starts
-  # the Suite; the job that can write to the release never runs either.
+  # that is missing a file or an API that differs from the baseline stops the release before a
+  # version tag or :latest moves or a package reaches NuGet. The :playground images and
+  # deploy-playground do not wait for it. tag-release only attaches what this job made. This job
+  # holds contents: read and nothing else, because it runs a build and starts the Suite; the job
+  # that can write to the release never runs either.
   #
   # The scripts are the same ones CI runs on a pull request (scripts/prod-bundle-check.sh and the
   # openapi job in ci.yml). What only a release proves is the version-gated path here: the real
