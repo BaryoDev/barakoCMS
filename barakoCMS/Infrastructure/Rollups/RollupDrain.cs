@@ -139,11 +139,13 @@ internal static class RollupDrain
 
         // The rows are locked before they are read, so a user write to one waits and then fails on
         // its version, and the drain's full-data event never overwrites an edit made after the read.
+        // Only rows of the header type: a stored reference can name an entry of another type, and
+        // that entry is not this drain's to write.
         var schema = session.DocumentStore.Options.DatabaseSchemaName;
         await session.QueryAsync<Guid>(
-            $"select d.id from {schema}.mt_doc_contents d where d.tenant_id = ? and d.id in ({string.Join(", ", ids.Select(_ => "?"))}) "
-            + "order by d.id for update",
-            ct, [session.TenantId, .. ids.Cast<object>()]);
+            $"select d.id from {schema}.mt_doc_contents d where d.tenant_id = ? and lower(d.data ->> 'ContentType') = ? "
+            + $"and d.id in ({string.Join(", ", ids.Select(_ => "?"))}) order by d.id for update",
+            ct, [session.TenantId, header.Name.ToLowerInvariant(), .. ids.Cast<object>()]);
 
         var values = new Dictionary<FieldDefinition, Dictionary<Guid, object?>>();
         foreach (var rollup in rollups)
@@ -157,6 +159,11 @@ internal static class RollupDrain
 
         foreach (var content in await session.LoadManyAsync<Content>(ct, ids))
         {
+            if (!ContentTypeName.Same(content.ContentType, header.Name))
+            {
+                continue;
+            }
+
             foreach (var @event in Events(content, header, rollups, values))
             {
                 await writer.AppendAsync(content, @event, ct);
