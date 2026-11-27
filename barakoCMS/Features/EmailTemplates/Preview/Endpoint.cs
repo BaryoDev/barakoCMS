@@ -90,7 +90,18 @@ internal sealed class Endpoint(
         var sendable = template.Status == ContentStatus.Published;
 
         await extractor.PreparePreviewAsync(entryShown, user.Id, [rendered.Subject, rendered.Html], ct);
-        var (subject, html) = EmailTemplateRenderer.Resolve(rendered, entryShown, extractor);
+        if (rendered.Datasets is { Count: > 0 } datasets) await extractor.PrepareDatasetsAsync(entryShown, datasets, ct);
+
+        string subject, html;
+        try
+        {
+            (subject, html) = EmailTemplateRenderer.Resolve(rendered, entryShown, extractor);
+        }
+        catch (Exception ex) when (ex is TemplateRenderException or TemplateScanException)
+        {
+            Response = new Response { Status = template.Status.ToString(), Sendable = false, Problem = ex.Message };
+            return;
+        }
 
         // A preview cannot know which workflow will send it, so a transition placeholder is not
         // warned about here. The workflow's own save says so when its trigger is not a transition.

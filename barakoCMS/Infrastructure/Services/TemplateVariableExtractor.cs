@@ -1,5 +1,7 @@
 using barakoCMS.Models;
+using barakoCMS.Infrastructure.Connectors;
 using Marten;
+using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
 
 namespace barakoCMS.Infrastructure.Services;
@@ -123,6 +125,21 @@ public interface ITemplateVariableExtractor
         PrepareSampleAsync(content, null, templates, ct);
 
     /// <summary>
+    /// Reads the datasets a template declares for the entry last prepared, as the user that prepare
+    /// read as, so <c>{{#each lines}}</c> and <c>{{= sum(lines.Total)}}</c> have rows to read.
+    /// </summary>
+    /// <param name="content">The entry the template is resolved against.</param>
+    /// <param name="datasets">The saved query each dataset name stands for.</param>
+    /// <param name="ct">Cancellation token for the reads.</param>
+    /// <remarks>
+    /// A dataset that cannot be read does not throw here. It is kept as a failure and the render
+    /// that uses it fails with the reason. The default reads nothing, so a dataset placeholder stays
+    /// as written.
+    /// </remarks>
+    Task PrepareDatasetsAsync(Content content, IReadOnlyDictionary<string, string> datasets, CancellationToken ct = default) =>
+        Task.CompletedTask;
+
+    /// <summary>
     /// What the resolves since the last prepare left out on purpose, for the run to record: a loop
     /// that stopped at its cap, with how many references the field held.
     /// </summary>
@@ -205,6 +222,12 @@ public class TemplateVariableExtractor(
     /// <summary>Signs action links. Null leaves <c>links.action</c> empty.</summary>
     internal ActionLinkTokenIssuer? ActionLinks { get; init; }
 
+    /// <summary>Runs the saved queries a template's datasets name. Null leaves a dataset unread.</summary>
+    internal barakoCMS.Infrastructure.Connectors.IContextQueryRunner? Queries { get; init; }
+
+    /// <summary>For the type and the count of a dataset read, never a value.</summary>
+    internal Microsoft.Extensions.Logging.ILogger? Log { get; init; }
+
     private Guid? _recipient;
 
     public async Task ForRecipientAsync(string? email, Content content, CancellationToken ct = default)
@@ -286,6 +309,8 @@ public class TemplateVariableExtractor(
                 content, token => ActorAsync(content, triggerEvent, eventSequence, token), TemplateExpression.FollowedFields(list), ct),
             []);
         _preparedFor = content.Id;
+        _datasets = null;
+        _actorOf = token => ActorAsync(content, triggerEvent, eventSequence, token);
         Remember(list, (more, token) => PrepareAsync(content, triggerEvent, eventSequence, more, token));
     }
 
@@ -303,9 +328,77 @@ public class TemplateVariableExtractor(
         if (_prepareAgain is not { } again || content is null || content.Id != _preparedFor) return;
 
         var notes = _prepared.Notes;
+        var datasets = _datasets;
         await again([.. _preparedTemplates, .. templates], ct);
         if (notes is not null) _prepared = _prepared with { Notes = notes };
+        if (datasets is not null)
+        {
+            _datasets = datasets;
+            _prepared = _prepared with { Datasets = datasets };
+        }
     }
+
+    private Func<CancellationToken, Task<Guid>>? _actorOf;
+    private IReadOnlyDictionary<string, TemplateDataset>? _datasets;
+
+    public async Task PrepareDatasetsAsync(Content content, IReadOnlyDictionary<string, string> datasets, CancellationToken ct = default)
+    {
+        if (content is null || content.Id != _preparedFor || datasets.Count == 0) return;
+
+        if (_actorOf is not { } actorOf)
+        {
+            _prepared.Note("A simulation reads no dataset, so a loop or a formula over one is left as written.");
+            return;
+        }
+
+        var actor = await actorOf(ct);
+        var read = new Dictionary<string, TemplateDataset>(StringComparer.Ordinal);
+        foreach (var (name, slug) in datasets)
+        {
+            read[name] = await ReadDatasetAsync(content, name, slug, actor, ct);
+        }
+
+        _datasets = read;
+        _prepared = _prepared with { Datasets = read };
+    }
+
+    private async Task<TemplateDataset> ReadDatasetAsync(Content content, string name, string slug, Guid actor, CancellationToken ct)
+    {
+        if (!TemplateDatasets.IsValidName(name))
+        {
+            return Unread(slug, $"'{name}' cannot be a dataset name. A name is letters, digits and underscores, starts with a letter, and is not one the template already uses.");
+        }
+
+        if (Queries is null || string.IsNullOrWhiteSpace(slug) || !Slugs.IsValid(slug))
+        {
+            return Unread(slug, $"The dataset '{name}' does not name a saved query.");
+        }
+
+        var definition = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug && q.DeletedAt == null, ct);
+        if (definition is null) return Unread(slug, $"The saved query '{slug}' for the dataset '{name}' does not exist.");
+
+        var (values, _) = QueryBinding.Bind(definition, content, null);
+        QueryResult result;
+        try
+        {
+            result = await Queries.RunAsync(
+                TemplateDatasets.Probe(definition), new QueryRunContext(values) { AsActor = true, Actor = actor }, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log?.LogWarning("Dataset '{Dataset}' failed with {Error}", name, ex.GetType().Name);
+            return Unread(slug, $"The dataset '{name}' could not be read.");
+        }
+
+        if (!result.Ok) return Unread(slug, $"The dataset '{name}' ({slug}): {result.Refusal}");
+
+        Log?.LogDebug("Dataset '{Dataset}' read {Count} rows", name, result.Count);
+        return result.Count > TemplateExpression.MaxDatasetRows
+            ? Unread(slug, $"The dataset '{name}' holds more than {TemplateExpression.MaxDatasetRows} rows, which is the most a template renders.")
+            : new TemplateDataset(slug, result.Rows);
+    }
+
+    private static TemplateDataset Unread(string slug, string failure) => new(slug, [], failure);
 
     public async Task PreparePreviewAsync(Content content, Guid viewer, IEnumerable<string> templates, CancellationToken ct = default)
     {
@@ -323,6 +416,8 @@ public class TemplateVariableExtractor(
             await ReferencesAsync(content, _ => Task.FromResult(viewer), TemplateExpression.FollowedFields(list), ct),
             []);
         _preparedFor = content.Id;
+        _datasets = null;
+        _actorOf = _ => Task.FromResult(viewer);
         Remember(list, (more, token) => PreparePreviewAsync(content, viewer, more, token));
     }
 
@@ -345,6 +440,8 @@ public class TemplateVariableExtractor(
             References: null,
             []);
         _preparedFor = content.Id;
+        _datasets = null;
+        _actorOf = null;
         Remember(list, (more, token) => PrepareSampleAsync(content, triggerEvent, more, token));
     }
 

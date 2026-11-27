@@ -1206,6 +1206,13 @@ internal sealed class WorkflowRunner(
             timer.Stop();
             return new Outcome(AttemptStatus.Unknown, unknown, timer.ElapsedMilliseconds);
         }
+        catch (Exception ex) when (ex is TemplateRenderException or TemplateScanException)
+        {
+            // A template that is too large or too slow to read is the same on a retry. The message
+            // names the limit and never a value.
+            timer.Stop();
+            return new Outcome(AttemptStatus.Failed, ex.Message, timer.ElapsedMilliseconds, Retryable: false);
+        }
         catch (Exception ex)
         {
             timer.Stop();

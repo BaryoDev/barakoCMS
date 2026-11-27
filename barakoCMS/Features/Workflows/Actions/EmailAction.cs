@@ -113,6 +113,12 @@ internal class EmailAction : IWorkflowAction
             {
                 throw;
             }
+            catch (Exception ex) when (ex is barakoCMS.Infrastructure.Services.TemplateRenderException or barakoCMS.Models.TemplateScanException)
+            {
+                // Permanent: the same template and the same entry fail the same way. The message
+                // names the dataset and the limit and never a value.
+                return WorkflowActionResult.PermanentFailure(ex.Message);
+            }
             catch (Exception ex)
             {
                 // Retryable: a read that failed may not fail again.
@@ -283,6 +289,7 @@ internal class EmailAction : IWorkflowAction
         if (_extractor is not null)
         {
             await _extractor.PrepareMoreAsync(content, [rendered.Subject, rendered.Html], ct);
+            if (rendered.Datasets is { Count: > 0 } datasets) await _extractor.PrepareDatasetsAsync(content, datasets, ct);
         }
 
         var (subject, body) = barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.Resolve(rendered, content, _extractor);

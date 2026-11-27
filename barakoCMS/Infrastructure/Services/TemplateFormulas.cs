@@ -12,6 +12,37 @@ namespace barakoCMS.Infrastructure.Services;
 /// <param name="Failure">Why the dataset has no rows to render, or null. A template that reads it fails with this message.</param>
 internal sealed record TemplateDataset(string Slug, IReadOnlyList<Dictionary<string, object>> Rows, string? Failure = null);
 
+/// <summary>The rules a template's declared datasets follow.</summary>
+internal static class TemplateDatasets
+{
+    private static readonly HashSet<string> Reserved = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "data", "row", "id", "status", "createdAt", "updatedAt", "createdBy", "contentType", "transition", "links", "actions", "site",
+    };
+
+    /// <summary>A name the formula and the loop readers can tell from every other name a template uses.</summary>
+    public static bool IsValidName(string name) =>
+        name.Length is > 0 and <= 40
+        && char.IsAsciiLetter(name[0])
+        && name.All(c => char.IsAsciiLetterOrDigit(c) || c == '_')
+        && !name.Contains("__", StringComparison.Ordinal)
+        && !Reserved.Contains(name);
+
+    /// <summary>
+    /// The query as it is run for a template: one row past the cap when its limit reaches the cap, so
+    /// a dataset that holds more than a template renders is told apart from one that holds exactly that.
+    /// </summary>
+    /// <remarks>A copy, so the stored definition is never changed.</remarks>
+    public static QueryDefinition Probe(QueryDefinition definition)
+    {
+        if (definition.Limit < TemplateExpression.MaxDatasetRows) return definition;
+
+        var copy = System.Text.Json.JsonSerializer.Deserialize<QueryDefinition>(System.Text.Json.JsonSerializer.Serialize(definition))!;
+        copy.Limit = TemplateExpression.MaxDatasetRows + 1;
+        return copy;
+    }
+}
+
 /// <summary>A template that cannot be rendered at all: a dataset or an output past its cap, or a dataset that did not run.</summary>
 /// <remarks>The message names the dataset and the limit and never a value.</remarks>
 internal sealed class TemplateRenderException(string message) : Exception(message);

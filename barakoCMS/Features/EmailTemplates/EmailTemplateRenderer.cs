@@ -16,7 +16,10 @@ namespace barakoCMS.Features.EmailTemplates;
 /// <param name="Subject">The subject as written, placeholders and all.</param>
 /// <param name="Html">The body and the layout as HTML, with every placeholder where the author wrote it.</param>
 /// <param name="Sources">The texts the author wrote, by field, for the placeholder warnings.</param>
-internal sealed record RenderedTemplate(string Subject, string Html, IReadOnlyList<(string Field, string Text)> Sources);
+/// <param name="Datasets">The saved query each dataset name stands for, as the template declares them. Empty when it declares none.</param>
+internal sealed record RenderedTemplate(
+    string Subject, string Html, IReadOnlyList<(string Field, string Text)> Sources,
+    IReadOnlyDictionary<string, string>? Datasets = null);
 
 /// <summary>
 /// Email templates stored as content: finding one by id or slug, and turning its markdown and its
@@ -39,7 +42,7 @@ internal static class EmailTemplateRenderer
     private static readonly TimeSpan ScanTimeout = TemplateExpression.ScanTimeout;
 
     /// <summary>Raw HTML off: a tag in the markdown is shown as text, so the only markup is what markdown and the layout make.</summary>
-    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().DisableHtml().Build();
+    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().DisableHtml().UsePipeTables().Build();
 
     private static readonly Regex UrlAttribute = new(
         @"\s(?<name>href|src)=""(?<value>[^""]*)""", RegexOptions.Compiled | RegexOptions.IgnoreCase, ScanTimeout);
@@ -204,6 +207,9 @@ internal static class EmailTemplateRenderer
             }
         }
 
+        var (datasets, datasetProblem) = DeclaredDatasets(Text(template, "Datasets"));
+        if (datasetProblem is not null) return (null, datasetProblem);
+
         var html = shell.Wrap(Markdown(header), Markdown(body), Markdown(footer));
 
         // The resolver leaves a text past the cap as written, so a body under the cap that grows
@@ -213,36 +219,152 @@ internal static class EmailTemplateRenderer
             return (null, $"The email template's body in its layout is {html.Length} characters long as HTML, and it holds at most {TemplateExpression.MaxTemplateLength}.");
         }
 
-        return (new RenderedTemplate(subject, html, sources), null);
+        return (new RenderedTemplate(subject, html, sources, datasets), null);
+    }
+
+    /// <summary>The most datasets one template declares.</summary>
+    public const int MaxDatasets = 10;
+
+    /// <summary>The datasets a template declares, or why the declaration cannot be read.</summary>
+    internal static (IReadOnlyDictionary<string, string> Datasets, string? Problem) DeclaredDatasets(string? json)
+    {
+        var none = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(json)) return (none, null);
+
+        const string Shape = "The email template's Datasets must be an object that names each dataset after a saved query, such as {\"lines\": \"invoice-lines\"}.";
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return (none, Shape);
+
+            var declared = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var property in doc.RootElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(property.Value.GetString())) return (none, Shape);
+                if (declared.Count >= MaxDatasets) return (none, $"An email template declares at most {MaxDatasets} datasets.");
+
+                declared[property.Name] = property.Value.GetString()!.Trim();
+            }
+
+            return (declared, null);
+        }
+        catch (JsonException)
+        {
+            return (none, Shape);
+        }
     }
 
     /// <summary>
     /// Markdown to HTML with every placeholder kept as written.
     /// </summary>
     /// <remarks>
-    /// Each <c>{{...}}</c> is swapped for a run of letters and digits markdown leaves alone, and put
-    /// back after, so a placeholder inside a link or next to an underscore reaches the resolver as
-    /// the author wrote it. The resolve then runs once over the whole HTML, so a value is never read
-    /// as markdown. A loop's markers are placeholders too, so a loop is best kept inside one
-    /// paragraph or list item: across blocks its body repeats half of a block's tags.
+    /// Each <c>{{...}}</c> is swapped for a token markdown leaves alone, and put back after, so a
+    /// placeholder inside a link, a table cell or next to an underscore reaches the resolver as the
+    /// author wrote it, whatever <c>*</c>, <c>_</c>, <c>|</c>, <c>&lt;</c>, <c>&gt;</c> or quotes it
+    /// holds. The token is random for each render and is chosen so it is not in the author's text,
+    /// so no text of theirs can be taken for one. The resolve then runs once over the whole HTML, so
+    /// a value is never read as markdown.
+    ///
+    /// A loop whose markers stand on their own lines around table rows is moved into the rows
+    /// (see <see cref="Rows"/>), so each pass of the loop gives whole rows. Otherwise a loop is best
+    /// kept inside one paragraph or list item: across blocks its body repeats half of a block's tags.
     /// </remarks>
     internal static string Markdown(string? source)
     {
         if (string.IsNullOrWhiteSpace(source)) return string.Empty;
 
-        var nonce = Guid.NewGuid().ToString("N");
+        var nonce = NonceNotIn(source);
         var holes = new List<string>();
-        var shielded = TemplateExpression.Token.Replace(source, match =>
+        var openers = new HashSet<int>();
+        var closers = new HashSet<int>();
+
+        string Lift(string text) => TemplateExpression.Token.Replace(text, match =>
         {
             holes.Add(match.Value);
             return $"ph{nonce}x{holes.Count - 1}x";
         });
 
+        var shielded = Lift(Rows(source, nonce, holes, openers, closers));
         var html = Markdig.Markdown.ToHtml(shielded, Pipeline);
+
+        if (openers.Count > 0 || closers.Count > 0) html = MoveLoopsOutOfRows(html, nonce, openers, closers);
 
         return Regex.Replace(
             html, $"ph{nonce}x(\\d+)x",
             match => int.TryParse(match.Groups[1].ValueSpan, out var index) && index < holes.Count ? holes[index] : match.Value,
+            RegexOptions.None, ScanTimeout);
+    }
+
+    /// <summary>A random token that is not in the text, so nothing the author wrote can read as a placeholder.</summary>
+    private static string NonceNotIn(string source)
+    {
+        while (true)
+        {
+            var nonce = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(12)).ToLowerInvariant();
+            if (!source.Contains($"ph{nonce}x", StringComparison.OrdinalIgnoreCase)) return nonce;
+        }
+    }
+
+    private static readonly Regex LoopOpenLine = new(
+        @"\A\s*(\{\{\s*\#each\s[^{}]*\}\})\s*\z", RegexOptions.Compiled, ScanTimeout);
+
+    private static readonly Regex LoopCloseLine = new(
+        @"\A\s*(\{\{\s*/each\s*\}\})\s*\z", RegexOptions.Compiled, ScanTimeout);
+
+    /// <summary>
+    /// A loop's opening marker alone on a line before a table row, and its closing marker alone on a
+    /// line after one, written into that row's first and last cell as lifted holes. Markdown then
+    /// keeps the table whole, and <see cref="MoveLoopsOutOfRows"/> puts the markers around the
+    /// <c>&lt;tr&gt;</c>, so the loop repeats rows and not half of one.
+    /// </summary>
+    private static string Rows(string source, string nonce, List<string> holes, HashSet<int> openers, HashSet<int> closers)
+    {
+        var lines = source.Split('\n');
+        var kept = new List<string>(lines.Length);
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            var next = i + 1 < lines.Length ? lines[i + 1].TrimStart() : string.Empty;
+
+            if (next.StartsWith('|') && LoopOpenLine.Match(line) is { Success: true } open)
+            {
+                holes.Add(open.Groups[1].Value);
+                openers.Add(holes.Count - 1);
+                var row = lines[++i].TrimStart();
+                kept.Add($"| ph{nonce}x{holes.Count - 1}x{row[1..].TrimStart()}");
+                continue;
+            }
+
+            if (kept.Count > 0 && kept[^1].TrimStart().StartsWith('|') && LoopCloseLine.Match(line) is { Success: true } close)
+            {
+                holes.Add(close.Groups[1].Value);
+                closers.Add(holes.Count - 1);
+                var row = kept[^1].TrimEnd();
+                kept[^1] = row.EndsWith('|') ? $"{row[..^1]} ph{nonce}x{holes.Count - 1}x |" : $"{row} ph{nonce}x{holes.Count - 1}x";
+                continue;
+            }
+
+            kept.Add(line);
+        }
+
+        return string.Join('\n', kept);
+    }
+
+    private static string MoveLoopsOutOfRows(string html, string nonce, HashSet<int> openers, HashSet<int> closers)
+    {
+        html = Regex.Replace(
+            html, $"(<tr>\\s*<t[dh][^>]*>)(ph{nonce}x(\\d+)x)",
+            match => int.Parse(match.Groups[3].ValueSpan, System.Globalization.CultureInfo.InvariantCulture) is var index && openers.Contains(index)
+                ? match.Groups[2].Value + match.Groups[1].Value
+                : match.Value,
+            RegexOptions.None, ScanTimeout);
+
+        return Regex.Replace(
+            html, $"\\s*(ph{nonce}x(\\d+)x)\\s*(</t[dh]>\\s*)</tr>",
+            match => int.Parse(match.Groups[2].ValueSpan, System.Globalization.CultureInfo.InvariantCulture) is var index && closers.Contains(index)
+                ? match.Groups[3].Value + "</tr>" + match.Groups[1].Value
+                : match.Value,
             RegexOptions.None, ScanTimeout);
     }
 

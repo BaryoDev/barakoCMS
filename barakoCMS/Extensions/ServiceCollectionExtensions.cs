@@ -1916,6 +1916,8 @@ public static class ServiceCollectionExtensions
             sp.GetService<IConfiguration>())
         {
             ActionLinks = sp.GetService<barakoCMS.Infrastructure.Services.ActionLinkTokenIssuer>(),
+            Queries = sp.GetService<barakoCMS.Infrastructure.Connectors.IContextQueryRunner>(),
+            Log = sp.GetService<Microsoft.Extensions.Logging.ILoggerFactory>()?.CreateLogger<barakoCMS.Infrastructure.Services.TemplateVariableExtractor>(),
         });
         services.AddScoped<IWorkflowDebugger, WorkflowDebugger>();
     }
