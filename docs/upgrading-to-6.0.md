@@ -203,6 +203,10 @@ refuses an entry whose content type has no definition
 [configuration.md](configuration.md) lists every key with its default and what a bad value does
 ([#1462](https://github.com/BaryoDev/barakoCMS/pull/1462)).
 
+`TemplateHoles.Names` and `TemplateHoles.FirstNonPublic` in `BarakoCMS.Abstractions` throw
+`TemplateScanException` for a template over the scan cap or when the scan times out. A module that
+calls them catches it.
+
 ## The upgrade
 
 With 5.9 stopped, run the app role job, then `db-migrate`, then `db-assert`, then start 6.0. With
