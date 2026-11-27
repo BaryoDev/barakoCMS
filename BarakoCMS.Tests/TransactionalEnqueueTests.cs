@@ -87,6 +87,32 @@ public class TransactionalEnqueueTests
             "the duplicate role and the job were one transaction, and the unique index refused it");
     }
 
+    /// <summary>
+    /// A job queued inside <c>JobEnqueue.On(other)</c> rides <c>other</c>, in its tenant. The control
+    /// saves <c>other</c> and finds the job; the second saves only the request's session and finds none.
+    /// </summary>
+    [Fact]
+    public async Task A_job_queued_on_another_session_commits_with_that_session_and_not_with_the_request()
+    {
+        var tenant = await TenantAsync();
+        var saved = Marker();
+        var unsaved = Marker();
+        var client = _factory.CreateClient();
+
+        var committed = await client.PostAsync(
+            $"/api/_test/jobs/enqueue-on-other-session?message={saved}&tenant={tenant}&save=other", null, TestContext.Current.CancellationToken);
+        committed.StatusCode.Should().Be(HttpStatusCode.OK);
+        var requestOnly = await client.PostAsync(
+            $"/api/_test/jobs/enqueue-on-other-session?message={unsaved}&tenant={tenant}&save=request", null, TestContext.Current.CancellationToken);
+        requestOnly.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var record = await FindByMarkerAsync(saved);
+        record.Should().NotBeNull("the other session committed, and the job was staged on it");
+        record!.TenantId.Should().Be(tenant, "the job belongs to the session it was staged on, not the request's tenant");
+        (await FindByMarkerAsync(unsaved)).Should().BeNull(
+            "only the request's session saved, and the job was never on it");
+    }
+
     [Fact]
     public async Task A_committed_job_runs_and_is_marked_complete()
     {
