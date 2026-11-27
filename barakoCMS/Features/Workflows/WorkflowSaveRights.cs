@@ -48,7 +48,7 @@ internal static class WorkflowSaveRights
             .ToList();
         var requests = RequestSlugs(workflow);
         var missing = new List<string>();
-        if (needs.Count == 0 && capabilities.Count == 0 && queries.Count == 0 && templates.Count == 0 && requests.Count == 0)
+        if (needs.Count == 0 && capabilities.Count == 0 && queries.Count == 0 && templates.Count == 0 && requests.Count == 0 && !HasTemplatedRequest(workflow))
             return missing;
 
         User? user = null;
@@ -94,6 +94,46 @@ internal static class WorkflowSaveRights
 
         missing.AddRange(await TemplateDatasetsMissingAsync(session, permissions, sensitivity, user, templates, ct));
         missing.AddRange(await RequestGrantsMissingAsync(session, permissions, sensitivity, principal, user, workflow, requests, ct));
+        missing.AddRange(await TemplatedRequestMissingAsync(session, sensitivity, principal, workflow, ct));
+        return missing;
+    }
+
+    /// <summary>Whether a Request step names its request by a template, which the engine resolves from entry data at run time.</summary>
+    private static bool HasTemplatedRequest(WorkflowDefinition workflow) =>
+        Flatten(workflow).Any(a => string.Equals(a.Type, "Request", StringComparison.OrdinalIgnoreCase)
+            && (a.Parameters.GetValueOrDefault("Request") ?? "").Contains("{{"));
+
+    /// <summary>
+    /// A templated slug can name any request of the tenant, so the saver must be able to read every
+    /// granted field of every connector that has grants. A tenant with no granted connector asks
+    /// for nothing, so a workflow written before grants existed still saves.
+    /// </summary>
+    private static async Task<List<string>> TemplatedRequestMissingAsync(
+        IDocumentSession session, barakoCMS.Core.Interfaces.ISensitivityService? sensitivity,
+        ClaimsPrincipal principal, WorkflowDefinition workflow, CancellationToken ct)
+    {
+        var missing = new List<string>();
+        if (!HasTemplatedRequest(workflow)) return missing;
+
+        var connectors = (await session.Query<Connector>().ToListAsync(ct)).Where(c => c.AllowedFields is { Count: > 0 });
+        foreach (var connector in connectors.OrderBy(c => c.Slug, StringComparer.Ordinal))
+        {
+            foreach (var entry in connector.AllowedFields!)
+            {
+                if (!barakoCMS.Infrastructure.Connectors.ConnectorGrants.TryParse(entry, out var type, out var name)) continue;
+
+                var schema = await AccountContentTypes.ResolveAsync(session, type, ct);
+                var field = schema?.Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+                if (schema is null || field is null) continue;
+
+                if (sensitivity is null || !await sensitivity.MayReadFieldAsync(schema.Name, field, null, principal, ct))
+                {
+                    missing.Add($"You cannot read '{schema.Name}.{field.Name}', which the connector '{connector.Slug}' is granted, and this workflow "
+                                + "names its request by a template, so it could send it. Name the request, or ask for the read.");
+                }
+            }
+        }
+
         return missing;
     }
 

@@ -163,4 +163,50 @@ public class ConnectorGrantWorkflowSaveTests(IntegrationTestFixture fixture)
 
         (await MissingAsync(saver, Workflow(seed.Lines, slug))).Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task A_templated_slug_asks_the_saver_for_every_granted_field_of_every_connector_and_names_the_field()
+    {
+        var subject = await GrantKit.SeedAsync(fixture, ["Ssn"]);
+        var (saver, _) = await UserAsync(fixture, [], subject.Type);
+
+        var missing = await MissingAsync(saver, Workflow(subject.Type, "{{data.Which}}"));
+
+        missing.Should().Contain(m => m.Contains(subject.Type + ".Ssn")).Which.Should().NotContain(SsnValue);
+    }
+
+    [Fact]
+    public async Task A_templated_slug_is_not_refused_for_a_saver_who_may_read_every_granted_field()
+    {
+        var subject = await GrantKit.SeedAsync(fixture, ["Ssn"]);
+        await ClearOtherGrantsAsync(subject.Type);
+        var (saver, _) = await UserAsync(fixture, [SystemCapabilities.ViewSensitive], subject.Type);
+
+        (await MissingAsync(saver, Workflow(subject.Type, "{{data.Which}}"))).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_templated_slug_adds_no_requirement_when_no_connector_has_grants()
+    {
+        var subject = await GrantKit.SeedAsync(fixture, []);
+        await ClearOtherGrantsAsync(subject.Type);
+        var (saver, _) = await UserAsync(fixture, [], subject.Type);
+
+        (await MissingAsync(saver, Workflow(subject.Type, "{{data.Which}}"))).Should().BeEmpty();
+    }
+
+    /// <summary>Takes the grants off every connector in the default tenant, which holds those of earlier tests.</summary>
+    private async Task ClearOtherGrantsAsync(string keep)
+    {
+        using var scope = fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        foreach (var connector in (await session.Query<Connector>().ToListAsync(Ct)).Where(c => c.AllowedFields is { Count: > 0 }))
+        {
+            if (connector.AllowedFields!.All(e => e.StartsWith(keep + ".", StringComparison.OrdinalIgnoreCase))) continue;
+            connector.AllowedFields = null;
+            session.Store(connector);
+        }
+
+        await session.SaveChangesAsync(Ct);
+    }
 }
