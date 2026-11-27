@@ -490,18 +490,27 @@ public class TemplateVariableExtractor(
     /// </remarks>
     private async Task<(TimeZoneInfo? Zone, string? Currency, string? Url)> SiteSettingsAsync(CancellationToken ct)
     {
-        var site = await session.Query<Content>()
+        var site = await SiteAsync(session, ct);
+        var zone = EntryUrls.Setting(site, "TimeZone");
+
+        return (zone is null ? TimeZoneInfo.Utc : TemplateExpression.Zone(zone),
+            TemplateExpression.CurrencyCode(EntryUrls.Setting(site, "Currency")),
+            EntryUrls.Setting(site, "Url"));
+    }
+
+    private static Task<Content?> SiteAsync(IQuerySession reader, CancellationToken ct) =>
+        reader.Query<Content>()
             .Where(c => c.ContentType == barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.SiteType
                         && c.Status == ContentStatus.Published)
             .OrderBy(c => c.CreatedAt)
             .Take(1)
             .FirstOrDefaultAsync(ct);
 
-        var zone = EntryUrls.Setting(site, "TimeZone");
-
-        return (zone is null ? TimeZoneInfo.Utc : TemplateExpression.Zone(zone),
-            TemplateExpression.CurrencyCode(EntryUrls.Setting(site, "Currency")),
-            EntryUrls.Setting(site, "Url"));
+    /// <summary>The tenant's time zone for a condition that reads the clock: UTC with no setting, or null for a zone this server does not know.</summary>
+    internal static async Task<TimeZoneInfo?> TenantZoneAsync(IQuerySession reader, CancellationToken ct)
+    {
+        var zone = EntryUrls.Setting(await SiteAsync(reader, ct), "TimeZone");
+        return zone is null ? TimeZoneInfo.Utc : TemplateExpression.Zone(zone);
     }
 
     private bool? _tenantIsRegistered;

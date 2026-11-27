@@ -54,7 +54,21 @@ internal class ConditionalAction : IWorkflowAction
     /// alongside a failing one, this reports <see cref="WorkflowActionResult.PermanentFailure"/> so the
     /// runner does not resend what the earlier child already sent.
     /// </remarks>
-    public async Task<WorkflowActionResult> RunAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct)
+    public Task<WorkflowActionResult> RunAsync(Dictionary<string, string> parameters, barakoCMS.Models.Content content, CancellationToken ct) =>
+        RunBranchAsync(parameters, content, NoOutputs, ct);
+
+    /// <summary>The runner's entry, so the condition can read what the steps before it kept as <c>actions.N.name</c>.</summary>
+    public Task<WorkflowActionResult> RunAsync(WorkflowContext context, CancellationToken ct) =>
+        RunBranchAsync(context.Parameters, context.Content, context.Outputs, ct);
+
+    private static readonly IReadOnlyDictionary<int, IReadOnlyDictionary<string, string>> NoOutputs =
+        new Dictionary<int, IReadOnlyDictionary<string, string>>();
+
+    private async Task<WorkflowActionResult> RunBranchAsync(
+        Dictionary<string, string> parameters,
+        barakoCMS.Models.Content content,
+        IReadOnlyDictionary<int, IReadOnlyDictionary<string, string>> outputs,
+        CancellationToken ct)
     {
         var condition = parameters.GetValueOrDefault("Condition");
         var thenActionsJson = parameters.GetValueOrDefault("ThenActions");
@@ -65,14 +79,27 @@ internal class ConditionalAction : IWorkflowAction
             return WorkflowActionResult.PermanentFailure("Conditional action is missing its 'Condition' parameter.");
         }
 
-        if (content is ErasedContent && (condition.Contains("{{data.") || condition.Contains("{{status}}")))
+        if (content is ErasedContent && ConditionExpression.ReadsTheEntry(condition))
         {
             return WorkflowActionResult.PermanentFailure(
                 "The entry was erased, so a condition on its status or data cannot be evaluated.");
         }
 
-        var conditionResult = EvaluateCondition(condition, content);
-        var actionsToExecute = conditionResult ? thenActionsJson : elseActionsJson;
+        var verdict = await EvaluateConditionAsync(condition, content, outputs, ct);
+        var result = await RunSelectedAsync(
+            parameters, content, verdict.Result, verdict.Result ? thenActionsJson : elseActionsJson, ct);
+
+        // The note says why a condition that could not be evaluated is false. It holds no value.
+        return verdict.Note is null ? result : result with { Note = verdict.Note };
+    }
+
+    private async Task<WorkflowActionResult> RunSelectedAsync(
+        Dictionary<string, string> parameters,
+        barakoCMS.Models.Content content,
+        bool conditionResult,
+        string? actionsToExecute,
+        CancellationToken ct)
+    {
 
         if (string.IsNullOrEmpty(actionsToExecute))
         {
@@ -115,119 +142,157 @@ internal class ConditionalAction : IWorkflowAction
             return WorkflowActionResult.PermanentFailure("No workflow actions are registered, so the conditional's children could not run.");
         }
 
-        // The registered extractor when there is one, so children resolve exactly as top-level
-        // actions do. A host that registers none still gets the built-in rules.
-        var extractor = _serviceProvider.GetService<ITemplateVariableExtractor>();
-        var protector = _serviceProvider.GetService<ISecretProtector>();
-
-        var succeededCount = 0;
-        var failedTypes = new List<string>();
-        var credentialErrors = new List<string>();
-        var anyPermanentFailure = false;
-
+        var tally = new Tally();
         foreach (var childAction in actions)
         {
-            var plugin = availableActions.Find(childAction.Type);
-            if (plugin == null && availableActions.NotBuiltError(childAction.Type) is not null)
-            {
-                // Not permanent: the child that could not be built may be this one, and the runner's
-                // attempt limit still ends the retries.
-                _logger.LogWarning("Action type {Type} not found while some actions could not be built", childAction.Type);
-                failedTypes.Add(childAction.Type);
-                continue;
-            }
-
-            if (plugin == null)
-            {
-                _logger.LogWarning("Action type {Type} not found", childAction.Type);
-                failedTypes.Add(childAction.Type);
-                anyPermanentFailure = true;
-                continue;
-            }
-
-            // The same decryption the runner does for a top-level action: every credential but
-            // Secret, which Webhook decrypts itself. A nested Conditional decrypts its own children.
-            var childParameters = childAction.Parameters;
-            if (protector is not null)
-            {
-                var (unprotected, credentialError) = WebhookSigning.UnprotectCredentials(childParameters, protector);
-                if (credentialError is not null)
-                {
-                    // The error names the parameter and never holds its value, so unlike a child's
-                    // own error it is safe on the run record. Permanent: a retry has the same key.
-                    credentialErrors.Add($"{childAction.Type}: {credentialError}");
-                    failedTypes.Add(childAction.Type);
-                    anyPermanentFailure = true;
-                    continue;
-                }
-
-                childParameters = unprotected;
-            }
-
-            WorkflowActionResult childResult;
-            try
-            {
-                childResult = await plugin.RunAsync(
-                    ActionParameters.WithTriggerOf(parameters, ResolveChild(extractor, childAction.Type, childParameters, content)),
-                    content, ct);
-            }
-            catch (Exception ex) when (ex is SendOutcomeUnknownException || (ex is OperationCanceledException && ct.IsCancellationRequested))
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                // The child's own exception may carry whatever it was sending (a recipient, a
-                // payload), so only its type is kept here. WorkflowRunner.cs stores the exception
-                // message too (see #598); this is deliberately stricter, not aligned with that, since
-                // this string is stored on the run record and served over the API.
-                _logger.LogWarning(ex, "Child action {Type} threw", childAction.Type);
-                failedTypes.Add(childAction.Type);
-                continue;
-            }
-
-            if (childResult.Succeeded)
-            {
-                succeededCount++;
-                continue;
-            }
-
-            // The child's error is dropped, not relocated: it can hold what the child was trying to
-            // send, and neither the run record nor the log is a safe home for text a child action
-            // composed. A log aggregator is a different place, not a safer one, same reasoning
-            // WebhookAction applies to an HttpRequestException's message.
-            _logger.LogWarning("Child action {Type} failed", childAction.Type);
-            failedTypes.Add(childAction.Type);
-            if (!childResult.Retryable)
-            {
-                anyPermanentFailure = true;
-            }
+            await RunChildAsync(childAction, availableActions, parameters, content, tally, ct);
         }
 
         _logger.LogInformation(
             "Conditional action executed {Branch} branch with {Count} actions, {Failed} failed",
-            conditionResult ? "then" : "else", actions.Count, failedTypes.Count);
+            conditionResult ? "then" : "else", actions.Count, tally.FailedTypes.Count);
 
-        if (failedTypes.Count == 0)
+        return Summarise(tally, conditionResult ? "then" : "else", actions.Count);
+    }
+
+    /// <summary>What the children of one branch did so far.</summary>
+    private sealed class Tally
+    {
+        public int Succeeded;
+        public readonly List<string> FailedTypes = [];
+        public readonly List<string> CredentialErrors = [];
+        public bool AnyPermanentFailure;
+    }
+
+    private async Task RunChildAsync(
+        ChildAction childAction,
+        WorkflowActionSet availableActions,
+        Dictionary<string, string> parameters,
+        barakoCMS.Models.Content content,
+        Tally tally,
+        CancellationToken ct)
+    {
+        var plugin = availableActions.Find(childAction.Type);
+        if (plugin == null && availableActions.NotBuiltError(childAction.Type) is not null)
+        {
+            // Not permanent: the child that could not be built may be this one, and the runner's
+            // attempt limit still ends the retries.
+            _logger.LogWarning("Action type {Type} not found while some actions could not be built", childAction.Type);
+            tally.FailedTypes.Add(childAction.Type);
+            return;
+        }
+
+        if (plugin == null)
+        {
+            _logger.LogWarning("Action type {Type} not found", childAction.Type);
+            tally.FailedTypes.Add(childAction.Type);
+            tally.AnyPermanentFailure = true;
+            return;
+        }
+
+        // The registered extractor when there is one, so children resolve exactly as top-level
+        // actions do. A host that registers none still gets the built-in rules.
+        var extractor = _serviceProvider.GetService<ITemplateVariableExtractor>();
+
+        var childParameters = Unprotect(childAction, tally);
+        if (childParameters is null)
+        {
+            return;
+        }
+
+        WorkflowActionResult childResult;
+        try
+        {
+            childResult = await plugin.RunAsync(
+                ActionParameters.WithTriggerOf(parameters, ResolveChild(extractor, childAction.Type, childParameters, content)),
+                content, ct);
+        }
+        catch (Exception ex) when (ex is SendOutcomeUnknownException || (ex is OperationCanceledException && ct.IsCancellationRequested))
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // The child's own exception may carry whatever it was sending (a recipient, a
+            // payload), so only its type is kept here. WorkflowRunner.cs stores the exception
+            // message too (see #598); this is deliberately stricter, not aligned with that, since
+            // this string is stored on the run record and served over the API.
+            _logger.LogWarning(ex, "Child action {Type} threw", childAction.Type);
+            tally.FailedTypes.Add(childAction.Type);
+            return;
+        }
+
+        Record(childResult, childAction.Type, tally);
+    }
+
+    private void Record(WorkflowActionResult childResult, string type, Tally tally)
+    {
+        if (childResult.Succeeded)
+        {
+            tally.Succeeded++;
+            return;
+        }
+
+        // The child's error is dropped, not relocated: it can hold what the child was trying to
+        // send, and neither the run record nor the log is a safe home for text a child action
+        // composed. A log aggregator is a different place, not a safer one, same reasoning
+        // WebhookAction applies to an HttpRequestException's message.
+        _logger.LogWarning("Child action {Type} failed", type);
+        tally.FailedTypes.Add(type);
+        if (!childResult.Retryable)
+        {
+            tally.AnyPermanentFailure = true;
+        }
+    }
+
+    /// <summary>
+    /// The same decryption the runner does for a top-level action: every credential but Secret, which
+    /// Webhook decrypts itself. A nested Conditional decrypts its own children. Null when a
+    /// credential cannot be read, with the failure on the tally.
+    /// </summary>
+    private Dictionary<string, string>? Unprotect(ChildAction childAction, Tally tally)
+    {
+        var protector = _serviceProvider.GetService<ISecretProtector>();
+        if (protector is null)
+        {
+            return childAction.Parameters;
+        }
+
+        var (unprotected, credentialError) = WebhookSigning.UnprotectCredentials(childAction.Parameters, protector);
+        if (credentialError is null)
+        {
+            return unprotected;
+        }
+
+        // The error names the parameter and never holds its value, so unlike a child's
+        // own error it is safe on the run record. Permanent: a retry has the same key.
+        tally.CredentialErrors.Add($"{childAction.Type}: {credentialError}");
+        tally.FailedTypes.Add(childAction.Type);
+        tally.AnyPermanentFailure = true;
+        return null;
+    }
+
+    private static WorkflowActionResult Summarise(Tally tally, string branch, int count)
+    {
+        if (tally.FailedTypes.Count == 0)
         {
             return WorkflowActionResult.Success();
         }
 
-        var branch = conditionResult ? "then" : "else";
-        var names = string.Join(", ", failedTypes.Distinct());
-        var message = failedTypes.Count == actions.Count
-            ? $"All {actions.Count} child action(s) failed in the {branch} branch: {names}."
-            : $"{failedTypes.Count} of {actions.Count} child action(s) failed in the {branch} branch: {names}.";
+        var names = string.Join(", ", tally.FailedTypes.Distinct());
+        var message = tally.FailedTypes.Count == count
+            ? $"All {count} child action(s) failed in the {branch} branch: {names}."
+            : $"{tally.FailedTypes.Count} of {count} child action(s) failed in the {branch} branch: {names}.";
 
-        if (credentialErrors.Count > 0)
+        if (tally.CredentialErrors.Count > 0)
         {
-            message += " " + string.Join(" ", credentialErrors);
+            message += " " + string.Join(" ", tally.CredentialErrors);
         }
 
         // A retry re-runs every child from the top, so it is only safe when nothing has succeeded
         // yet. Once one child has succeeded alongside a failure, retrying would resend what that
         // child already sent, which is its own defect (see the remarks above).
-        if (succeededCount > 0 || anyPermanentFailure)
+        if (tally.Succeeded > 0 || tally.AnyPermanentFailure)
         {
             return WorkflowActionResult.PermanentFailure(message);
         }
@@ -248,50 +313,24 @@ internal class ConditionalAction : IWorkflowAction
             : ActionParameters.Resolve(extractor, type, childParameters, content, registry);
     }
 
-    private bool EvaluateCondition(string condition, barakoCMS.Models.Content content)
+    private async Task<ConditionExpression.Verdict> EvaluateConditionAsync(
+        string condition,
+        barakoCMS.Models.Content content,
+        IReadOnlyDictionary<int, IReadOnlyDictionary<string, string>> outputs,
+        CancellationToken ct)
     {
-        // Simple condition evaluator for common patterns
-        // Supports: {{data.Field}} == "Value", {{status}} == "Published", etc.
+        var prepared = ConditionExpression.Prepare(condition, content, outputs);
+        var zone = prepared.UsesClock && _serviceProvider.GetService<Marten.IQuerySession>() is { } session
+            ? await TemplateVariableExtractor.TenantZoneAsync(session, ct)
+            : null;
 
-        try
+        var verdict = ConditionExpression.Run(prepared, zone);
+        if (verdict.Note is not null)
         {
-            // Extract template variable and expected value
-            var parts = condition.Split(new[] { "==", "!=" }, StringSplitOptions.TrimEntries);
-            if (parts.Length != 2)
-            {
-                _logger.LogWarning("Invalid condition format: {Condition}", condition);
-                return false;
-            }
-
-            var isNotEqual = condition.Contains("!=");
-            var variable = parts[0].Trim();
-            var expectedValue = parts[1].Trim().Trim('"');
-
-            // Resolve variable value
-            string actualValue = "";
-            if (variable.Contains("{{data."))
-            {
-                var fieldName = variable.Replace("{{data.", "").Replace("}}", "");
-                actualValue = content.Data.GetValueOrDefault(fieldName)?.ToString() ?? "";
-            }
-            else if (variable.Contains("{{status}}"))
-            {
-                actualValue = content.Status.ToString();
-            }
-            else if (variable.Contains("{{contentType}}"))
-            {
-                actualValue = content.ContentType;
-            }
-
-            // Compare
-            var result = actualValue.Equals(expectedValue, StringComparison.OrdinalIgnoreCase);
-            return isNotEqual ? !result : result;
+            _logger.LogWarning("A condition could not be evaluated, so it is false: {Note}", verdict.Note);
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error evaluating condition: {Condition}", condition);
-            return false;
-        }
+
+        return verdict;
     }
 
     private class ChildAction

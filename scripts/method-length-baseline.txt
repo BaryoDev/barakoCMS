@@ -60,7 +60,6 @@
 72 barakoCMS/Features/Site/ShareLinks/EntryEndpoints.cs::CreateEntryShareLinkEndpoint.HandleAsync
 75 barakoCMS/Features/Users/RemoveRole/Endpoint.cs::Endpoint.HandleAsync
 127 barakoCMS/Features/WorkflowRuns/Endpoints.cs::RetryAttemptEndpoint.HandleAsync
-180 barakoCMS/Features/Workflows/Actions/ConditionalAction.cs::ConditionalAction.RunAsync
 73 barakoCMS/Features/Workflows/Actions/CreateContentAction.cs::CreateContentAction.RunAsync
 109 barakoCMS/Features/Workflows/Actions/EmailAction.cs::EmailAction.RunAsync
 86 barakoCMS/Features/Workflows/Actions/PublishAction.cs::PublishAction.RunAsync
