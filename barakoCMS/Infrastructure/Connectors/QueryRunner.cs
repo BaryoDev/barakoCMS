@@ -68,7 +68,8 @@ internal sealed class QueryRunner(
     IQuerySession session,
     IPermissionResolver? permissions = null,
     ISensitivityService? sensitivity = null,
-    IBranchScopeGuard? branches = null) : IQueryRunner, IContextQueryRunner
+    IBranchScopeGuard? branches = null,
+    Microsoft.Extensions.Logging.ILogger<QueryRunner>? logger = null) : IQueryRunner, IContextQueryRunner
 {
     /// <summary>How long the statement that reads the rows may run. A run that passes it is cancelled and answers with a message.</summary>
     public static readonly TimeSpan StatementTimeout = TimeSpan.FromSeconds(15);
@@ -92,6 +93,7 @@ internal sealed class QueryRunner(
         string? Refusal, ContentTypeDefinition? Schema, Dictionary<string, string> Allowed,
         Reader? Reader = null, Dictionary<string, Followed>? Follows = null);
 
+
     /// <summary>A selected <c>Reference.Field</c>: the reference field, the type it points at and the field read there.</summary>
     private sealed record Followed(FieldDefinition Reference, ContentTypeDefinition Target, FieldDefinition Field);
 
@@ -108,12 +110,32 @@ internal sealed class QueryRunner(
 
         private HttpContext Http => _http ??= new DefaultHttpContext { User = Principal };
 
-        /// <summary>Whether a field may be named and read. An owner-hidden field never may, because who owns the entry is not known until the row is read.</summary>
+        /// <summary>
+        /// Whether a field may be named, decided from the schema, the field rules and this reader's
+        /// rights alone, never from a row. It passes only when the reader may read it on every entry
+        /// of the type: the sensitivity of the field, the owner-hiding exemption (the one the read of
+        /// an entry applies) and the fields the reader's read rules grant on every entry. With nobody
+        /// to read as, only a Public field that no owner can hide.
+        /// </summary>
         public async Task<bool> MayReadFieldAsync(string type, FieldDefinition field, CancellationToken ct) =>
-            !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(field)
-            && (User is null
-                ? field.Sensitivity == SensitivityLevel.Public
-                : await sensitivity.MayReadFieldAsync(type, field, null, Principal, ct));
+            User is null
+                ? field.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(field)
+                : await sensitivity.MayReadFieldAsync(type, field, null, Principal, ct);
+
+        /// <summary>
+        /// The levels of document this reader may see, asked of the same service the read of an entry
+        /// asks, so the query can leave the others out before the limit and the count.
+        /// </summary>
+        public async Task<List<SensitivityLevel>> HiddenLevelsAsync(CancellationToken ct)
+        {
+            var hidden = new List<SensitivityLevel>();
+            foreach (var level in Enum.GetValues<SensitivityLevel>())
+            {
+                if (!await sensitivity.MaySeeDocumentAsync(level, Principal, ct)) hidden.Add(level);
+            }
+
+            return hidden;
+        }
 
         public async Task<bool> MayReadTypeAsync(string type, CancellationToken ct) =>
             User is null || await permissions.CanPerformActionAsync(User, type, "read", null, ct);
@@ -392,6 +414,18 @@ internal sealed class QueryRunner(
             ? session.Query<Content>().Where(c => c.ContentType == exactName)
             : session.Query<Content>().Where(c => c.ContentType.ToLower() == typeName);
 
+        // An entry this reader may not see at all is not matched, counted or taken by the limit. It
+        // is left out by its level, which no field value decides, so leaving it out says nothing
+        // about any value. The read of each entry asks the same question again below.
+        if (check.Reader is { } seeing)
+        {
+            foreach (var level in await seeing.HiddenLevelsAsync(ct))
+            {
+                var withheld = level;
+                query = query.Where(c => c.Sensitivity != withheld);
+            }
+        }
+
         foreach (var filter in definition.Filters)
         {
             if (context is not null && IsSystemField(filter.Field))
@@ -457,41 +491,47 @@ internal sealed class QueryRunner(
         Dictionary<Guid, Content>? targets = null;
         try
         {
-            rows = [.. await query.Take(definition.Limit).ToListAsync(limit.Token)];
-
-            if (check.Reader is { } reader)
+            if (check.Reader is not { } reader)
             {
-                // Every field the query depends on, not only the ones it returns: a filter or a sort
-                // on a field this reader is not shown on a row would tell them which rows hold what
-                // without the value ever appearing.
-                var depends = definition.Filters.Select(f => f.Field)
-                    .Concat(definition.SortField is null ? [] : [definition.SortField])
-                    .Concat(definition.Fields.Select(f => f.Contains('.') ? f[..f.IndexOf('.')] : f))
+                rows = [.. await query.Take(definition.Limit).ToListAsync(limit.Token)];
+            }
+            else
+            {
+                // The fields this reader may name were decided before any row was read, so no row can
+                // change whether the run is refused. What is left to drop is an entry a read rule or
+                // a branch withholds, and the limit is counted over the entries that are kept.
+                var selected = definition.Fields.Select(f => f.Contains('.') ? f[..f.IndexOf('.')] : f)
                     .Where(n => !IsSystemField(n))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
-                var kept = new List<Content>(rows.Count);
-                foreach (var row in rows)
+                rows = new List<Content>(Math.Min(definition.Limit, 64));
+                var offset = 0;
+                while (rows.Count < definition.Limit)
                 {
-                    // An entry the reader may not read is left out, the same as one that is not there.
-                    if (await reader.ShownAsync(row, limit.Token) is not { } shown) continue;
+                    var page = await query.Skip(offset).Take(definition.Limit).ToListAsync(limit.Token);
+                    if (page.Count == 0) break;
+                    offset += page.Count;
 
-                    // A field the query names that this reader is shown masked is not left out of the
-                    // row, because a step that goes on without it is working from less than it asked for.
-                    foreach (var name in depends)
+                    foreach (var row in page)
                     {
-                        if (!Reader.Unchanged(row, shown, name))
+                        // An entry the reader may not read is left out, the same as one that is not there.
+                        if (await reader.ShownAsync(row, limit.Token) is not { } shown) continue;
+
+                        // A defence, not a rule: every selected field passed the check above, so a
+                        // masked one means that check missed a case. Nothing is dropped silently.
+                        foreach (var name in selected)
                         {
-                            return QueryResult.Refused(
-                                $"The user this run reads as may not read '{Safe(name)}' on an entry the query matched, so the query was not used.");
+                            if (!Reader.Unchanged(row, shown, name)) return Missed(definition, name);
                         }
+
+                        rows.Add(row);
+                        if (rows.Count == definition.Limit) break;
                     }
 
-                    kept.Add(row);
+                    if (page.Count < definition.Limit) break;
                 }
 
-                rows = kept;
                 var followed = await FollowedEntriesAsync(rows, check.Follows, reader, limit.Token);
                 targets = followed?.Entries;
 
@@ -503,8 +543,7 @@ internal sealed class QueryRunner(
                         {
                             if (followed.Masked.Contains((ReferenceId(row, follow), follow.Field.Name.ToLowerInvariant())))
                             {
-                                return QueryResult.Refused(
-                                    $"The user this run reads as may not read '{Safe(follow.Reference.Name + "." + follow.Field.Name)}' on an entry the query matched, so the query was not used.");
+                                return Missed(definition, follow.Reference.Name + "." + follow.Field.Name);
                             }
                         }
                     }
@@ -552,6 +591,18 @@ internal sealed class QueryRunner(
         }
 
         return new QueryResult(projected, null) { Ids = [.. rows.Select(r => r.Id)] };
+    }
+
+    /// <summary>
+    /// A selected field was shown masked on a row although the up-front check passed it. That check
+    /// missed a case, so the run is refused and the miss is logged, with the field and not a value.
+    /// </summary>
+    private QueryResult Missed(QueryDefinition definition, string field)
+    {
+        logger?.LogWarning(
+            "A saved query read '{Field}' of '{Type}' as a user who is shown it masked, although the check allowed it. The run was refused.",
+            Safe(field), Safe(definition.ContentType));
+        return QueryResult.Refused($"The user this run reads as may not read '{Safe(field)}', so the query was not used.");
     }
 
     /// <summary>Whether this is the cancellation of the statement by the run's own limit, whatever Marten wrapped it in.</summary>
