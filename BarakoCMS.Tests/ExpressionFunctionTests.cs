@@ -69,7 +69,14 @@ public class ExpressionFunctionTests
     [InlineData("concat(\"x\", true)", "'xtrue'")]
     [InlineData("concat(\"n\", 1.5)", "'n1.5'")]
     [InlineData("concat(\"d=\", date(\"2026-01-02\"))", "'d=2026-01-02'")]
-    [InlineData("concat(\"\", \"\")", "''")]
+    [InlineData("concat(\"\", \"\")", "null")]
+    [InlineData("concat(\"a\", \"\", \"b\")", "'ab'")]
+    [InlineData("concat(\"a\", \"   \", \"b\")", "'ab'")]
+    [InlineData("concat(\"\", \"  \")", "null")]
+    [InlineData("concat(\"\", null)", "null")]
+    [InlineData("concat(\" a \", \"b\")", "' a b'")]
+    [InlineData("concat(\"n=\", 2 * 1.50)", "'n=3.00'")]
+    [InlineData("concat(\"\", 1.50)", "'1.50'")]
     [InlineData("upper(\"abc\")", "'ABC'")]
     [InlineData("lower(\"ABC\")", "'abc'")]
     [InlineData("upper(null)", "null")]
@@ -193,16 +200,16 @@ public class ExpressionFunctionTests
     public void Format_patterns(string source, string expected) => Shown(source).Should().Be(expected, source);
 
     [Fact]
-    public void Every_function_has_a_test_above_or_in_the_parser_tests()
+    public void The_function_table_is_exactly_the_documented_list()
     {
-        string[] covered =
+        string[] documented =
         [
             "round", "floor", "ceiling", "abs", "min", "max", "iif", "switch", "coalesce", "isblank", "concat", "upper", "lower",
             "trim", "left", "right", "len", "replace", "contains", "startsWith", "years", "months", "days", "hours", "addDays",
             "addMonths", "year", "month", "day", "today", "now", "format",
         ];
 
-        FunctionTable.Names.Should().BeEquivalentTo(covered, "a new function needs its tests here first");
+        FunctionTable.Names.Should().BeEquivalentTo(documented, "a function added or dropped needs this list, the docs and its tests changed together");
     }
 
     [Fact]

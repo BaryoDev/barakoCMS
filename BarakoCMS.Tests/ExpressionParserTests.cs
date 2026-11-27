@@ -108,18 +108,56 @@ public class ExpressionParserTests
         result.Note.ToString().Should().NotContain("SECRET-VALUE");
     }
 
+    [Theory]
+    [MemberData(nameof(OutOfRangeNumbers))]
+    public void A_number_out_of_range_for_a_decimal_gives_null_and_a_note_and_never_throws(object stored)
+    {
+        var act = () => Run("Qty + 1", new Dictionary<string, object?> { ["Qty"] = stored });
+
+        var result = act.Should().NotThrow().Subject;
+        result.Value.Should().BeNull();
+        result.Note!.Rule.Should().Be(R.ValueType);
+    }
+
+    public static TheoryData<object> OutOfRangeNumbers() => new()
+    {
+        float.MaxValue,
+        float.MinValue,
+        1e29f,
+        float.NaN,
+        float.PositiveInfinity,
+        double.MaxValue,
+        1e29d,
+        double.NaN,
+        double.NegativeInfinity,
+    };
+
     [Fact]
-    public void System_names_are_known_without_the_resolver_and_asked_about_nothing()
+    public void Numbers_inside_the_range_and_a_guid_are_read()
+    {
+        Run("Qty + 1", new Dictionary<string, object?> { ["Qty"] = 1e28f }).Value.Should().NotBeNull();
+        Run("Qty + 1", new Dictionary<string, object?> { ["Qty"] = 2.5f }).Value.Should().Be(3.5m);
+        Run("Qty + 1", new Dictionary<string, object?> { ["Qty"] = 7.5d }).Value.Should().Be(8.5m);
+
+        var id = Guid.Parse("0f8fad5b-d9cb-469f-a165-70867728950e");
+        Run("Name", new Dictionary<string, object?> { ["Name"] = id }).Value.Should().Be("0f8fad5b-d9cb-469f-a165-70867728950e");
+
+        var asId = ExpressionEngine.Evaluate(Compile("upper(id)"), n => n.IsSystem ? id : null, new FakeTimeProvider(Start));
+        asId.Value.Should().Be("0F8FAD5B-D9CB-469F-A165-70867728950E");
+    }
+
+    [Fact]
+    public void System_names_are_known_without_the_resolver_giving_a_type()
     {
         var asked = new List<string>();
         var parsed = ExpressionEngine.ParseAndCheck("concat(id, status) = \"x\" and year(createdAt) > 2000", f =>
         {
             asked.Add(f);
             return null;
-        });
+        }, false);
 
         parsed.IsValid.Should().BeTrue(string.Join("; ", parsed.Errors));
-        asked.Should().BeEmpty();
+        asked.Should().OnlyContain(f => f == "id" || f == "status" || f == "createdAt", "the resolver is asked about a system name only to catch a field that shares it");
         parsed.Expression!.Fields.Should().BeEmpty("system names are not fields of the type");
 
         var values = new Dictionary<string, object?> { ["id"] = "abc", ["status"] = "open", ["createdAt"] = new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero) };
@@ -252,7 +290,7 @@ public class ExpressionParserTests
     [Fact]
     public void A_missing_source_is_an_empty_formula()
     {
-        ExpressionEngine.ParseAndCheck(null, ExpressionKit.Resolve).Errors[0].Rule.Should().Be(R.Empty);
+        ExpressionEngine.ParseAndCheck(null, ExpressionKit.Resolve, false).Errors[0].Rule.Should().Be(R.Empty);
     }
 
     [Fact]
@@ -290,12 +328,45 @@ public class ExpressionParserTests
     }
 
     [Fact]
-    public void A_flat_chain_is_a_deep_tree_and_is_held_to_the_same_depth()
+    public void A_flat_chain_is_one_level_however_long_it_is()
     {
-        string Chain(int operands) => string.Join(" + ", Enumerable.Repeat("1", operands));
+        string Chain(int operands, string op) => string.Join(op, Enumerable.Repeat("1", operands));
 
-        Check(Chain(32)).IsValid.Should().BeTrue();
-        Refused(Chain(33)).Rule.Should().Be(R.DepthLimit);
+        var sum = Run(Chain(400, " + "));
+        sum.Value.Should().Be(400m);
+        sum.Note.Should().BeNull();
+
+        Run(Chain(400, " * ")).Value.Should().Be(1m);
+        Run("500" + string.Concat(Enumerable.Repeat(" - 1", 399))).Value.Should().Be(101m);
+        Run(string.Join(" and ", Enumerable.Repeat("true", 400))).Value.Should().Be(true);
+        Run("false" + string.Concat(Enumerable.Repeat(" or false", 399)) + " or true").Value.Should().Be(true);
+
+        Refused(Chain(500, " + ")).Rule.Should().Be(R.NodeLimit, "the chain is bounded by the node limit");
+    }
+
+    [Fact]
+    public void A_chain_keeps_left_to_right_order_and_the_position_of_each_operator()
+    {
+        Shown("100 - 10 - 5 + 1").Should().Be("86");
+        Shown("2 * 3 / 4 * 8").Should().Be("12");
+        Shown("1 + 2 * 3 * 4 - 5").Should().Be("20");
+
+        var broken = Run("1 + 2 + 1 / 0 + 4");
+        broken.Value.Should().BeNull();
+        broken.Note!.Rule.Should().Be(R.DivisionByZero);
+
+        Refused("1 + 2 + \"a\" + 4").Position.Should().Be(6, "the error names the operator whose right side is wrong");
+        Run("null or true or false").Value.Should().Be(true);
+        Run("null and true and true").Value.Should().BeNull();
+        Run("true and null and false").Value.Should().Be(false);
+    }
+
+    [Fact]
+    public void Brackets_around_chains_are_still_held_to_the_depth()
+    {
+        var inner = string.Concat(Enumerable.Repeat("(1 + ", 20)) + "1" + string.Concat(Enumerable.Repeat(")", 20));
+        Check(inner).IsValid.Should().BeTrue();
+        Refused(string.Concat(Enumerable.Repeat("(1 + ", 40)) + "1" + string.Concat(Enumerable.Repeat(")", 40))).Rule.Should().Be(R.DepthLimit);
     }
 
     [Fact]
@@ -313,16 +384,16 @@ public class ExpressionParserTests
         var tight = ExpressionLimits.Default with { MaxSteps = 10 };
 
         Check("1 + 2", limits: tight).IsValid.Should().BeTrue();
-        Refused("1+1+1+1+1+1+1+1", limits: tight).Rule.Should().Be(R.StepBudget);
+        Refused(string.Join("+", Enumerable.Repeat("1", 10)), limits: tight).Rule.Should().Be(R.StepBudget);
     }
 
     [Fact]
     public void The_bounds_are_checked_again_at_evaluate_time_against_the_limits_given_then()
     {
-        var expression = Compile("1 + 2 + 3 + 4");
+        var expression = Compile("1 + (2 * (3 - (4 + 5)))");
         var values = new ValueResolver(_ => null);
 
-        ExpressionEngine.Evaluate(expression, values).Value.Should().Be(10m);
+        ExpressionEngine.Evaluate(expression, values, new FakeTimeProvider(Start)).Value.Should().Be(-11m);
 
         var tighter = new (ExpressionLimits Limits, string Rule)[]
         {
@@ -397,12 +468,59 @@ public class ExpressionParserTests
     [InlineData("upper(\"SECRET-VALUE\", 1)")]
     [InlineData("iif(\"SECRET-VALUE\", 1, 2)")]
     [InlineData("left(\"SECRET-VALUE\", \"SECRET-VALUE\")")]
+    [InlineData("SECRET_VALUE + 1")]
+    [InlineData("data.SECRET_VALUE")]
+    [InlineData("SECRET_VALUE(1)")]
+    [InlineData("secret_value(\"SECRET-VALUE\")")]
     public void Errors_never_quote_the_text_of_a_string_literal(string source)
     {
         var parsed = Check(source);
 
         parsed.IsValid.Should().BeFalse(source);
-        parsed.Errors.Should().OnlyContain(e => !e.Message.Contains("SECRET-VALUE") && !e.ToString().Contains("SECRET-VALUE"));
+        parsed.Errors.Should().OnlyContain(e =>
+            !e.Message.Contains("SECRET-VALUE") && !e.ToString().Contains("SECRET-VALUE")
+            && !e.Message.Contains("SECRET_VALUE") && !e.ToString().Contains("SECRET_VALUE"));
+    }
+
+    [Fact]
+    public void An_unknown_field_and_an_unknown_function_are_refused_by_rule_and_position_only()
+    {
+        var field = Refused("Qty + Secretfield");
+        field.Rule.Should().Be(R.UnknownName);
+        field.Position.Should().Be(6);
+        field.Message.Should().NotContain("Secretfield");
+
+        var function = Refused("secretfn(1)");
+        function.Rule.Should().Be(R.UnknownFunction);
+        function.Position.Should().Be(0);
+        function.Message.Should().NotContain("secretfn");
+    }
+
+    [Fact]
+    public void A_system_name_that_is_also_a_field_is_refused_and_data_reaches_the_field()
+    {
+        ParseResult WithField(string source) => ExpressionEngine.ParseAndCheck(
+            source,
+            f => string.Equals(f, "Status", StringComparison.OrdinalIgnoreCase) ? ExprType.Text : null,
+            false);
+
+        foreach (var written in new[] { "status", "Status", "STATUS" })
+        {
+            var bare = WithField($"upper({written})");
+            bare.IsValid.Should().BeFalse(written);
+            bare.Errors.Should().ContainSingle().Which.Rule.Should().Be(R.AmbiguousName);
+            bare.Errors[0].Position.Should().Be(6);
+            bare.Errors[0].Message.Should().Contain("data.");
+        }
+
+        var viaData = WithField("upper(data.Status)");
+        viaData.IsValid.Should().BeTrue(string.Join("; ", viaData.Errors));
+        viaData.Expression!.Fields.Should().Equal("Status");
+
+        var values = new ValueResolver(n => n.IsSystem ? "system" : "field");
+        ExpressionEngine.Evaluate(viaData.Expression, values, new FakeTimeProvider(Start)).Value.Should().Be("FIELD");
+
+        WithField("upper(id)").IsValid.Should().BeTrue("a system name with no field of that name is read as before");
     }
 
     [Fact]
