@@ -50,8 +50,7 @@ internal sealed record ReadableField(
         f.Scale,
         ReadableComputed(f.Computed, hidden),
         string.Equals(f.Type, "blocks", StringComparison.OrdinalIgnoreCase) ? BlockSchemaRoute : null,
-        // A rollup names the type it counts, which is left out when the caller may not read it.
-        f.Rollup is { } rollup && unreadableTypes.Contains(rollup.From) ? null : f.Rollup);
+        f.Rollup);
 }
 
 internal sealed record ReadableTypeResponse(
@@ -93,7 +92,7 @@ internal sealed record ReadableTypeResponse(
         // permission check runs on the definition that route would return; a name that cannot be
         // resolved to one type counts as unreadable. ItemType is a scalar type and is not touched.
         var unreadable = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var targets = visible.Select(f => f.ReferenceType).Concat(visible.Select(f => f.Rollup?.From))
+        var targets = visible.Select(f => f.ReferenceType)
             .Where(n => !string.IsNullOrEmpty(n)).Select(n => n!).Distinct(StringComparer.Ordinal);
         foreach (var name in targets)
         {
@@ -108,6 +107,8 @@ internal sealed record ReadableTypeResponse(
                 unreadable.Add(name);
             }
         }
+
+        var rollups = await ReadableRollupsAsync(visible, sensitivity, permissions, session, caller, user, ct);
 
         // Nothing the caller cannot read is named anywhere in the shape. Copies, so the stored
         // definition is not touched.
@@ -129,7 +130,73 @@ internal sealed record ReadableTypeResponse(
 
         return new ReadableTypeResponse(
             d.Name, d.DisplayName, d.Description, d.IsSingleton,
-            visible.Select(f => ReadableField.From(f, hidden, unreadable)).ToList(),
+            visible.Select(f => ReadableField.From(f, hidden, unreadable) with { Rollup = rollups.GetValueOrDefault(f.Name) }).ToList(),
             lifecycle, uniqueness);
+    }
+
+    /// <summary>
+    /// The rollup definitions this caller may be shown, by field name. A definition names the type it
+    /// counts and two of its fields, so it goes whole or not at all: it is left out when that type is
+    /// missing or unreadable, or the caller may not read the reference or the summed field.
+    /// </summary>
+    private static async Task<Dictionary<string, RollupDefinition>> ReadableRollupsAsync(
+        List<FieldDefinition> visible,
+        barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
+        barakoCMS.Infrastructure.Services.IPermissionResolver permissions,
+        Marten.IQuerySession session,
+        barakoCMS.Models.User caller,
+        System.Security.Claims.ClaimsPrincipal user,
+        CancellationToken ct)
+    {
+        var shown = new Dictionary<string, RollupDefinition>(StringComparer.OrdinalIgnoreCase);
+        var sources = new Dictionary<string, ContentTypeDefinition?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var field in visible.Where(f => f.Rollup is not null))
+        {
+            var rollup = field.Rollup!;
+            if (!sources.TryGetValue(rollup.From, out var from))
+            {
+                from = await ReadableSourceAsync(rollup.From, permissions, session, caller, ct);
+                sources[rollup.From] = from;
+            }
+
+            var named = new[] { rollup.Via, rollup.Field }.Where(n => !string.IsNullOrEmpty(n));
+            if (from is not null && await ReadsAllAsync(from, named!, sensitivity, user, ct))
+            {
+                shown[field.Name] = rollup;
+            }
+        }
+
+        return shown;
+    }
+
+    private static async Task<ContentTypeDefinition?> ReadableSourceAsync(
+        string name, barakoCMS.Infrastructure.Services.IPermissionResolver permissions, Marten.IQuerySession session,
+        barakoCMS.Models.User caller, CancellationToken ct)
+    {
+        try
+        {
+            var from = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, name, ct);
+            return from is not null && await permissions.CanPerformActionAsync(caller, from.Name, "read", null, ct) ? from : null;
+        }
+        catch (barakoCMS.Core.AmbiguousContentTypeException)
+        {
+            return null;
+        }
+    }
+
+    private static async Task<bool> ReadsAllAsync(
+        ContentTypeDefinition from, IEnumerable<string> names, barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
+        System.Security.Claims.ClaimsPrincipal user, CancellationToken ct)
+    {
+        foreach (var name in names)
+        {
+            var declared = from.Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (declared is null || !await sensitivity.MayReadFieldAsync(from.Name, declared, null, user, ct))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
