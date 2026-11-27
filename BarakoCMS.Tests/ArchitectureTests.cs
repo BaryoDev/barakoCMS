@@ -321,20 +321,47 @@ public class ArchitectureTests
     // function table, so a way to run text as code or look up a member by name has no place in it.
     private static readonly string[] ForbiddenInExpressions =
     [
-        "System.Reflection", "System.Linq.Expressions", "System.Linq.Dynamic", "System.Text.RegularExpressions",
+        "System.Linq.Dynamic", "System.Text.RegularExpressions",
         "Microsoft.CodeAnalysis", "System.CodeDom", "System.Runtime.Loader", "System.Management.Automation",
-        "Regex", "dynamic", "Activator", "Assembly.", "MethodInfo", "GetType()", "Type.GetType", "Expression.Lambda",
+        "Regex", "dynamic", "Activator", "Assembly.", "MethodInfo", "Type.GetType", "Expression.Lambda",
         "CSharpScript", "ScriptOptions", "DynamicInvoke", "Process.Start", "Environment.GetEnvironmentVariable",
-        "GetMethod", "GetProperty", "GetField", "PropertyInfo", "FieldInfo", "BindingFlags", "typeof(", "Enum.Parse",
-        "Jint", "NCalc", "DynamicExpresso", "global::",
+        "GetMethod", "GetMethods", "GetProperty", "GetProperties", "GetField", "GetFields", "PropertyInfo", "FieldInfo",
+        "MemberInfo", "BindingFlags", "Enum.Parse", "Jint", "NCalc", "DynamicExpresso", "global::",
+        "File.", "Directory.", "HttpClient", "Socket", "Process",
     ];
 
-    // The only namespaces a file in the folder may bring in, and the folder's own. Nothing else of
-    // barakoCMS is reachable, so the evaluator cannot grow a dependency on a service or a model.
+    // Matched anywhere, inside a longer name too, so a line like "namespace X; using System.Reflection;" is caught.
+    private static readonly string[] ForbiddenSubstrings = ["System.Reflection", "System.Linq.Expressions"];
+
+    // typeof and GetType may be written with space before the bracket.
+    private static readonly System.Text.RegularExpressions.Regex[] ForbiddenPatterns =
+    [
+        new(@"\btypeof\s*\(", System.Text.RegularExpressions.RegexOptions.CultureInvariant),
+        new(@"\bGetType\s*\(\s*\)", System.Text.RegularExpressions.RegexOptions.CultureInvariant),
+    ];
+
+    // The only namespaces a file in the folder may bring in, and the folder's own.
     private static readonly string[] AllowedUsings =
     [
         "System", "System.Globalization", "System.Text", "System.Collections.Generic", "System.Linq",
     ];
+
+    // The scan proves only what it checks: using lines, barakoCMS names written in full, the first
+    // segment of a name relative to the file's own namespace (Validation.X, Features.X, and so on,
+    // read from the namespaces of the barakoCMS assembly), and the words and patterns above. It does
+    // not follow a name through a variable or a type the file is handed.
+    private static readonly Lazy<string[]> RelativeSegments = new(() =>
+        Core.GetTypes()
+            .Select(t => t.Namespace?.Split('.') ?? [])
+            .SelectMany(parts => new[]
+            {
+                parts is ["barakoCMS", var one, ..] ? one : null,
+                parts is ["barakoCMS", "Core", var two, ..] ? two : null,
+            })
+            .OfType<string>()
+            .Where(n => n != "Expressions")
+            .Distinct()
+            .ToArray());
 
     private const string ExpressionsNamespace = "barakoCMS.Core.Expressions";
 
@@ -358,6 +385,8 @@ public class ArchitectureTests
                 }
             }
 
+            found.AddRange(ForbiddenSubstrings.Where(w => code.Contains(w, StringComparison.Ordinal)).Select(w => $"{Path.GetFileName(file)}: {w}"));
+            found.AddRange(ForbiddenPatterns.Where(r => r.IsMatch(code)).Select(r => $"{Path.GetFileName(file)}: {r}"));
             found.AddRange(OutsideNamespaces(code).Select(n => $"{Path.GetFileName(file)}: {n}"));
         }
 
@@ -365,7 +394,7 @@ public class ArchitectureTests
     }
 
     [Fact]
-    public void The_project_files_add_no_global_using_of_reflection_or_expression_trees()
+    public void The_project_adds_no_global_using_for_the_evaluator_folder_to_reach()
     {
         var projectFiles = new[] { Path.Combine(RepoPaths.Root, "barakoCMS", "barakoCMS.csproj"), Path.Combine(RepoPaths.Root, "Directory.Build.props") };
         foreach (var file in projectFiles)
@@ -376,6 +405,16 @@ public class ArchitectureTests
                     || u.StartsWith("System.Linq.Expressions", StringComparison.Ordinal),
                 $"{Path.GetFileName(file)} would give the evaluator folder reflection without a using line to scan");
         }
+
+        var globals = Directory.GetFiles(Path.Combine(RepoPaths.Root, "barakoCMS"), "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .Where(f => System.Text.RegularExpressions.Regex.IsMatch(
+                StripComments(File.ReadAllText(f)),
+                @"\bglobal\s+using\b"))
+            .Select(f => Path.GetRelativePath(RepoPaths.Root, f))
+            .ToArray();
+        globals.Should().BeEmpty("a global using in any file of the project reaches the evaluator folder with no using line to scan");
     }
 
     [Fact]
@@ -403,6 +442,10 @@ public class ArchitectureTests
     [InlineData("var q = '\"'; new Regex(\"a\"); var b = \"//\";", "a quote in a char literal does not open a string")]
     [InlineData("var q = '\\''; new Regex(\"a\"); var b = \"*/\";", "an escaped quote in a char literal")]
     [InlineData("var a = \"x\\\"//\"; new Regex(\"a\");", "an escaped quote in a regular string")]
+    [InlineData("var a = $\"{d:dd//MM}\"; new Regex(\"a\");", "slashes in a format specifier")]
+    [InlineData("var a = $\"{d:/*}\"; new Regex(\"a\"); var b = \"*/\";", "a block comment marker in a format specifier")]
+    [InlineData("var a = $\"{(d):yy//}\"; new Regex(\"a\");", "a format specifier after a bracketed expression")]
+    [InlineData("var a = $\"{(c ? 1 : 2)}\"; // x\nnew Regex(\"a\");", "a colon inside brackets is not a format specifier")]
     public void The_comment_stripper_keeps_code_that_follows_a_string_or_a_comment_marker_inside_one(string source, string why)
     {
         StripComments(source).Should().Contain("new Regex(", why);
@@ -433,6 +476,53 @@ public class ArchitectureTests
         OutsideNamespaces("var x = barakoCMS.Core.ExpressionsExtra.Thing;").Should().NotBeEmpty("a namespace that only starts with the folder's name is another namespace");
         OutsideNamespaces(StripComments("// using barakoCMS.Core.Validation;")).Should().BeEmpty("the scan reads stripped code, as the caller gives it");
         ContainsWord("var x = global::System.Math.PI;", "global::").Should().BeTrue();
+        OutsideNamespaces("var x = Validation.ComputedFields.MaxRound;").Should().Contain("Validation.ComputedFields");
+        OutsideNamespaces("var x = Infrastructure.Services.Thing.Run();").Should().Contain("Infrastructure.Services");
+        OutsideNamespaces("var x = Features.Content.Thing.Run();").Should().Contain("Features.Content");
+        OutsideNamespaces("var x = Models.Content.Id;").Should().Contain("Models.Content");
+        OutsideNamespaces("var x = Core.Validation.ComputedFields.MaxRound;").Should().Contain("Core.Validation");
+        OutsideNamespaces("var x = Validation . ComputedFields;").Should().NotBeEmpty("space around the dot does not hide it");
+        OutsideNamespaces("var x = System.Validation.Thing; var y = a.Models.B;").Should().BeEmpty("a segment after a dot is another name");
+        RelativeSegments.Value.Should().Contain(["Validation", "Infrastructure", "Features", "Models", "Core"]).And.NotContain("Expressions");
+
+        var all = ForbiddenInExpressions;
+        foreach (var word in new[] { "File.", "Directory.", "HttpClient", "Socket", "Process", "MemberInfo", "GetMethods", "GetProperties", "GetFields" })
+        {
+            all.Should().Contain(word);
+        }
+
+        ContainsWord("var t = File.ReadAllText(p);", "File.").Should().BeTrue();
+        ContainsWord("var t = System.IO.Directory.GetFiles(p);", "Directory.").Should().BeTrue();
+        ContainsWord("var c = new HttpClient();", "HttpClient").Should().BeTrue();
+        ContainsWord("var s = new Socket(a, b, c);", "Socket").Should().BeTrue();
+        ContainsWord("var p = new Process();", "Process").Should().BeTrue();
+        ContainsWord("var f = Profile.Name;", "File.").Should().BeFalse("only whole words count");
+        ContainsWord("var m = t.GetMethods();", "GetMethods").Should().BeTrue();
+        ContainsWord("var m = t.GetProperties();", "GetProperties").Should().BeTrue();
+        ContainsWord("var m = t.GetFields();", "GetFields").Should().BeTrue();
+        ContainsWord("MemberInfo m = null;", "MemberInfo").Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("var t = typeof(string);")]
+    [InlineData("var t = typeof (string);")]
+    [InlineData("var t = typeof\n(string);")]
+    [InlineData("var t = x.GetType();")]
+    [InlineData("var t = x.GetType ( );")]
+    public void The_expression_evaluator_scan_catches_typeof_and_GetType_with_any_spacing(string code)
+    {
+        ForbiddenPatterns.Any(r => r.IsMatch(code)).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("namespace X; using System.Reflection;")]
+    [InlineData("var m = System.Reflection.MethodBase.GetCurrentMethod();")]
+    [InlineData("global using System.Linq.Expressions;")]
+    [InlineData("var e = System.Linq.Expressions.Expression.Constant(1);")]
+    public void The_expression_evaluator_scan_catches_reflection_and_expression_trees_anywhere_in_a_line(string code)
+    {
+        ForbiddenSubstrings.Any(w => code.Contains(w, StringComparison.Ordinal)).Should().BeTrue();
+        ForbiddenPatterns.Any(r => r.IsMatch("var typeofx = 1; var GetTypeName = 2;")).Should().BeFalse("a longer name is not typeof or GetType");
     }
 
     /// <summary>The namespaces a file reaches that are not on the list: a using outside it, or a barakoCMS name outside the folder.</summary>
@@ -457,6 +547,17 @@ public class ArchitectureTests
             if (!IsInExpressions(match.Value) && !outside.Contains(match.Value))
             {
                 outside.Add(match.Value);
+            }
+        }
+
+        var relative = new System.Text.RegularExpressions.Regex(
+            @"(?<![\w.])(?:" + string.Join("|", RelativeSegments.Value) + @")\s*\.\s*[A-Za-z_]\w*");
+        foreach (System.Text.RegularExpressions.Match match in relative.Matches(code))
+        {
+            var name = System.Text.RegularExpressions.Regex.Replace(match.Value, @"\s+", string.Empty);
+            if (!outside.Contains(name))
+            {
+                outside.Add(name);
             }
         }
 
@@ -485,9 +586,21 @@ public class ArchitectureTests
     private static void CopyCode(string s, ref int i, System.Text.StringBuilder o, bool inHole)
     {
         var depth = 0;
+        var parens = 0;
         while (i < s.Length)
         {
             var c = s[i];
+            if (inHole && c == ':' && depth == 0 && parens == 0 && CharAt(s, i + 1) != ':')
+            {
+                // A format specifier is plain text up to the closing brace, whatever it holds.
+                while (i < s.Length && s[i] != '}')
+                {
+                    o.Append(s[i++]);
+                }
+
+                return;
+            }
+
             if (c == '/' && CharAt(s, i + 1) == '/')
             {
                 while (i < s.Length && s[i] != '\n')
@@ -520,7 +633,15 @@ public class ArchitectureTests
 
             if (inHole)
             {
-                if (c == '{')
+                if (c is '(' or '[')
+                {
+                    parens++;
+                }
+                else if (c is ')' or ']')
+                {
+                    parens = Math.Max(0, parens - 1);
+                }
+                else if (c == '{')
                 {
                     depth++;
                 }
