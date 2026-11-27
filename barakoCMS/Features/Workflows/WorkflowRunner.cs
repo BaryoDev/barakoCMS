@@ -1209,13 +1209,23 @@ internal sealed class WorkflowRunner(
         catch (Exception ex)
         {
             timer.Stop();
-
-            // Keep the exception message in logs only. A provider's error body can carry the
-            // credential that was sent, so only the exception type reaches the run record; the
-            // message stays in the log above.
-            logger.LogWarning(ex, "Workflow action {Type} failed in run {RunId}", actionType, run.Id);
-            return new Outcome(AttemptStatus.Failed, ex.GetType().Name, timer.ElapsedMilliseconds);
+            return Crashed(ex, actionType, run, timer.ElapsedMilliseconds);
         }
+    }
+
+    /// <summary>The outcome of an action that threw.</summary>
+    /// <remarks>
+    /// A template over its size cap or too slow to read fails the same way on a retry, and its message
+    /// names the limit and never a value, so it is recorded and not retried. For any other exception
+    /// the message stays in the log only: a provider's error body can carry the credential that was
+    /// sent, so only the exception type reaches the run record.
+    /// </remarks>
+    private Outcome Crashed(Exception ex, string actionType, WorkflowRun run, long elapsedMs)
+    {
+        logger.LogWarning(ex, "Workflow action {Type} failed in run {RunId}", actionType, run.Id);
+        return ex is barakoCMS.Infrastructure.Services.TemplateRenderException or barakoCMS.Models.TemplateScanException
+            ? new Outcome(AttemptStatus.Failed, ex.Message, elapsedMs, Retryable: false)
+            : new Outcome(AttemptStatus.Failed, ex.GetType().Name, elapsedMs);
     }
 
     /// <summary>The error to record when an action ended with an unknown outcome, or null when it did not.</summary>

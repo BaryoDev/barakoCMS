@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using barakoCMS.Infrastructure.Security;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using Marten;
 
@@ -53,6 +54,20 @@ internal sealed class RequestComposer(
     public async Task<ComposedRequest> ComposeAsync(
         RequestDefinition definition, Connector connector, Content content, string? idempotencyKey, CancellationToken ct)
     {
+        try
+        {
+            return await ComposeCoreAsync(definition, connector, content, idempotencyKey, ct);
+        }
+        catch (TemplateScanException ex)
+        {
+            // A template that cannot be read in full is refused, never sent on a partial read.
+            return ComposedRequest.Refused(ex.Message);
+        }
+    }
+
+    private async Task<ComposedRequest> ComposeCoreAsync(
+        RequestDefinition definition, Connector connector, Content content, string? idempotencyKey, CancellationToken ct)
+    {
         var schema = await session.Query<ContentTypeDefinition>()
             .FirstNamedAsync(content.ContentType, ct);
 
@@ -69,6 +84,9 @@ internal sealed class RequestComposer(
         templates.AddRange(definition.HeaderTemplates.Values);
         if (definition.BodyTemplate is not null) templates.Add(definition.BodyTemplate);
 
+        // A template over the length cap is refused whole, so no check below reads it in part.
+        foreach (var template in templates) TemplateHoles.Guard(template);
+
         // Resolved once, before either refusal check, so both a Sensitive field and a bad query hole
         // are checked against the same set of templates and neither is composed while the other
         // could still be the reason nothing should be sent.
@@ -82,10 +100,55 @@ internal sealed class RequestComposer(
         // a JSON string would put backslashes in a URL.
         var path = Substitute(definition.PathTemplate, content, query.Rows, Escaping.Url);
 
+        // A value of ".." is unreserved, so escaping leaves it, and the address then collapses it
+        // into the segment before. A dot segment the template did not write is a value's, and refused.
+        if (ValueMakesDotSegment(definition.PathTemplate, path))
+        {
+            return ComposedRequest.Refused("A value in the path is a dot segment, which would change which endpoint is addressed.");
+        }
+
+        var (headers, headerRefusal) = BuildHeaders(definition, connector, content, query.Rows, idempotencyKey);
+        if (headerRefusal is not null) return ComposedRequest.Refused(headerRefusal);
+
+        var (body, bodyRefusal) = BuildBody(definition, content, query.Rows);
+        if (bodyRefusal is not null) return ComposedRequest.Refused(bodyRefusal);
+
+        return Address(definition, connector, path, headers, body);
+    }
+
+    /// <summary>
+    /// Whether a segment of the composed path is a dot segment where the template's segment at the
+    /// same place is not one. A value's <c>/</c>, <c>?</c> and <c>#</c> are escaped, so the two
+    /// lists line up. When they do not and the composed path holds a dot segment, it is refused.
+    /// </summary>
+    private static bool ValueMakesDotSegment(string template, string composed)
+    {
+        var written = Segments(template);
+        var sent = Segments(composed);
+
+        if (!sent.Any(IsDotSegment)) return false;
+        if (written.Length != sent.Length) return true;
+
+        return sent.Where((segment, at) => IsDotSegment(segment) && !IsDotSegment(written[at])).Any();
+    }
+
+    private static string[] Segments(string path)
+    {
+        var end = path.AsSpan().IndexOfAny('?', '#');
+        return (end < 0 ? path : path[..end]).Split('/');
+    }
+
+    private static bool IsDotSegment(string segment) =>
+        segment.Replace("%2e", ".", StringComparison.OrdinalIgnoreCase) is "." or "..";
+
+    private (Dictionary<string, string> Headers, string? Refusal) BuildHeaders(
+        RequestDefinition definition, Connector connector, Content content,
+        IReadOnlyList<Dictionary<string, object>> rows, string? idempotencyKey)
+    {
         var headers = new Dictionary<string, string>(definition.HeaderTemplates.Count);
         foreach (var (name, template) in definition.HeaderTemplates)
         {
-            var value = Substitute(template, content, query.Rows, Escaping.None);
+            var value = Substitute(template, content, rows, Escaping.None);
 
             // Refused rather than stripped. A header has no quoting to fall back to the way a JSON
             // body does, so a value here reaches the sender's TryAddWithoutValidation exactly as
@@ -95,7 +158,7 @@ internal sealed class RequestComposer(
             // field is refused rather than masked.
             if (HasControlCharacter(value))
             {
-                return ComposedRequest.Refused(
+                return (headers,
                     $"Header '{name}' cannot be composed: a value in it contains a control character, "
                     + "which could add another header to this request.");
             }
@@ -119,17 +182,22 @@ internal sealed class RequestComposer(
             // is checked rather than trusted.
             if (HasControlCharacter(idempotencyKey))
             {
-                return ComposedRequest.Refused(
-                    $"'{idempotencyHeader}' cannot be composed: the idempotency key contains a control character.");
+                return (headers, $"'{idempotencyHeader}' cannot be composed: the idempotency key contains a control character.");
             }
 
             headers[idempotencyHeader] = idempotencyKey;
         }
 
+        return (headers, null);
+    }
+
+    private (string? Body, string? Refusal) BuildBody(
+        RequestDefinition definition, Content content, IReadOnlyList<Dictionary<string, object>> rows)
+    {
         var isJson = definition.BodyContentType.Contains("json", StringComparison.OrdinalIgnoreCase);
         var body = definition.BodyTemplate is null
             ? null
-            : Substitute(definition.BodyTemplate, content, query.Rows, isJson ? Escaping.Json : Escaping.None);
+            : Substitute(definition.BodyTemplate, content, rows, isJson ? Escaping.Json : Escaping.None);
 
         if (body is not null && isJson)
         {
@@ -142,10 +210,16 @@ internal sealed class RequestComposer(
             }
             catch (JsonException ex)
             {
-                return ComposedRequest.Refused($"The composed body is not valid JSON: {ex.Message}");
+                return (body, $"The composed body is not valid JSON: {ex.Message}");
             }
         }
 
+        return (body, null);
+    }
+
+    private static ComposedRequest Address(
+        RequestDefinition definition, Connector connector, string path, Dictionary<string, string> headers, string? body)
+    {
         if (!Uri.TryCreate(connector.BaseUrl, UriKind.Absolute, out var baseUri))
         {
             return ComposedRequest.Refused($"Connector '{connector.Slug}' has no absolute base URL.");
@@ -187,11 +261,19 @@ internal sealed class RequestComposer(
     private static string? Refuse(IEnumerable<string> templates, ContentTypeDefinition schema)
     {
         var found = TemplateHoles.FirstNonPublic(templates, schema);
-        if (found is null) return null;
+        if (found is not null)
+        {
+            return $"'{found.Value.Hole}' is {found.Value.Field.Sensitivity} on '{schema.Name}', and this request "
+                 + "would send it to a third party. A field that is not Public cannot leave, "
+                 + "even when a template names it.";
+        }
 
-        return $"'{found.Value.Hole}' is {found.Value.Field.Sensitivity} on '{schema.Name}', and this request "
-             + "would send it to a third party. A field that is not Public cannot leave, "
-             + "even when a template names it.";
+        // A request renders plain and formatted holes only. Sending the other forms as written would
+        // put the author's formula in front of the third party, so they are refused.
+        var beyond = TemplateHoles.FirstBeyondPlain(templates);
+        return beyond is null
+            ? null
+            : $"'{beyond}' is an expression, a loop or a dataset row, which a request does not render, so it would be sent as written. Use plain holes.";
     }
 
     /// <summary>The rows a <c>{{query.*}}</c> hole may draw from, or the reason none may run.</summary>
@@ -219,9 +301,9 @@ internal sealed class RequestComposer(
         var names = new List<string>();
         foreach (var template in templates)
         {
-            foreach (Match match in TemplateHoles.Hole.Matches(template ?? string.Empty))
+            foreach (var scanned in TemplateHoles.Scan(template).Where(h => h.Form == HoleForm.Plain))
             {
-                var name = match.Groups[1].Value;
+                var name = scanned.Reads[0];
                 if (name.StartsWith("query.", StringComparison.OrdinalIgnoreCase))
                 {
                     names.Add(name);
@@ -359,17 +441,16 @@ internal sealed class RequestComposer(
     private string Substitute(
         string template, Content content, IReadOnlyList<Dictionary<string, object>> queryRows, Escaping escaping)
     {
-        return TemplateHoles.Hole.Replace(template, match =>
+        return TemplateHoles.Replace(template, (name, format) =>
         {
-            var name = match.Groups[1].Value;
-
             if (name.StartsWith("query.", StringComparison.OrdinalIgnoreCase))
             {
-                return SubstituteQuery(name["query.".Length..], queryRows, escaping);
+                return format is null ? SubstituteQuery(name["query.".Length..], queryRows, escaping) : null;
             }
 
             var raw = Value(name, content);
-            if (raw is null) return match.Value;
+            if (raw is not null && format is not null) raw = TemplateExpression.ApplyFormat(format, raw, TemplateContext.Unprepared);
+            if (raw is null) return null;
 
             return escaping switch
             {

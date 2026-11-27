@@ -146,10 +146,23 @@ internal sealed class LifecycleTemplateLinkScanner(LifecycleWorkflows workflows)
                 continue;
             }
 
-            var names = WorkflowSaveRights.Flatten(workflow)
-                .SelectMany(a => a.Parameters.Values)
-                .SelectMany(TemplateExpression.LinkedTransitions)
-                .Distinct(StringComparer.OrdinalIgnoreCase);
+            IReadOnlyList<string> names;
+            try
+            {
+                names = WorkflowSaveRights.Flatten(workflow)
+                    .SelectMany(a => a.Parameters.Values)
+                    .SelectMany(TemplateExpression.LinkedTransitions)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+            catch (TemplateScanException)
+            {
+                warnings.Add(new LifecycleBlocker(
+                    LifecycleBlockerKind.TemplateLink, null, null, workflow.Name, null,
+                    $"A template of the workflow '{workflow.Name}' could not be read in full, so the transitions it links to were not checked."));
+                continue;
+            }
+
             foreach (var name in names)
             {
                 if (LifecycleReferences.Changes(change, name) is { } changed)

@@ -98,6 +98,93 @@ from `Colors`.
 
 The email is sent as HTML. There is no plain text part yet: `IEmailService` takes one body.
 
+## Expressions, datasets and row loops
+
+A template works out values, and it can list rows from a saved query, with no code. This is an
+invoice:
+
+```text
+Invoice {{data.Number}} for {{data.Customer.Name}}
+{{#each lines}}{{row.Product.Name}}  {{row.Qty}} x {{row.Price | money}} = {{row.Total | money}}
+{{/each}}
+Subtotal {{= sum(lines.Total) | money}}
+Tax {{= round(sum(lines.Total) * data.TaxRate, 2) | money}}
+Total {{= round(sum(lines.Total) * (1 + data.TaxRate), 2) | money}}
+```
+
+The template's `Datasets` field names the saved query behind `lines`:
+
+```json
+{ "lines": "invoice-lines" }
+```
+
+and the saved query ([connectors.md](connectors.md#saved-queries-as-text)) is:
+
+```text
+from invoiceLine where Invoice = @id and status != Archived order by createdAt select Product.Name, Qty, Price, Total limit 200
+```
+
+`@id` is the entry the email is sent for, so the rows are that invoice's lines.
+
+**`{{= expression }}`** is an [expression](expressions.md), with `data.Field`, `createdBy.name`,
+`transition.name` and the other names a plain hole reads. `| money`, `| date`, `| upper` and
+`| lower` follow it as they follow a name. A hole that cannot be read, or an expression that has no
+value, is left as written and listed as a warning on save and in the preview.
+
+**A dataset** is a name from `Datasets`. Up to 10 names, each a saved query, each read once per send.
+Inside an expression, `lines.Total` is the column `Total` of every row, and these work on it:
+`sum`, `count`, `avg`, `min`, `max`, `first`, `last`. `lookup(dataset, keyField, key, resultField)`
+reads one value from another dataset's row, one level only.
+
+**`{{#each lines}}...{{/each}}`** repeats its text for each row, and inside it `{{row.Qty}}` and
+`{{row.Product.Name}}` read that row. A loop over a dataset is the same loop as over a reference,
+with `row` where a reference loop has `data`.
+
+What is read and what is refused:
+
+- Rows are read as the user the run acts as, with the same read rights as `GET /api/contents`,
+  in the template's tenant only. A field that user may not read fails the send, naming the field.
+  Saving a template, or a workflow that names one, is refused for a saver who could not read every
+  field the dataset selects.
+- A template loop renders at most 200 rows. A dataset with more fails the send with a message
+  that names the dataset, since an invoice cut short is wrong. A reference loop stops at 50 and
+  notes it, as before.
+- All of a template's datasets are read within 30 seconds together, one after another, and the
+  first one that cannot be read ends the reading. A read that timed out or failed is retried by the
+  workflow. A refusal, a missing query and a dataset over 200 rows are not.
+- A loop over a name the template does not declare in `Datasets` is refused when the template is
+  sent, naming the dataset, and is a warning in the preview and when a workflow that names the
+  template is saved.
+- One render evaluates at most 100,000 placeholders, counting every pass of every loop.
+- The result is at most 1,048,576 characters, and a template at most 262,144, whether read for
+  holes or rendered. Reading a template that takes more than 2 seconds is refused. Over either, the
+  send fails with a message, and nothing is truncated.
+- Loops do not nest. A loop inside a loop is sent as written, and a warning names it.
+- Values are never read as template text. A value holding `{{...}}` or markup is encoded for where it
+  lands: HTML in a body, JSON string escaping in a JSON body, URL encoding in a path segment, and a
+  line break turned into a space in a subject. There is no second pass over the result.
+- `today()` and `now()` use the site's time zone, and UTC when it has none.
+- A preview reads datasets as the caller. A dry run reads none and shows the holes as written.
+- A dataset is read for the send and for the preview only. No export reads one, and no log line
+  holds a value from a row.
+- Markdown renders around the holes: they are put aside before markdown reads the text and
+  restored after, so `_`, `|` and `*` in a value cannot change the markup. A table row may hold
+  holes, and a loop may wrap table rows.
+
+A **Request** action does not take expressions, loops or row names yet. A Request template that
+holds one is refused before anything is sent, as is one reading a Hidden, Sensitive or Members
+field, in any form. An Email and an SMS may send any field the workflow's author may read.
+
+A `createdBy.email` or `transition.by.email` built inside an expression is read like the plain form:
+an `UpdateField` or `CreateTask` parameter holding one gets the same warning on save.
+
+A stored template that holds a literal `{{=` was sent as written before and evaluates now.
+`db-migrate --status` lists the stored templates, layouts and workflow parameters that hold one, so
+they can be reworded first. The listing is informational and changes nothing.
+
+Datasets under two spellings of the key that differ only in case (`Datasets` and `datasets`) are
+refused at save, on workflow save and at render.
+
 ## Preview
 
 ```http

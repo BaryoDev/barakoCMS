@@ -13,7 +13,8 @@
         { "name": "Subject", "displayName": "Subject", "type": "string", "isRequired": true, "validationRules": { "maxLength": 262144 } },
         { "name": "Body", "displayName": "Body", "type": "markdown", "isRequired": true, "validationRules": { "maxLength": 262144 } },
         { "name": "Layout", "displayName": "Layout", "type": "reference", "referenceType": "email-layout" },
-        { "name": "Locale", "displayName": "Locale", "type": "string" }
+        { "name": "Locale", "displayName": "Locale", "type": "string" },
+        { "name": "Datasets", "displayName": "Datasets", "type": "json", "jsonSchema": {"type": "object", "additionalProperties": {"type": "string"}} }
       ]
     },
     {

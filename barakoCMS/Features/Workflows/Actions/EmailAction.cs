@@ -104,26 +104,10 @@ internal class EmailAction : IWorkflowAction
         if (parameters.TryGetValue(barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.TemplateParameter, out var templateName)
             && !string.IsNullOrWhiteSpace(templateName))
         {
-            string? refusal;
-            try
-            {
-                (subject, body, refusal) = await FromTemplateAsync(templateName, content, ct);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                // Retryable: a read that failed may not fail again.
-                _logger.LogWarning("Reading an email template failed ({Exception}).", ex.GetType().Name);
-                return WorkflowActionResult.Failure($"The email template could not be read ({ex.GetType().Name}).");
-            }
+            var (fromTemplate, failure) = await FromTemplateAsync(templateName, content, ct);
+            if (failure is not null) return failure;
 
-            if (refusal is not null)
-            {
-                return WorkflowActionResult.PermanentFailure(refusal);
-            }
+            (subject, body) = fromTemplate;
         }
 
         // Everything that can refuse an attachment happens here, before the send. Nothing after the
@@ -266,7 +250,35 @@ internal class EmailAction : IWorkflowAction
     /// extractor is asked to read what the template names first, the way the runner did for the
     /// parameters, so a reference or a site format in a template resolves as it would inline.
     /// </remarks>
-    private async Task<(string Subject, string Body, string? Refusal)> FromTemplateAsync(
+    private async Task<((string Subject, string Body) Template, WorkflowActionResult? Failure)> FromTemplateAsync(
+        string name, barakoCMS.Models.Content content, CancellationToken ct)
+    {
+        try
+        {
+            var (subject, body, refusal) = await ReadTemplateAsync(name, content, ct);
+            return ((subject, body), refusal is null ? null : WorkflowActionResult.PermanentFailure(refusal));
+        }
+        catch (barakoCMS.Infrastructure.Services.TemplateRenderException ex) when (ex.Transient)
+        {
+            // Retryable: a dataset read that timed out or threw may get through on the next try.
+            _logger.LogWarning("Reading an email template's dataset failed: {Message}", ex.Message);
+            return (default, WorkflowActionResult.Failure(ex.Message));
+        }
+        catch (Exception ex) when (ex is barakoCMS.Infrastructure.Services.TemplateRenderException or barakoCMS.Models.TemplateScanException)
+        {
+            // Permanent: the same template and the same entry fail the same way. The message
+            // names the dataset and the limit and never a value.
+            return (default, WorkflowActionResult.PermanentFailure(ex.Message));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            // Retryable: a read that failed may not fail again.
+            _logger.LogWarning("Reading an email template failed ({Exception}).", ex.GetType().Name);
+            return (default, WorkflowActionResult.Failure($"The email template could not be read ({ex.GetType().Name})."));
+        }
+    }
+
+    private async Task<(string Subject, string Body, string? Refusal)> ReadTemplateAsync(
         string name, barakoCMS.Models.Content content, CancellationToken ct)
     {
         if (_session is null)
@@ -280,9 +292,21 @@ internal class EmailAction : IWorkflowAction
             return (string.Empty, string.Empty, error);
         }
 
+        // A loop over a name the template does not declare would go out as written, so it is refused.
+        var undeclared = barakoCMS.Infrastructure.Services.TemplateExpression
+            .UndeclaredLoops(rendered.Subject, rendered.Datasets)
+            .Concat(barakoCMS.Infrastructure.Services.TemplateExpression.UndeclaredLoops(rendered.Html, rendered.Datasets))
+            .Distinct(StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (undeclared is not null)
+        {
+            return (string.Empty, string.Empty, barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.UndeclaredLoop(undeclared));
+        }
+
         if (_extractor is not null)
         {
             await _extractor.PrepareMoreAsync(content, [rendered.Subject, rendered.Html], ct);
+            if (rendered.Datasets is { Count: > 0 } datasets) await _extractor.PrepareDatasetsAsync(content, datasets, ct);
         }
 
         var (subject, body) = barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.Resolve(rendered, content, _extractor);

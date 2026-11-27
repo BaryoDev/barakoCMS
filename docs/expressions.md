@@ -82,7 +82,7 @@ Date functions. A time of day is kept, so these work on a `datetime` too:
 | `addDays(d, n)` | The date `n` days later. `n` is a whole number, at most 3652059 either way |
 | `addMonths(d, n)` | The date `n` months later. `n` is a whole number, at most 120000 either way |
 | `year(d)`, `month(d)`, `day(d)` | A part of the date, as a number |
-| `today()`, `now()` | The current UTC date, or date and time |
+| `today()`, `now()` | The current UTC date, or date and time. In an email template and in a `Conditional`, the site's time zone, and UTC when it has none |
 
 `today()` and `now()` are for formulas evaluated on demand. A stored computed field may not use
 them, because its value would go stale.

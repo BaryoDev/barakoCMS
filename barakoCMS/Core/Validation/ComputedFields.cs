@@ -276,7 +276,7 @@ internal static class ComputedFields
             ? ExprTypeOf(field.Type) ?? ExprType.Null
             : null;
 
-    private static ExprType? ExprTypeOf(string? type) => type?.ToLowerInvariant() switch
+    internal static ExprType? ExprTypeOf(string? type) => type?.ToLowerInvariant() switch
     {
         "int" or "decimal" or "money" => ExprType.Number,
         "string" or "text" => ExprType.Text,
@@ -641,7 +641,7 @@ internal static class ComputedFields
     };
 
     /// <summary>A stored value in the shape the formula's type for that field expects, or null when it is absent or does not fit.</summary>
-    private static object? ValueOf(IReadOnlyCollection<FieldDefinition> fields, IReadOnlyDictionary<string, object> data, string name)
+    internal static object? ValueOf(IReadOnlyCollection<FieldDefinition> fields, IReadOnlyDictionary<string, object> data, string name)
     {
         var kind = fields.FirstOrDefault(f => f is not null && Matches(f.Name, name)) is { } declared
             ? ExprTypeOf(declared.Type)

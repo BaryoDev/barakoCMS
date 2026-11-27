@@ -65,10 +65,28 @@ internal static class PublishPayload
 
         foreach (var value in values)
         {
-            foreach (Match hole in TemplateExpression.Token.Matches(value))
+            IReadOnlyList<TemplateHole> holes;
+            try
             {
-                var body = hole.Groups[1].Value;
+                holes = TemplateHoles.Scan(value);
+            }
+            catch (TemplateScanException ex)
+            {
+                refused.Add(ex.Message);
+                continue;
+            }
+
+            foreach (var hole in holes)
+            {
+                var body = hole.Text[2..^2];
                 var name = body.Split('|')[0].Trim();
+
+                // An expression, a loop and a dataset row are not in the allowlist, whatever they read.
+                if (hole.Form is HoleForm.Expression or HoleForm.LoopOpen or HoleForm.LoopClose)
+                {
+                    refused.Add("{{" + body.Trim() + "}}");
+                    continue;
+                }
 
                 if (EntryNames.Contains(name)) continue;
 

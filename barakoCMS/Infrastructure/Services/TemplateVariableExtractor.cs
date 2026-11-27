@@ -1,5 +1,7 @@
 using barakoCMS.Models;
+using barakoCMS.Infrastructure.Connectors;
 using Marten;
+using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
 
 namespace barakoCMS.Infrastructure.Services;
@@ -123,6 +125,21 @@ public interface ITemplateVariableExtractor
         PrepareSampleAsync(content, null, templates, ct);
 
     /// <summary>
+    /// Reads the datasets a template declares for the entry last prepared, as the user that prepare
+    /// read as, so <c>{{#each lines}}</c> and <c>{{= sum(lines.Total)}}</c> have rows to read.
+    /// </summary>
+    /// <param name="content">The entry the template is resolved against.</param>
+    /// <param name="datasets">The saved query each dataset name stands for.</param>
+    /// <param name="ct">Cancellation token for the reads.</param>
+    /// <remarks>
+    /// A dataset that cannot be read does not throw here. It is kept as a failure and the render
+    /// that uses it fails with the reason. The default reads nothing, so a dataset placeholder stays
+    /// as written.
+    /// </remarks>
+    Task PrepareDatasetsAsync(Content content, IReadOnlyDictionary<string, string> datasets, CancellationToken ct = default) =>
+        Task.CompletedTask;
+
+    /// <summary>
     /// What the resolves since the last prepare left out on purpose, for the run to record: a loop
     /// that stopped at its cap, with how many references the field held.
     /// </summary>
@@ -205,6 +222,12 @@ public class TemplateVariableExtractor(
     /// <summary>Signs action links. Null leaves <c>links.action</c> empty.</summary>
     internal ActionLinkTokenIssuer? ActionLinks { get; init; }
 
+    /// <summary>Runs the saved queries a template's datasets name. Null leaves a dataset unread.</summary>
+    internal barakoCMS.Infrastructure.Connectors.IContextQueryRunner? Queries { get; init; }
+
+    /// <summary>For the type and the count of a dataset read, never a value.</summary>
+    internal Microsoft.Extensions.Logging.ILogger? Log { get; init; }
+
     private Guid? _recipient;
 
     public async Task ForRecipientAsync(string? email, Content content, CancellationToken ct = default)
@@ -286,6 +309,8 @@ public class TemplateVariableExtractor(
                 content, token => ActorAsync(content, triggerEvent, eventSequence, token), TemplateExpression.FollowedFields(list), ct),
             []);
         _preparedFor = content.Id;
+        _datasets = null;
+        _actorOf = token => ActorAsync(content, triggerEvent, eventSequence, token);
         Remember(list, (more, token) => PrepareAsync(content, triggerEvent, eventSequence, more, token));
     }
 
@@ -303,9 +328,110 @@ public class TemplateVariableExtractor(
         if (_prepareAgain is not { } again || content is null || content.Id != _preparedFor) return;
 
         var notes = _prepared.Notes;
+        var datasets = _datasets;
         await again([.. _preparedTemplates, .. templates], ct);
         if (notes is not null) _prepared = _prepared with { Notes = notes };
+        if (datasets is not null)
+        {
+            _datasets = datasets;
+            _prepared = _prepared with { Datasets = datasets };
+        }
     }
+
+    private Func<CancellationToken, Task<Guid>>? _actorOf;
+    private IReadOnlyDictionary<string, TemplateDataset>? _datasets;
+
+    public async Task PrepareDatasetsAsync(Content content, IReadOnlyDictionary<string, string> datasets, CancellationToken ct = default)
+    {
+        if (content is null || content.Id != _preparedFor || datasets.Count == 0) return;
+
+        if (content is barakoCMS.Features.Workflows.ErasedContent)
+        {
+            var erased = datasets.ToDictionary(d => d.Key, d => Unread(d.Value, ErasedDataset), StringComparer.Ordinal);
+            _datasets = erased;
+            _prepared = _prepared with { Datasets = erased };
+            return;
+        }
+
+        if (_actorOf is not { } actorOf)
+        {
+            _prepared.Note("A simulation reads no dataset, so a loop or a formula over one is left as written.");
+            return;
+        }
+
+        var actor = await actorOf(ct);
+        var read = new Dictionary<string, TemplateDataset>(StringComparer.Ordinal);
+
+        // One deadline for all of them, and the first one that cannot be read ends the reading.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(DatasetReadBudget);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        TemplateDataset? stopped = null;
+        foreach (var (name, slug) in datasets)
+        {
+            read[name] = stopped is null
+                ? await ReadDatasetAsync(content, name, slug, actor, DatasetReadBudget - clock.Elapsed, deadline.Token, ct)
+                : Unread(slug, stopped.Failure!, stopped.Transient);
+
+            if (read[name].Failure is not null) stopped ??= read[name];
+        }
+
+        _datasets = read;
+        _prepared = _prepared with { Datasets = read };
+    }
+
+    /// <summary>The longest all of a template's datasets may take to read together.</summary>
+    internal static readonly TimeSpan DatasetReadBudget = TimeSpan.FromSeconds(30);
+
+    private async Task<TemplateDataset> ReadDatasetAsync(
+        Content content, string name, string slug, Guid actor, TimeSpan left, CancellationToken deadline, CancellationToken ct)
+    {
+        if (!TemplateDatasets.IsValidName(name))
+        {
+            return Unread(slug, $"'{TemplateDatasets.Shown(name)}' cannot be a dataset name. A name is letters, digits and underscores, starts with a letter, and is not one the template already uses.");
+        }
+
+        if (left <= TimeSpan.Zero) return Unread(slug, TookTooLong(name), transient: true);
+
+        if (Queries is null || string.IsNullOrWhiteSpace(slug) || !Slugs.IsValid(slug))
+        {
+            return Unread(slug, $"The dataset '{name}' does not name a saved query.");
+        }
+
+        var definition = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug && q.DeletedAt == null, ct);
+        if (definition is null) return Unread(slug, $"The saved query '{slug}' for the dataset '{name}' does not exist.");
+
+        var (values, _) = QueryBinding.Bind(definition, content, null);
+        QueryResult result;
+        try
+        {
+            result = await Queries.RunAsync(
+                TemplateDatasets.Probe(definition), new QueryRunContext(values) { AsActor = true, Actor = actor, Timeout = left }, deadline);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return Unread(slug, TookTooLong(name), transient: true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log?.LogWarning("Dataset '{Dataset}' failed with {Error}", name, ex.GetType().Name);
+            return Unread(slug, $"The dataset '{name}' could not be read.", transient: true);
+        }
+
+        if (!result.Ok) return Unread(slug, $"The dataset '{name}' ({slug}): {result.Refusal}", result.TimedOut);
+
+        Log?.LogDebug("Dataset '{Dataset}' read {Count} rows", name, result.Count);
+        return result.Count > TemplateExpression.MaxDatasetRows
+            ? Unread(slug, $"The dataset '{name}' holds more than {TemplateExpression.MaxDatasetRows} rows, which is the most a template renders.")
+            : new TemplateDataset(slug, result.Rows);
+    }
+
+    internal const string ErasedDataset = "An erased entry reads no dataset.";
+
+    private static string TookTooLong(string name) =>
+        $"The dataset '{name}' took longer to read than the {DatasetReadBudget.TotalSeconds:0} seconds all of a template's datasets are given.";
+
+    private static TemplateDataset Unread(string slug, string failure, bool transient = false) => new(slug, [], failure, transient);
 
     public async Task PreparePreviewAsync(Content content, Guid viewer, IEnumerable<string> templates, CancellationToken ct = default)
     {
@@ -323,6 +449,8 @@ public class TemplateVariableExtractor(
             await ReferencesAsync(content, _ => Task.FromResult(viewer), TemplateExpression.FollowedFields(list), ct),
             []);
         _preparedFor = content.Id;
+        _datasets = null;
+        _actorOf = _ => Task.FromResult(viewer);
         Remember(list, (more, token) => PreparePreviewAsync(content, viewer, more, token));
     }
 
@@ -345,6 +473,8 @@ public class TemplateVariableExtractor(
             References: null,
             []);
         _preparedFor = content.Id;
+        _datasets = null;
+        _actorOf = null;
         Remember(list, (more, token) => PrepareSampleAsync(content, triggerEvent, more, token));
     }
 
@@ -383,18 +513,27 @@ public class TemplateVariableExtractor(
     /// </remarks>
     private async Task<(TimeZoneInfo? Zone, string? Currency, string? Url)> SiteSettingsAsync(CancellationToken ct)
     {
-        var site = await session.Query<Content>()
+        var site = await SiteAsync(session, ct);
+        var zone = EntryUrls.Setting(site, "TimeZone");
+
+        return (zone is null ? TimeZoneInfo.Utc : TemplateExpression.Zone(zone),
+            TemplateExpression.CurrencyCode(EntryUrls.Setting(site, "Currency")),
+            EntryUrls.Setting(site, "Url"));
+    }
+
+    private static Task<Content?> SiteAsync(IQuerySession reader, CancellationToken ct) =>
+        reader.Query<Content>()
             .Where(c => c.ContentType == barakoCMS.Features.Site.ShareLinks.ShareLinkKeys.SiteType
                         && c.Status == ContentStatus.Published)
             .OrderBy(c => c.CreatedAt)
             .Take(1)
             .FirstOrDefaultAsync(ct);
 
-        var zone = EntryUrls.Setting(site, "TimeZone");
-
-        return (zone is null ? TimeZoneInfo.Utc : TemplateExpression.Zone(zone),
-            TemplateExpression.CurrencyCode(EntryUrls.Setting(site, "Currency")),
-            EntryUrls.Setting(site, "Url"));
+    /// <summary>The tenant's time zone for a condition that reads the clock: UTC with no setting, or null for a zone this server does not know.</summary>
+    internal static async Task<TimeZoneInfo?> TenantZoneAsync(IQuerySession reader, CancellationToken ct)
+    {
+        var zone = EntryUrls.Setting(await SiteAsync(reader, ct), "TimeZone");
+        return zone is null ? TimeZoneInfo.Utc : TemplateExpression.Zone(zone);
     }
 
     private bool? _tenantIsRegistered;
@@ -697,26 +836,65 @@ public class TemplateVariableExtractor(
             return template;
         }
 
+        return Render(template, TemplateExpression.Pieces(template), content, encoding, context, new RenderBudget());
+    }
+
+    /// <summary>The most placeholders one render evaluates, counting every pass of every loop.</summary>
+    internal const int MaxEvaluatedHoles = 100_000;
+
+    /// <summary>The count of placeholders one render has evaluated so far, shared by its loops.</summary>
+    private sealed class RenderBudget
+    {
+        private int _holes;
+
+        public void Spend()
+        {
+            if (++_holes > MaxEvaluatedHoles)
+            {
+                throw new TemplateRenderException(System.FormattableString.Invariant(
+                    $"The template evaluates more than {MaxEvaluatedHoles} placeholders, which is the most one render evaluates."));
+            }
+        }
+    }
+
+    /// <summary>One pass over a template that is already cut into pieces. A loop cuts its body once and reuses the pieces for every item.</summary>
+    private static string Render(
+        string template, List<TemplateExpression.Piece> pieces, Content content,
+        TemplateValueEncoding encoding, TemplateContext context, RenderBudget budget)
+    {
         // Single pass over the ORIGINAL template. Because each {{...}} token is resolved exactly
         // once and substituted values are NOT re-scanned, a content field whose value itself
         // contains "{{data.Other}}" cannot inject/leak another field (second-order injection).
         // A formatted value, a name, a duration, a link and a referenced entry's value go through
         // Encode like any other value. A loop's body is template text, resolved once per item.
         var rendered = new System.Text.StringBuilder(template.Length);
-        foreach (var piece in TemplateExpression.Pieces(template))
+        foreach (var piece in pieces)
         {
             switch (piece.Kind)
             {
                 case TemplateExpression.PieceKind.Hole:
+                    budget.Spend();
                     var value = TemplateExpression.Evaluate(piece.Hole!.Groups[1].Value, content, context);
                     rendered.Append(value is null ? piece.Hole.Value : Encode(value, encoding));
                     break;
 
+                case TemplateExpression.PieceKind.Loop when piece.Dataset is not null && TemplateExpression.DatasetRows(piece, context) is { } rows:
+                    var rowPieces = TemplateExpression.Pieces(piece.Body!);
+                    foreach (var row in rows)
+                    {
+                        rendered.Append(Render(piece.Body!, rowPieces, content, encoding, context.ForRow(row), budget));
+                        CheckSize(rendered);
+                    }
+
+                    break;
+
                 case TemplateExpression.PieceKind.Loop when TemplateExpression.LoopItems(piece, context) is { } items:
                     var itemContext = context.ForItem();
+                    var itemPieces = TemplateExpression.Pieces(piece.Body!);
                     foreach (var item in items)
                     {
-                        rendered.Append(Resolve(piece.Body!, item, encoding, itemContext));
+                        rendered.Append(Render(piece.Body!, itemPieces, item, encoding, itemContext, budget));
+                        CheckSize(rendered);
                     }
 
                     break;
@@ -725,9 +903,21 @@ public class TemplateVariableExtractor(
                     rendered.Append(template, piece.Start, piece.Length);
                     break;
             }
+
+            CheckSize(rendered);
         }
 
         return rendered.ToString();
+    }
+
+    /// <summary>Fails the render once it is past <see cref="TemplateExpression.MaxOutputLength"/>. Nothing is cut.</summary>
+    private static void CheckSize(System.Text.StringBuilder rendered)
+    {
+        if (rendered.Length > TemplateExpression.MaxOutputLength)
+        {
+            throw new TemplateRenderException(System.FormattableString.Invariant(
+                $"The template renders to more than {TemplateExpression.MaxOutputLength} characters, which is the most a template renders."));
+        }
     }
 
     private static readonly Regex LineBreaks = new(@"[\r\n\u0085\u2028\u2029]+", RegexOptions.Compiled);
@@ -973,6 +1163,27 @@ public class TemplateVariableExtractor(
             Name = "{{#each data.References}}{{data.Field}} {{/each}}",
             Description = $"The text between the markers once for each entry a reference field points at that the user who fired the workflow may read, at most {TemplateExpression.MaxLoopItems}",
             Example = "text text ",
+            Type = "string"
+        },
+        new()
+        {
+            Name = "{{= round(data.Qty * data.Price, 2) | money}}",
+            Description = "A calculation over the entry's fields, with an optional format after the bar. The result is text and is never read as a template again",
+            Example = "PHP 1,250.00",
+            Type = "string"
+        },
+        new()
+        {
+            Name = "{{#each lines}}{{row.Qty}} x {{row.Product.Name}} {{/each}}",
+            Description = $"The text between the markers once for each row of a dataset the template names, such as datasets: {{ lines: \"invoice-lines\" }}. Rows are read as the user who fired the workflow. More than {TemplateExpression.MaxDatasetRows} rows fail the render",
+            Example = "2 x Widget ",
+            Type = "string"
+        },
+        new()
+        {
+            Name = "{{= sum(lines.Total) | money}}",
+            Description = "A total over a dataset field. Also count, avg, min, max, first and last, and lookup(dataset, keyField, key, resultField)",
+            Example = "PHP 1,250.00",
             Type = "string"
         },
     ];

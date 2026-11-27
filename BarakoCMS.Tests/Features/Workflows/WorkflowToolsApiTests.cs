@@ -386,8 +386,11 @@ public class WorkflowToolsApiTests : IAsyncLifetime
         result.SystemVariables.Should().Contain(v => v.Name == "{{transition.by.name}}");
         result.SystemVariables.Should().Contain(v => v.Name == "{{schedule.at}}");
         result.SystemVariables.Should().Contain(v => v.Name == "{{schedule.previousAt}}");
-        result.Formats.Should().HaveCount(11);
+        result.Formats.Should().HaveCount(14);
         result.Formats.Should().Contain(v => v.Name == "{{hours createdAt updatedAt}}");
+        result.Formats.Should().Contain(v => v.Name == "{{= round(data.Qty * data.Price, 2) | money}}");
+        result.Formats.Should().Contain(v => v.Name == "{{#each lines}}{{row.Qty}} x {{row.Product.Name}} {{/each}}");
+        result.Formats.Should().Contain(v => v.Name == "{{= sum(lines.Total) | money}}");
     }
 
     [Fact]

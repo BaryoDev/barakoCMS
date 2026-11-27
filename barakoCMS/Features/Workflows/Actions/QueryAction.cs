@@ -63,7 +63,7 @@ internal sealed class QueryAction(
         var (definition, slug, refused) = await LoadAsync(context, ct);
         if (refused is not null) return refused;
 
-        var (values, problem) = Bind(definition!, context);
+        var (values, problem) = QueryBinding.Bind(definition!, context.Content, context.Outputs);
         if (problem is not null)
         {
             return WorkflowActionResult.Failure($"Query '{slug}': {problem}");
@@ -156,7 +156,7 @@ internal sealed class QueryAction(
         var outputs = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 0; i < names.Count; i++)
         {
-            var text = first is not null && first.TryGetValue(definition.Fields[i], out var value) ? Text(value) : string.Empty;
+            var text = first is not null && first.TryGetValue(definition.Fields[i], out var value) ? QueryBinding.Text(value) : string.Empty;
             if (text.Length > ActionOutputs.MaxValueLength)
             {
                 // Failed and not cut: a value that is not the whole value would go on into a message.
@@ -183,55 +183,4 @@ internal sealed class QueryAction(
         return $"Query '{slug}' returned {result.Count} {(result.Count == 1 ? "entry" : "entries")}."
             + (result.Count > 1 ? " The first row was kept." : string.Empty);
     }
-
-    /// <summary>The value of each parameter the query's filters name, or why one cannot be given.</summary>
-    private static (Dictionary<string, string>? Values, string? Problem) Bind(QueryDefinition definition, WorkflowContext context)
-    {
-        var values = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var name in definition.Filters.Select(f => f.Param).Where(p => !string.IsNullOrEmpty(p)).Distinct(StringComparer.Ordinal))
-        {
-            var value = Value(name!, context);
-            if (value is not null) values[name!] = value;
-        }
-
-        return (values, null);
-    }
-
-    private static string? Value(string name, WorkflowContext context)
-    {
-        if (name == "id") return context.Content.Id.ToString();
-        if (name == "createdAt") return context.Content.CreatedAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
-
-        var parts = name.Split('.');
-        if (parts is ["data", var field])
-        {
-            if (context.Content.Data is null) return null;
-            foreach (var (key, value) in context.Content.Data)
-            {
-                if (string.Equals(key, field, StringComparison.OrdinalIgnoreCase)) return value is null ? null : Text(value);
-            }
-
-            return null;
-        }
-
-        if (parts is ["actions", var step, var output] && int.TryParse(step, NumberStyles.None, CultureInfo.InvariantCulture, out var ordinal))
-        {
-            return context.Outputs.TryGetValue(ordinal, out var kept) && kept.TryGetValue(output, out var text) ? text : null;
-        }
-
-        return null;
-    }
-
-    /// <summary>A stored value as the text an output holds. Numbers and dates are written the same way for every reader.</summary>
-    private static string Text(object value) => value switch
-    {
-        null => string.Empty,
-        string s => s,
-        bool b => b ? "true" : "false",
-        DateTime d => d.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
-        DateTimeOffset d => d.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
-        JsonElement { ValueKind: JsonValueKind.String } e => e.GetString() ?? string.Empty,
-        IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
-        _ => JsonSerializer.Serialize(value),
-    };
 }

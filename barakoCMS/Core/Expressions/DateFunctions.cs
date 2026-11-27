@@ -16,8 +16,8 @@ internal static class DateFunctions
         add(new("year", 1, 1, [Arg.Date], ExprType.Number, (_, _, a) => (decimal)Day(a, 0).Year));
         add(new("month", 1, 1, [Arg.Date], ExprType.Number, (_, _, a) => (decimal)Day(a, 0).Month));
         add(new("day", 1, 1, [Arg.Date], ExprType.Number, (_, _, a) => (decimal)Day(a, 0).Day));
-        add(new("today", 0, 0, [Arg.Any], ExprType.Date, (ev, _, _) => ev.Clock.GetUtcNow().UtcDateTime.Date));
-        add(new("now", 0, 0, [Arg.Any], ExprType.Date, (ev, _, _) => ev.Clock.GetUtcNow().UtcDateTime));
+        add(new("today", 0, 0, [Arg.Any], ExprType.Date, (ev, _, _) => ev.Clock.GetLocalNow().DateTime.Date));
+        add(new("now", 0, 0, [Arg.Any], ExprType.Date, (ev, _, _) => ev.Clock.GetLocalNow().DateTime));
     }
 
     public static bool IsClock(string name) =>
