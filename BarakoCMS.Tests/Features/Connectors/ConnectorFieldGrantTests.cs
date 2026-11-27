@@ -1,3 +1,5 @@
+using Marten;
+using Microsoft.Extensions.DependencyInjection;
 using barakoCMS.Infrastructure.Connectors;
 using barakoCMS.Models;
 using FluentAssertions;
@@ -352,10 +354,16 @@ public class ConnectorFieldGrantTests(IntegrationTestFixture fixture)
         fetcher.Fetched.Should().Be(0);
     }
 
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
     private async Task StoreEntryValueAsync(Subject subject, string field, string value)
     {
-        var entry = await EntryAsync(fixture, subject);
+        // Content uses optimistic concurrency, so the entry is loaded and saved in one session.
+        using var scope = fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var entry = (await session.LoadAsync<Content>(subject.EntryId, Ct))!;
         entry.Data[field] = value;
-        await StoreAsync(fixture, entry);
+        session.Store(entry);
+        await session.SaveChangesAsync(Ct);
     }
 }

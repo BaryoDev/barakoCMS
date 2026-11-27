@@ -320,7 +320,8 @@ public class ConnectorGrantConfigTests(IntegrationTestFixture fixture)
 
         var stored = await StoredAsync(tenant, slug);
         stored.BaseUrl.Should().Be(Home, "the move would clear a secret, so the seed skips it");
-        stored.AllowedFields.Should().Equal($"{type}.Ssn", "the move and the clear are never applied apart");
+        stored.AllowedFields.Should().Equal(
+            new[] { $"{type}.Ssn" }, "the move and the clear are never applied apart");
     }
 
     [Fact]
