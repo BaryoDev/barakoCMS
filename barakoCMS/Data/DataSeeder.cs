@@ -570,7 +570,7 @@ public static class DataSeeder
         Console.WriteLine("[DataSeeder] Created Attendance Confirmation Email workflow");
     }
 
-    private static async Task SeedAttendanceRecordsAsync(IDocumentSession session)
+    internal static async Task SeedAttendanceRecordsAsync(IDocumentSession session)
     {
         var recordCount = await session.Query<Content>()
             .Where(c => c.ContentType == "AttendanceRecord")
