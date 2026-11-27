@@ -24,6 +24,8 @@ internal static class ExpressionTemplates
         ArgumentNullException.ThrowIfNull(store);
 
         var lines = new List<string>();
+        if (!await HasTablesAsync(store, ct)) return lines;
+
         await using var session = store.QuerySession();
 
         foreach (var type in new[] { EmailTemplateRenderer.TemplateType, EmailTemplateRenderer.LayoutType })
@@ -50,6 +52,19 @@ internal static class ExpressionTemplates
         }
 
         return lines;
+    }
+
+    /// <summary>
+    /// Whether the tables for entries and workflows exist. A query on a table that is missing would
+    /// create it, and a status run changes nothing.
+    /// </summary>
+    private static async Task<bool> HasTablesAsync(IDocumentStore store, CancellationToken ct)
+    {
+        await using var connection = store.Storage.Database.CreateConnection();
+        await connection.OpenAsync(ct);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "select to_regclass('public.mt_doc_contents') is not null and to_regclass('public.mt_doc_workflowdefinition') is not null";
+        return await command.ExecuteScalarAsync(ct) is true;
     }
 
     /// <summary>Whether a text holds the literal. A text that cannot be read in full is listed, since it cannot be ruled out.</summary>
