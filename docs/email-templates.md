@@ -153,7 +153,8 @@ What is read and what is refused:
   first one that cannot be read ends the reading. A read that timed out or failed is retried by the
   workflow. A refusal, a missing query and a dataset over 200 rows are not.
 - A loop over a name the template does not declare in `Datasets` is refused when the template is
-  sent, naming the dataset, and is a warning in the preview and on save.
+  sent, naming the dataset, and is a warning in the preview and when a workflow that names the
+  template is saved.
 - One render evaluates at most 100,000 placeholders, counting every pass of every loop.
 - The result is at most 1,048,576 characters, and a template at most 262,144, whether read for
   holes or rendered. Reading a template that takes more than 2 seconds is refused. Over either, the
