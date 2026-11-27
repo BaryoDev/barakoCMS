@@ -228,11 +228,19 @@ internal sealed class RequestComposer(
     private static string? Refuse(IEnumerable<string> templates, ContentTypeDefinition schema)
     {
         var found = TemplateHoles.FirstNonPublic(templates, schema);
-        if (found is null) return null;
+        if (found is not null)
+        {
+            return $"'{found.Value.Hole}' is {found.Value.Field.Sensitivity} on '{schema.Name}', and this request "
+                 + "would send it to a third party. A field that is not Public cannot leave, "
+                 + "even when a template names it.";
+        }
 
-        return $"'{found.Value.Hole}' is {found.Value.Field.Sensitivity} on '{schema.Name}', and this request "
-             + "would send it to a third party. A field that is not Public cannot leave, "
-             + "even when a template names it.";
+        // A request renders plain and formatted holes only. Sending the other forms as written would
+        // put the author's formula in front of the third party, so they are refused.
+        var beyond = TemplateHoles.FirstBeyondPlain(templates);
+        return beyond is null
+            ? null
+            : $"'{beyond}' is an expression, a loop or a dataset row, which a request does not render, so it would be sent as written. Use plain holes.";
     }
 
     /// <summary>The rows a <c>{{query.*}}</c> hole may draw from, or the reason none may run.</summary>

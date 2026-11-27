@@ -1665,6 +1665,8 @@ public static class ServiceCollectionExtensions
         // Runs any per-content-type domain rules a module registered (IContentLifecycleHook), so a
         // domain with real invariants can still be modelled as ordinary content.
         services.AddScoped<barakoCMS.Infrastructure.Services.IContentLifecycleRunner, barakoCMS.Infrastructure.Services.ContentLifecycleRunner>();
+        // An email template may not declare a dataset over fields its saver cannot read.
+        services.AddScoped<barakoCMS.Core.Interfaces.IContentLifecycleHook, barakoCMS.Features.EmailTemplates.DatasetRightsHook>();
         services.AddScoped<barakoCMS.Core.Interfaces.IContentTransitioner, barakoCMS.Infrastructure.Services.ContentTransitioner>();
     }
 

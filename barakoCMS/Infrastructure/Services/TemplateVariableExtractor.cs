@@ -345,6 +345,14 @@ public class TemplateVariableExtractor(
     {
         if (content is null || content.Id != _preparedFor || datasets.Count == 0) return;
 
+        if (content is barakoCMS.Features.Workflows.ErasedContent)
+        {
+            var erased = datasets.ToDictionary(d => d.Key, d => Unread(d.Value, ErasedDataset), StringComparer.Ordinal);
+            _datasets = erased;
+            _prepared = _prepared with { Datasets = erased };
+            return;
+        }
+
         if (_actorOf is not { } actorOf)
         {
             _prepared.Note("A simulation reads no dataset, so a loop or a formula over one is left as written.");
@@ -397,6 +405,8 @@ public class TemplateVariableExtractor(
             ? Unread(slug, $"The dataset '{name}' holds more than {TemplateExpression.MaxDatasetRows} rows, which is the most a template renders.")
             : new TemplateDataset(slug, result.Rows);
     }
+
+    internal const string ErasedDataset = "An erased entry reads no dataset.";
 
     private static TemplateDataset Unread(string slug, string failure) => new(slug, [], failure);
 

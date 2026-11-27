@@ -26,7 +26,7 @@ internal static class EmailTemplateData
     }
 
     public static Content Template(
-        string subject, string body, ContentStatus status = ContentStatus.Published, Guid? layout = null, string? slug = null) => new()
+        string subject, string body, ContentStatus status = ContentStatus.Published, Guid? layout = null, string? slug = null, string? datasets = null) => new()
     {
         Id = Guid.NewGuid(),
         ContentType = EmailTemplateRenderer.TemplateType,
@@ -38,6 +38,7 @@ internal static class EmailTemplateData
             ["Subject"] = subject,
             ["Body"] = body,
             ["Layout"] = layout?.ToString() ?? string.Empty,
+            ["Datasets"] = datasets ?? string.Empty,
         },
     };
 

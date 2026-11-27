@@ -40,8 +40,14 @@ internal static class WorkflowSaveRights
             .Where(slug => slug.Length > 0 && !slug.Contains("{{"))
             .Distinct(StringComparer.Ordinal)
             .ToList();
+        var templates = Flatten(workflow)
+            .Where(a => string.Equals(a.Type, "Email", StringComparison.OrdinalIgnoreCase))
+            .Select(a => a.Parameters.GetValueOrDefault(barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.TemplateParameter)?.Trim() ?? "")
+            .Where(name => name.Length > 0 && !name.Contains("{{"))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
         var missing = new List<string>();
-        if (needs.Count == 0 && capabilities.Count == 0 && queries.Count == 0) return missing;
+        if (needs.Count == 0 && capabilities.Count == 0 && queries.Count == 0 && templates.Count == 0) return missing;
 
         User? user = null;
         if (Guid.TryParse(principal.FindFirst("UserId")?.Value, out var id))
@@ -82,6 +88,30 @@ internal static class WorkflowSaveRights
                 if (refusal is not null)
                     missing.Add($"You cannot read everything the saved query '{slug}' reads, so you cannot save a workflow that runs it. {refusal}");
             }
+        }
+
+        missing.AddRange(await TemplateDatasetsMissingAsync(session, permissions, sensitivity, user, templates, ct));
+        return missing;
+    }
+
+    /// <summary>
+    /// The datasets of every template an Email step names are read as the template's fields are:
+    /// the saver must be able to read what each one reads, as for a Query step.
+    /// </summary>
+    private static async Task<List<string>> TemplateDatasetsMissingAsync(
+        IDocumentSession session, IPermissionResolver permissions, barakoCMS.Core.Interfaces.ISensitivityService? sensitivity,
+        User? user, List<string> templates, CancellationToken ct)
+    {
+        var missing = new List<string>();
+        foreach (var name in templates)
+        {
+            var template = await barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.FindAsync(session, name, ct);
+            if (template is null) continue;
+
+            var (datasets, _) = barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.DeclaredDatasets(
+                barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.Text(template, "Datasets"));
+            foreach (var refusal in await TemplateDatasetRights.RefusalsAsync(session, permissions, sensitivity, user, datasets, ct))
+                missing.Add($"The email template '{name}' cannot be sent by a workflow you save. {refusal}");
         }
 
         return missing;

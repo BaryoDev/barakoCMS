@@ -450,11 +450,13 @@ internal static class EmailTemplateRenderer
     }
 
     /// <summary>A field of an entry as text, matched in any case, or null when it is empty or absent.</summary>
-    internal static string? Text(ContentDoc entry, string name)
-    {
-        if (entry.Data is null) return null;
+    internal static string? Text(ContentDoc entry, string name) => Text(entry.Data, name);
 
-        foreach (var (key, value) in entry.Data)
+    internal static string? Text(IReadOnlyDictionary<string, object>? data, string name)
+    {
+        if (data is null) return null;
+
+        foreach (var (key, value) in data)
         {
             if (!string.Equals(key, name, StringComparison.OrdinalIgnoreCase)) continue;
 
@@ -464,6 +466,8 @@ internal static class EmailTemplateRenderer
                 JsonElement { ValueKind: JsonValueKind.String } element => element.GetString(),
                 JsonElement { ValueKind: JsonValueKind.Null or JsonValueKind.Undefined } => null,
                 JsonElement element => element.GetRawText(),
+                string plain => plain,
+                System.Collections.IEnumerable => JsonSerializer.Serialize(value),
                 _ => value.ToString(),
             };
 
