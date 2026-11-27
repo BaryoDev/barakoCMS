@@ -66,12 +66,18 @@ internal static class FieldChanges
     /// the definition, then drops the old name. A remove takes the field off the definition first,
     /// so nobody reads it, then drops the values. A sensitivity change follows the rule its endpoint
     /// always had: raising rebuilds the search text before the definition changes, lowering after.
+    /// A rollup adds a recount at the new level, which goes the other way: lowering recounts first,
+    /// when the new value counts fewer entries and a stricter reader only sees an undercount, and
+    /// raising recounts last, once readers are already held to the new level.
     /// </remarks>
     public static IReadOnlyList<Work> Plan(FieldChange change) => change.Kind switch
     {
         FieldChangeKind.Rename => [Work.CopyToNewName, Work.Define, Work.DropOldName],
         FieldChangeKind.Convert => [Work.Convert, Work.Define],
         FieldChangeKind.Remove => [Work.Define, Work.DropField],
+        FieldChangeKind.Sensitivity when change.CountsRollup => change.DefinitionFirst
+            ? [Work.Recompute, Work.Define, Work.SearchText]
+            : [Work.SearchText, Work.Define, Work.Recompute],
         FieldChangeKind.Sensitivity => change.DefinitionFirst ? [Work.Define, Work.SearchText] : [Work.SearchText, Work.Define],
         FieldChangeKind.Recompute => [Work.Recompute],
         _ => throw new InvalidOperationException($"No plan for a {change.Kind} change."),
@@ -334,14 +340,13 @@ internal static class FieldChanges
         var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), configuration) { WritesForFieldChange = true };
         foreach (var content in batch)
         {
-            var counted = rollups?.GetValueOrDefault(content.Id);
-            await RecountAsync(writer, work, change, definition, content, counted, ct);
-            if (Rewrite(work, change, definition, content, work == Work.Recompute ? counted : null) is { } @event)
+            if (Rewrite(work, change, definition, content, rollups?.GetValueOrDefault(content.Id)) is { } @event)
             {
                 await writer.AppendAsync(content, @event, ct);
 
-                // A rename touches an entry twice; it is counted once, when its old name goes.
-                if (work != Work.CopyToNewName)
+                // A rename touches an entry twice; it is counted once, when its old name goes. A
+                // rollup's recount is counted with the search text step.
+                if (work != Work.CopyToNewName && !(work == Work.Recompute && change.Kind == FieldChangeKind.Sensitivity))
                 {
                     change.Processed++;
                 }
@@ -354,37 +359,21 @@ internal static class FieldChanges
     }
 
     /// <summary>
-    /// A rollup whose level changes is recounted at the new level in the same batch as the search
-    /// text, so it is never left showing what the old level counted.
-    /// </summary>
-    private static async Task RecountAsync(
-        ContentWriter writer, Work work, FieldChange change, ContentTypeDefinition definition, Content content,
-        Dictionary<string, object?>? counted, CancellationToken ct)
-    {
-        if (work == Work.SearchText && counted is not null
-            && Rewrite(Work.Recompute, change, definition, content, counted) is { } recount)
-        {
-            await writer.AppendAsync(content, recount, ct);
-        }
-    }
-
-    /// <summary>
-    /// The rollup values a step writes with the entries: all of the type's for a recompute, and for a
-    /// sensitivity change on a rollup field, that field's, counted at the level the change takes it to.
+    /// The rollup values a recompute writes with the entries: all of the type's, or for a sensitivity
+    /// change, the changed field's counted at the level the change takes it to.
     /// </summary>
     private static async Task<Dictionary<Guid, Dictionary<string, object?>>?> RollupValuesAsync(
         IDocumentSession session, Work work, FieldChange change, ContentTypeDefinition definition, IReadOnlyList<Content> batch, CancellationToken ct)
     {
-        var ids = batch.Select(c => c.Id).ToList();
-        if (work == Work.Recompute)
+        if (work != Work.Recompute)
         {
-            return await Rollups.RollupRecompute.ValuesAsync(session, definition, ids, ct);
+            return null;
         }
 
-        var level = change.Kind == FieldChangeKind.Sensitivity && work == Work.SearchText ? change.ToSensitivity : null;
-        return level is null || definition.Fields.All(f => f?.Rollup is null || !string.Equals(f.Name, change.Field, StringComparison.OrdinalIgnoreCase))
-            ? null
-            : await Rollups.RollupRecompute.ValuesAsync(session, definition, ids, ct, change.Field, level);
+        var ids = batch.Select(c => c.Id).ToList();
+        return change.Kind == FieldChangeKind.Sensitivity
+            ? await Rollups.RollupRecompute.ValuesAsync(session, definition, ids, ct, change.Field, change.ToSensitivity)
+            : await Rollups.RollupRecompute.ValuesAsync(session, definition, ids, ct);
     }
 
     /// <summary>The definition step, with the block bindings a rename carries, committed with the step's progress.</summary>

@@ -159,13 +159,17 @@ headers. There is no index for it yet. A very large `from` type should wait for 
 ### Adding or changing a rollup
 
 Adding a rollup to a type with entries, or changing its `from`, `via`, `fn`, `field`, `round` or
-level, starts a background field change of kind `recompute`, as a formula does. Status, abandon and
+level (raised or kept), starts a background field change of kind `recompute`, as a formula does. Status, abandon and
 resume work the same way. The header type is write-locked while it runs, and marks for it are held
 until it ends.
 
-Changing only the level of a rollup field with the field sensitivity endpoint starts no second
-change. The sensitivity change itself recounts each header at the new level in the same batch that
-rebuilds its search text, so a rollup is never shown counting a level it no longer has.
+Changing the level of a rollup field with the field sensitivity endpoint starts no second change. The
+change gains a step that recounts each header at the new level. Lowering the level recounts first,
+then changes the definition, then rebuilds the search text, so readers only ever see a count of
+fewer entries than the old level counted. Raising the level rebuilds the search text, changes the
+definition, then recounts, so the count that includes Sensitive entries and drafts is written only
+once readers are held to the new level. A type definition write (create, config apply, blueprint)
+that lowers the level of an existing rollup is refused, and points to the sensitivity endpoint.
 
 A write to `from` whose transaction read the definitions before a new rollup was saved, and
 commits after the backfill passed its header, is not counted until the next write to that header's

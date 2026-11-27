@@ -296,6 +296,7 @@ internal class Endpoint(
         VisibleToRoles = roleIds,
         Mask = barakoCMS.Core.Validation.SensitivityRank.IsUniform(req.Sensitivity) ? FieldMask.Default : req.Mask ?? FieldMask.Default,
         DefinitionFirst = barakoCMS.Core.Validation.SensitivityRank.IsLowering(field.Sensitivity, req.Sensitivity),
+        CountsRollup = field.Rollup is not null,
         RequestedBy = actorId,
     };
 

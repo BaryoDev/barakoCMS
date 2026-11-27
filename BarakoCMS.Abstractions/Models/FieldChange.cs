@@ -87,6 +87,13 @@ public sealed class FieldChange
     /// </summary>
     public bool DefinitionFirst { get; set; }
 
+    /// <summary>
+    /// For a sensitivity change, whether the field is a rollup. It adds a step that counts the
+    /// field's value at the new level, ordered so a value counted for a wider audience never sits
+    /// under a field readers can already see. Fixed when the change is made, so its plan cannot move.
+    /// </summary>
+    public bool CountsRollup { get; set; }
+
     public FieldChangeState State { get; set; }
 
     /// <summary>The step the change is on, from 0. What each step does depends on the kind.</summary>

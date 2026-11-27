@@ -154,10 +154,23 @@ public static class ContentTypeUpsert
         if (stored is not null)
         {
             errors.AddRange(await barakoCMS.Core.Validation.RollupFields.BreaksAsync(session, stored.Name, type, ct, pending));
+            errors.AddRange(LoweredRollups(stored, type));
         }
 
         return errors;
     }
+
+    /// <summary>
+    /// A rollup whose level is lowered here would be readable at the new level while it still held
+    /// values counted at the old one, until a recompute reached each header. The field sensitivity
+    /// endpoint recounts before it lowers, so a lower level goes through it.
+    /// </summary>
+    private static IEnumerable<string> LoweredRollups(ContentTypeDefinition stored, ContentTypeDefinition type) =>
+        type.Fields
+            .Where(f => f?.Rollup is not null)
+            .Select(f => (Field: f, Old: stored.Fields.FirstOrDefault(o => o?.Rollup is not null && string.Equals(o.Name, f.Name, StringComparison.OrdinalIgnoreCase))))
+            .Where(p => p.Old is not null && barakoCMS.Core.Validation.SensitivityRank.IsLowering(p.Old.Sensitivity, p.Field.Sensitivity))
+            .Select(p => $"Field '{p.Field.Name}' is a rollup, so its level is lowered with the field sensitivity endpoint, which recounts it before the new level applies.");
 
     /// <summary>The stored type with <paramref name="type"/> written over it, the way an upsert stores it.</summary>
     public static void MergeInto(ContentTypeDefinition stored, ContentTypeDefinition type)
