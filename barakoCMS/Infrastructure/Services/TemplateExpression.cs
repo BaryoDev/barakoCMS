@@ -455,7 +455,7 @@ internal static class TemplateExpression
     /// </remarks>
     public static List<Piece> Pieces(string template)
     {
-        var matches = Token.Matches(template);
+        var matches = HoleMatches(template);
         var count = matches.Count;
         var pieces = new List<Piece>(count * 2 + 1);
 
@@ -465,6 +465,7 @@ internal static class TemplateExpression
         for (var i = 0; i < count; i++)
         {
             var body = matches[i].Groups[1].Value;
+    /// <exception cref="TemplateScanException">The template is over the cap, or reading it timed out.</exception>
             var open = LoopOpen.Match(body);
             fields[i] = open.Success ? (open.Groups["field"].Success ? open.Groups["field"].Value : open.Groups["dataset"].Value) : null;
             sets[i] = open.Success && open.Groups["dataset"].Success ? open.Groups["dataset"].Value : null;
