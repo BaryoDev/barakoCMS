@@ -163,6 +163,10 @@ level, starts a background field change of kind `recompute`, as a formula does. 
 resume work the same way. The header type is write-locked while it runs, and marks for it are held
 until it ends.
 
+Changing only the level of a rollup field with the field sensitivity endpoint starts no second
+change. The sensitivity change itself recounts each header at the new level in the same batch that
+rebuilds its search text, so a rollup is never shown counting a level it no longer has.
+
 A write to `from` whose transaction read the definitions before a new rollup was saved, and
 commits after the backfill passed its header, is not counted until the next write to that header's
 entries. Field changes carry the same window.

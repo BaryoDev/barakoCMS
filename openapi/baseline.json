@@ -3988,6 +3988,15 @@
             "nullable": true,
             "type": "string"
           },
+          "rollup": {
+            "description": "What the server summarises from the entries of another type. Makes the field read only.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsRollupDefinition"
+              }
+            ]
+          },
           "scale": {
             "description": "For a money field with a currency, the decimal places an amount may carry. Defaults to the currency's own.",
             "format": "int32",
@@ -5343,6 +5352,14 @@
           "referenceType": {
             "nullable": true,
             "type": "string"
+          },
+          "rollup": {
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsRollupDefinition"
+              }
+            ]
           },
           "scale": {
             "format": "int32",
@@ -11906,6 +11923,15 @@
             "nullable": true,
             "type": "string"
           },
+          "rollup": {
+            "description": "A summary of the entries of another type that reference this field's entry, kept by the\nserver. Null, the default, is an ordinary field.",
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BarakoCMSModelsRollupDefinition"
+              }
+            ]
+          },
           "scale": {
             "description": "For a money field with a Currency, the most decimal places an amount may\ncarry, from 0 to 8.",
             "format": "int32",
@@ -13916,6 +13942,36 @@
           "to": {
             "description": "Last day, as yyyy-MM-dd, in the tenant's time zone.",
             "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSModelsRollupDefinition": {
+        "additionalProperties": false,
+        "description": "What a rollup field summarises: the entries of From that point at this entry through Via.",
+        "properties": {
+          "field": {
+            "description": "The field of From that is summarised. Absent for count.",
+            "nullable": true,
+            "type": "string"
+          },
+          "fn": {
+            "description": "One of count, sum, min, max, avg.",
+            "type": "string"
+          },
+          "from": {
+            "description": "The content type whose entries are summarised.",
+            "type": "string"
+          },
+          "round": {
+            "description": "Decimal places a sum or an average is rounded to, 0 to 10. Null keeps a sum exact and rounds an average to 2.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
+          "via": {
+            "description": "A single reference field of From that names an entry of this type.",
             "type": "string"
           }
         },
