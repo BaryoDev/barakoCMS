@@ -94,7 +94,7 @@ internal static class WorkflowSaveRights
 
         missing.AddRange(await TemplateDatasetsMissingAsync(session, permissions, sensitivity, user, templates, ct));
         missing.AddRange(await RequestGrantsMissingAsync(session, permissions, sensitivity, principal, user, workflow, requests, ct));
-        missing.AddRange(await TemplatedRequestMissingAsync(session, sensitivity, principal, workflow, ct));
+        missing.AddRange(await TemplatedRequestMissingAsync(session, permissions, sensitivity, principal, user, workflow, missing, ct));
         return missing;
     }
 
@@ -104,37 +104,31 @@ internal static class WorkflowSaveRights
             && (a.Parameters.GetValueOrDefault("Request") ?? "").Contains("{{"));
 
     /// <summary>
-    /// A templated slug can name any request of the tenant, so the saver must be able to read every
-    /// granted field of every connector that has grants. A tenant with no granted connector asks
-    /// for nothing, so a workflow written before grants existed still saves.
+    /// A templated slug can name any request of the tenant, so each request whose connector has
+    /// grants is checked as if the step named it: the same function, so the same checks in the
+    /// same order. A tenant with no granted connector asks for nothing, so a workflow written
+    /// before grants existed still saves. What a plain slug already reported is not said twice.
     /// </summary>
     private static async Task<List<string>> TemplatedRequestMissingAsync(
-        IDocumentSession session, barakoCMS.Core.Interfaces.ISensitivityService? sensitivity,
-        ClaimsPrincipal principal, WorkflowDefinition workflow, CancellationToken ct)
+        IDocumentSession session, IPermissionResolver permissions, barakoCMS.Core.Interfaces.ISensitivityService? sensitivity,
+        ClaimsPrincipal principal, User? user, WorkflowDefinition workflow, List<string> already, CancellationToken ct)
     {
-        var missing = new List<string>();
-        if (!HasTemplatedRequest(workflow)) return missing;
+        if (!HasTemplatedRequest(workflow)) return [];
 
-        var connectors = (await session.Query<Connector>().ToListAsync(ct)).Where(c => c.AllowedFields is { Count: > 0 });
-        foreach (var connector in connectors.OrderBy(c => c.Slug, StringComparer.Ordinal))
-        {
-            foreach (var entry in connector.AllowedFields!)
-            {
-                if (!barakoCMS.Infrastructure.Connectors.ConnectorGrants.TryParse(entry, out var type, out var name)) continue;
+        var granted = (await session.Query<Connector>().ToListAsync(ct))
+            .Where(c => c.AllowedFields is { Count: > 0 })
+            .Select(c => c.Slug)
+            .ToHashSet(StringComparer.Ordinal);
+        if (granted.Count == 0) return [];
 
-                var schema = await AccountContentTypes.ResolveAsync(session, type, ct);
-                var field = schema?.Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
-                if (schema is null || field is null) continue;
-
-                if (sensitivity is null || !await sensitivity.MayReadFieldAsync(schema.Name, field, null, principal, ct))
-                {
-                    missing.Add($"You cannot read '{schema.Name}.{field.Name}', which the connector '{connector.Slug}' is granted, and this workflow "
-                                + "names its request by a template, so it could send it. Name the request, or ask for the read.");
-                }
-            }
-        }
-
-        return missing;
+        var slugs = (await session.Query<RequestDefinition>().ToListAsync(ct))
+            .Where(r => granted.Contains(r.ConnectorSlug))
+            .Select(r => r.Slug)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(slug => slug, StringComparer.Ordinal)
+            .ToList();
+        var found = await RequestGrantsMissingAsync(session, permissions, sensitivity, principal, user, workflow, slugs, ct);
+        return found.Where(m => !already.Contains(m)).ToList();
     }
 
     /// <summary>The requests a workflow's Request steps name, by plain slug.</summary>

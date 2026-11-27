@@ -167,7 +167,7 @@ public class ConnectorGrantWorkflowSaveTests(IntegrationTestFixture fixture)
     [Fact]
     public async Task A_templated_slug_asks_the_saver_for_every_granted_field_of_every_connector_and_names_the_field()
     {
-        var subject = await GrantKit.SeedAsync(fixture, ["Ssn"]);
+        var (subject, _) = await PlainAsync("{\"v\":\"{{Ssn}}\"}", ["Ssn"]);
         var (saver, _) = await UserAsync(fixture, [], subject.Type);
 
         var missing = await MissingAsync(saver, Workflow(subject.Type, "{{data.Which}}"));
@@ -176,13 +176,35 @@ public class ConnectorGrantWorkflowSaveTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public async Task A_templated_slug_runs_the_query_row_check_of_each_granted_request_and_names_the_field()
+    {
+        var (seed, _) = await QueryAsync((lines, _) => [lines + ".Note"], ["Qty", "Note"]);
+        var (saver, _) = await UserAsync(fixture, [], seed.Lines);
+
+        var missing = await MissingAsync(saver, Workflow(seed.Lines, "{{data.Which}}"));
+
+        missing.Should().Contain(m => m.Contains("Note")).Which.Should().NotContain(NoteValue);
+    }
+
+    [Fact]
     public async Task A_templated_slug_is_not_refused_for_a_saver_who_may_read_every_granted_field()
     {
-        var subject = await GrantKit.SeedAsync(fixture, ["Ssn"]);
+        var (subject, _) = await PlainAsync("{\"v\":\"{{Ssn}}\"}", ["Ssn"]);
         await ClearOtherGrantsAsync(subject.Type);
         var (saver, _) = await UserAsync(fixture, [SystemCapabilities.ViewSensitive], subject.Type);
 
         (await MissingAsync(saver, Workflow(subject.Type, "{{data.Which}}"))).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_templated_slug_asks_nothing_for_a_granted_connector_that_no_request_uses()
+    {
+        var subject = await GrantKit.SeedAsync(fixture, ["Ssn"]);
+        var (saver, _) = await UserAsync(fixture, [], subject.Type);
+
+        var missing = await MissingAsync(saver, Workflow(subject.Type, "{{data.Which}}"));
+
+        missing.Should().NotContain(m => m.Contains(subject.Type + ".Ssn"));
     }
 
     [Fact]
