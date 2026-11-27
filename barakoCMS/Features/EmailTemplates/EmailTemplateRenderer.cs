@@ -198,14 +198,7 @@ internal static class EmailTemplateRenderer
         if (!string.IsNullOrEmpty(header)) sources.Add(("Layout.Header", header));
         if (!string.IsNullOrEmpty(footer)) sources.Add(("Layout.Footer", footer));
 
-        // The same cap a workflow parameter has, for the same reason: every run scans the text.
-        foreach (var (field, text) in sources)
-        {
-            if (text.Length > TemplateExpression.MaxTemplateLength)
-            {
-                return (null, $"The email template's {field} is {text.Length} characters long, and it holds at most {TemplateExpression.MaxTemplateLength}.");
-            }
-        }
+        if (OverLength(sources) is { } tooLong) return (null, tooLong);
 
         var (datasets, datasetProblem) = DeclaredDatasets(Text(template, "Datasets"));
         if (datasetProblem is not null) return (null, datasetProblem);
@@ -220,6 +213,20 @@ internal static class EmailTemplateRenderer
         }
 
         return (new RenderedTemplate(subject, html, sources, datasets), null);
+    }
+
+    /// <summary>The same cap a workflow parameter has, for the same reason: every run scans the text.</summary>
+    private static string? OverLength(IEnumerable<(string Field, string Text)> sources)
+    {
+        foreach (var (field, text) in sources)
+        {
+            if (text.Length > TemplateExpression.MaxTemplateLength)
+            {
+                return $"The email template's {field} is {text.Length} characters long, and it holds at most {TemplateExpression.MaxTemplateLength}.";
+            }
+        }
+
+        return null;
     }
 
     /// <summary>The most datasets one template declares.</summary>

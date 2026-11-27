@@ -81,27 +81,12 @@ internal sealed class Endpoint(
                 var (shown, _, hidden) = await AsShownAsync(layout, token);
                 return hidden ? null : shown;
             });
-        if (rendered is null)
-        {
-            Response = new Response { Status = template.Status.ToString(), Sendable = false, Problem = problem };
-            return;
-        }
+        if (rendered is null) { Response = Unsendable(template, problem); return; }
 
         var sendable = template.Status == ContentStatus.Published;
 
-        await extractor.PreparePreviewAsync(entryShown, user.Id, [rendered.Subject, rendered.Html], ct);
-        if (rendered.Datasets is { Count: > 0 } datasets) await extractor.PrepareDatasetsAsync(entryShown, datasets, ct);
-
-        string subject, html;
-        try
-        {
-            (subject, html) = EmailTemplateRenderer.Resolve(rendered, entryShown, extractor);
-        }
-        catch (Exception ex) when (ex is TemplateRenderException or TemplateScanException)
-        {
-            Response = new Response { Status = template.Status.ToString(), Sendable = false, Problem = ex.Message };
-            return;
-        }
+        var (subject, html, failure) = await ResolveAsync(rendered, entryShown, user.Id, ct);
+        if (failure is not null) { Response = Unsendable(template, failure); return; }
 
         // A preview cannot know which workflow will send it, so a transition placeholder is not
         // warned about here. The workflow's own save says so when its trigger is not a transition.
@@ -126,6 +111,27 @@ internal sealed class Endpoint(
             Warnings = warnings,
             Notes = extractor.Notes.ToList(),
         };
+    }
+
+    private static Response Unsendable(barakoCMS.Models.Content template, string? problem) =>
+        new() { Status = template.Status.ToString(), Sendable = false, Problem = problem };
+
+    /// <summary>The subject and body the template gives for the entry, or why it cannot be rendered.</summary>
+    private async Task<(string Subject, string Html, string? Failure)> ResolveAsync(
+        RenderedTemplate rendered, FollowedContent entry, Guid viewer, CancellationToken ct)
+    {
+        await extractor.PreparePreviewAsync(entry, viewer, [rendered.Subject, rendered.Html], ct);
+        if (rendered.Datasets is { Count: > 0 } datasets) await extractor.PrepareDatasetsAsync(entry, datasets, ct);
+
+        try
+        {
+            var (subject, html) = EmailTemplateRenderer.Resolve(rendered, entry, extractor);
+            return (subject, html, null);
+        }
+        catch (Exception ex) when (ex is TemplateRenderException or TemplateScanException)
+        {
+            return (string.Empty, string.Empty, ex.Message);
+        }
     }
 
     /// <summary>
