@@ -80,6 +80,10 @@ $ echo $?
 `config` is worth running before `up` for exactly this: it resolves every variable and exits
 non-zero on the first one you have not set.
 
+If the API or compose refuses to start for any other reason, [troubleshooting.md](troubleshooting.md)
+has one entry per message, including a port already in use and a certificate requested before the
+DNS record resolves.
+
 ## Verify the image
 
 Release images are signed with cosign (keyless, from this repository's workflow) and carry a build
