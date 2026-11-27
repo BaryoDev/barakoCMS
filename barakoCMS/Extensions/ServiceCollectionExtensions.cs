@@ -1738,7 +1738,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<barakoCMS.Infrastructure.Connectors.IConnectorDeliveryLog, barakoCMS.Infrastructure.Connectors.ConnectorDeliveryLog>();
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorSender, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IRequestComposer, barakoCMS.Infrastructure.Connectors.RequestComposer>();
-        services.AddScoped<barakoCMS.Infrastructure.Connectors.IQueryRunner, barakoCMS.Infrastructure.Connectors.QueryRunner>();
+        services.AddScoped<barakoCMS.Infrastructure.Connectors.QueryRunner>();
+        services.AddScoped<barakoCMS.Infrastructure.Connectors.IQueryRunner>(sp => sp.GetRequiredService<barakoCMS.Infrastructure.Connectors.QueryRunner>());
+        services.AddScoped<barakoCMS.Infrastructure.Connectors.IContextQueryRunner>(sp => sp.GetRequiredService<barakoCMS.Infrastructure.Connectors.QueryRunner>());
         // The same class as the sender above, registered again under the interface that hands back a
         // response body. One outbound path, one address guard, one place credentials are attached.
         services.AddScoped<barakoCMS.Infrastructure.Connectors.IConnectorFetcher, barakoCMS.Infrastructure.Connectors.ConnectorSender>();
