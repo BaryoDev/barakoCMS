@@ -410,11 +410,23 @@ internal static class TemplateExpression
             yield break;
         }
 
+        var loops = new Stack<bool>();
         foreach (var match in holes)
         {
-            var problem = LoopOpen.IsMatch(match.Groups[1].Value) || LoopClose.IsMatch(match.Groups[1].Value)
-                ? null
-                : Problem(match.Groups[1].Value, onTransition);
+            var body = match.Groups[1].Value;
+            if (LoopOpen.Match(body) is { Success: true } open)
+            {
+                loops.Push(open.Groups["dataset"].Success);
+                continue;
+            }
+
+            if (LoopClose.IsMatch(body))
+            {
+                if (loops.Count > 0) loops.Pop();
+                continue;
+            }
+
+            var problem = Problem(body, onTransition, loops.Contains(true));
             if (problem is null) continue;
 
             yield return $"'{Shorten(match.Value)}' {problem}, so it is sent as written.";
@@ -453,6 +465,7 @@ internal static class TemplateExpression
     /// after it is an ordinary hole, left as written. Pairing by a pattern with a lazy body instead
     /// rescanned the rest of the template from every unclosed marker.
     /// </remarks>
+    /// <exception cref="TemplateScanException">The template is over the cap, or reading it timed out.</exception>
     public static List<Piece> Pieces(string template)
     {
         var matches = HoleMatches(template);
@@ -465,7 +478,6 @@ internal static class TemplateExpression
         for (var i = 0; i < count; i++)
         {
             var body = matches[i].Groups[1].Value;
-    /// <exception cref="TemplateScanException">The template is over the cap, or reading it timed out.</exception>
             var open = LoopOpen.Match(body);
             fields[i] = open.Success ? (open.Groups["field"].Success ? open.Groups["field"].Value : open.Groups["dataset"].Value) : null;
             sets[i] = open.Success && open.Groups["dataset"].Success ? open.Groups["dataset"].Value : null;
@@ -674,7 +686,7 @@ internal static class TemplateExpression
 
     private static string Shorten(string quoted) => quoted.Length <= 80 ? quoted : quoted[..80] + "...";
 
-    private static string? Problem(string body, bool onTransition)
+    private static string? Problem(string body, bool onTransition, bool inRow = false)
     {
         if (Parse(body) is not { } hole) return "is not a placeholder";
 
@@ -695,7 +707,7 @@ internal static class TemplateExpression
             return hole.Shape == Shape.Plain ? null : $"reads a step output with '{hole.Word}', and a step output is only read as it is";
         }
 
-        if (NameProblem(hole.Name, onTransition) is { } name) return name;
+        if (NameProblem(hole.Name, onTransition, inRow) is { } name) return name;
 
         switch (hole.Shape)
         {
@@ -703,7 +715,7 @@ internal static class TemplateExpression
                 return null;
 
             case Shape.Between:
-                if (NameProblem(hole.Second, onTransition) is { } second) return second;
+                if (NameProblem(hole.Second, onTransition, inRow) is { } second) return second;
                 return CanBeDate(hole.Name) && CanBeDate(hole.Second)
                     ? null
                     : $"asks '{hole.Word}' for the time between two values that are not both dates";
@@ -716,8 +728,10 @@ internal static class TemplateExpression
         }
     }
 
-    private static string? NameProblem(string name, bool onTransition)
+    private static string? NameProblem(string name, bool onTransition, bool inRow = false)
     {
+        if (inRow && name.StartsWith("row.", StringComparison.Ordinal)) return null;
+
         if (EntryNames.Contains(name) || ScheduleNames.Contains(name) || LinkNames.Contains(name) || name == "links.site" || IsField(name)) return null;
 
         if (name == "links.transition") return "names 'links.transition' without the transition, as in links.transition \"Approve\"";
