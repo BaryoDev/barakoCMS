@@ -91,6 +91,9 @@ internal sealed class DryRunResponse
     public string Url { get; init; } = string.Empty;
     public Dictionary<string, string> Headers { get; init; } = new();
     public string? Body { get; init; }
+
+    /// <summary>A fixed line about what the preview leaves out, or null.</summary>
+    public string? Note { get; init; }
 }
 
 internal static class RequestRules
@@ -418,6 +421,7 @@ internal sealed class DryRunRequestEndpoint(
             Url = composed.Url,
             Headers = composed.Headers,
             Body = composed.Body,
+            Note = composed.Note,
         }, cancellation: ct);
     }
 

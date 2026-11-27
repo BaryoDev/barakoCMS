@@ -246,14 +246,18 @@ Hidden is never sent through a grant.
   Email and SMS steps, webhooks and Publish are not changed by a grant.
 - **Dry run.** `POST /api/requests/{slug}/dry-run/{entryId}` masks a granted value with `***` in
   the URL, the headers and the body when the caller may not read that field, one hole at a time.
-  A `{{query.rows}}` hole the caller may not read, or that follows a reference, shows one row with
-  a key for each field the query projects and `***` for every value. Nothing in it comes from the
-  rows, so the preview does not tell how many entries matched.
+  Whether a query hole is masked is decided from the caller and the schema before any row is read:
+  it is masked when the query reads a granted field the caller does not read on every entry (a field
+  with a per-entry rule counts as not read), or follows a reference. A masked preview shows one row
+  with a key for each field the query projects and `***` for every value, does not run the query,
+  skips the "matched no rows" refusal, and adds a `note` saying the rows and whether the query
+  matches are not shown. The same request previews identically whether it would match nothing or
+  many entries. A caller who reads every field sees the real rows and the real refusal.
 - **Saving a workflow.** A saver who cannot read a granted field that one of the workflow's Request
   templates names, or that a `{{query.*}}` row projects, filters, sorts on or follows, is refused,
   and the field is named. A Request whose path is itself templated (`{{` in the slug) names no
-  connector until it runs, so the saver needs read on every granted field of every connector in
-  the tenant. With no granted connector nothing changes. The read check runs when a workflow is
+  connector until it runs, so each request in the tenant whose connector has grants is checked as
+  if the step named it, with the same checks. With no granted connector nothing changes. The read check runs when a workflow is
   saved, so a later request edit or a later grant is the connector admin's call.
 - **Changing the type.** Removing or renaming a field, or deleting a content type, answers 409
   naming the connector while a grant names it (see [field-changes.md](field-changes.md)).

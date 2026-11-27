@@ -7064,6 +7064,11 @@
           "method": {
             "type": "string"
           },
+          "note": {
+            "description": "A fixed line about what the preview leaves out, or null.",
+            "nullable": true,
+            "type": "string"
+          },
           "refusal": {
             "nullable": true,
             "type": "string"

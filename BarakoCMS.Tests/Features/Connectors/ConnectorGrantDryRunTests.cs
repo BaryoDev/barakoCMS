@@ -142,14 +142,17 @@ public class ConnectorGrantDryRunTests(IntegrationTestFixture fixture)
         dry.GetProperty("body").GetString().Should().Contain(NoteValue);
     }
 
-    private async Task<string> StoreRequestForQueryAsync(GrantKit.LineSeed seed, params QueryFilter[] filters)
+    private async Task<string> StoreRequestForQueryAsync(GrantKit.LineSeed seed, params QueryFilter[] filters) =>
+        await StoreRequestForQueryAsync(seed, "{{query.rows}}", filters);
+
+    private async Task<string> StoreRequestForQueryAsync(GrantKit.LineSeed seed, string body, QueryFilter[] filters)
     {
         var query = new QueryDefinition
         {
             Id = Guid.NewGuid(), Slug = Name("dryf"), Name = "Dry run filter", ContentType = seed.Lines,
             Fields = ["Qty", "Note"], Filters = [.. filters],
         };
-        var definition = Definition(seed.Subject, "{{query.rows}}");
+        var definition = Definition(seed.Subject, body);
         definition.QuerySlug = query.Slug;
         await StoreAsync(fixture, query, definition);
         return definition.Slug;
@@ -176,5 +179,56 @@ public class ConnectorGrantDryRunTests(IntegrationTestFixture fixture)
         rows[0].EnumerateObject().Select(p => p.Name).Should().Equal("Qty", "Note");
         rows[0].EnumerateObject().Select(p => p.Value.GetString()).Should().OnlyContain(v => v == Mask);
         matchedThree.Should().NotContain(NoteValue);
+    }
+
+    private const string NoMatch = "no-such-qty";
+
+    private async Task SeedTwoLinesAsync(GrantKit.LineSeed seed) =>
+        await StoreAsync(
+            fixture,
+            new Content { Id = Guid.NewGuid(), ContentType = seed.Lines, Status = ContentStatus.Published, Data = new() { ["Qty"] = "3", ["Note"] = NoteValue } },
+            new Content { Id = Guid.NewGuid(), ContentType = seed.Lines, Status = ContentStatus.Published, Data = new() { ["Qty"] = "4" } });
+
+    [Fact]
+    public async Task A_masked_preview_is_identical_for_a_query_that_matches_nothing_and_one_that_matches_three_and_carries_one_note()
+    {
+        var seed = await SeedLinesAsync(fixture, (lines, _) => [lines + ".Note"]);
+        await SeedTwoLinesAsync(seed);
+        var body = "{\"first\":\"{{query.Qty}}\",\"all\":{{query.rows}}}";
+        var none = await StoreRequestForQueryAsync(seed, body, [new QueryFilter { Field = "Qty", Op = "eq", Value = NoMatch }]);
+        var three = await StoreRequestForQueryAsync(seed, body, []);
+        var blind = await CallerAsync(fixture, [SystemCapabilities.ManageRequests], seed.Lines);
+
+        var matchedNone = await DryRunAsync(blind, none, seed.Subject.EntryId);
+        var matchedThree = await DryRunAsync(blind, three, seed.Subject.EntryId);
+
+        matchedNone.GetProperty("wouldSend").GetBoolean().Should().BeTrue("a masked preview does not say whether anything matched");
+        matchedNone.GetProperty("refusal").ValueKind.Should().Be(JsonValueKind.Null);
+        matchedThree.GetProperty("wouldSend").GetBoolean().Should().Be(matchedNone.GetProperty("wouldSend").GetBoolean());
+        matchedThree.GetProperty("body").GetString().Should().Be(matchedNone.GetProperty("body").GetString());
+        matchedThree.GetProperty("url").GetString().Should().Be(matchedNone.GetProperty("url").GetString());
+        matchedNone.GetProperty("note").GetString().Should().Be("The rows of the query, and whether the query matches anything, are not shown.");
+        matchedThree.GetProperty("note").GetString().Should().Be(matchedNone.GetProperty("note").GetString());
+        matchedThree.GetRawText().Should().NotContain(NoteValue);
+    }
+
+    [Fact]
+    public async Task A_preview_for_a_caller_who_reads_every_granted_field_still_shows_the_matched_no_rows_refusal_and_has_no_note()
+    {
+        var seed = await SeedLinesAsync(fixture, (lines, _) => [lines + ".Note"]);
+        await SeedTwoLinesAsync(seed);
+        var none = await StoreRequestForQueryAsync(
+            seed, "{\"first\":\"{{query.Qty}}\"}", [new QueryFilter { Field = "Qty", Op = "eq", Value = NoMatch }]);
+        var three = await StoreRequestForQueryAsync(seed, "{\"first\":\"{{query.Qty}}\"}", []);
+        var reader = await CallerAsync(
+            fixture, [SystemCapabilities.ManageRequests, SystemCapabilities.ViewSensitive], seed.Lines);
+
+        var matchedNone = await DryRunAsync(reader, none, seed.Subject.EntryId);
+        var matchedThree = await DryRunAsync(reader, three, seed.Subject.EntryId);
+
+        matchedNone.GetProperty("wouldSend").GetBoolean().Should().BeFalse();
+        matchedNone.GetProperty("refusal").GetString().Should().Contain("matched no rows");
+        matchedThree.GetProperty("wouldSend").GetBoolean().Should().BeTrue();
+        matchedThree.GetProperty("note").ValueKind.Should().Be(JsonValueKind.Null);
     }
 }

@@ -34,6 +34,9 @@ public sealed record ComposedRequest(
     /// delivery view may read.
     /// </summary>
     public IReadOnlyCollection<string> RedactedHeaders { get; init; } = [];
+
+    /// <summary>A fixed line a preview shows beside the request, or null. Never built from a value.</summary>
+    public string? Note { get; init; }
 }
 
 public interface IRequestComposer
@@ -51,7 +54,7 @@ public interface IRequestComposer
 }
 
 /// <summary>Whether a caller may read a field of an entry. The dry run asks it per granted field.</summary>
-internal delegate ValueTask<bool> FieldReadCheck(string contentType, FieldDefinition field, Content entry);
+internal delegate ValueTask<bool> FieldReadCheck(string contentType, FieldDefinition field, Content? entry);
 
 /// <summary>
 /// The composer's preview: the same request, with any granted value the caller may not read masked
@@ -70,6 +73,9 @@ internal sealed class RequestComposer(
 {
     /// <summary>What replaces a granted value the previewing caller may not read.</summary>
     private const string MaskText = "***";
+
+    /// <summary>What a preview says when it masks the rows of a query, whatever the query matched.</summary>
+    internal const string QueryMaskNote = "The rows of the query, and whether the query matches anything, are not shown.";
 
     /// <summary>The granted fields a preview masks, and whether it masks the rows of the query too.</summary>
     private sealed record Mask(HashSet<string> Fields, bool Query)
@@ -158,7 +164,7 @@ internal sealed class RequestComposer(
 
         var composed = Address(definition, connector, path, headers, body);
         return composed.Ok
-            ? composed with { RedactedHeaders = RedactedHeaderNames(definition, schema, grants, query) }
+            ? composed with { RedactedHeaders = RedactedHeaderNames(definition, schema, grants, query), Note = query.Unreadable ? QueryMaskNote : null }
             : composed;
     }
 
@@ -395,19 +401,7 @@ internal sealed class RequestComposer(
     private async Task<QueryContext> ResolveQueryAsync(
         RequestDefinition definition, List<string> templates, ISet<string> grants, FieldReadCheck? mayRead, CancellationToken ct)
     {
-        var names = new List<string>();
-        foreach (var template in templates)
-        {
-            foreach (var scanned in TemplateHoles.Scan(template).Where(h => h.Form == HoleForm.Plain))
-            {
-                var name = scanned.Reads[0];
-                if (name.StartsWith("query.", StringComparison.OrdinalIgnoreCase))
-                {
-                    names.Add(name);
-                }
-            }
-        }
-
+        var names = QueryHoleNames(templates);
         if (names.Count == 0) return QueryContext.None;
 
         // The first hole found names the refusal, which is enough to act on and reads better than a
@@ -428,51 +422,96 @@ internal sealed class RequestComposer(
             return new QueryContext([], $"'{hole}' needs a query, and '{definition.QuerySlug}' does not exist.");
         }
 
-        var result = await RunQueryAsync(queryDefinition, grants, ct);
-        if (!result.Ok)
+        // A preview decides whether to mask from the caller and the schema alone, before any row is
+        // read, so that masked or not never says whether the query matched. A masked preview does
+        // not run the query at all.
+        var masked = mayRead is not null && await PreviewMasksRowsAsync(queryDefinition, grants, mayRead, ct);
+        if (!masked)
         {
-            return new QueryContext([], $"'{hole}' cannot run: {result.Refusal}");
+            var result = await RunQueryAsync(queryDefinition, grants, ct);
+            if (!result.Ok) return new QueryContext([], $"'{hole}' cannot run: {result.Refusal}");
+
+            var unselected = UnselectedHole(definition, queryDefinition, names);
+            if (unselected is not null) return unselected.Value;
+
+            var noRows = NoRowsHole(definition, names, result.Rows.Count);
+            if (noRows is not null) return noRows.Value;
+
+            return await WithGrantUseAsync(result.Rows, queryDefinition, grants, ct);
         }
 
-        // Every field named must be either "rows" or on the query's own allowlist. QueryRunner
-        // already restricts what a row can hold to that allowlist; this is what stops a template
-        // asking for a field the query never selected in the first place, which QueryRunner has no
-        // way to refuse because it never sees the templates.
+        return UnselectedHole(definition, queryDefinition, names)
+            ?? new QueryContext(SchemaRows(queryDefinition), null, true, true);
+    }
+
+    /// <summary>The <c>query.*</c> names the templates read, in the order found.</summary>
+    private static List<string> QueryHoleNames(List<string> templates)
+    {
+        var names = new List<string>();
+        foreach (var template in templates)
+        {
+            foreach (var scanned in TemplateHoles.Scan(template).Where(h => h.Form == HoleForm.Plain))
+            {
+                var name = scanned.Reads[0];
+                if (name.StartsWith("query.", StringComparison.OrdinalIgnoreCase))
+                {
+                    names.Add(name);
+                }
+            }
+        }
+
+        return names;
+    }
+
+    /// <summary>
+    /// Every field named must be either "rows" or on the query's own allowlist. QueryRunner already
+    /// restricts what a row can hold to that allowlist; this is what stops a template asking for a
+    /// field the query never selected in the first place, which QueryRunner has no way to refuse
+    /// because it never sees the templates. It reads the definition only, never a row.
+    /// </summary>
+    private static QueryContext? UnselectedHole(RequestDefinition definition, QueryDefinition query, List<string> names)
+    {
         foreach (var name in names.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var field = name["query.".Length..];
             if (string.Equals(field, "rows", StringComparison.OrdinalIgnoreCase)) continue;
 
-            if (!queryDefinition.Fields.Any(f => string.Equals(f, field, StringComparison.OrdinalIgnoreCase)))
+            if (!query.Fields.Any(f => string.Equals(f, field, StringComparison.OrdinalIgnoreCase)))
             {
-                var available = string.Join(", ", new[] { "rows" }.Concat(queryDefinition.Fields));
+                var available = string.Join(", ", new[] { "rows" }.Concat(query.Fields));
                 var thisHole = "{{" + name + "}}";
                 return new QueryContext([], $"'{thisHole}' needs a query, and "
                     + $"'{definition.QuerySlug}' does not select '{field}'. It returns: {available}.");
             }
         }
 
-        // A scalar hole with no rows to draw from is refused rather than composed as an empty
-        // string. Composing it would make "the query matched nothing" and "the field is genuinely
-        // empty" produce the identical value, and there is no way for whoever reads the sent request
-        // to tell those apart afterwards. {{query.rows}} does not need this: an empty array is a
-        // real, distinguishable answer to "how many rows matched", so it is excluded above.
-        if (result.Rows.Count == 0)
-        {
-            foreach (var name in names.Distinct(StringComparer.OrdinalIgnoreCase))
-            {
-                var field = name["query.".Length..];
-                if (string.Equals(field, "rows", StringComparison.OrdinalIgnoreCase)) continue;
+        return null;
+    }
 
-                var thisHole = "{{" + name + "}}";
-                return new QueryContext([], $"'{thisHole}' needs a query, and "
-                    + $"'{definition.QuerySlug}' matched no rows. A single field has no value to "
-                    + "compose when there are no rows: use {{query.rows}} for an empty array instead, "
-                    + "or change the query so it matches something.");
-            }
+    /// <summary>
+    /// A scalar hole with no rows to draw from is refused rather than composed as an empty
+    /// string. Composing it would make "the query matched nothing" and "the field is genuinely
+    /// empty" produce the identical value, and there is no way for whoever reads the sent request
+    /// to tell those apart afterwards. {{query.rows}} does not need this: an empty array is a
+    /// real, distinguishable answer to "how many rows matched", so it is excluded.
+    /// </summary>
+    private static QueryContext? NoRowsHole(RequestDefinition definition, List<string> names, int rows)
+    {
+        if (rows > 0) return null;
+
+        foreach (var name in names.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var field = name["query.".Length..];
+            if (string.Equals(field, "rows", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var thisHole = "{{" + name + "}}";
+            return new QueryContext([], $"'{thisHole}' needs a query, and "
+                + $"'{definition.QuerySlug}' matched no rows. A single field has no value to "
+                + "compose when there are no rows: use {{query.rows}} for an empty array instead, "
+                + "or change the query so it matches something.");
         }
 
-        return await WithGrantUseAsync(result.Rows, queryDefinition, grants, mayRead, ct);
+        return null;
     }
 
     /// <summary>
@@ -486,33 +525,41 @@ internal sealed class RequestComposer(
             : queryRunner.RunAsync(query, ct);
 
     /// <summary>
-    /// Whether the query reads a field that is not Public, which with grants means a granted one, and
-    /// whether a previewing reader may not read all of them. A followed reference counts as one the
-    /// reader may not read: the preview has no cheap way to tell, and it fails closed.
+    /// Whether a preview masks the rows of the query: the connector has grants, the query reads a
+    /// field that is not Public, and the caller does not read all of them on every entry. Judged
+    /// from the caller and the schema only, never from a row, so a field with a rule per entry
+    /// counts as one the caller does not read. A followed reference counts as one too: the preview
+    /// has no cheap way to tell, and it fails closed.
     /// </summary>
+    private async Task<bool> PreviewMasksRowsAsync(
+        QueryDefinition query, ISet<string> grants, FieldReadCheck mayRead, CancellationToken ct)
+    {
+        if (grants.Count == 0) return false;
+
+        var schema = await AccountContentTypes.ResolveAsync(session, query.ContentType, ct);
+        if (schema is null || !ConnectorGrants.QueryReadsNonPublic(query, schema)) return false;
+
+        foreach (var name in ConnectorGrants.NamedFields(query))
+        {
+            if (name.Contains('.')) return true;
+
+            var field = schema.Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (field is not null && field.Sensitivity != SensitivityLevel.Public && !await mayRead(schema.Name, field, null)) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether the query reads a field that is not Public, which with grants means a granted one.</summary>
     private async Task<QueryContext> WithGrantUseAsync(
-        IReadOnlyList<Dictionary<string, object>> rows, QueryDefinition query, ISet<string> grants,
-        FieldReadCheck? mayRead, CancellationToken ct)
+        IReadOnlyList<Dictionary<string, object>> rows, QueryDefinition query, ISet<string> grants, CancellationToken ct)
     {
         if (grants.Count == 0) return new QueryContext(rows, null);
 
         var schema = await AccountContentTypes.ResolveAsync(session, query.ContentType, ct);
-        if (schema is null || !ConnectorGrants.QueryReadsNonPublic(query, schema)) return new QueryContext(rows, null);
-        if (mayRead is null) return new QueryContext(rows, null, true);
-
-        var entry = new Content { ContentType = schema.Name };
-        foreach (var name in ConnectorGrants.NamedFields(query))
-        {
-            if (name.Contains('.')) return new QueryContext(SchemaRows(query), null, true, true);
-
-            var field = schema.Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
-            if (field is not null && field.Sensitivity != SensitivityLevel.Public && !await mayRead(schema.Name, field, entry))
-            {
-                return new QueryContext(SchemaRows(query), null, true, true);
-            }
-        }
-
-        return new QueryContext(rows, null, true);
+        return schema is null || !ConnectorGrants.QueryReadsNonPublic(query, schema)
+            ? new QueryContext(rows, null)
+            : new QueryContext(rows, null, true);
     }
 
     /// <summary>The schema field a variable names, or null when it names a system variable.</summary>
