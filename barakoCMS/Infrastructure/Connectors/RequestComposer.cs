@@ -101,7 +101,7 @@ internal sealed class RequestComposer(
 
         // A value of ".." is unreserved, so escaping leaves it, and the address then collapses it
         // into the segment before. A dot segment the template did not write is a value's, and refused.
-        if (HasDotSegment(path) && !HasDotSegment(definition.PathTemplate))
+        if (ValueMakesDotSegment(definition.PathTemplate, path))
         {
             return ComposedRequest.Refused("A value in the path is a dot segment, which would change which endpoint is addressed.");
         }
@@ -115,14 +115,30 @@ internal sealed class RequestComposer(
         return Address(definition, connector, path, headers, body);
     }
 
-    private static bool HasDotSegment(string path)
+    /// <summary>
+    /// Whether a segment of the composed path is a dot segment where the template's segment at the
+    /// same place is not one. A value's <c>/</c>, <c>?</c> and <c>#</c> are escaped, so the two
+    /// lists line up. When they do not and the composed path holds a dot segment, it is refused.
+    /// </summary>
+    private static bool ValueMakesDotSegment(string template, string composed)
+    {
+        var written = Segments(template);
+        var sent = Segments(composed);
+
+        if (!sent.Any(IsDotSegment)) return false;
+        if (written.Length != sent.Length) return true;
+
+        return sent.Where((segment, at) => IsDotSegment(segment) && !IsDotSegment(written[at])).Any();
+    }
+
+    private static string[] Segments(string path)
     {
         var end = path.AsSpan().IndexOfAny('?', '#');
-        var segments = (end < 0 ? path : path[..end]).Split('/');
-
-        return segments.Any(segment =>
-            segment.Replace("%2e", ".", StringComparison.OrdinalIgnoreCase) is "." or "..");
+        return (end < 0 ? path : path[..end]).Split('/');
     }
+
+    private static bool IsDotSegment(string segment) =>
+        segment.Replace("%2e", ".", StringComparison.OrdinalIgnoreCase) is "." or "..";
 
     private (Dictionary<string, string> Headers, string? Refusal) BuildHeaders(
         RequestDefinition definition, Connector connector, Content content,

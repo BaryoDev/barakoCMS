@@ -132,6 +132,49 @@ public class TemplateEncodingTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public async Task A_dot_segment_written_elsewhere_in_the_template_does_not_excuse_a_value_that_is_one()
+    {
+        var subject = await SeedAsync("..");
+
+        var composed = await RequestKit.ComposeAsync(fixture, subject, RequestKit.Definition(subject, null, "/a/../b/{{Note}}"));
+
+        composed.Ok.Should().BeFalse();
+        composed.Refusal.Should().Contain("dot segment");
+    }
+
+    [Fact]
+    public async Task A_template_with_its_own_dot_segment_composes_when_the_value_is_not_one()
+    {
+        var subject = await SeedAsync("x");
+
+        var composed = await RequestKit.ComposeAsync(fixture, subject, RequestKit.Definition(subject, null, "/a/../b/{{Note}}"));
+
+        composed.Ok.Should().BeTrue(composed.Refusal);
+    }
+
+    [Fact]
+    public async Task A_segment_built_from_two_values_that_together_make_a_dot_segment_is_refused()
+    {
+        var subject = await SeedAsync(".");
+
+        var composed = await RequestKit.ComposeAsync(fixture, subject, RequestKit.Definition(subject, null, "/p/{{Note}}{{Note}}"));
+
+        composed.Ok.Should().BeFalse();
+        composed.Refusal.Should().Contain("dot segment");
+    }
+
+    [Fact]
+    public async Task A_value_that_spells_an_escaped_dot_segment_is_data_and_composes()
+    {
+        var subject = await SeedAsync("%2e%2e");
+
+        var composed = await RequestKit.ComposeAsync(fixture, subject, RequestKit.Definition(subject, null, "/p/{{Note}}"));
+
+        composed.Ok.Should().BeTrue(composed.Refusal);
+        composed.Url.Should().EndWith("/p/%252e%252e");
+    }
+
+    [Fact]
     public async Task A_dot_segment_the_template_wrote_is_the_operators_own()
     {
         var subject = await SeedAsync("x");
