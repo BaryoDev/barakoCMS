@@ -13,19 +13,19 @@
       },
       "SkiaSharp": {
         "type": "Direct",
-        "requested": "[4.157.0, )",
-        "resolved": "4.157.0",
-        "contentHash": "C0PYSs8z0OGihExuIPaCEJnoEmDwiVRTFmDI2TZ44rWr2u7UiQX4rZyEwfVSHEiV5Zn/FYh1WbcO9uMPRxAsbw==",
+        "requested": "[4.158.0, )",
+        "resolved": "4.158.0",
+        "contentHash": "EcQW2hYO9N23HaU3JbuqLJOsowxt9uJBBTUvQK9hNvs+sJOz17IBE6gpd5L8R6RcbvalbuRtI4WslZSfS/edVQ==",
         "dependencies": {
-          "SkiaSharp.NativeAssets.Win32": "4.157.0",
-          "SkiaSharp.NativeAssets.macOS": "4.157.0"
+          "SkiaSharp.NativeAssets.Win32": "4.158.0",
+          "SkiaSharp.NativeAssets.macOS": "4.158.0"
         }
       },
       "SkiaSharp.NativeAssets.Linux.NoDependencies": {
         "type": "Direct",
-        "requested": "[4.157.0, )",
-        "resolved": "4.157.0",
-        "contentHash": "7skQaAxilNr4giLQPr1HMTFrwhUAJKI2Qlr7Djybi/e24Td/F4j7lIRf7DKJeHfH9mdxvD000o/NciDd8lSg5A=="
+        "requested": "[4.158.0, )",
+        "resolved": "4.158.0",
+        "contentHash": "LKlvs3hQ5i3YlrWnXZEbDaC45BmglLDCH5CQJ3CeAzRiYmrAzw9+86yykh2yrLiKtRhVhdEgcmb+E8b8yRHksQ=="
       },
       "System.IdentityModel.Tokens.Jwt": {
         "type": "Direct",
@@ -534,13 +534,13 @@
       },
       "SkiaSharp.NativeAssets.macOS": {
         "type": "Transitive",
-        "resolved": "4.157.0",
-        "contentHash": "s44YB0BMAEudDf/AdcJLCcN6AXxhpKto0ZnJjats1TwNC+SD4mI2FhotDft58M593Ocea1ra6ad5slfJBhxfvg=="
+        "resolved": "4.158.0",
+        "contentHash": "KldVRYCbwIQtAfUyGGKnkPeGYZohvRikZI0sHe9f4QxN0LtKqn70j4GB4diEVcfpO5/Tt3+H/aIqUCZ1wRgTdg=="
       },
       "SkiaSharp.NativeAssets.Win32": {
         "type": "Transitive",
-        "resolved": "4.157.0",
-        "contentHash": "tP54cTnPqGrzf2pBcyupMZWdIUjV34ELdKuh3/c329kRQF4UCVLZvilQZrDMqPJ9P/+AUJC8kDRMBgT/jBvYug=="
+        "resolved": "4.158.0",
+        "contentHash": "7+7mqPOFD8oINjuVHS358PpOX2yERNnBZbQDFhPeHxEYLpOmMEaO+k7XzKdhPEUiPRZtLvf3RmG1xJRaAaEUZw=="
       },
       "Spectre.Console": {
         "type": "Transitive",
@@ -682,7 +682,7 @@
         "resolved": "18.1.0",
         "contentHash": "5K+9KFg2TdTl7VXv88Qzi/0lqK6JFoNP3lRuImPYGRV7K/QYklDyTrj4+A+KAki1JsQi6qKY+hDyY7d6WRqjrw=="
       },
-      "barakocms": {
+      "BarakoCMS": {
         "type": "Project",
         "dependencies": {
           "AspNetCore.HealthChecks.Npgsql": "[9.0.0, )",

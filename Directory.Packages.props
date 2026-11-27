@@ -38,7 +38,7 @@
     <!-- Was floating (3.7.*) before central management, so two builds of the same commit could
          resolve different versions. Pinned to what it last resolved to. -->
     <PackageVersion Include="AWSSDK.S3" Version="4.1.2.1" />
-    <PackageVersion Include="Talaan" Version="0.4.0" />
+    <PackageVersion Include="Talaan" Version="0.5.0" />
   </ItemGroup>
 
   <ItemGroup Label="Imaging">
@@ -47,8 +47,8 @@
          Both are pinned together: the managed binding and the native library ship as a pair, and an
          imaging decoder is exactly the dependency where "whatever floats to" is how a CVE arrives
          unannounced. -->
-    <PackageVersion Include="SkiaSharp" Version="4.157.0" />
-    <PackageVersion Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.157.0" />
+    <PackageVersion Include="SkiaSharp" Version="4.158.0" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.158.0" />
   </ItemGroup>
 
   <ItemGroup Label="Security">
