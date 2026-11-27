@@ -62,7 +62,7 @@ public class TemplateVariableExtractorIntegrationTests
 
         var result = await extractor.GetVariablesAsync("TestType");
 
-        Assert.Equal(11, result.Formats.Count);
+        Assert.Equal(14, result.Formats.Count);
         Assert.Contains(result.Formats, v => v.Name == "{{createdAt | date \"MMM d, h:mm tt\"}}");
         Assert.Contains(result.Formats, v => v.Name == "{{data.Field | money}}");
         Assert.Contains(result.Formats, v => v.Name == "{{duration createdAt updatedAt}}");
@@ -76,7 +76,7 @@ public class TemplateVariableExtractorIntegrationTests
             ContentType = "TestType",
             CreatedAt = new DateTime(2026, 9, 14, 0, 30, 0, DateTimeKind.Utc),
             UpdatedAt = new DateTime(2026, 9, 14, 9, 0, 0, DateTimeKind.Utc),
-            Data = new Dictionary<string, object> { ["Field"] = "12.5" },
+            Data = new Dictionary<string, object> { ["Field"] = "12.5", ["Qty"] = "2", ["Price"] = "625" },
         };
         var context = new TemplateContext(
             TimeZoneInfo.Utc,
@@ -88,6 +88,10 @@ public class TemplateVariableExtractorIntegrationTests
             {
                 ["Reference"] = new(false, 1, [entry]),
                 ["References"] = new(true, 1, [entry]),
+            },
+            Datasets: new Dictionary<string, TemplateDataset>
+            {
+                ["lines"] = new("invoice-lines", [new() { ["Qty"] = 2m, ["Product.Name"] = "Widget", ["Total"] = 1250m }]),
             });
 
         foreach (var listed in result.SystemVariables.Concat(result.Formats))
