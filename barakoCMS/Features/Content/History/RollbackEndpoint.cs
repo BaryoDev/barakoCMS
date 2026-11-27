@@ -162,6 +162,18 @@ internal class RollbackEndpoint(
                 data.Remove(key);
         }
 
+        // A rollup is the server's too, and what an old version held is not what the entry's lines
+        // add up to now. The current value stays.
+        foreach (var field in (definition?.Fields ?? []).Where(f => f?.Rollup is not null))
+        {
+            foreach (var key in data.Keys.Where(k => string.Equals(k, field.Name, StringComparison.OrdinalIgnoreCase)).ToList())
+                data.Remove(key);
+
+            var current = content.Data.Keys.FirstOrDefault(k => string.Equals(k, field.Name, StringComparison.OrdinalIgnoreCase));
+            if (current is not null)
+                data[current] = content.Data[current];
+        }
+
         // WRITE-PATH SENSITIVITY: a caller who may not see a field may not change it, and restoring
         // an old value is a change. Reverts any such field to what is stored, and refuses a restore
         // that changes a field the Update rule does not let the caller set.

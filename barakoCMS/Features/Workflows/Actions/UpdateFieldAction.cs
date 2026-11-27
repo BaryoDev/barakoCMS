@@ -268,6 +268,11 @@ internal class UpdateFieldAction : IWorkflowAction
                 return WorkflowActionResult.Failure($"Could not read the content type of content {targetContent.Id} ({ex.GetType().Name}).");
             }
 
+            if (declared?.Rollup is not null)
+            {
+                return WorkflowActionResult.PermanentFailure(barakoCMS.Core.Validation.RollupFields.RefusedMessage(declared));
+            }
+
             // A parameter is text and an inline image is an object checked byte by byte, so no value
             // this action can be given is one.
             if (declared is not null && barakoCMS.Core.Validation.InlineImageFields.Is(declared.Type))
