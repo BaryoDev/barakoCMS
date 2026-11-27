@@ -172,7 +172,7 @@ internal static class RollupAggregate
     }
 
     /// <summary>The createdAt window, on the indexed expression. Bounds are unspecified wall times so they bind as timestamp.</summary>
-    private static string CreatedFilter(string schema, (DateOnly From, DateOnly To) days, TimeZoneInfo zone, List<object> args)
+    internal static string CreatedFilter(string schema, (DateOnly From, DateOnly To) days, TimeZoneInfo zone, List<object> args)
     {
         var (fromUtc, toUtc) = RelativeDateWindow.UtcBounds(days.From, days.To, zone);
         args.Add(fromUtc);

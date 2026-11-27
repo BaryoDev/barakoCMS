@@ -1,3 +1,4 @@
+using barakoCMS.Infrastructure.Rollups;
 using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
@@ -122,18 +123,30 @@ public class ContentWindowIndexTests
                 + "'tenant-' || (n % 3) FROM generate_series(1, 60000) AS n");
             await ExecuteAsync(connection, $"ANALYZE {scratch}.{Table}");
 
+            // The filter is the one the drain builds, and each bound is typed the way Marten types a
+            // positional argument: by its .NET type, so an unspecified DateTime binds as timestamp.
+            var bounds = new List<object>();
+            var created = RollupAggregate.CreatedFilter("public", (new DateOnly(2026, 3, 1), new DateOnly(2026, 3, 31)), TimeZoneInfo.Utc, bounds);
+            bounds.Should().Equal(new DateTime(2026, 3, 1), new DateTime(2026, 4, 1));
+            bounds.Cast<DateTime>().Should().OnlyContain(b => b.Kind == DateTimeKind.Unspecified, "a Utc bound would bind as timestamptz");
+            var position = 2;
+            var filter = System.Text.RegularExpressions.Regex.Replace(created, @"\?", _ => "$" + ++position);
+
             var plan = new List<string>();
             await using (var command = new NpgsqlCommand(
                 $"EXPLAIN select count(*) from {scratch}.{Table} d "
-                + "where d.tenant_id = @tenant and lower(d.data ->> 'ContentType') = @type "
-                + $"and public.mt_immutable_timestamp(d.data ->> 'CreatedAt') >= @from::timestamp "
-                + $"and public.mt_immutable_timestamp(d.data ->> 'CreatedAt') < @to::timestamp",
+                + $"where d.tenant_id = $1 and lower(d.data ->> 'ContentType') = $2{filter}",
                 connection))
             {
-                command.Parameters.AddWithValue("tenant", "tenant-1");
-                command.Parameters.AddWithValue("type", "line2");
-                command.Parameters.Add(new NpgsqlParameter("from", NpgsqlDbType.Timestamp) { Value = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Unspecified) });
-                command.Parameters.Add(new NpgsqlParameter("to", NpgsqlDbType.Timestamp) { Value = new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Unspecified) });
+                command.Parameters.Add(new NpgsqlParameter { Value = "tenant-1" });
+                command.Parameters.Add(new NpgsqlParameter { Value = "line2" });
+                foreach (var bound in bounds)
+                {
+                    var type = Weasel.Postgresql.PostgresqlProvider.Instance.ToParameterType(bound.GetType());
+                    type.Should().Be(NpgsqlDbType.Timestamp);
+                    command.Parameters.Add(new NpgsqlParameter { Value = bound, NpgsqlDbType = type });
+                }
+
                 await using var reader = await command.ExecuteReaderAsync(Ct);
                 while (await reader.ReadAsync(Ct))
                     plan.Add(reader.GetString(0));
