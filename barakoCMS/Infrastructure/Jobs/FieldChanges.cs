@@ -242,7 +242,12 @@ internal static class FieldChanges
         change.Error = null;
 
         var lowered = change.ContentType.ToLower();
-        var definition = await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
+
+        // An account-owned type is not stored in the tenant, and a backfill of its formula runs once
+        // per tenant. The other kinds change a type the tenant stores, and write it back.
+        var definition = change.Kind == FieldChangeKind.Recompute
+            ? await AccountContentTypes.ResolveAsync(session, change.ContentType, ct)
+            : await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
         if (change.Step >= plan.Count || definition is null)
         {
             change.State = FieldChangeState.Completed;

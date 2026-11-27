@@ -120,6 +120,7 @@ internal sealed class Endpoint(
             return;
         }
 
+        var before = definition.Fields.ToList();
         definition.Fields.Add(field);
         definition.UpdatedAt = DateTime.UtcNow;
         session.Store(owned);
@@ -134,11 +135,45 @@ internal sealed class Endpoint(
             ThrowIfAnyErrors(StatusCodes.Status409Conflict);
         }
 
+        await StartRecomputesAsync(account, definition, before, ct);
+
         await Send.OkAsync(new ContentType.AddField.Response
         {
             ContentType = definition.Name,
             Added = field.Name,
             Fields = definition.Fields.Select(f => f.Name).ToList(),
         }, ct);
+    }
+
+    /// <summary>
+    /// A formula over entries already stored is worked out for them by the field change job, one
+    /// change in each tenant that holds entries of the type, as an add-field on a tenant's own type
+    /// starts. Started after the type is saved, so the job reads the formula it works out.
+    /// </summary>
+    /// <remarks>
+    /// The change that could be running was refused before the type was saved. One that started in
+    /// between is answered 409 here, after the field is stored: that tenant's entries get the value
+    /// when next written, or from a recompute started by a later change to the formula.
+    /// </remarks>
+    private async Task StartRecomputesAsync(
+        TenantAccount account, ContentTypeDefinition definition, List<FieldDefinition> before, CancellationToken ct)
+    {
+        if (!ComputedRecompute.Needed(before, definition))
+        {
+            return;
+        }
+
+        var requestedBy = ActingCaller.IdOf(User) ?? Guid.Empty;
+        foreach (var id in await AccountContentTypes.TenantIdsAsync(session, account.Id, ct))
+        {
+            await using var tenantSession = store.LightweightSession(id);
+            if (await ComputedRecompute.StartAsync(tenantSession, definition, before, requestedBy, ct) is { } busy)
+            {
+                AddError($"{busy} The field was added, and its value is not worked out for entries of this tenant stored before it.");
+                ThrowIfAnyErrors(StatusCodes.Status409Conflict);
+            }
+
+            await tenantSession.SaveChangesAsync(ct);
+        }
     }
 }

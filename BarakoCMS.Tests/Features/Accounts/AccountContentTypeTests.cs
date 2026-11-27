@@ -4,11 +4,13 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using BarakoCMS.Diagnostics;
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -806,5 +808,73 @@ public class AccountContentTypeTests
         }, Ct);
 
         clash.StatusCode.Should().Be(HttpStatusCode.Conflict, await clash.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_formula_field_added_to_an_account_type_is_worked_out_for_the_entries_a_tenant_holds()
+    {
+        var account = await AccountAsync();
+        var held = await TenantAsync(account.Id);
+        var empty = await TenantAsync(account.Id);
+        var manager = await ManagerAsync(account.Id);
+        var name = Unique("sale");
+        (await manager.PostAsJsonAsync($"/api/accounts/{account.Slug}/content-types", new
+        {
+            name,
+            displayName = "Sale",
+            fields = new[]
+            {
+                new { name = "Qty", displayName = "Qty", type = "decimal", isRequired = false },
+                new { name = "Cost", displayName = "Cost", type = "decimal", isRequired = false },
+            },
+        }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var entry = Guid.NewGuid();
+        await StoreInTenantAsync(held, new Content { Id = entry, ContentType = name, Data = new() { ["Qty"] = 4m, ["Cost"] = 2.5m } });
+
+        var added = await manager.PostAsJsonAsync($"/api/accounts/{account.Slug}/content-types/{name}/fields", new
+        {
+            fieldName = "Total",
+            displayName = "Total",
+            type = "decimal",
+            computed = new { expression = "Qty * Cost" },
+        }, Ct);
+        added.StatusCode.Should().Be(HttpStatusCode.OK, await added.Content.ReadAsStringAsync(Ct));
+
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var configuration = _fixture.Services.GetRequiredService<IConfiguration>();
+        Guid changeId;
+        await using (var session = store.QuerySession(held))
+        {
+            var changes = await session.Query<FieldChange>()
+                .Where(c => c.ContentType == name && c.Kind == FieldChangeKind.Recompute).ToListAsync(Ct);
+            changes.Should().ContainSingle("the tenant holds an entry of the type");
+            changeId = changes[0].Id;
+        }
+
+        await using (var session = store.QuerySession(empty))
+        {
+            (await session.Query<FieldChange>().AnyAsync(c => c.ContentType == name, Ct))
+                .Should().BeFalse("a tenant with no entry of the type has nothing to work out");
+        }
+
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            try
+            {
+                if ((await FieldChanges.RunAsync(store, configuration, held, changeId, maxBatches: null, Ct))?.State == FieldChangeState.Completed)
+                {
+                    break;
+                }
+            }
+            catch (Exception e) when (TestHelpers.LostConcurrencyCheck(e))
+            {
+                // The queued job committed the same batch first; the next run reads its progress.
+            }
+        }
+
+        await using var read = store.QuerySession(held);
+        var stored = await read.LoadAsync<Content>(entry, Ct);
+        decimal.Parse(stored!.Data["Total"].ToString()!, System.Globalization.CultureInfo.InvariantCulture)
+            .Should().Be(10m);
     }
 }
