@@ -416,9 +416,12 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
     /// </remarks>
     private static IEnumerable<string> PlaceholderWarnings(string? actionType, string name, string? template, bool onTransition)
     {
+        // Past the cap the cap warning already says it is sent as written, so the problems are not repeated.
+        var past = template is { Length: > TemplateExpression.MaxTemplateLength };
+
         if (WebhookSigning.IsSensitiveParameterName(name))
         {
-            var count = TemplateExpression.Problems(template, onTransition).Count();
+            var count = past ? 0 : TemplateExpression.Problems(template, onTransition).Count();
             if (count > 0)
             {
                 yield return $"This parameter holds {count} placeholder(s) that will be sent as written. "
@@ -428,7 +431,7 @@ public class WorkflowSchemaValidator : IWorkflowSchemaValidator
             yield break;
         }
 
-        foreach (var problem in TemplateExpression.Problems(template, onTransition))
+        foreach (var problem in past ? [] : TemplateExpression.Problems(template, onTransition))
         {
             yield return problem;
         }
