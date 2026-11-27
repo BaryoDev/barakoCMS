@@ -5822,10 +5822,41 @@
           }
         ]
       },
+      "BarakoCMSFeaturesModulesListModuleCardSummary": {
+        "additionalProperties": false,
+        "description": "One console card: where to draw it from and what to call it.",
+        "properties": {
+          "id": {
+            "description": "Id.",
+            "type": "string"
+          },
+          "refreshLabel": {
+            "description": "RefreshLabel, trimmed, or null for no button.",
+            "nullable": true,
+            "type": "string"
+          },
+          "route": {
+            "description": "Route.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Title, trimmed.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesModulesListModuleSummary": {
         "additionalProperties": false,
         "description": "What core will say about a module: the name it registered under, the module contract version it\ndeclared, whether the enabled list let it run, and what the schema preflight found for it.\nNothing else is safe to publish here, because everything else a module knows is about the\ndeployment rather than about the module.",
         "properties": {
+          "cards": {
+            "description": "The console cards the module declared and core accepted. Empty when the module is not enabled.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesModulesListModuleCardSummary"
+            },
+            "type": "array"
+          },
           "category": {
             "description": "One of ModuleCategory, or null.",
             "nullable": true,
