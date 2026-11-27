@@ -1113,6 +1113,27 @@ public class TemplateVariableExtractor(
             Example = "text text ",
             Type = "string"
         },
+        new()
+        {
+            Name = "{{= round(data.Qty * data.Price, 2) | money}}",
+            Description = "A calculation over the entry's fields, with an optional format after the bar. The result is text and is never read as a template again",
+            Example = "PHP 1,250.00",
+            Type = "string"
+        },
+        new()
+        {
+            Name = "{{#each lines}}{{row.Qty}} x {{row.Product.Name}} {{/each}}",
+            Description = $"The text between the markers once for each row of a dataset the template names, such as datasets: {{ lines: \"invoice-lines\" }}. Rows are read as the user who fired the workflow. More than {TemplateExpression.MaxDatasetRows} rows fail the render",
+            Example = "2 x Widget ",
+            Type = "string"
+        },
+        new()
+        {
+            Name = "{{= sum(lines.Total) | money}}",
+            Description = "A total over a dataset field. Also count, avg, min, max, first and last, and lookup(dataset, keyField, key, resultField)",
+            Example = "PHP 1,250.00",
+            Type = "string"
+        },
     ];
 
     private List<TemplateVariable> ExtractDataFields(Content content)
