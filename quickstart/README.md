@@ -47,6 +47,9 @@ curl -s -X POST http://localhost:5005/api/auth/login -H 'Content-Type: applicati
   -d '{"username":"admin","password":"YOUR_ADMIN_PASSWORD"}'
 ```
 
+If it does not start, [docs/troubleshooting.md](../docs/troubleshooting.md) has one entry per
+refusal message, with the fix.
+
 ## Configuration
 
 Full reference is in [`.env.example`](.env.example). The essentials:

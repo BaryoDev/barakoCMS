@@ -396,7 +396,7 @@ One thing runs next to the app rather than inside it, so it does not appear in a
 Full docs at **<https://barakocms.com/docs/>**: getting started, guides, module references, API
 reference, and architecture. Changelog: [CHANGELOG.md](CHANGELOG.md).
 
-In this repo: [configuration reference](docs/configuration.md) (every key, its default and bounds), [your first module](docs/your-first-module.md) (from a fresh clone to a module with a
+In this repo: [configuration reference](docs/configuration.md) (every key, its default and bounds), [versioning](docs/versioning.md) (what a patch, a minor and a major may change, and which check holds each rule), [troubleshooting](docs/troubleshooting.md) (each message the API or compose refuses to start with, why, and the fix), [your first module](docs/your-first-module.md) (from a fresh clone to a module with a
 lifecycle hook, an endpoint and passing tests), [delivering a client project](docs/delivering-a-client-project.md) (the whole path from
 a clean machine to handover, and what is not solved yet),
 [the public delivery API](docs/delivery-api.md) (pagination, the `filter[field][op]`
