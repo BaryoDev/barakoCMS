@@ -17,7 +17,8 @@ internal class CreateWorkflowEndpoint(
     ISecretProtector protector,
     TenantContext tenant,
     IPermissionResolver permissions,
-    IWorkflowPluginRegistry registry) : Endpoint<CreateWorkflowRequest, barakoCMS.Features.Workflows.WorkflowResponse>
+    IWorkflowPluginRegistry registry,
+    barakoCMS.Core.Interfaces.ISensitivityService? sensitivity = null) : Endpoint<CreateWorkflowRequest, barakoCMS.Features.Workflows.WorkflowResponse>
 {
     public override void Configure()
     {
@@ -32,7 +33,7 @@ internal class CreateWorkflowEndpoint(
         // Validate before persisting so invalid trigger events / unknown action types / missing
         // required parameters are rejected up front rather than silently never firing (or firing twice).
         var (validation, errors, status) = await WorkflowSave.CheckAsync(
-            session, validator, permissions, registry, User, workflow, ct);
+            session, validator, permissions, registry, User, workflow, ct, sensitivity);
         if (errors is not null)
         {
             foreach (var line in errors) AddError(line);
@@ -76,7 +77,8 @@ internal static class WorkflowSave
         IWorkflowPluginRegistry registry,
         System.Security.Claims.ClaimsPrincipal user,
         WorkflowDefinition workflow,
-        CancellationToken ct)
+        CancellationToken ct,
+        barakoCMS.Core.Interfaces.ISensitivityService? sensitivity = null)
     {
         var validation = await validator.ValidateAsync(workflow, ct);
         if (!validation.IsValid)
@@ -84,7 +86,7 @@ internal static class WorkflowSave
             return (validation, validation.Errors.Select(e => $"{e.Field}: {e.Message}").ToList(), 400);
         }
 
-        var missing = await WorkflowSaveRights.MissingAsync(session, permissions, registry, user, workflow, ct);
+        var missing = await WorkflowSaveRights.MissingAsync(session, permissions, registry, user, workflow, ct, sensitivity);
         return missing.Count > 0 ? (validation, missing, 403) : (validation, null, 200);
     }
 
@@ -402,7 +404,8 @@ internal sealed class UpdateWorkflowEndpoint(
     ISecretProtector protector,
     TenantContext tenant,
     IPermissionResolver permissions,
-    IWorkflowPluginRegistry registry) : Endpoint<UpdateWorkflowRequest, WorkflowResponse>
+    IWorkflowPluginRegistry registry,
+    barakoCMS.Core.Interfaces.ISensitivityService? sensitivity = null) : Endpoint<UpdateWorkflowRequest, WorkflowResponse>
 {
     public override void Configure()
     {
@@ -428,7 +431,7 @@ internal sealed class UpdateWorkflowEndpoint(
         var workflow = req.ToDefinition();
 
         var (validation, errors, status) = await WorkflowSave.CheckAsync(
-            session, validator, permissions, registry, User, workflow, ct);
+            session, validator, permissions, registry, User, workflow, ct, sensitivity);
         if (errors is not null)
         {
             foreach (var line in errors) AddError(line);

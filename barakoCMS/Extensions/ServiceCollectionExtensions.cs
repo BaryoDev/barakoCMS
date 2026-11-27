@@ -1882,6 +1882,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.CreateContentAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.TransitionAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.RequestAction>();
+        services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.QueryAction>();
         services.AddScoped<barakoCMS.Features.Workflows.IWorkflowAction, barakoCMS.Features.Workflows.Actions.ConditionalAction>();
         services.AddSingleton(sp => new barakoCMS.Features.Workflows.WorkflowActionRegistrations(services, sp));
 

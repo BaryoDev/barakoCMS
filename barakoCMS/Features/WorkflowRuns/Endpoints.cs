@@ -195,7 +195,9 @@ internal sealed class AttemptResponse
         DroppedAttempts = dropped,
         OnFailure = a.OnFailure.ToString(),
         HaltedBy = a.HaltedBy,
-        Outputs = a.Outputs,
+        // A Query step's values are entry data read as another user, so the run record serves none
+        // of them. The next step still reads them from the stored attempt.
+        Outputs = a.ActionType == "Query" ? null : a.Outputs,
         Compensation = a.Compensation is { } undo ? CompensationResponse.From(undo, a.Compensate?.Type) : null,
     };
 }

@@ -29,12 +29,19 @@ internal static class WorkflowSaveRights
     /// <summary>The rights the user lacks, each said in a sentence. Empty when they hold them all.</summary>
     public static async Task<List<string>> MissingAsync(
         IDocumentSession session, IPermissionResolver permissions, IWorkflowPluginRegistry registry,
-        ClaimsPrincipal principal, WorkflowDefinition workflow, CancellationToken ct)
+        ClaimsPrincipal principal, WorkflowDefinition workflow, CancellationToken ct,
+        barakoCMS.Core.Interfaces.ISensitivityService? sensitivity = null)
     {
         var needs = Needs(workflow).ToList();
         var capabilities = CapabilityNeeds(registry, workflow).ToList();
+        var queries = Flatten(workflow)
+            .Where(a => string.Equals(a.Type, "Query", StringComparison.Ordinal))
+            .Select(a => a.Parameters.GetValueOrDefault("Query")?.Trim() ?? "")
+            .Where(slug => slug.Length > 0 && !slug.Contains("{{"))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
         var missing = new List<string>();
-        if (needs.Count == 0 && capabilities.Count == 0) return missing;
+        if (needs.Count == 0 && capabilities.Count == 0 && queries.Count == 0) return missing;
 
         User? user = null;
         if (Guid.TryParse(principal.FindFirst("UserId")?.Value, out var id))
@@ -53,6 +60,27 @@ internal static class WorkflowSaveRights
         {
             if (user is null || !await permissions.HasCapabilityAsync(user.Id, capability, ct))
                 missing.Add(label);
+        }
+
+        // A Query step reads as the user behind the event, not as whoever saved it, so what it may
+        // name is judged for the saver here: a workflow cannot be used to put a field the author
+        // may not read into a message. A query that does not exist yet is checked when it runs.
+        if (queries.Count > 0)
+        {
+            var runner = new barakoCMS.Infrastructure.Connectors.QueryRunner(session, permissions, sensitivity);
+            foreach (var slug in queries)
+            {
+                var saved = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug && q.DeletedAt == null, ct);
+                if (saved is null) continue;
+
+                string? refusal = user is null
+                    ? "Who is saving this could not be found."
+                    : await ((barakoCMS.Infrastructure.Connectors.IContextQueryRunner)runner).ValidateAsync(
+                        saved, new barakoCMS.Infrastructure.Connectors.QueryRunContext(null) { AsActor = true, Actor = user.Id }, ct);
+
+                if (refusal is not null)
+                    missing.Add($"You cannot read everything the saved query '{slug}' reads, so you cannot save a workflow that runs it. {refusal}");
+            }
         }
 
         return missing;

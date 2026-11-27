@@ -23,6 +23,12 @@ public sealed class WorkflowContext
     /// <summary>True when this is the undo of the action at <see cref="Ordinal"/>, which can read what that action made.</summary>
     public bool Undoing { get; init; }
 
+    /// <summary>
+    /// The sequence of the event that fired the run, or zero when it is not known. An action that
+    /// acts for the user behind that event asks which user it was with this.
+    /// </summary>
+    public long EventSequence { get; init; }
+
     /// <summary>The tenant the run belongs to.</summary>
     public string TenantId { get; init; } = string.Empty;
 
