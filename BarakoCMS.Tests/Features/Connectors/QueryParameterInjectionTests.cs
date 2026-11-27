@@ -171,7 +171,7 @@ public class QueryParameterInjectionTests(IntegrationTestFixture factory)
         private readonly List<string> _text = [];
 
         /// <summary>The statements that read entries. The runner also reads the type's definition, which holds no value.</summary>
-        public List<string> OnContent => [.. _text.Where(t => System.Text.RegularExpressions.Regex.IsMatch(t, @"mt_doc_content\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase))];
+        public List<string> OnContent => [.. _text.Where(t => System.Text.RegularExpressions.Regex.IsMatch(t, @"mt_doc_contents\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase))];
 
         public void LogSuccess(NpgsqlCommand command) => _text.Add(command.CommandText);
         public void LogFailure(NpgsqlCommand command, Exception ex) { }

@@ -1,7 +1,12 @@
+using System.Security.Claims;
+using barakoCMS.Core.Interfaces;
 using barakoCMS.Features.Public;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using Marten;
 using Marten.Linq.MatchesSql;
+using Microsoft.AspNetCore.Http;
+using Npgsql;
 
 namespace barakoCMS.Infrastructure.Connectors;
 
@@ -33,7 +38,20 @@ public interface IQueryRunner
 /// The value of each parameter by its name without the <c>@</c>. Null when there are none to give,
 /// and then a filter that names a parameter refuses.
 /// </param>
-internal sealed record QueryRunContext(IReadOnlyDictionary<string, string>? Values);
+internal sealed record QueryRunContext(IReadOnlyDictionary<string, string>? Values)
+{
+    /// <summary>
+    /// True when every read is checked as <see cref="Actor"/>: the fields the query names, the type,
+    /// each entry and each entry it follows to. False reads as the older runs always did.
+    /// </summary>
+    public bool AsActor { get; init; }
+
+    /// <summary>The user the run reads as. <see cref="Guid.Empty"/> is nobody, and then only Public fields are read.</summary>
+    public Guid Actor { get; init; }
+
+    /// <summary>How long the rows may take before the statement is stopped. Null is <see cref="QueryRunner.StatementTimeout"/>.</summary>
+    public TimeSpan? Timeout { get; init; }
+}
 
 /// <summary>
 /// The run a workflow step and the queries API use: parameters are bound as values and nothing in
@@ -46,8 +64,14 @@ internal interface IContextQueryRunner
     Task<string?> ValidateAsync(QueryDefinition definition, QueryRunContext context, CancellationToken ct);
 }
 
-internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContextQueryRunner
+internal sealed class QueryRunner(
+    IQuerySession session,
+    IPermissionResolver? permissions = null,
+    ISensitivityService? sensitivity = null) : IQueryRunner, IContextQueryRunner
 {
+    /// <summary>How long the statement that reads the rows may run. A run that passes it is cancelled and answers with a message.</summary>
+    public static readonly TimeSpan StatementTimeout = TimeSpan.FromSeconds(15);
+
     private static readonly Dictionary<string, FilterOp> Ops = new(StringComparer.OrdinalIgnoreCase)
     {
         ["eq"] = FilterOp.Eq,
@@ -63,7 +87,62 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContex
     private const int MaxFilters = 10;
 
     /// <summary>What a check found: the reason to refuse, or the schema and the fields the query may name.</summary>
-    private sealed record Checked(string? Refusal, ContentTypeDefinition? Schema, Dictionary<string, string> Allowed);
+    private sealed record Checked(
+        string? Refusal, ContentTypeDefinition? Schema, Dictionary<string, string> Allowed,
+        Reader? Reader = null, Dictionary<string, Followed>? Follows = null);
+
+    /// <summary>A selected <c>Reference.Field</c>: the reference field, the type it points at and the field read there.</summary>
+    private sealed record Followed(FieldDefinition Reference, ContentTypeDefinition Target, FieldDefinition Field);
+
+    /// <summary>Who the reads are checked as, with the services that decide what they may see.</summary>
+    private sealed class Reader(User? user, IPermissionResolver permissions, ISensitivityService sensitivity)
+    {
+        public User? User { get; } = user;
+
+        public ClaimsPrincipal Principal { get; } = user is null
+            ? new ClaimsPrincipal(new ClaimsIdentity())
+            : new ClaimsPrincipal(new ClaimsIdentity([new Claim("UserId", user.Id.ToString())], nameof(QueryRunner)));
+
+        private HttpContext? _http;
+
+        private HttpContext Http => _http ??= new DefaultHttpContext { User = Principal };
+
+        /// <summary>Whether a field may be named and read. An owner-hidden field never may, because who owns the entry is not known until the row is read.</summary>
+        public async Task<bool> MayReadFieldAsync(string type, FieldDefinition field, CancellationToken ct) =>
+            !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(field)
+            && (User is null
+                ? field.Sensitivity == SensitivityLevel.Public
+                : await sensitivity.MayReadFieldAsync(type, field, null, Principal, ct));
+
+        public async Task<bool> MayReadTypeAsync(string type, CancellationToken ct) =>
+            User is null || await permissions.CanPerformActionAsync(User, type, "read", null, ct);
+
+        /// <summary>
+        /// The entry as <c>GET /api/contents/{id}</c> shows it to this reader, or null when it shows
+        /// nothing: no read rule grants it, or its whole document is hidden.
+        /// </summary>
+        public async Task<Dictionary<string, object>?> ShownAsync(Content entry, CancellationToken ct)
+        {
+            if (User is not null && !await permissions.CanPerformActionAsync(User, entry.ContentType, "read", entry, ct)) return null;
+
+            var shown = new Dictionary<string, object>(entry.Data, StringComparer.OrdinalIgnoreCase);
+            return await sensitivity.ApplyAsync(entry, shown, Http, ct) ? null : shown;
+        }
+
+        /// <summary>Whether the read shows the stored value of a field unchanged. A masked value, even one showing its last characters, is not a value this reader sees.</summary>
+        public static bool Unchanged(Content entry, Dictionary<string, object> shown, string field)
+        {
+            foreach (var (key, stored) in entry.Data)
+            {
+                if (string.Equals(key, field, StringComparison.OrdinalIgnoreCase))
+                {
+                    return shown.TryGetValue(key, out var seen) && ReferenceEquals(stored, seen);
+                }
+            }
+
+            return true;
+        }
+    }
 
     private static Checked Refuse(string reason) => new(reason, null, []);
 
@@ -92,9 +171,40 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContex
         // bearing for the same reason: filtering on a field the result cannot show is an oracle. A
         // workflow author could binary-search a Sensitive salary by watching how many rows come
         // back, without the value ever appearing in a payload.
-        var allowed = schema.Fields
-            .Where(f => f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f))
-            .ToDictionary(f => f.Name, f => f.Type ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+        // When the run reads as a user, the allowlist is what that user may read, by the same service
+        // that masks the same fields on a read. Without a user it is the Public fields.
+        Reader? reader = null;
+        if (context?.AsActor == true)
+        {
+            if (permissions is null || sensitivity is null)
+            {
+                return Refuse("Reads as a user cannot be checked here, so the query was not run.");
+            }
+
+            User? user = null;
+            if (context.Actor != Guid.Empty)
+            {
+                user = await session.LoadAsync<User>(context.Actor, ct);
+                if (user is null) return Refuse("The user this run reads as no longer exists.");
+            }
+
+            reader = new Reader(user, permissions, sensitivity);
+            if (!await reader.MayReadTypeAsync(schema.Name, ct))
+            {
+                return Refuse($"The user this run reads as may not read '{Safe(schema.Name)}'.");
+            }
+        }
+
+        var allowed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in schema.Fields)
+        {
+            if (reader is null
+                    ? f.Sensitivity == SensitivityLevel.Public && !barakoCMS.Core.Validation.PublicFields.IsOwnerHidden(f)
+                    : await reader.MayReadFieldAsync(schema.Name, f, ct))
+            {
+                allowed[f.Name] = f.Type ?? string.Empty;
+            }
+        }
 
         // Null, not just empty. A request binding `filters` or `fields` to null reaches here, and
         // dereferencing it would throw out of an endpoint whose job is to answer 400 with a reason.
@@ -123,8 +233,17 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContex
             return Refuse("Fields must name at least one field. A query with no projection would send whatever the schema grows.");
         }
 
+        Dictionary<string, Followed>? follows = null;
         foreach (var field in definition.Fields)
         {
+            if (field.Contains('.') && context is not null)
+            {
+                var (followed, refusal) = await FollowAsync(field, schema, allowed, reader, ct);
+                if (refusal is not null) return Refuse(refusal);
+                (follows ??= new(StringComparer.Ordinal))[field] = followed!;
+                continue;
+            }
+
             if (!allowed.ContainsKey(field) && !(context is not null && IsSystemField(field)))
             {
                 return Refuse(Unknown(field, allowed, schema.Name, "returned from"));
@@ -136,7 +255,46 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContex
             return Refuse($"Limit must be between 1 and {QueryDefinition.MaxLimit}.");
         }
 
-        return new Checked(null, schema, allowed);
+        return new Checked(null, schema, allowed, reader, follows);
+    }
+
+    /// <summary>
+    /// A selected <c>Reference.Field</c>: one level, through a single-valued reference field this
+    /// reader may read, to a field this reader may read on the type it points at.
+    /// </summary>
+    private async Task<(Followed? Followed, string? Refusal)> FollowAsync(
+        string name, ContentTypeDefinition schema, Dictionary<string, string> allowed, Reader? reader, CancellationToken ct)
+    {
+        if (reader?.User is null)
+        {
+            return (null, $"'{Safe(name)}' follows a reference, which needs a user to read as, and this run has none.");
+        }
+
+        var parts = name.Split('.');
+        if (parts.Length != 2 || parts[0].Length == 0 || parts[1].Length == 0
+            || !barakoCMS.Core.Expressions.QueryText.IsFieldName(name, allowDot: true))
+        {
+            return (null, $"'{Safe(name)}' is not a field of '{schema.Name}'. Follow one reference, as Reference.Field.");
+        }
+
+        var reference = schema.Fields.FirstOrDefault(f => string.Equals(f.Name, parts[0], StringComparison.OrdinalIgnoreCase));
+        if (reference is null || !allowed.ContainsKey(reference.Name)
+            || !string.Equals(reference.Type, "reference", StringComparison.OrdinalIgnoreCase)
+            || reference.Multiple || string.IsNullOrEmpty(reference.ReferenceType))
+        {
+            return (null, $"'{Safe(name)}' cannot be returned from '{schema.Name}'. Only a single reference field that names its type can be followed.");
+        }
+
+        var target = await session.Query<ContentTypeDefinition>().FirstNamedAsync(reference.ReferenceType, ct);
+        var field = target?.Fields.FirstOrDefault(f => string.Equals(f.Name, parts[1], StringComparison.OrdinalIgnoreCase));
+        if (target is null || field is null
+            || !await reader.MayReadTypeAsync(target.Name, ct)
+            || !await reader.MayReadFieldAsync(target.Name, field, ct))
+        {
+            return (null, $"'{Safe(name)}' cannot be returned from '{schema.Name}'. The field is not one the user this run reads as may read.");
+        }
+
+        return (new Followed(reference, target, field), null);
     }
 
     private static string? ValidateFilters(
@@ -268,6 +426,13 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContex
                 : query.OrderBySql(
                     DeliveryQuery.ToOrderBySql(new DeliverySort(canonical[definition.SortField], definition.Descending)));
         }
+        else if (context is not null)
+        {
+            // A run with a context always has an order, so two runs of the same text over the same
+            // entries return the same first row: newest first, and the id breaks a tie. A schema sort
+            // above already ends on the id, and a system sort adds it.
+            query = query.OrderByDescending(c => c.CreatedAt).ThenBy(c => c.Id);
+        }
 
         // Validated above, so the limit is already known to be within the ceiling. There used to be
         // a Math.Clamp here as a second guard, and it was unreachable: ValidateAsync refuses an
@@ -275,7 +440,48 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContex
         // silently returning a thousand rows of a query that asked for a hundred thousand is a lie
         // the caller cannot see. A clamp that cannot run is not defence in depth, it is a comment
         // that looks like a guard.
-        var rows = await query.Take(definition.Limit).ToListAsync(ct);
+        var timeout = context?.Timeout ?? StatementTimeout;
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        limit.CancelAfter(timeout);
+
+        List<Content> rows;
+        Dictionary<Guid, Content>? targets = null;
+        try
+        {
+            rows = [.. await query.Take(definition.Limit).ToListAsync(limit.Token)];
+
+            if (check.Reader is { } reader)
+            {
+                var kept = new List<Content>(rows.Count);
+                foreach (var row in rows)
+                {
+                    // An entry the reader may not read is left out, the same as one that is not there.
+                    if (await reader.ShownAsync(row, limit.Token) is not { } shown) continue;
+
+                    // A field the query names that this reader is shown masked is not left out of the
+                    // row, because a step that goes on without it is working from less than it asked for.
+                    foreach (var field in definition.Fields)
+                    {
+                        var name = field.Contains('.') ? field[..field.IndexOf('.')] : field;
+                        if (!IsSystemField(name) && !Reader.Unchanged(row, shown, name))
+                        {
+                            return QueryResult.Refused(
+                                $"The user this run reads as may not read '{Safe(name)}' on an entry the query matched, so the query was not used.");
+                        }
+                    }
+
+                    kept.Add(row);
+                }
+
+                rows = kept;
+                targets = await FollowedEntriesAsync(rows, check.Follows, reader, limit.Token);
+            }
+        }
+        catch (Exception e) when (!ct.IsCancellationRequested && TimedOut(e))
+        {
+            return QueryResult.Refused(
+                $"The query took longer than {timeout.TotalSeconds:0.##} seconds and was stopped. Narrow it with a filter.");
+        }
 
         var projected = new List<Dictionary<string, object>>(rows.Count);
         foreach (var row in rows)
@@ -287,6 +493,12 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContex
                 if (context is not null && IsSystemField(field))
                 {
                     item[field] = SystemValue(row, field);
+                    continue;
+                }
+
+                if (check.Follows?.TryGetValue(field, out var follow) == true)
+                {
+                    if (FollowedValue(row, follow, targets) is { } followedValue) item[field] = followedValue;
                     continue;
                 }
 
@@ -306,6 +518,87 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContex
         }
 
         return new QueryResult(projected, null) { Ids = [.. rows.Select(r => r.Id)] };
+    }
+
+    /// <summary>Whether this is the cancellation of the statement by the run's own limit, whatever Marten wrapped it in.</summary>
+    private static bool TimedOut(Exception e)
+    {
+        for (var inner = e; inner is not null; inner = inner.InnerException!)
+        {
+            if (inner is OperationCanceledException or PostgresException { SqlState: PostgresErrorCodes.QueryCanceled }) return true;
+            if (inner.InnerException is null) break;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The entries the selected references point at, in one query, that the reader may read, each
+    /// with the fields shown to them. An entry that is not there, not of the type the field names,
+    /// or not readable is left out, so its value is absent, the same as for a template.
+    /// </summary>
+    private async Task<Dictionary<Guid, Content>?> FollowedEntriesAsync(
+        List<Content> rows, Dictionary<string, Followed>? follows, Reader reader, CancellationToken ct)
+    {
+        if (follows is null || rows.Count == 0) return null;
+
+        var ids = rows
+            .SelectMany(r => follows.Values.Select(f => ReferenceId(r, f)))
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToArray();
+
+        if (ids.Length == 0) return [];
+
+        var found = await session.Query<Content>().Where(c => c.Id.In(ids)).ToListAsync(ct);
+        var readable = new Dictionary<Guid, Content>(found.Count);
+        foreach (var entry in found)
+        {
+            if (await reader.ShownAsync(entry, ct) is not { } shown) continue;
+
+            // Only the fields shown unchanged are kept, in a copy, so a masked value is never handed on.
+            var data = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (key, value) in entry.Data)
+            {
+                if (shown.TryGetValue(key, out var seen) && ReferenceEquals(value, seen)) data[key] = value;
+            }
+
+            readable[entry.Id] = new Content
+            {
+                Id = entry.Id, ContentType = entry.ContentType, Status = entry.Status, Data = data,
+            };
+        }
+
+        return readable;
+    }
+
+    private static Guid ReferenceId(Content row, Followed follow)
+    {
+        foreach (var (key, value) in row.Data)
+        {
+            if (!string.Equals(key, follow.Reference.Name, StringComparison.OrdinalIgnoreCase)) continue;
+
+            var text = value is System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.String } element
+                ? element.GetString()
+                : value?.ToString();
+
+            return Guid.TryParse(text, out var id) ? id : Guid.Empty;
+        }
+
+        return Guid.Empty;
+    }
+
+    private static object? FollowedValue(Content row, Followed follow, Dictionary<Guid, Content>? targets)
+    {
+        if (targets is null || !targets.TryGetValue(ReferenceId(row, follow), out var entry)
+            || !string.Equals(entry.ContentType, follow.Target.Name, StringComparison.OrdinalIgnoreCase)) return null;
+
+        foreach (var (key, value) in entry.Data)
+        {
+            if (string.Equals(key, follow.Field.Name, StringComparison.OrdinalIgnoreCase) && value is not null) return value;
+        }
+
+        return null;
     }
 
     // ---- the fields every entry has ---------------------------------------------------------
