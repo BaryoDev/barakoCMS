@@ -123,6 +123,13 @@ public class MigrationSkipQueryTests
 
         ["core/5.7.2/workflow-run-workflow-status-tenant-index"] = (RunTableBefore, ValidIndex("mt_doc_workflow_runs_idx_workflow_status_tenant")),
 
+        // The content table with no index on the type, creation time and tenant, as 5.9 left it. The
+        // file adds the index a rollup window on createdAt reads by.
+        ["core/6.0.0/content-type-created-at-tenant-index"] = (
+            "create table public.mt_doc_contents (tenant_id varchar not null default '*DEFAULT*', id uuid not null, data jsonb not null);"
+            + ImmutableTimestamp,
+            ValidIndex("mt_doc_contents_idx_content_type_created_at_tenant")),
+
         ["Files/4.2.0/stored-files-parent-index"] = (
             "create table public.mt_doc_stored_files (id uuid primary key, data jsonb not null);",
             "select to_regclass('public.mt_doc_stored_files_idx_parent_file_id') is not null"),

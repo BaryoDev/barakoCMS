@@ -987,6 +987,15 @@ public static class ServiceCollectionExtensions
             .Index(x => x.UpdatedAt)
             .Index(x => x.Status)
             .Index(x => new { x.ContentType, x.CreatedAt })
+            // A rollup window on createdAt reads one tenant's entries of one type in a time range, with
+            // the type compared ignoring case as the aggregate does. An existing database needs
+            // migrations/6.0.0/content-type-created-at-tenant-index.sql.
+            .Index(x => new { x.ContentType, x.CreatedAt }, idx =>
+            {
+                idx.Casing = Marten.Schema.ComputedIndex.Casings.Lower;
+                idx.Name = "mt_doc_contents_idx_content_type_created_at_tenant";
+                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+            })
             .Index(x => new { x.ContentType, x.Status }); // Composite for status filtering
             // NOTE: no dedicated index on ScheduledPublishAt/ScheduledUnpublishAt. The scheduler
             // sweep leads with Status (indexed above), which is the selective predicate; the
