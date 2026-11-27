@@ -14,6 +14,7 @@ name: Release (master)
 # The order runs from cheap and reversible to expensive and permanent:
 #
 #   gate -> test -> verify-packages -> build images
+#        (beside them: release-assets, the production bundle and the OpenAPI document)
 #        -> deploy-playground (and prove it is running THIS commit)
 #        -> approval on the `nuget` environment
 #        -> publish-packages, publish-images
@@ -476,7 +477,7 @@ jobs:
     name: Publish packages ${{ needs.gate.outputs.version }} to NuGet
     # Waits on the playground, which is the ordering change in #157: the irreversible step runs
     # last. NuGet has no delete, only unlist, and anyone who already resolved a version keeps it.
-    needs: [gate, test, verify-packages, verify-template, deploy-playground]
+    needs: [gate, test, verify-packages, verify-template, deploy-playground, release-assets]
     if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     # The approval (#203). The gate job has already checked this environment has a required
@@ -926,6 +927,56 @@ jobs:
           EXPECTED_SHA: ${{ github.sha }}
         run: bash scripts/check-deployed-build.sh https://playground.baryo.dev/barakocms-api "$EXPECTED_SHA"
 
+  # The production bundle (#1436) and the OpenAPI document (#1438) the release attaches. Built here,
+  # before the approval, so a bundle that is missing a file or an API that differs from the reviewed
+  # baseline stops the release while nothing irreversible has happened. tag-release only attaches
+  # what this job made. It holds contents: read and nothing else, because it runs a build and starts
+  # the Suite; the job that can write to the release never runs either.
+  #
+  # The scripts are the same ones CI runs on a pull request (scripts/prod-bundle-check.sh and the
+  # openapi job in ci.yml). What only a release proves is the version-gated path here: the real
+  # version in the file names, the comparison with the baseline at the release commit, and the
+  # read-back from the GitHub release in tag-release.
+  release-assets:
+    name: Build the production bundle and the OpenAPI document
+    needs: [gate]
+    if: needs.gate.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build the production bundle
+        run: bash scripts/build-prod-bundle.sh "$VERSION" "$RUNNER_TEMP/release-assets"
+
+      # Swagger is turned on by scripts/openapi-fetch.sh for the host it starts here. The published
+      # image keeps its default, which is off.
+      - name: Fetch the OpenAPI document and compare it with the reviewed baseline
+        run: |
+          set -euo pipefail
+          bash scripts/openapi-fetch.sh "$RUNNER_TEMP/release-assets/openapi-$VERSION.json"
+          bash scripts/openapi-release-check.sh "$RUNNER_TEMP/release-assets/openapi-$VERSION.json" openapi/baseline.json
+
+      - name: The three files are in order before they are uploaded
+        run: bash scripts/release-assets-check.sh "$VERSION" "$RUNNER_TEMP/release-assets"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release-assets/*
+          if-no-files-found: error
+          retention-days: 7
+
   # Sixty-seven versions went to nuget.org and the newest git tag was v3.2.0, so the repository's
   # front page advertised a release from many versions ago and `git log v3.21.0..master` did not
   # resolve (#155). Nothing was broken; nothing said so either.
@@ -938,7 +989,7 @@ jobs:
   # job than it is worth, and tagging from here forward fixes both the front page and the diff.
   tag-release:
     name: Tag v${{ needs.gate.outputs.version }} and write the release
-    needs: [gate, publish-packages, publish-images]
+    needs: [gate, publish-packages, publish-images, release-assets]
     if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -957,6 +1008,12 @@ jobs:
           name: sbom
           path: sbom
 
+      # The bundle, its sum and the OpenAPI document, built and checked in release-assets.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-assets
+          path: release-assets
+
       # Re-runnable. A release that already exists is left alone rather than failing the job, so
       # re-running a partially failed release run does not need someone to delete a tag first.
       - name: Tag the release commit and publish the release
@@ -964,7 +1021,9 @@ jobs:
           set -euo pipefail
           if gh release view "v$VERSION" >/dev/null 2>&1; then
             echo "::notice::Release v$VERSION already exists; making sure the SBOM is attached."
-            gh release upload "v$VERSION" sbom/barakoCMS.cdx.json --clobber
+            gh release upload "v$VERSION" sbom/barakoCMS.cdx.json \
+              "release-assets/barako-cms-prod-$VERSION.tar.gz" release-assets/SHA256SUMS \
+              "release-assets/openapi-$VERSION.json" --clobber
             exit 0
           fi
 
@@ -978,8 +1037,17 @@ jobs:
             --title "v$VERSION" \
             --notes-file /tmp/notes.md \
             $PRERELEASE \
-            sbom/barakoCMS.cdx.json
+            sbom/barakoCMS.cdx.json \
+            "release-assets/barako-cms-prod-$VERSION.tar.gz" release-assets/SHA256SUMS \
+            "release-assets/openapi-$VERSION.json"
           echo "::notice::Tagged v$VERSION and published the release."
+
+      # Read back from the release itself, not from the files that were just uploaded: the bundle,
+      # its sum and the OpenAPI document must exist there under their names, the sum must match the
+      # archive, the archive must carry what the compose file mounts, and the document must have
+      # /api/public/{type}. The directory is new and empty so nothing local can pass for the release.
+      - name: Check the release carries the bundle, its sum and the OpenAPI document
+        run: bash scripts/release-assets-check.sh "$VERSION" "$RUNNER_TEMP/readback" --download "v$VERSION"
 
   close-milestone:
     name: Close the release milestone
@@ -1078,7 +1146,7 @@ jobs:
 
   # A failed release (bad publish, deploy, or smoke) should ping. Best-effort; never fails the run.
   notify-failure:
-    needs: [gate, test, verify-packages, verify-template, publish-packages, publish-images, build-playground-images, deploy-playground, tag-release]
+    needs: [gate, test, verify-packages, verify-template, publish-packages, publish-images, build-playground-images, deploy-playground, release-assets, tag-release]
     if: failure()
     runs-on: ubuntu-latest
     steps:

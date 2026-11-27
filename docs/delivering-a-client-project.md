@@ -179,7 +179,8 @@ for them.
 **`Swagger:Enabled`** (env `Swagger__Enabled`) decides whether `/swagger/v1/swagger.json` is served.
 Default is on in Development and off elsewhere. You want it on somewhere, because that document
 carries the tenant's own delivery paths and is what a generated frontend client is built from. See
-step 6.
+step 6, and [the OpenAPI document](delivery-api.md#the-openapi-document) for what it holds and what
+each release attaches.
 
 Somewhere, not necessarily here. The document is anonymous: the flag is the only thing in front of
 it, and a GET on `/swagger/{doc}/swagger.json` is rewritten for whatever `X-Tenant` it carries with
@@ -626,13 +627,21 @@ production compose file, `docker-compose.prod.yml`, it runs published images wit
 it refuses to start rather than booting on a placeholder.
 
 ```bash
-git clone https://github.com/BaryoDev/barakoCMS.git
-cd barakoCMS
+VERSION=6.0.0   # the release you are deploying, without the v
+BASE=https://github.com/BaryoDev/barakoCMS/releases/download/v$VERSION
+curl -fsSLO $BASE/barako-cms-prod-$VERSION.tar.gz
+curl -fsSLO $BASE/SHA256SUMS
+sha256sum -c SHA256SUMS   # on macOS: shasum -a 256 -c SHA256SUMS
+tar -xzf barako-cms-prod-$VERSION.tar.gz
+cd barako-cms-prod-$VERSION
 cp .env.prod.example .env
 $EDITOR .env
 docker compose -f docker-compose.prod.yml config   # resolves every variable, exits non-zero on the first one missing
 docker compose -f docker-compose.prod.yml up -d
 ```
+
+The bundle is attached to each release and holds everything the compose file mounts, so the machine
+needs Docker and these commands, not a checkout of the repository.
 
 The required variables are `DOMAIN_API`, `ACME_EMAIL`, `FRONTEND_ORIGINS`, `BARAKO_TAG`,
 `DB_PASSWORD`, `DB_APP_PASSWORD`, `JWT_KEY` and `ADMIN_PASSWORD`. The `DOMAIN_API` record must resolve before you start
