@@ -337,15 +337,6 @@ internal sealed class RequestComposer(
     private static string? Refuse(
         IEnumerable<string> templates, ContentTypeDefinition schema, ISet<string> grants, Content content)
     {
-        // A request renders plain and formatted holes only. Sending the other forms as written would
-        // put the author's formula in front of the third party, so they are refused, granted field
-        // or not.
-        var beyond = TemplateHoles.FirstBeyondPlain(templates);
-        if (beyond is not null)
-        {
-            return $"'{beyond}' is an expression, a loop or a dataset row, which a request does not render, so it would be sent as written. Use plain holes.";
-        }
-
         var found = ConnectorGrants.FirstRefused(templates, schema, grants);
         if (found is not null)
         {
@@ -357,6 +348,15 @@ internal sealed class RequestComposer(
                  + "would send it to a third party. A field that is not Public cannot leave, "
                  + "even when a template names it."
                  + (grantable ? " A connector can be granted it with allowedFields." : string.Empty);
+        }
+
+        // A request renders plain and formatted holes only. Sending the other forms as written would
+        // put the author's formula in front of the third party, so they are refused, and a granted
+        // field does not change that: its hole passes the check above and is stopped here.
+        var beyond = TemplateHoles.FirstBeyondPlain(templates);
+        if (beyond is not null)
+        {
+            return $"'{beyond}' is an expression, a loop or a dataset row, which a request does not render, so it would be sent as written. Use plain holes.";
         }
 
         // A granted field never leaves from an entry whose own level is Hidden, the rule a webhook
