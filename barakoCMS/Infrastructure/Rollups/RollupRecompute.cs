@@ -53,7 +53,7 @@ internal static class RollupRecompute
                 continue;
             }
 
-            foreach (var (id, value) in await RollupAggregate.ValuesAsync(session, rollup, source.Field, ids, ct, level))
+            foreach (var (id, value) in await RollupAggregate.ValuesAsync(session, header.Name, rollup, source.Field, ids, ct, level))
             {
                 values[id][rollup.Name] = value;
             }

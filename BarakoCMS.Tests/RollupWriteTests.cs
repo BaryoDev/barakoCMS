@@ -404,6 +404,81 @@ public class RollupWriteTests
         stored.Should().Equal(ids, "the mark rows are locked in one order, so opposite moves cannot wait on each other");
     }
 
+    private const long Huge = 6_000_000_000_000_000_000;
+
+    /// <summary>A header whose int sum two lines carry past the range of a long.</summary>
+    private async Task<(R.Pair Pair, Guid Header, FieldDefinition Rollup, FieldDefinition Source)> OverflowingAsync()
+    {
+        var header = "rh" + Guid.NewGuid().ToString("n")[..10];
+        var line = "rl" + Guid.NewGuid().ToString("n")[..10];
+        var source = R.Plain("Qty", "int");
+        var rollup = R.Rollup("Total", "int", line, "Teacher", "sum", "Qty");
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = line, DisplayName = line, Fields = [R.Reference("Teacher", header), source],
+            });
+            session.Store(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(), Name = header, DisplayName = header, Fields = [R.Plain("Name", "string"), rollup],
+            });
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var pair = new R.Pair(header, line);
+        var admin = await Probe.AdminAsync(_fixture);
+        var id = await R.HeaderAsync(_fixture, admin, pair);
+        foreach (var _ in new[] { 1, 2 })
+        {
+            await R.SeedAsync(_fixture, line, new() { ["Teacher"] = id.ToString(), ["Qty"] = Huge });
+        }
+
+        return (pair, id, rollup, source);
+    }
+
+    [Fact]
+    public async Task A_sum_past_the_range_of_an_int_field_leaves_the_header_and_clears_its_mark()
+    {
+        var (_, header, _, _) = await OverflowingAsync();
+        (await R.MarkedAsync(_fixture)).Should().Contain(header);
+
+        await R.DrainAsync(_fixture);
+
+        R.Num(await R.StoredAsync(_fixture, header), "Total").Should().BeNull("a value that does not fit is not written");
+        (await R.MarkedAsync(_fixture)).Should().NotContain(header, "the mark goes, or the drain would meet the same header for ever");
+    }
+
+    [Fact]
+    public async Task A_skipped_header_is_named_once_in_a_warning_with_no_value()
+    {
+        var (pair, header, rollup, source) = await OverflowingAsync();
+        var log = new ListLogger();
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var values = await RollupAggregate.ValuesAsync(session, pair.Header, rollup, source, [header], Ct, null, log);
+
+        values.Should().NotContainKey(header);
+        var line = log.Lines.Should().ContainSingle().Which;
+        line.Should().Contain(pair.Header).And.Contain("Total").And.Contain(header.ToString());
+        line.Should().NotContain(Huge.ToString(), "the log says where to look and not what the numbers are");
+    }
+
+    private sealed class ListLogger : Microsoft.Extensions.Logging.ILogger
+    {
+        public List<string> Lines { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel level) => true;
+
+        public void Log<TState>(
+            Microsoft.Extensions.Logging.LogLevel level, Microsoft.Extensions.Logging.EventId id, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter) => Lines.Add(formatter(state, exception));
+    }
+
     private async Task<(string Json, Guid Version)> DocumentAsync(Guid id)
     {
         using var scope = _fixture.Services.CreateScope();

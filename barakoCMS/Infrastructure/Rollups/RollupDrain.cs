@@ -174,7 +174,7 @@ internal static class RollupDrain
             var source = SourceOf(definitions, rollup);
             if (source.Ok)
             {
-                values[rollup] = await RollupAggregate.ValuesAsync(session, rollup, source.Field, ids, ct);
+                values[rollup] = await RollupAggregate.ValuesAsync(session, header.Name, rollup, source.Field, ids, ct);
             }
         }
 

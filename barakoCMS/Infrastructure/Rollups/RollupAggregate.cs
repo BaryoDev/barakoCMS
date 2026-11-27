@@ -2,8 +2,11 @@ using System.Globalization;
 using System.Text.Json.Serialization;
 using barakoCMS.Core.Validation;
 using barakoCMS.Features.Queries.Run;
+using barakoCMS.Infrastructure.Logging;
 using barakoCMS.Models;
 using Marten;
+using Microsoft.Extensions.Logging;
+using Serilog.Extensions.Logging;
 
 namespace barakoCMS.Infrastructure.Rollups;
 
@@ -19,6 +22,12 @@ namespace barakoCMS.Infrastructure.Rollups;
 /// </remarks>
 internal static class RollupAggregate
 {
+    /// <summary>
+    /// Where a skipped header is reported when the caller passes no logger. The drain and the
+    /// field change have none to hand, and a skip must not go unsaid.
+    /// </summary>
+    private static readonly ILogger Fallback = new SerilogLoggerFactory().CreateLogger(typeof(RollupAggregate).FullName!);
+
     private sealed class Row
     {
         [JsonPropertyName("Header")]
@@ -43,12 +52,14 @@ internal static class RollupAggregate
     /// <summary>
     /// The value of <paramref name="rollup"/> for each header id. A header that nothing points at
     /// gets the empty value (0 for count and sum, null otherwise). A header whose value cannot be
-    /// held, a sum past the range of a decimal, is left out of the result, so its stored value stays.
+    /// held, a sum past the range of a decimal or of a whole-number field, is left out of the
+    /// result, so its stored value stays, and one warning names the type, the field and the header.
     /// </summary>
+    /// <param name="headerType">The type that declares the rollup, for the warning.</param>
     /// <param name="source">The summed field on the <c>from</c> type, or null for a count.</param>
     public static async Task<Dictionary<Guid, object?>> ValuesAsync(
-        IDocumentSession session, FieldDefinition rollup, FieldDefinition? source, IReadOnlyCollection<Guid> headers, CancellationToken ct,
-        SensitivityLevel? level = null)
+        IDocumentSession session, string headerType, FieldDefinition rollup, FieldDefinition? source,
+        IReadOnlyCollection<Guid> headers, CancellationToken ct, SensitivityLevel? level = null, ILogger? log = null)
     {
         var values = new Dictionary<Guid, object?>();
         if (headers.Count == 0)
@@ -76,6 +87,10 @@ internal static class RollupAggregate
 
             if (!Parse(row.Value, fn, kind, rollup, out var value))
             {
+                // No value in the log: only where to look.
+                (log ?? Fallback).LogWarning(
+                    "Rollup {Type}.{Field} skipped header {Header}: its value does not fit the field, so the stored value stays",
+                    LogSafe.Value(headerType), LogSafe.Value(rollup.Name), id);
                 values.Remove(id);
                 continue;
             }
@@ -179,7 +194,13 @@ internal static class RollupAggregate
             return false;
         }
 
-        value = Typed(number, rollup, fn == "min" || fn == "max" ? kind : null);
+        var declared = fn is "min" or "max" ? kind : RollupFields.Canon(rollup.Type);
+        if (declared == "int" && (Math.Truncate(number) < long.MinValue || Math.Truncate(number) > long.MaxValue))
+        {
+            return false;
+        }
+
+        value = Typed(number, rollup, fn is "min" or "max" ? kind : null);
         return true;
     }
 
