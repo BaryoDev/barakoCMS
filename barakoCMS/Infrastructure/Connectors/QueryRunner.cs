@@ -303,7 +303,7 @@ internal sealed class QueryRunner(
 
         var parts = name.Split('.');
         if (parts.Length != 2 || parts[0].Length == 0 || parts[1].Length == 0
-            || !barakoCMS.Core.Expressions.QueryText.IsFieldName(name, allowDot: true))
+            || !barakoCMS.Infrastructure.Connectors.QueryText.IsFieldName(name, allowDot: true))
         {
             return (null, $"'{Safe(name)}' is not a field of '{schema.Name}'. Follow one reference, as Reference.Field.");
         }
@@ -373,7 +373,7 @@ internal sealed class QueryRunner(
                     return $"Filter '{Safe(filter.Field)}' takes a parameter, which only a workflow step gives a value. Use a literal value here.";
                 }
 
-                if (!barakoCMS.Core.Expressions.QueryText.IsParameter(filter.Param))
+                if (!barakoCMS.Infrastructure.Connectors.QueryText.IsParameter(filter.Param))
                 {
                     return $"'@{Safe(filter.Param)}' is not a parameter. A parameter is @id, @createdAt, @data.Field or @actions.N.name.";
                 }
@@ -694,7 +694,7 @@ internal sealed class QueryRunner(
     // ---- the fields every entry has ---------------------------------------------------------
 
     /// <summary>Whether this is the exact spelling of a field every entry has: id, status, createdAt or updatedAt.</summary>
-    private static bool IsSystemField(string name) => Array.IndexOf(barakoCMS.Core.Expressions.QueryText.SystemFields, name) >= 0;
+    private static bool IsSystemField(string name) => Array.IndexOf(barakoCMS.Infrastructure.Connectors.QueryText.SystemFields, name) >= 0;
 
     private static FilterOp[]? SystemOps(string field) => field switch
     {
@@ -776,7 +776,7 @@ internal sealed class QueryRunner(
 
     /// <summary>A name as it may be shown back: only when it is the plain kind, so text a caller wrote is never echoed.</summary>
     private static string Safe(string? name) =>
-        barakoCMS.Core.Expressions.QueryText.IsFieldName(name, allowDot: true) ? name! : "(not a valid name)";
+        barakoCMS.Infrastructure.Connectors.QueryText.IsFieldName(name, allowDot: true) ? name! : "(not a valid name)";
 
     private static string Unknown(string field, Dictionary<string, string> allowed, string type, string verb)
     {

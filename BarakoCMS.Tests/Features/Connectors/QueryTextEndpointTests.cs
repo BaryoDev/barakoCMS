@@ -132,4 +132,51 @@ public class QueryTextEndpointTests(IntegrationTestFixture factory)
         refused.GetProperty("ok").GetBoolean().Should().BeFalse();
         refused.GetProperty("count").GetInt32().Should().Be(0);
     }
+
+    [Fact]
+    public async Task A_preview_takes_no_body_an_empty_body_or_whitespace_the_same_way()
+    {
+        var admin = await new WorkflowStopHarness(factory).AdminAsync();
+        var type = await SeedStudentsAsync();
+        var slug = Slug();
+        (await admin.PostAsJsonAsync("/api/queries", new
+        {
+            name = "All", slug, fields = new[] { "Email" }, contentType = type, filters = Array.Empty<object>(), limit = 5,
+        }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var bodies = new HttpContent?[]
+        {
+            null,
+            new StringContent(string.Empty, System.Text.Encoding.UTF8, "application/json"),
+            new StringContent("  \n", System.Text.Encoding.UTF8, "application/json"),
+            new StringContent("{}", System.Text.Encoding.UTF8, "application/json"),
+            new StringContent("null", System.Text.Encoding.UTF8, "application/json"),
+        };
+
+        foreach (var body in bodies)
+        {
+            var answer = await admin.PostAsync($"/api/queries/{slug}/preview", body, Ct);
+            answer.StatusCode.Should().Be(HttpStatusCode.OK, await answer.Content.ReadAsStringAsync(Ct));
+            (await answer.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("ok").GetBoolean().Should().BeTrue();
+        }
+    }
+
+    [Fact]
+    public async Task A_preview_body_that_is_not_json_is_a_400_that_does_not_echo_it_back()
+    {
+        var admin = await new WorkflowStopHarness(factory).AdminAsync();
+        var type = await SeedStudentsAsync();
+        var slug = Slug();
+        (await admin.PostAsJsonAsync("/api/queries", new
+        {
+            name = "All", slug, fields = new[] { "Email" }, contentType = type, filters = Array.Empty<object>(), limit = 5,
+        }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var junk = "{ not json " + new string('y', 100);
+        var answer = await admin.PostAsync(
+            $"/api/queries/{slug}/preview", new StringContent(junk, System.Text.Encoding.UTF8, "application/json"), Ct);
+
+        answer.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await answer.Content.ReadAsStringAsync(Ct)).Should().NotContain("yyyy");
+    }
 }

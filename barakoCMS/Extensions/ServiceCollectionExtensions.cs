@@ -651,7 +651,6 @@ public static class ServiceCollectionExtensions
                 o.DocumentSettings = s =>
                 {
                     s.OperationProcessors.Add(new barakoCMS.Infrastructure.OpenApi.NamespaceTagProcessor());
-                    s.OperationProcessors.Add(new barakoCMS.Infrastructure.OpenApi.OptionalBodyProcessor());
                     s.DocumentProcessors.Add(new barakoCMS.Infrastructure.OpenApi.EcmaPatternProcessor());
                 };
             });

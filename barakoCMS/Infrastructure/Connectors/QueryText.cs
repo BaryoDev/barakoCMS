@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using barakoCMS.Models;
 
-namespace barakoCMS.Core.Expressions;
+namespace barakoCMS.Infrastructure.Connectors;
 
 /// <summary>The outcome of reading a saved query written as text: the definition, or one sentence saying why not.</summary>
 internal sealed record QueryTextResult(QueryDefinition? Definition, string? Error)

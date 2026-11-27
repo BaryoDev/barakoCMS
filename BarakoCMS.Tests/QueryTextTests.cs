@@ -1,4 +1,4 @@
-using barakoCMS.Core.Expressions;
+using barakoCMS.Infrastructure.Connectors;
 using barakoCMS.Models;
 using FluentAssertions;
 using Xunit;

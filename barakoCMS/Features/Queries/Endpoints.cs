@@ -32,7 +32,7 @@ internal sealed class QueryResponse
     /// <summary>The text of a stored query. An old one that has no text form reads as empty and still lists.</summary>
     private static string TextOf(QueryDefinition q)
     {
-        try { return barakoCMS.Core.Expressions.QueryText.Print(q); }
+        try { return barakoCMS.Infrastructure.Connectors.QueryText.Print(q); }
         catch (Exception e) when (e is ArgumentException or InvalidOperationException or NullReferenceException) { return string.Empty; }
     }
 
@@ -79,13 +79,48 @@ internal class SaveQueryRequest
 }
 
 /// <summary>A preview of a saved query: the values its parameters take, when it has any.</summary>
-[barakoCMS.Infrastructure.OpenApi.OptionalBody]
 internal sealed class PreviewQueryRequest
 {
-    public string Slug { get; set; } = string.Empty;
-
     /// <summary>The value of each parameter by its name without the at sign, for example <c>data.StudentNo</c>.</summary>
     public Dictionary<string, string>? Parameters { get; set; }
+}
+
+internal static class PreviewBody
+{
+    private const int MaxBytes = 16 * 1024;
+    private const int MaxParameters = 50;
+
+    /// <summary>The preview's optional body, or one sentence saying why it cannot be read. Nothing the caller sent is echoed.</summary>
+    public static async Task<(PreviewQueryRequest Body, string? Problem)> ReadAsync(HttpRequest request, CancellationToken ct)
+    {
+        var none = new PreviewQueryRequest();
+        if (request.ContentLength == 0) return (none, null);
+
+        var buffer = new MemoryStream();
+        var chunk = new byte[4096];
+        int read;
+        while ((read = await request.Body.ReadAsync(chunk, ct)) > 0)
+        {
+            if (buffer.Length + read > MaxBytes) return (none, $"The body is longer than {MaxBytes} bytes.");
+            buffer.Write(chunk, 0, read);
+        }
+
+        var bytes = buffer.ToArray();
+        if (bytes.All(b => b is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n')) return (none, null);
+
+        try
+        {
+            var body = System.Text.Json.JsonSerializer.Deserialize<PreviewQueryRequest>(
+                bytes, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (body is null) return (none, null);
+            if (body.Parameters is { Count: > MaxParameters }) return (none, $"A preview takes at most {MaxParameters} parameters.");
+            return (body, null);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return (none, "The body is not JSON of the form { \"parameters\": { \"name\": \"value\" } }.");
+        }
+    }
 }
 
 internal static class QueryForms
@@ -95,9 +130,9 @@ internal static class QueryForms
     /// reference. Every other query is read exactly as it always was.
     /// </summary>
     public static bool NeedsAContext(QueryDefinition q) =>
-        q.Filters.Any(f => f.Param is not null || Array.IndexOf(barakoCMS.Core.Expressions.QueryText.SystemFields, f.Field) >= 0)
-        || (q.SortField is not null && Array.IndexOf(barakoCMS.Core.Expressions.QueryText.SystemFields, q.SortField) >= 0)
-        || q.Fields.Any(f => f.Contains('.') || Array.IndexOf(barakoCMS.Core.Expressions.QueryText.SystemFields, f) >= 0);
+        q.Filters.Any(f => f.Param is not null || Array.IndexOf(barakoCMS.Infrastructure.Connectors.QueryText.SystemFields, f.Field) >= 0)
+        || (q.SortField is not null && Array.IndexOf(barakoCMS.Infrastructure.Connectors.QueryText.SystemFields, q.SortField) >= 0)
+        || q.Fields.Any(f => f.Contains('.') || Array.IndexOf(barakoCMS.Infrastructure.Connectors.QueryText.SystemFields, f) >= 0);
 
     public static Guid UserIdOf(System.Security.Claims.ClaimsPrincipal user) =>
         Guid.TryParse(user.FindFirst("UserId")?.Value, out var id) ? id : Guid.Empty;
@@ -222,7 +257,7 @@ internal sealed class SaveQueryEndpoint(
             return "Give the query as text or as its parts, not both.";
         }
 
-        var read = barakoCMS.Core.Expressions.QueryText.Parse(req.Text);
+        var read = barakoCMS.Infrastructure.Connectors.QueryText.Parse(req.Text);
         if (read.Definition is not { } parsed) return read.Error;
 
         req.ContentType = parsed.ContentType;
@@ -457,7 +492,7 @@ internal sealed class PreviewQueryEndpoint(
     IQueryRunner runner,
     IContextQueryRunner contextRunner,
     barakoCMS.Infrastructure.Services.IPermissionResolver permissions,
-    barakoCMS.Core.Interfaces.ISensitivityService sensitivity) : Endpoint<PreviewQueryRequest, QueryPreviewResponse>
+    barakoCMS.Core.Interfaces.ISensitivityService sensitivity) : EndpointWithoutRequest<QueryPreviewResponse>
 {
     public override void Configure()
     {
@@ -465,13 +500,24 @@ internal sealed class PreviewQueryEndpoint(
         Definition.RequireCapability(SystemCapabilities.ManageQueries, QueryGate.LegacyRoles);
     }
 
-    public override async Task HandleAsync(PreviewQueryRequest req, CancellationToken ct)
+    public override async Task HandleAsync(CancellationToken ct)
     {
         var slug = Route<string>("slug") ?? string.Empty;
 
         if (!Slugs.IsValid(slug))
         {
             ThrowError("That is not a query slug: lowercase letters, digits and hyphens only.", 400);
+            return;
+        }
+
+        // The body is optional and the route took none before it could. It is read here and not
+        // bound, because a bound body makes a request with no content type a 415, which would break
+        // every caller that sends none. No body, an empty one and a body with any content type read
+        // the same as they always did.
+        var (req, bodyProblem) = await PreviewBody.ReadAsync(HttpContext.Request, ct);
+        if (bodyProblem is not null)
+        {
+            ThrowError(bodyProblem, 400);
             return;
         }
 
