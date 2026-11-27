@@ -6,10 +6,12 @@ start, then use the headings as a checklist.
 
 ## Which version you can upgrade from
 
-Upgrade to 6.0 from **5.9.0 or any later 5.x release**. CI proves that path with the released 5.9.0
-image, pinned by digest, and nothing about it needs a migration: no file under `migrations/` is
-newer than 5.9.0, so 5.9.0, 5.9.x and 5.10.0 databases all have the schema 6.0 declares.
-5.10.0 is not itself a start in CI, only 5.9.0 is, because the schema is the same.
+Upgrade to 6.0 from **5.9.0**, the start CI proves, with the released 5.9.0 image pinned by digest.
+No migration follows it: no file under `migrations/` is newer than 5.9.0, and 5.10.0 ships none
+either, so a 5.10.0 database has the same schema. CI does not start from 5.10.0 or any other 5.x
+release. For any other 5.x release, run `FROM_VERSION=<yours> scripts/upgrade-check.sh --list` from
+a checkout of the 6.0 release first. An empty list means the schema is the one 6.0 declares. A
+list means those files apply before you upgrade.
 
 A database from 4.x or from an earlier 5.x release still runs through the plan in
 `migrations/`, and the `Upgrade from 4.x` job still starts from 4.9.0 and 4.1.0. That job proves
@@ -20,18 +22,22 @@ back here as a 5.9 install, with [upgrading-to-5.0.md](upgrading-to-5.0.md) for 
 
 The `Upgrade from 4.x` job (`scripts/upgrade-check.sh`) runs this on a real database:
 
-1. It starts the released 5.9.0 image on Postgres and seeds data through the 5.9 API: a content type
-   whose entries are event sourced and one whose entries are plain documents, with entries in each
-   (the event sourced one created, published and edited, so its stream holds three events), a
-   workflow that sets a field on create, a role, a group, a redirect, a connector, a station, an API
-   key, and a second tenant with CDN purge settings and an entry of its own.
-2. It stops 5.9.0, builds the working tree and checks `db-assert` passes on the core host and on the
-   Suite host, since there is no migration to apply.
-3. It boots the Suite in Production, signs in, reads every seeded record back through the API, and
-   creates a new entry to prove the stored workflow still runs.
-4. It appends an event to the stream that already existed and waits for the projection daemon to
+1. It builds the working tree, starts Postgres, checks the image's build commit matches the
+   `v5.9.0` tag, and starts the 5.9.0 image.
+2. It seeds data through the 5.9 API: a content type whose entries are event sourced and one whose
+   entries are plain documents, with entries in each (the event sourced one created, published and
+   edited, so its stream holds three events), a workflow that sets a field on create, a role, a
+   group, a redirect, a connector, a station, an API key, and a second tenant with CDN purge
+   settings and an entry of its own. It reads each record back, comparing its fields to what it
+   sent.
+3. It stops 5.9.0 and checks `db-assert` passes on the core host and on the Suite host, since there
+   is no migration to apply.
+4. It boots the Suite in Production, signs in, and reads every seeded record back through the API.
+5. It appends an event to the stream that already existed and waits for the projection daemon to
    resume.
-5. It stops the new build, boots 5.9.0 again against the same database, and reads every seeded
+6. It creates a new entry to prove the stored workflow still runs, and reads the second tenant
+   back.
+7. It stops the new build, boots 5.9.0 again against the same database, and reads every seeded
    record back from 5.9.0.
 
 If a step here stops being true, that job goes red. What it cannot seed is listed under
@@ -42,8 +48,10 @@ If a step here stops being true, that job goes red. What it cannot seed is liste
 Take a backup, and check you can restore it ([backup-and-restore.md](backup-and-restore.md)). The
 remedy for a failed upgrade is a restore.
 
-Then work through the next four sections. The first three are things 6.0 refuses to start without,
-or starts differently. The last is code.
+Then work through the next five sections: "Settings to change before you upgrade", "Limits and
+checks that start differently", "The upgrade", "Going back to 5.9" and "Code that stops
+compiling". The first two are things 6.0 refuses to start without, or starts differently. The
+third and fourth are the steps and the way back. The last is code.
 
 ## Settings to change before you upgrade
 
@@ -110,11 +118,12 @@ edit that sends it back unchanged. The API contract moves from 16 to 17, Externa
 2 and Files' from 2 to 3. barakoBrew 1.14.0 accepts 17, so deploy it before or with 6.0.
 
 **Send a timestamp with a plain HMAC inbound webhook
-([#1385](https://github.com/BaryoDev/barakoCMS/issues/1385)).** 5.8.0 deprecated an `Hmac` inbound
-webhook with no `TimestampHeader`, and 6.0 refuses it. Name a `TimestampHeader`, so the sender
-signs `{timestamp}.{body}` inside the five minute window. A sender that cannot send a timestamp
-sets `AllowBodyOnlySignature` to `true` on the connector's inbound section, which keeps the
-body-only check. Svix is unchanged.
+([#1385](https://github.com/BaryoDev/barakoCMS/issues/1385)).** This lands with #1385 and is not
+in the code yet. 5.8.0 deprecated an `Hmac` inbound webhook with no `TimestampHeader`, and 6.0
+refuses it. Name a `TimestampHeader`, so the sender signs `{timestamp}.{body}` inside the five
+minute window. A sender that cannot send a timestamp needs a receiver that sets
+`AllowBodyOnlySignature` to `true` on the `InboundWebhookRequest` it builds, in code, which keeps
+the body-only check. There is no connector setting for it. Svix is unchanged.
 
 ## Limits and checks that start differently
 
@@ -232,14 +241,14 @@ owner job first, drops the `CREATE EXTENSION` and `COMMENT ON EXTENSION` lines f
 loads the dump as the app role, so the app role owns what it creates. `scripts/restore-db.sh` does
 this, and [backup-and-restore.md](backup-and-restore.md) has the commands.
 
-To print the files for a database older than 5.9.0, from a checkout of the 6.0 release, with
-`FROM_VERSION` set to the release the database is on:
+To print the files a database needs, from a checkout of the 6.0 release, with `FROM_VERSION` set to
+the release the database is on:
 
 ```bash
-FROM_VERSION=5.9.0 scripts/upgrade-check.sh --list
+FROM_VERSION=5.8.0 scripts/upgrade-check.sh --list
 ```
 
-From 5.9.0 the list is empty. `--list` builds nothing and starts nothing.
+From 5.9.0 the list is empty, and so it is from 5.10.0. `--list` builds nothing and starts nothing.
 
 ## Going back to 5.9
 
@@ -257,6 +266,8 @@ them: [#1383](https://github.com/BaryoDev/barakoCMS/issues/1383) for the members
 Marten type and [#1384](https://github.com/BaryoDev/barakoCMS/issues/1384) for the rest.
 
 ### Module contract, no Marten types (#1383)
+
+This section lands with #1383 and is not in the code yet.
 
 - `IBarakoModule.SeedAsync(IDocumentSession, IServiceProvider, CancellationToken)`: override
   `SeedAsync(IModuleSeedContext, CancellationToken)`. `ModuleSeedContexts.Over`, which forwarded
@@ -278,9 +289,12 @@ Marten type and [#1384](https://github.com/BaryoDev/barakoCMS/issues/1384) for t
 A module that builds on the contract package alone also needs `[assembly: BarakoModuleAssembly]`
 (`barakoCMS.Modules`). 5.9.0 still scanned a library without it and logged a warning naming it;
 6.0 stops scanning it, so the module is not loaded
-([#1402](https://github.com/BaryoDev/barakoCMS/issues/1402)).
+([#1402](https://github.com/BaryoDev/barakoCMS/issues/1402)). This lands with #1402 and is not in
+the code yet.
 
 ### Events, content and workflows (#1384)
+
+This section lands with #1384 and is not in the code yet.
 
 - The seven content event constructors without `OccurredAt` (`ContentCreated`, `ContentUpdated`,
   `ContentStatusChanged`, `ContentScheduled`, `ContentSensitivityChanged`, `ContentTransitioned`
@@ -297,6 +311,8 @@ A module that builds on the contract package alone also needs `[assembly: Barako
   `MissingMethodException`, which is why the contract version move above refuses it at load.
 
 ### Tenant, roles, files and middleware (#1384)
+
+This section lands with #1384 and is not in the code yet.
 
 - `Tenant.LogoUrl`, `About`, `Location`, `LocationUrl`, `SocialHandle`, `Email` and `ContactUrl`:
   read the field of the same name on the tenant's site entry. `Tenant.Branding`: put a site's
