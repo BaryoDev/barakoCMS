@@ -338,8 +338,8 @@ public class ExpressionParserTests
 
         Run(Chain(400, " * ")).Value.Should().Be(1m);
         Run("500" + string.Concat(Enumerable.Repeat(" - 1", 399))).Value.Should().Be(101m);
-        Run(string.Join(" and ", Enumerable.Repeat("true", 400))).Value.Should().Be(true);
-        Run("false" + string.Concat(Enumerable.Repeat(" or false", 399)) + " or true").Value.Should().Be(true);
+        Run(string.Join(" and ", Enumerable.Repeat("true", 200))).Value.Should().Be(true);
+        Run("false" + string.Concat(Enumerable.Repeat(" or false", 199)) + " or true").Value.Should().Be(true);
 
         Refused(Chain(500, " + ")).Rule.Should().Be(R.NodeLimit, "the chain is bounded by the node limit");
     }

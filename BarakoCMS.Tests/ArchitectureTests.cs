@@ -431,7 +431,7 @@ public class ArchitectureTests
         OutsideNamespaces("global using System.IO;").Should().Contain("System.IO");
         OutsideNamespaces("var x = barakoCMS.Core.Validation.ComputedFields.MaxRound;").Should().Contain("barakoCMS.Core.Validation.ComputedFields.MaxRound");
         OutsideNamespaces("var x = barakoCMS.Core.ExpressionsExtra.Thing;").Should().NotBeEmpty("a namespace that only starts with the folder's name is another namespace");
-        OutsideNamespaces("// using barakoCMS.Core.Validation;").Should().BeEmpty("the scan reads stripped code, as the caller gives it");
+        OutsideNamespaces(StripComments("// using barakoCMS.Core.Validation;")).Should().BeEmpty("the scan reads stripped code, as the caller gives it");
         ContainsWord("var x = global::System.Math.PI;", "global::").Should().BeTrue();
     }
 
