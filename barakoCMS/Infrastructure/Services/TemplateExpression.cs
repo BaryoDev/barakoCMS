@@ -424,7 +424,7 @@ internal static class TemplateExpression
         {
             if (piece.Kind == PieceKind.Loop && piece.Nested)
             {
-                yield return $"The loop over 'data.{piece.Field}' holds another loop, and loops do not nest, so it is sent as written.";
+                yield return $"The loop over '{piece.Dataset ?? "data." + piece.Field}' holds another loop, and loops do not nest, so it is sent as written.";
             }
         }
     }
