@@ -42,8 +42,8 @@
       },
       "FastExpressionCompiler": {
         "type": "Transitive",
-        "resolved": "5.4.1",
-        "contentHash": "nqMykMspK5cQd35Y8ulQzAujxCcCwZVUne32pC5xNpXqrbPCuKOPMWkKHJ3LveAZPm6dsVvump0TJ1SZ9RzfTQ=="
+        "resolved": "6.0.0",
+        "contentHash": "EvY3eiWFnSYAUd4F4zvt3VTe8z75XxfqEUW3Fp2SsM1El4rfSNzah49/DLk6VlkL5yOLHZXf6XL19HQrcgTDxg=="
       },
       "FluentValidation": {
         "type": "Transitive",
@@ -468,7 +468,7 @@
         "type": "Project",
         "dependencies": {
           "FastEndpoints": "[8.3.0, )",
-          "JasperFx": "[2.102.0, )",
+          "JasperFx": "[3.16.0, )",
           "Marten": "[9.63.0, )",
           "Microsoft.Extensions.DependencyModel": "[10.0.15, )"
         }
@@ -487,11 +487,11 @@
       },
       "JasperFx": {
         "type": "CentralTransitive",
-        "requested": "[2.102.0, )",
-        "resolved": "2.102.0",
-        "contentHash": "C0d8tXlR1avOvaBpYWri0VzJtpgfmVkK8opXAu2A7fVxsxPVof1xIQj+s0qAOSN8uav7E18iMA6Xhfamh267jg==",
+        "requested": "[3.16.0, )",
+        "resolved": "3.16.0",
+        "contentHash": "RLfAIZxzYtFOMjF85VWrR498T6bxFc+2cbOWFxhxsXUzaJGNUvnBpVoVttpN+InRm/K6lLbBFPzUs9ahmlb1nw==",
         "dependencies": {
-          "FastExpressionCompiler": "5.4.1",
+          "FastExpressionCompiler": "6.0.0",
           "ImTools": "4.0.0",
           "Microsoft.Bcl.TimeProvider": "10.0.0",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.0",
