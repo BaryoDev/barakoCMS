@@ -468,7 +468,7 @@ public class RollupDefinitionTests
             "/api/config/apply",
             ConfigOf(header, RollupField("Count", "int", line, "Teacher", "count", sensitivity: "Public")), Ct);
 
-        await AssertRefusedAsync(res, "sensitivity endpoint");
+        await AssertRefusedAsync(res, "does not change who may read a field");
         (await StoredFieldAsync(header, "Count"))!.Sensitivity.Should().Be(SensitivityLevel.Sensitive);
     }
 
@@ -481,7 +481,7 @@ public class RollupDefinitionTests
             "/api/config/apply",
             ConfigOf(header, RollupField("Count", "int", line, "Teacher", "count", sensitivity: "Sensitive")), Ct);
 
-        (await BodyAsync(res)).Should().NotContain("sensitivity endpoint");
+        (await BodyAsync(res)).Should().NotContain("does not change who may read a field");
     }
 
     // Integration: a change to the type a rollup summarises.
