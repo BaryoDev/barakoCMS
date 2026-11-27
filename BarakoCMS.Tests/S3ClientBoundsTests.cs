@@ -67,7 +67,7 @@ public class S3ClientBoundsTests
 
         var config = ((AmazonS3Client)provider.GetRequiredService<IAmazonS3>()).Config;
 
-        config.MaxErrorRetry.Should().Be(2, "the SDK's own default is 4");
+        config.MaxErrorRetry.Should().Be(2, "the module sets it, whatever the SDK's retry mode would give");
         config.Timeout.Should().Be(TimeSpan.FromSeconds(45));
     }
 

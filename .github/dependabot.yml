@@ -62,6 +62,14 @@ updates:
       # only that folder's build.sh does.
       - dependency-name: "BarakoCMS"
 
+      # JasperFx 3 is released with Marten 10 and WolverineFx 7; this repo is on Marten 9 and Wolverine 6. Move them together.
+      - dependency-name: "JasperFx"
+        update-types: ["version-update:semver-major"]
+
+      # Serilog.AspNetCore 11 needs Microsoft.Extensions.* 11, and the runtime is .NET 10 LTS (NU1109 on restore).
+      - dependency-name: "Serilog.AspNetCore"
+        update-types: ["version-update:semver-major"]
+
   # Keep the Actions themselves current — the same "insufficient logging/CVE surfaces late" concern
   # the NuGet/npm gates exist for applies to third-party Actions too.
   - package-ecosystem: "github-actions"
