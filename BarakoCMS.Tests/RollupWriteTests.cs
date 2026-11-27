@@ -326,6 +326,7 @@ public class RollupWriteTests
 
         var before = await DocumentAsync(stranger);
         await R.SeedLineAsync(_fixture, pair, stranger, 4);
+        await R.DropQueuedDrainsAsync(_fixture);
         (await R.MarkedAsync(_fixture)).Should().Contain(stranger, "the write marked what the reference names");
 
         await R.DrainAsync(_fixture);
@@ -341,27 +342,55 @@ public class RollupWriteTests
     {
         var (pair, admin, header) = await StartAsync();
         await R.LineAsync(_fixture, admin, pair, header, 4);
+        await R.DropQueuedDrainsAsync(_fixture);
+
+        // Stored in the edit's step, after the drain read its marks and the types it skips. From
+        // there the queue's own drain skips the type too, so it cannot recount between the checks.
+        var hold = new FieldChange
+        {
+            Id = Guid.NewGuid(), ContentType = pair.Header, Field = "Count", Kind = FieldChangeKind.Recompute,
+            State = FieldChangeState.Running, Total = 1, StartedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        };
         var edit = new EditBeforeCommit(async () =>
         {
             var res = await R.Client(_fixture, admin).PutAsJsonAsync(
                 $"/api/contents/{header}", new { id = header, data = new Dictionary<string, object> { ["Name"] = "edited" } }, Ct);
             res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
+            using var scope = _fixture.Services.CreateScope();
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(hold);
+            await session.SaveChangesAsync(Ct);
         });
 
         var run = async () => await RollupDrain.RunAsync(
             _fixture.Services.GetRequiredService<IDocumentStore>(), _fixture.Services.GetRequiredService<IConfiguration>(),
             R.Tenant, Ct, edit);
 
-        (await run.Should().ThrowAsync<Exception>()).Which.Should().Match<Exception>(e => TestHelpers.LostConcurrencyCheck(e));
-        var held = await R.StoredAsync(_fixture, header);
-        Convert.ToString(held.Data["Name"]).Should().Be("edited", "the drain lost and wrote nothing over the edit");
-        R.Num(held, "Count").Should().NotBe(1);
-        (await R.MarkedAsync(_fixture)).Should().Contain(header, "the mark stays, so the retry has work");
+        try
+        {
+            (await run.Should().ThrowAsync<Exception>()).Which.Should().Match<Exception>(e => TestHelpers.LostConcurrencyCheck(e));
+            var held = await R.StoredAsync(_fixture, header);
+            Convert.ToString(held.Data["Name"]).Should().Be("edited", "the drain lost and wrote nothing over the edit");
+            R.Num(held, "Count").Should().NotBe(1);
+            (await R.MarkedAsync(_fixture)).Should().Contain(header, "the mark stays, so the retry has work");
+        }
+        finally
+        {
+            await ReleaseAsync(hold.Id);
+        }
 
         await R.DrainAsync(_fixture);
 
         (await R.ValuesAsync(_fixture, header)).Should().Be((1m, 4m, 4m));
         Convert.ToString((await R.StoredAsync(_fixture, header)).Data["Name"]).Should().Be("edited");
+    }
+
+    private async Task ReleaseAsync(Guid id)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Delete<FieldChange>(id);
+        await session.SaveChangesAsync(Ct);
     }
 
     private sealed class EditBeforeCommit(Func<Task> edit) : DocumentSessionListenerBase
@@ -445,10 +474,9 @@ public class RollupWriteTests
         var pair = new R.Pair(header, line);
         var admin = await Probe.AdminAsync(_fixture);
         var id = await R.HeaderAsync(_fixture, admin, pair);
-        foreach (var _ in new[] { 1, 2 })
-        {
-            await R.SeedAsync(_fixture, line, new() { ["Teacher"] = id.ToString(), ["Qty"] = Huge });
-        }
+        await R.SeedManyAsync(_fixture, line, Enumerable.Range(0, 2).Select(_ =>
+            new Dictionary<string, object> { ["Teacher"] = id.ToString(), ["Qty"] = Huge }));
+        await R.DropQueuedDrainsAsync(_fixture);
 
         return (pair, id, rollup, source);
     }

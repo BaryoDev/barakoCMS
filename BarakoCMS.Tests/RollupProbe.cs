@@ -98,6 +98,37 @@ internal static class RollupProbe
         return id;
     }
 
+    /// <summary>
+    /// Entries written through the writer in one transaction, so no drain can see some of them and
+    /// not the rest.
+    /// </summary>
+    public static async Task SeedManyAsync(IntegrationTestFixture fixture, string type, IEnumerable<Dictionary<string, object>> entries)
+    {
+        using var scope = fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var writer = scope.ServiceProvider.GetRequiredService<barakoCMS.Core.Interfaces.IContentWriter>();
+        foreach (var data in entries)
+        {
+            await writer.CreateAsync(
+                new barakoCMS.Events.ContentCreated(
+                    Guid.NewGuid(), type, data, ContentStatus.Published, Guid.NewGuid(), null, SensitivityLevel.Public, DateTime.UtcNow), Ct);
+        }
+
+        await session.SaveChangesAsync(Ct);
+    }
+
+    /// <summary>
+    /// Takes the drains the writes queued out of the queue, so a test that reads the state between a
+    /// write and its drain does not meet the queue's own drain. The marks stay for the test's drain.
+    /// </summary>
+    public static async Task DropQueuedDrainsAsync(IntegrationTestFixture fixture)
+    {
+        using var scope = fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.DeleteWhere<JobRecord>(j => j.State == JobState.Pending && j.CommandType.Contains("RollupDrainCommand"));
+        await session.SaveChangesAsync(Ct);
+    }
+
     public static Task<Guid> SeedLineAsync(
         IntegrationTestFixture fixture, Pair pair, Guid teacher, decimal hours,
         ContentStatus status = ContentStatus.Published, SensitivityLevel level = SensitivityLevel.Public) =>
