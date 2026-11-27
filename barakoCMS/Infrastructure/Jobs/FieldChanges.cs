@@ -202,8 +202,8 @@ internal static class FieldChanges
         for (var batches = 0; maxBatches is null || batches < maxBatches; batches++)
         {
             await using var session = store.LightweightSession(tenant);
-            var change = await session.LoadAsync<FieldChange>(id, ct);
-            if (change is null || change.State == FieldChangeState.Completed)
+            var change = await LoadForBatchAsync(session, id, ct);
+            if (change is null || change.State != FieldChangeState.Running)
             {
                 return change;
             }
@@ -217,6 +217,35 @@ internal static class FieldChanges
 
         await using var read = store.QuerySession(tenant);
         return await read.LoadAsync<FieldChange>(id, ct);
+    }
+
+    /// <summary>
+    /// The change a batch is about to run, read under the type's lock when it can be abandoned, so
+    /// an abandon that committed first is seen and one that comes after waits for the batch.
+    /// </summary>
+    /// <remarks>
+    /// Only a recompute is abandoned, so only its batches take the lock. It is read again after the
+    /// lock is taken, since a lightweight session keeps nothing, and a batch that saved a change an
+    /// abandon had already moved would otherwise be refused by the concurrency check only.
+    /// </remarks>
+    private static async Task<FieldChange?> LoadForBatchAsync(IDocumentSession session, Guid id, CancellationToken ct)
+    {
+        var change = await session.LoadAsync<FieldChange>(id, ct);
+        if (change is not { Kind: FieldChangeKind.Recompute, State: FieldChangeState.Running })
+        {
+            return change;
+        }
+
+        await LockTypeAsync(session, change.ContentType, ct);
+        return await session.LoadAsync<FieldChange>(id, ct);
+    }
+
+    /// <summary>Whether a job for the change is queued or running on the job queue.</summary>
+    public static Task<bool> HasLiveJobAsync(IQuerySession session, Guid changeId, CancellationToken ct)
+    {
+        var id = changeId.ToString();
+        return session.Query<JobRecord>().AnyAsync(
+            j => (j.State == JobState.Pending || j.State == JobState.Running) && j.CommandJson.Contains(id), ct);
     }
 
     public static async Task RecordErrorAsync(IDocumentStore store, string tenant, Guid id, Exception error, CancellationToken ct)

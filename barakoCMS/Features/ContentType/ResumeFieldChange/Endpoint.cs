@@ -15,9 +15,9 @@ internal sealed class Request
 /// <summary>POST /api/content-types/field-changes/{id}/resume: queues a running change's job again.</summary>
 /// <remarks>
 /// For a change whose job stopped, for example after the queue gave up on it. The job starts from
-/// the step and entry the change last recorded, so nothing done is done twice. A completed change
-/// is a 409: there is nothing left to run. So is a change whose job is still queued or running, which
-/// would otherwise run beside the new one.
+/// the step and entry the change last recorded, so nothing done is done twice. A completed or an
+/// abandoned change is a 409: there is nothing left to run. So is a change whose job is still queued
+/// or running, which would otherwise run beside the new one.
 /// </remarks>
 internal sealed class Endpoint(IDocumentSession session) : Endpoint<Request, FieldChangeResponse>
 {
@@ -41,9 +41,13 @@ internal sealed class Endpoint(IDocumentSession session) : Endpoint<Request, Fie
             ThrowIfAnyErrors(StatusCodes.Status409Conflict);
         }
 
-        var id = change.Id.ToString();
-        if (await session.Query<JobRecord>().AnyAsync(
-                j => (j.State == JobState.Pending || j.State == JobState.Running) && j.CommandJson.Contains(id), ct))
+        if (change.State == FieldChangeState.Abandoned)
+        {
+            AddError("This change was abandoned. There is nothing left to run.");
+            ThrowIfAnyErrors(StatusCodes.Status409Conflict);
+        }
+
+        if (await FieldChanges.HasLiveJobAsync(session, change.Id, ct))
         {
             AddError("This change's job is still queued or running, and carries on by itself. Resume it once the queue has given up on it.");
             ThrowIfAnyErrors(StatusCodes.Status409Conflict);

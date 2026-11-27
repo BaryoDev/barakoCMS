@@ -16,7 +16,8 @@ namespace barakoCMS.Features.ContentType.ChangeField;
 /// new type, with a mapping for the stored values) and a remove touch every entry, so each is a
 /// <see cref="FieldChange"/> applied by a job (202), whose progress
 /// <c>GET /api/content-types/field-changes/{id}</c> reports and which
-/// <c>POST /api/content-types/field-changes/{id}/resume</c> runs again after it stopped.
+/// <c>POST /api/content-types/field-changes/{id}/resume</c> runs again after it stopped. A stuck
+/// recompute, and no other kind, is stopped with <c>.../abandon</c>.
 ///
 /// While a change runs, the field is read under its old name: the job copies every value to the
 /// new name first, then renames the field, then drops the old key. Entry writes to the type are

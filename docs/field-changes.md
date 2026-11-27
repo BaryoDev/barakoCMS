@@ -111,7 +111,8 @@ if the field has one.
 | Route | Does |
 | :--- | :--- |
 | `GET /api/content-types/field-changes/{id}` | The change as it stands: its step, the entries it has rewritten, and the last error |
-| `POST /api/content-types/field-changes/{id}/resume` | Queues a running change's job again, 202. A completed one is a 409, and so is one whose job is still queued or running |
+| `POST /api/content-types/field-changes/{id}/resume` | Queues a running change's job again, 202. A completed or abandoned one is a 409, and so is one whose job is still queued or running |
+| `POST /api/content-types/field-changes/{id}/abandon` | Stops a running recompute and frees the type, 200. Any other kind, a completed or abandoned change, and one whose job is still queued or running are a 409 |
 
 A job that fails is retried by the queue, and the error it hit is on the change until a batch
 commits again. A job the queue gave up on stays `running`, and resuming it starts from the step
@@ -120,4 +121,24 @@ commit a batch: the second finds the change moved on and its batch is rolled bac
 
 A sensitivity change on a type of up to 200 entries runs inside its request, and its job is queued
 with it to start a minute later, so a request cut short is finished by the job rather than leaving
-the type's writes refused. There is no route to abandon a change yet.
+the type's writes refused.
+
+## Abandoning a recompute
+
+A change whose job keeps failing on one entry fails every resume, and while it is `running` the
+type refuses writes and edits. Abandoning a recompute is the way out. The change takes the state
+`abandoned`, with `abandonedAt` and `abandonedBy` (the caller's user id), the type is free again,
+and the job does nothing if it runs later. It needs `manage_content_types`, and it is recorded in
+the audit log as `contenttype.field_change.abandoned` with the change's id, type, field and
+counts. No entry value is recorded.
+
+Only a recompute can be abandoned, because stopping one part way leaves nothing wrong. An entry the
+job has not reached keeps its old computed value, and the next write to it works the value out
+again from the current formula. The other kinds leave state a stop cannot undo: a rename leaves
+values under two names, a convert leaves entries of mixed types, and a remove leaves a field's
+values that come back when the name is added again. Those answer 409 with "Only a recompute can be
+abandoned. Resume this change instead." and are resumed until they finish.
+
+A change that completed or was already abandoned is a 409. So is one whose job is still queued or
+running, since abandoning under a live job would race it. Abandon it once the queue has given up
+on the job. Another tenant's change is a 404. An abandoned change is not resumed.

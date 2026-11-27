@@ -1,0 +1,1 @@
+- **A stuck recompute can be abandoned.** `POST /api/content-types/field-changes/{id}/abandon` stops a running recompute whose job keeps failing, so its type accepts writes and edits again. Entries it had not reached keep their old computed value until their next write. The other kinds of field change cannot be abandoned and are resumed instead. See `docs/field-changes.md`.

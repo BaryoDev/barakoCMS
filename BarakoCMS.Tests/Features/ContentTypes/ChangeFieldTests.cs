@@ -463,6 +463,221 @@ public class ChangeFieldTests : IAsyncLifetime
         await CompletedAsync(id);
     }
 
+    /// <summary>A recompute stored and not queued, as one whose job gave up on an entry that will not save.</summary>
+    private async Task<Guid> StalledRecomputeAsync(string type)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var change = new FieldChange
+        {
+            Id = Guid.NewGuid(), ContentType = type, Field = "Title", Kind = FieldChangeKind.Recompute,
+            State = FieldChangeState.Running, Total = 1,
+            StartedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        session.Store(change);
+        await session.SaveChangesAsync(Ct);
+        return change.Id;
+    }
+
+    private Task<HttpResponseMessage> AbandonAsync(Guid id, HttpClient? client = null) =>
+        (client ?? _client).PostAsync($"/api/content-types/field-changes/{id}/abandon", null, Ct);
+
+    private async Task<FieldChange> StoredChangeAsync(Guid id)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        return (await scope.ServiceProvider.GetRequiredService<IQuerySession>().LoadAsync<FieldChange>(id, Ct))!;
+    }
+
+    private Task<HttpResponseMessage> WriteEntryAsync(string type) =>
+        _client.PostAsJsonAsync("/api/contents", new
+        {
+            contentType = type, data = new Dictionary<string, object> { ["Title"] = "after" },
+        }, Ct);
+
+    [Fact]
+    public async Task Abandoning_a_stuck_recompute_frees_the_type_for_writes_and_edits()
+    {
+        var type = await TypeWithEntriesAsync(1);
+        var id = await StalledRecomputeAsync(type);
+        (await WriteEntryAsync(type)).StatusCode.Should().Be(HttpStatusCode.BadRequest, "the positive control: the type is write-locked");
+        (await _client.PostAsJsonAsync($"/api/content-types/{type}/fields", new { fieldName = "Notes", type = "text" }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict, "the positive control: the type cannot be edited");
+
+        var res = await AbandonAsync(id);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
+        var body = await res.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        body.GetProperty("state").GetString().Should().Be("abandoned");
+        body.GetProperty("abandonedBy").ValueKind.Should().NotBe(JsonValueKind.Null);
+        var stored = await StoredChangeAsync(id);
+        stored.State.Should().Be(FieldChangeState.Abandoned);
+        stored.AbandonedBy.Should().NotBeNull();
+        stored.AbandonedAt.Should().NotBeNull();
+        (await WriteEntryAsync(type)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _client.PostAsJsonAsync($"/api/content-types/{type}/fields", new { fieldName = "Notes", type = "text" }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        var status = await (await _client.GetAsync($"/api/content-types/field-changes/{id}", Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+        status.GetProperty("state").GetString().Should().Be("abandoned");
+        (await _client.PostAsync($"/api/content-types/field-changes/{id}/resume", null, Ct)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task The_job_of_an_abandoned_change_does_nothing_when_it_runs()
+    {
+        var type = await TypeWithEntriesAsync(2);
+        var id = await StalledRecomputeAsync(type);
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var configuration = _fixture.Services.GetRequiredService<IConfiguration>();
+        (await AbandonAsync(id)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var ran = await FieldChanges.RunAsync(store, configuration, "*DEFAULT*", id, maxBatches: null, Ct);
+
+        ran!.State.Should().Be(FieldChangeState.Abandoned, "an unguarded run would have taken the change to completed");
+        var stored = await StoredChangeAsync(id);
+        stored.State.Should().Be(FieldChangeState.Abandoned);
+        (stored.Step, stored.Cursor, stored.Processed, stored.CompletedAt).Should().Be((0, (Guid?)null, 0, (DateTimeOffset?)null));
+    }
+
+    [Fact]
+    public async Task A_batch_that_read_the_change_before_the_abandon_cannot_move_it_back_to_running()
+    {
+        var type = await TypeWithEntriesAsync(0);
+        var id = await StalledRecomputeAsync(type);
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        await using var batch = store.LightweightSession();
+        var read = (await batch.LoadAsync<FieldChange>(id, Ct))!;
+
+        (await AbandonAsync(id)).StatusCode.Should().Be(HttpStatusCode.OK);
+        read.Processed++;
+        batch.Store(read);
+
+        await FluentActions.Awaiting(() => batch.SaveChangesAsync(Ct)).Should().ThrowAsync<JasperFx.ConcurrencyException>();
+        (await StoredChangeAsync(id)).State.Should().Be(FieldChangeState.Abandoned);
+    }
+
+    [Fact]
+    public async Task A_change_that_is_not_a_recompute_is_not_abandoned()
+    {
+        var type = await TypeWithEntriesAsync(1);
+        var id = await StalledRenameAsync(type);
+
+        var res = await AbandonAsync(id);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("Only a recompute can be abandoned");
+        (await StoredChangeAsync(id)).State.Should().Be(FieldChangeState.Running);
+        (await WriteEntryAsync(type)).StatusCode.Should().Be(HttpStatusCode.BadRequest, "the type stays locked");
+
+        await _client.PostAsync($"/api/content-types/field-changes/{id}/resume", null, Ct);
+        await CompletedAsync(id);
+    }
+
+    [Fact]
+    public async Task A_completed_change_and_an_abandoned_one_are_not_abandoned_again()
+    {
+        var type = await TypeWithEntriesAsync(1);
+        var completed = await StalledRecomputeAsync(type);
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var configuration = _fixture.Services.GetRequiredService<IConfiguration>();
+        (await FieldChanges.RunAsync(store, configuration, "*DEFAULT*", completed, maxBatches: null, Ct))!
+            .State.Should().Be(FieldChangeState.Completed);
+
+        (await AbandonAsync(completed)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await StoredChangeAsync(completed)).State.Should().Be(FieldChangeState.Completed);
+
+        var abandoned = await StalledRecomputeAsync(type);
+        (await AbandonAsync(abandoned)).StatusCode.Should().Be(HttpStatusCode.OK, "the positive control");
+        var again = await AbandonAsync(abandoned);
+        again.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await again.Content.ReadAsStringAsync(Ct)).Should().Contain("already abandoned");
+    }
+
+    [Fact]
+    public async Task Abandoning_a_change_whose_job_is_still_queued_is_refused()
+    {
+        var type = await TypeWithEntriesAsync(1);
+        var id = await StalledRecomputeAsync(type);
+        var queued = new JobRecord
+        {
+            TrackingID = Guid.NewGuid(), QueueID = "not-a-queue", CommandType = typeof(FieldChangeCommand).FullName!,
+            CommandJson = JsonSerializer.Serialize(new { TenantId = "*DEFAULT*", ChangeId = id }),
+            State = JobState.Pending, CreatedAt = DateTime.UtcNow,
+            ExecuteAfter = DateTime.UtcNow.AddHours(1), DequeueAfter = DateTime.UtcNow.AddHours(1), ExpireOn = DateTime.UtcNow.AddHours(2),
+        };
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(queued);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var refused = await AbandonAsync(id);
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("still queued or running");
+        (await StoredChangeAsync(id)).State.Should().Be(FieldChangeState.Running);
+
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Delete<JobRecord>(queued.TrackingID);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        (await AbandonAsync(id)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Another_tenants_change_is_not_abandoned_and_not_revealed()
+    {
+        var type = await TypeWithEntriesAsync(1);
+        var id = await StalledRecomputeAsync(type);
+        var slug = await Features.Tenants.TenantProfileSeed.TenantAsync(_fixture, Ct);
+        var other = await Features.Tenants.TenantProfileSeed.AdminInAsync(_fixture, slug, Ct);
+
+        (await AbandonAsync(id, other)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await AbandonAsync(Guid.NewGuid(), other)).StatusCode.Should().Be(HttpStatusCode.NotFound, "the same answer as an id nothing holds");
+
+        (await StoredChangeAsync(id)).State.Should().Be(FieldChangeState.Running);
+        (await AbandonAsync(id)).StatusCode.Should().Be(HttpStatusCode.OK, "the positive control: the owner's tenant");
+    }
+
+    [Fact]
+    public async Task Abandoning_a_change_needs_manage_content_types()
+    {
+        var type = await TypeWithEntriesAsync(1);
+        var id = await StalledRecomputeAsync(type);
+
+        (await AbandonAsync(id, _fixture.CreateClient())).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var user = _fixture.CreateClient();
+        user.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+            "Bearer", await _fixture.StoredUserTokenAsync("User"));
+        (await AbandonAsync(id, user)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await StoredChangeAsync(id)).State.Should().Be(FieldChangeState.Running);
+
+        (await AbandonAsync(id)).StatusCode.Should().Be(HttpStatusCode.OK, "the positive control: an admin");
+    }
+
+    [Fact]
+    public async Task Abandoning_a_change_is_audited_with_ids_and_counts_and_no_entry_value()
+    {
+        var type = await TypeWithEntriesAsync(2);
+        var id = await StalledRecomputeAsync(type);
+
+        (await AbandonAsync(id)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var scope = _fixture.Services.CreateScope();
+        var target = id.ToString();
+        var rows = await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<AuditEvent>()
+            .Where(e => e.Action == "contenttype.field_change.abandoned" && e.TargetId == target)
+            .ToListAsync(Ct);
+        var row = rows.Should().ContainSingle().Subject;
+        row.ActorUserId.Should().NotBeNull();
+        row.TargetType.Should().Be(nameof(FieldChange));
+        row.Metadata!.Keys.Should().BeEquivalentTo("contentType", "field", "kind", "processed", "total");
+        var text = JsonSerializer.Serialize(row.Metadata);
+        text.Should().NotContain("entry 0").And.NotContain("Dr 0").And.NotContain("entry 1").And.NotContain("Dr 1");
+    }
+
     [Fact]
     public async Task Two_runs_of_one_change_cannot_both_save_from_the_progress_they_read()
     {
