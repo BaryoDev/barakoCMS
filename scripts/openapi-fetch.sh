@@ -10,6 +10,13 @@
 # Normalised means: keys sorted, and "servers" removed, since it names the port this run happened
 # to bind. Nothing else is touched, so the file is what a consumer reads.
 #
+# The document must not depend on the machine it was made on. The host's doc reader (NSwag)
+# looks for a package's XML file (FastEndpoints.xml) beside the dll, and failing that in the user's
+# NuGet packages folder, so a developer's cache would add descriptions that CI and the published
+# image never have. So the publish restores into its own empty packages folder with package XML
+# docs skipped, from nuget.org alone (a user-level NuGet.Config may list private feeds), and the
+# host runs with that folder as its packages folder and an empty HOME.
+#
 # Usage: scripts/openapi-fetch.sh <output file>
 #
 # To accept an API change, write the baseline with it and commit the diff for review:
@@ -44,8 +51,18 @@ step() { printf '\n=== %s\n' "$1" >&2; }
 fail() { printf '\nFAILED: %s\n' "$1" >&2; exit 1; }
 
 step "publishing the Suite from the working tree"
-dotnet publish BarakoCMS.Suite/BarakoCMS.Suite.csproj -c Release -o "$WORK/publish" --nologo -v q \
-    -clp:ErrorsOnly -p:RestoreLockedMode=true -nodeReuse:false >&2
+cat > "$WORK/nuget.config" <<'NUGETCONFIG'
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+  </packageSources>
+</configuration>
+NUGETCONFIG
+NUGET_PACKAGES="$WORK/packages" NUGET_XMLDOC_MODE=skip \
+    dotnet publish BarakoCMS.Suite/BarakoCMS.Suite.csproj -c Release -o "$WORK/publish" --nologo -v q \
+    -clp:ErrorsOnly -p:RestoreLockedMode=true -p:RestoreConfigFile="$WORK/nuget.config" -nodeReuse:false >&2
 
 step "starting postgres"
 PG_ID=$(docker run -d --cidfile "$WORK/pg.cid" -e POSTGRES_DB="$DB" -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=barako-ci-not-an-example \
@@ -59,7 +76,8 @@ step "starting the Suite with Swagger on"
 # The seeder stays off so the document describes the API rather than the demo data: a seeded
 # content type would add delivery paths that come and go with the seed, not with the code.
 # Database__AllowSuperuser: a throwaway container in CI, which connects as postgres.
-env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" \
+mkdir -p "$WORK/home"
+env -i PATH="$PATH" HOME="$WORK/home" NUGET_PACKAGES="$WORK/packages" DOTNET_ROOT="${DOTNET_ROOT:-}" \
     ASPNETCORE_ENVIRONMENT=Production \
     Database__AllowSuperuser=true \
     AllowedHosts="localhost;127.0.0.1" \

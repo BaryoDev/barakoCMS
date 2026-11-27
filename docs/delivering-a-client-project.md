@@ -179,7 +179,8 @@ for them.
 **`Swagger:Enabled`** (env `Swagger__Enabled`) decides whether `/swagger/v1/swagger.json` is served.
 Default is on in Development and off elsewhere. You want it on somewhere, because that document
 carries the tenant's own delivery paths and is what a generated frontend client is built from. See
-step 6.
+step 6, and [the OpenAPI document](delivery-api.md#the-openapi-document) for what it holds and what
+each release attaches.
 
 Somewhere, not necessarily here. The document is anonymous: the flag is the only thing in front of
 it, and a GET on `/swagger/{doc}/swagger.json` is rewritten for whatever `X-Tenant` it carries with
@@ -626,17 +627,34 @@ production compose file, `docker-compose.prod.yml`, it runs published images wit
 it refuses to start rather than booting on a placeholder.
 
 ```bash
-git clone https://github.com/BaryoDev/barakoCMS.git
-cd barakoCMS
+VERSION=6.0.0   # the release you are deploying, without the v
+BASE=https://github.com/BaryoDev/barakoCMS/releases/download/v$VERSION
+curl -fsSLO $BASE/barako-cms-prod-$VERSION.tar.gz
+curl -fsSLO $BASE/SHA256SUMS
+sha256sum -c SHA256SUMS   # on macOS: shasum -a 256 -c SHA256SUMS
+tar -xzpf barako-cms-prod-$VERSION.tar.gz
+cd barako-cms-prod-$VERSION
 cp .env.prod.example .env
 $EDITOR .env
 docker compose -f docker-compose.prod.yml config   # resolves every variable, exits non-zero on the first one missing
 docker compose -f docker-compose.prod.yml up -d
 ```
 
+The bundle is attached to each release and holds everything the compose file mounts, so the machine
+needs Docker and these commands, not a checkout of the repository. Extract with `-p`: under a strict
+umask (027 or 077) tar would otherwise drop the archive's modes, and the role job reads the mounted
+SQL as another user. Upgrading a bundle deploy starts with the new bundle, see
+[deploy-in-production.md](deploy-in-production.md#upgrading). Copy the old `.env` into the new
+directory and set `BARAKO_TAG` in it to the new version, because a value in `.env` wins over the
+new bundle's default. Keep `COMPOSE_PROJECT_NAME`: for a stack first started from a checkout that
+is the project name `docker inspect` reads off the running container, and the bundle's compose file
+stops with a message when `.env` has none, instead of starting on empty volumes. The Compose plugin
+must be 2.16.0 or later.
+
 The required variables are `DOMAIN_API`, `ACME_EMAIL`, `FRONTEND_ORIGINS`, `BARAKO_TAG`,
-`DB_PASSWORD`, `DB_APP_PASSWORD`, `JWT_KEY` and `ADMIN_PASSWORD`. The `DOMAIN_API` record must resolve before you start
-the stack, because Caddy requests a certificate on first boot. The console moved to its own
+`DB_PASSWORD`, `DB_APP_PASSWORD`, `JWT_KEY` and `ADMIN_PASSWORD`. From the bundle, `BARAKO_TAG` already
+defaults to the bundle's release, so you change it only to deploy another one. The `DOMAIN_API` record
+must resolve before you start the stack, because Caddy requests a certificate on first boot. The console moved to its own
 repository, so there is no second domain to point here any more.
 
 Delivery-specific things to get right at this point:

@@ -261,7 +261,9 @@ checks only the surfaces it reads.
 **The HTTP surface is diffed in CI.** `openapi/baseline.json` is the reviewed OpenAPI document the
 Suite serves, and the `OpenAPI contract` job (`scripts/openapi-contract-check.sh`) fails when the
 API breaks it, naming each removed or renamed path, response property or enum value. Additions
-pass. To accept a change, run `bash scripts/openapi-fetch.sh openapi/baseline.json` and commit the
+pass the contract gate, and the baseline is refreshed in the same PR: the job's next step fails
+when the served document is not byte for byte the baseline, because a release makes the same
+comparison. To accept a change, run `bash scripts/openapi-fetch.sh openapi/baseline.json` and commit the
 diff; a baseline edit that is itself breaking fails unless an HTTP contract number goes up in the
 same change (`ApiContract.Version`, `ApiContract.DeliveryVersion`, or a module's
 `HttpContractVersion`, read by `scripts/contract-versions.py`).

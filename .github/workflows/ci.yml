@@ -95,6 +95,12 @@ jobs:
       - name: Prove the wiki publish fails when the wiki was not updated
         run: bash scripts/test-wiki-publish.sh
 
+      # The scripts the release job uses to build and check its bundle and OpenAPI document (#1436,
+      # #1438), shown to refuse what they should: a mount the bundle misses, an unpinned tag, an
+      # empty or pathless document, a document that differs from the baseline.
+      - name: Prove the release asset checks can fail
+        run: bash scripts/test-release-assets.sh
+
       # A directory Dependabot does not watch produces no error and no pull request, which is how a
       # front-end folder drifted unwatched for months (#153). This fails the build instead of saying
       # nothing. There is no npm lockfile in this repository today, so the check passes by finding
@@ -582,6 +588,12 @@ jobs:
       - name: The hardened production stack starts and works
         run: bash scripts/compose-runtime-check.sh ghcr.io/baryodev/barako-cms:ci
 
+      # The bundle a release attaches (#1436), built from this branch with the script the release
+      # job runs, unpacked in an empty directory outside the checkout, and started from there with
+      # the image built above. A file the compose file mounts and the bundle misses fails here.
+      - name: The production bundle starts from an empty directory
+        run: bash scripts/prod-bundle-check.sh ghcr.io/baryodev/barako-cms:ci
+
       - name: The production stack starts with its secrets in files
         run: bash scripts/compose-secrets-runtime-check.sh ghcr.io/baryodev/barako-cms:ci
 
@@ -859,7 +871,9 @@ jobs:
   # Nothing else here reads the API the way a consumer does, from the outside (#631). This boots
   # the Suite, fetches the OpenAPI document it serves and diffs it against openapi/baseline.json.
   # A removed or renamed path, operation, response property or enum value fails with the change
-  # named; an addition passes. The baseline is only ever updated by a reviewed commit, and one that
+  # named; an addition passes that gate, and the step after it then requires the baseline to be
+  # current, so the change that adds an endpoint refreshes the baseline in the same pull request.
+  # The baseline is only ever updated by a reviewed commit, and one that
   # accepts a break must move a contract version with it. openapi-contract.yml runs the same check
   # on a schedule.
   openapi:
@@ -899,6 +913,15 @@ jobs:
           set -euo pipefail
           ref="${BASE#refs/heads/}"
           bash scripts/openapi-contract-check.sh ${ref:+"origin/$ref"}
+
+      # The release job's own check: the document has paths and /api/public/{type}, and it is byte
+      # for byte openapi/baseline.json. The step above lets an addition through; this one fails it
+      # until the baseline is refreshed, so the first release after a merge does not fail on a
+      # baseline nobody updated. The fix is `bash scripts/openapi-fetch.sh openapi/baseline.json`.
+      - name: The baseline is the document the Suite serves
+        env:
+          OPENAPI_OUT: ${{ runner.temp }}/openapi
+        run: bash scripts/openapi-release-check.sh "$OPENAPI_OUT/current.json" openapi/baseline.json
 
       - name: Upload the served document
         if: failure()

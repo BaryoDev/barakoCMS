@@ -11,36 +11,80 @@ repository are for other jobs and say so in their headers:
 
 | File | What it is for |
 | --- | --- |
-| `docker-compose.prod.yml` | Production. Published images, Caddy and TLS, required secrets, nightly backup. |
+| `docker-compose.prod.yml` | Production. Published images, Caddy and TLS, required secrets, nightly backup. Ships in the release's production bundle. |
 | `docker-compose.yml` | Local development. Builds from source, dev defaults. |
 | `docker-compose.hub.yml` | Local try-out of the published images. No TLS, localhost only. Runs the role job and connects as the app role. Needs `JWT_SECRET`, `DB_PASSWORD` and `DB_APP_PASSWORD` set (`openssl rand -base64 48`). |
 | `quickstart/docker-compose.yml` | Quickstart, and the worked example of every module's settings. Bring your own proxy. |
 
 ## What you need
 
-- A machine with Docker and the Compose plugin.
+- A machine with Docker and the Compose plugin, version 2.16.0 or later (`docker compose version`).
+  The bundle's compose file puts a variable in its top-level `name:`, and the plugin reads one there
+  from 2.16.0 (compose-go 1.9.0). An older plugin does not.
 - A DNS A record for the API pointing at it. It must resolve before you start the stack, because
   Caddy requests a certificate on first boot and Let's Encrypt validates over HTTP.
 - Ports 80 and 443 reachable from the internet.
-- A checkout of this repository on the machine. The compose file mounts `Caddyfile` and
-  `scripts/backup-cron.sh` from it. What you no longer need is a .NET SDK or Node.
+- `curl` and `sha256sum` (or `shasum -a 256`), to fetch the release's bundle and check it. No
+  checkout of this repository, no .NET SDK and no Node.
 
 ## Deploy
 
+Each release attaches `barako-cms-prod-<version>.tar.gz` and a `SHA256SUMS` file for it. The
+archive holds `docker-compose.prod.yml`, `docker-compose.secrets.yml`, `Caddyfile`,
+`.env.prod.example` and the two scripts the compose file mounts, `scripts/backup-cron.sh` and
+`scripts/db-app-role.sql`. Its compose file and its `.env.prod.example` already name that release
+in `BARAKO_TAG`, so the files and the image cannot drift.
+
 ```bash
-git clone https://github.com/BaryoDev/barakoCMS.git
-cd barakoCMS
+VERSION=6.0.0   # the release you are deploying, without the v
+BASE=https://github.com/BaryoDev/barakoCMS/releases/download/v$VERSION
+curl -fsSLO $BASE/barako-cms-prod-$VERSION.tar.gz
+curl -fsSLO $BASE/SHA256SUMS
+sha256sum -c SHA256SUMS            # on macOS: shasum -a 256 -c SHA256SUMS
+tar -xzpf barako-cms-prod-$VERSION.tar.gz
+cd barako-cms-prod-$VERSION
 cp .env.prod.example .env
 $EDITOR .env
 docker compose -f docker-compose.prod.yml up -d
 ```
+
+Stop if the check does not print `OK`. The sum is published beside the archive, so it catches a
+damaged or partial download. It does not replace verifying the image, below.
+
+Extract with `-p`: under a strict umask (027 or 077) tar would otherwise drop the archive's 0644
+modes, and the role job reads the mounted `scripts/db-app-role.sql` as another user (70:70).
+
+The bundle's `.env.prod.example` sets `COMPOSE_PROJECT_NAME=barako-cms`. Compose names the data
+volumes after the project, which defaults to the directory, and each release unpacks into a
+directory named for its version, so keep that line in `.env`. The bundle's compose file requires
+it in a top-level `name:` line, so an `.env` without it stops compose with a message that names
+the variable, before anything starts.
+
+The archive is built by `scripts/build-prod-bundle.sh`, and CI starts `postgres`, `app` and
+`db-backup` from an unpacked copy in an empty directory (`scripts/prod-bundle-check.sh`), so a file
+the compose file mounts and the bundle lacks fails the pull request that caused it.
+
+The helper scripts this page names beyond the bundle (`check-compose-hardening.sh`,
+`verify-image-signature.sh`, `check-image-platforms.sh`, `restore-db.sh`) are not in it. They check
+or repair a stack and do not run in it. Take them from the repository at the same tag, on this
+machine or any other:
+
+```bash
+mkdir -p scripts
+curl -fsSL -o scripts/verify-image-signature.sh \
+  https://raw.githubusercontent.com/BaryoDev/barakoCMS/v$VERSION/scripts/verify-image-signature.sh
+```
+
+None of them sources another file. Save one into the bundle directory under `scripts/` and run it
+from the bundle directory, which is where `restore-db.sh` looks for `docker-compose.prod.yml`.
 
 `.env.prod.example` lists every variable with the command that generates it. The required ones have
 no default, so the stack refuses to start rather than booting on a placeholder:
 
 - `DOMAIN_API`, `ACME_EMAIL`
 - `FRONTEND_ORIGINS`, the origins of the console and of the site you are about to build
-- `BARAKO_TAG`, a published version, not `latest`
+- `BARAKO_TAG`, a published version, not `latest`. The bundle's `.env.prod.example` and compose
+  file already carry the release's version; change it only to deploy a different release.
 - `DB_PASSWORD`, `DB_APP_PASSWORD`, `JWT_KEY` (32 characters or more), `ADMIN_PASSWORD`
 
 The API refuses to start outside Development on any example secret this repository prints: the
@@ -771,7 +815,46 @@ undefined type can still be edited. `RequireContentTypeTests` covers this.
 
 ## Upgrading
 
-Change `BARAKO_TAG` first, then pull and stop the API. From 6.0 the API connects as the app role,
+If you deployed from a bundle, its compose file and scripts are still the old release's, so take the
+new bundle first. Run the snippet from the directory that holds the old bundle's directory (if you
+are inside it, `cd ..` first), with `OLD` and `NEW` set to the two versions, without the v. Set
+`BARAKO_TAG` in the copied `.env` to the new version: a value in `.env` wins over the new bundle's
+default, so a copied old tag keeps running the old image. Run everything below from the new
+directory.
+
+```sh
+OLD=6.0.0   # the release you run now
+NEW=6.0.1   # the release you are moving to
+BASE=https://github.com/BaryoDev/barakoCMS/releases/download/v$NEW
+curl -fsSLO $BASE/barako-cms-prod-$NEW.tar.gz
+curl -fsSLO $BASE/SHA256SUMS
+sha256sum -c SHA256SUMS            # on macOS: shasum -a 256 -c SHA256SUMS
+tar -xzpf barako-cms-prod-$NEW.tar.gz
+cp barako-cms-prod-$OLD/.env barako-cms-prod-$NEW/.env
+cd barako-cms-prod-$NEW
+$EDITOR .env                        # BARAKO_TAG must equal $NEW; compare with .env.prod.example for new variables
+```
+
+A stack started from a checkout has no bundle directory, so skip the `cp` line and copy `.env`
+from the checkout instead (`cp /path/to/checkout/.env barako-cms-prod-$NEW/.env`).
+
+The copied `.env` carries `COMPOSE_PROJECT_NAME`, which is what keeps the new directory on the same
+containers and data volumes. A bundle's `.env` has `barako-cms`. A stack first started from a
+checkout used a project name compose took from the checkout directory. While the old stack is
+still running, read the real name off it and copy it into `.env` as `COMPOSE_PROJECT_NAME`
+exactly as printed, before the first `up` from a bundle:
+
+```sh
+docker inspect barako-postgres --format '{{ index .Config.Labels "com.docker.compose.project" }}'
+```
+
+The prefix of the volume names in `docker volume ls` is the same name. If `.env` has no
+`COMPOSE_PROJECT_NAME`, the bundle's compose file now stops compose with the message
+`set COMPOSE_PROJECT_NAME in .env` before anything starts, instead of starting on new, empty
+volumes.
+
+From here the steps are the same for a bundle and a checkout. Change `BARAKO_TAG` first, then pull
+and stop the API. From 6.0 the API connects as the app role,
 which the `postgres-extensions` job creates and hands the tables to, so the job runs before any
 `db-migrate` or `db-assert`. On a 5.x volume the role does not exist yet and those commands cannot
 sign in. Where the role exists but the job has not run, a migration's DDL fails as a non-owner.

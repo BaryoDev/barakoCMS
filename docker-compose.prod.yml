@@ -6,7 +6,9 @@
 #
 # Nothing is built here. Every service is an image the release workflow publishes
 # (ghcr.io/baryodev/barako-cms, barako-cms-decaf, mirrored to arnelirobles/* on Docker
-# Hub), so the host needs Docker and this file, not a .NET SDK.
+# Hub), so the host needs Docker and this file, not a .NET SDK. Each release attaches this file
+# with everything it mounts as barako-cms-prod-<version>.tar.gz, so the host needs no checkout
+# either. scripts/build-prod-bundle.sh builds it and the list of files it carries is in that script.
 #
 # The API only. The console is BaryoDev/barakoBrew and deploys from its own repository,
 # pointed at DOMAIN_API.

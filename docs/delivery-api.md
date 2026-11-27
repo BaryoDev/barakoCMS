@@ -851,6 +851,36 @@ Limits of the window:
 | `Delivery:ResponseCache:MaxBodyKilobytes` | 512 | a larger body is served, not kept |
 | `Delivery:ResponseCache:MaxQueryLength` | 512 | a longer query string is never cached |
 
+## The OpenAPI document
+
+With Swagger on, an instance serves its own OpenAPI document at `/swagger/{documentName}/swagger.json`.
+The document name is `v1`, so `/swagger/v1/swagger.json`. The document is anonymous: the flag is the
+only thing in front of it.
+
+The delivery paths in it are generated per content type, so they differ from one instance to the
+next, and for a multi-tenant instance from one tenant to the next (send `X-Tenant`, see
+`docs/multi-tenancy.md`). A type you create shows up as its own list, search and slug paths and
+schemas, and the document is rebuilt when a type is created, when public delivery is toggled and when
+a field's sensitivity changes. The one path every instance has is `/api/public/{type}`, the generic
+route in [Routes](#routes). A generated client for your own site is built from your instance's
+document, not from the release's.
+
+Swagger is off outside Development. Turn it on with `Swagger__Enabled=true` when you generate a
+client or want the reference for the instance you run, ideally on a staging instance. It lists every
+route, admin routes included, and the content model, to anyone who can reach the API, so a client's
+production instance should keep it off or put `/swagger` behind the reverse proxy. The flag is read
+at start, so it needs a restart. The image's default stays off.
+
+Each release attaches `openapi-<version>.json`, the reference for that release without any one
+instance's content types. The release job starts the Suite host (the host the published image runs)
+against an empty database with Swagger on, so the file covers core plus the modules that host
+carries: Import, Files, Files.S3, Email.Smtp, ExternalAuth, FeatureFlags, Portability, AI, Diagnostics
+and Pages. It has no per-type delivery paths because the database it was taken from has no content
+types. The job fails when the file differs from `openapi/baseline.json`, when it is empty, or when it
+has no paths. `scripts/openapi-fetch.sh` writes it, and the same script refreshes the baseline. CI makes
+the same byte comparison on every pull request, so a change that adds an endpoint refreshes
+`openapi/baseline.json` in the same pull request.
+
 ## Stability and deprecation
 
 There is no version segment in the URL and none is planned. The delivery API, meaning every route

@@ -5822,10 +5822,41 @@
           }
         ]
       },
+      "BarakoCMSFeaturesModulesListModuleCardSummary": {
+        "additionalProperties": false,
+        "description": "One console card: where to draw it from and what to call it.",
+        "properties": {
+          "id": {
+            "description": "Id.",
+            "type": "string"
+          },
+          "refreshLabel": {
+            "description": "RefreshLabel, trimmed, or null for no button.",
+            "nullable": true,
+            "type": "string"
+          },
+          "route": {
+            "description": "Route.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Title, trimmed.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSFeaturesModulesListModuleSummary": {
         "additionalProperties": false,
         "description": "What core will say about a module: the name it registered under, the module contract version it\ndeclared, whether the enabled list let it run, and what the schema preflight found for it.\nNothing else is safe to publish here, because everything else a module knows is about the\ndeployment rather than about the module.",
         "properties": {
+          "cards": {
+            "description": "The console cards the module declared and core accepted. Empty when the module is not enabled.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesModulesListModuleCardSummary"
+            },
+            "type": "array"
+          },
           "category": {
             "description": "One of ModuleCategory, or null.",
             "nullable": true,
@@ -15091,15 +15122,12 @@
       },
       "FastEndpointsEmptyRequest": {
         "additionalProperties": false,
-        "description": "a request dto that doesn't have any properties",
         "type": "object"
       },
       "FastEndpointsProblemDetails": {
         "additionalProperties": false,
-        "description": "RFC9457 compatible problem details/ error response class. this can be used by configuring startup like so:\napp.UseFastEndpoints(c => c.Errors.UseProblemDetails())",
         "properties": {
           "detail": {
-            "description": "the details of the error",
             "nullable": true,
             "type": "string"
           },
@@ -15135,25 +15163,20 @@
       },
       "FastEndpointsProblemDetails_Error": {
         "additionalProperties": false,
-        "description": "the error details object",
         "properties": {
           "code": {
-            "description": "the code of the error",
             "nullable": true,
             "type": "string"
           },
           "name": {
             "default": "Error or field name",
-            "description": "the name of the error or property of the dto that caused the error",
             "type": "string"
           },
           "reason": {
             "default": "Error reason",
-            "description": "the reason for the error",
             "type": "string"
           },
           "severity": {
-            "description": "the severity of the error",
             "nullable": true,
             "type": "string"
           }
