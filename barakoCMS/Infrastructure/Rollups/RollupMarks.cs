@@ -108,8 +108,10 @@ internal static class RollupMarks
             return;
         }
 
+        // In id order, and the drain deletes in the same order, so two writes that move lines
+        // between the same two headers in opposite directions lock the mark rows alike.
         var now = Now();
-        foreach (var (id, headerType) in headers)
+        foreach (var (id, headerType) in headers.OrderBy(h => h.Key))
         {
             session.Store(new RollupMark { Id = id, HeaderType = headerType, MarkedAt = now });
         }

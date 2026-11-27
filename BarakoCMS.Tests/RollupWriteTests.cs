@@ -377,6 +377,33 @@ public class RollupWriteTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_line_moved_between_two_headers_marks_them_in_id_order_whichever_way_it_moves(bool reverse)
+    {
+        var pair = await R.StorePairAsync(_fixture);
+        var ids = new[] { Guid.NewGuid(), Guid.NewGuid() }.OrderBy(i => i).ToArray();
+        var (from, to) = reverse ? (ids[1], ids[0]) : (ids[0], ids[1]);
+        var line = new Content
+        {
+            Id = Guid.NewGuid(), ContentType = pair.Line, Status = ContentStatus.Published,
+            Data = new() { ["Teacher"] = to.ToString(), ["Hours"] = 4m },
+        };
+        var before = EntryFacts.Of(new Content
+        {
+            Id = line.Id, ContentType = pair.Line, Status = ContentStatus.Published,
+            Data = new() { ["Teacher"] = from.ToString(), ["Hours"] = 4m },
+        });
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        await RollupMarks.NoteAsync(session, before, line, Ct);
+
+        var stored = session.PendingChanges.Updates().OfType<RollupMark>().Select(m => m.Id).ToList();
+        stored.Should().Equal(ids, "the mark rows are locked in one order, so opposite moves cannot wait on each other");
+    }
+
     private async Task<(string Json, Guid Version)> DocumentAsync(Guid id)
     {
         using var scope = _fixture.Services.CreateScope();

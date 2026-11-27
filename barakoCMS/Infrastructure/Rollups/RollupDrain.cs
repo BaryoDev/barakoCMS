@@ -133,7 +133,7 @@ internal static class RollupDrain
             await DrainTypeAsync(session, writer, definitions, group.ToList(), ct);
         }
 
-        foreach (var mark in taken)
+        foreach (var mark in taken.OrderBy(m => m.Id))
         {
             // Only the mark this batch read: one set again while it ran is a newer write to count.
             session.DeleteWhere<RollupMark>(m => m.Id == mark.Id && m.MarkedAt == mark.MarkedAt);
