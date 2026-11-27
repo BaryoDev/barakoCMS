@@ -171,10 +171,10 @@ internal sealed class CreateConnectorEndpoint(
         }
 
         var grants = await ConnectorGrantRules.NextAsync(
-            session, sensitivity, ConfigCaller.ForUser(User), req.AllowedFields, stored: null, moved: false, ct);
+            session, sensitivity, ConfigCaller.ForUser(User), req.AllowedFields, stored: null, moved: false, ct, writer: session);
         if (grants.Refusal is not null)
         {
-            ThrowError(grants.Refusal, grants.Forbidden ? 403 : 400);
+            ThrowError(grants.Refusal, grants.Forbidden ? 403 : grants.Busy ? 409 : 400);
             return;
         }
 
@@ -282,10 +282,10 @@ internal sealed class UpdateConnectorEndpoint(
         var grantsBefore = connector.AllowedFields is null ? null : new List<string>(connector.AllowedFields);
         var grants = await ConnectorGrantRules.NextAsync(
             session, sensitivity, ConfigCaller.ForUser(User), req.AllowedFields, connector.AllowedFields,
-            ConnectorOrigin.Moved(connector.BaseUrl, req.BaseUrl), ct);
+            ConnectorOrigin.Moved(connector.BaseUrl, req.BaseUrl), ct, writer: session);
         if (grants.Refusal is not null)
         {
-            ThrowError(grants.Refusal, grants.Forbidden ? 403 : 400);
+            ThrowError(grants.Refusal, grants.Forbidden ? 403 : grants.Busy ? 409 : 400);
             return;
         }
 

@@ -130,6 +130,28 @@ public class ConnectorGrantConfigTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public async Task A_config_apply_that_adds_a_grant_is_refused_while_a_field_change_runs_on_the_type_and_a_plan_is_not()
+    {
+        var (tenant, type) = await TenantWithTypeAsync();
+        await _callers.StoreInTenantAsync(tenant, new FieldChange
+        {
+            Id = Guid.NewGuid(), ContentType = type, Field = "Title", Kind = FieldChangeKind.Rename, NewName = "Heading",
+            State = FieldChangeState.Running, Total = 1, StartedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        var slug = TestNames.Slug("cg");
+        var client = await _callers.SuperAdminAsync(tenant);
+        var document = Document(slug, Home, [$"{type}.Ssn"]);
+
+        var (_, plan) = await PlanAsync(client, document);
+        var (applied, body) = await ApplyAsync(client, document);
+
+        Changes(plan).Should().ContainSingle(c => c.StartsWith("connectors/" + slug));
+        applied.IsSuccessStatusCode.Should().BeFalse(body.ToString());
+        body.ToString().Should().Contain("field change running");
+        (await _callers.InTenantAsync(tenant, s => s.Query<Connector>().AnyAsync(c => c.Slug == slug, Ct))).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task A_plan_for_a_good_grant_creates_the_connector()
     {
         var (tenant, type) = await TenantWithTypeAsync();
@@ -202,6 +224,42 @@ public class ConnectorGrantConfigTests(IntegrationTestFixture fixture)
         viewerResponse.StatusCode.Should().Be(HttpStatusCode.OK, viewerExport.ToString());
         viewerExport.ToString().Should().NotContain($"{type}.Ssn");
         GrantsIn(viewerExport.GetProperty("connectors").GetProperty(slug)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_plan_for_a_caller_who_may_only_view_connectors_shows_no_grant_and_says_so_in_one_note()
+    {
+        var (tenant, type) = await TenantWithTypeAsync();
+        var slug = TestNames.Slug("cg");
+        await _callers.StoreInTenantAsync(tenant, Linked(slug, $"{type}.Ssn"));
+        var viewer = await HoldingAsync(tenant, SystemCapabilities.ManageConfig, SystemCapabilities.ViewConnectors);
+
+        var (response, plan) = await PlanAsync(viewer, Document(slug, Home, []));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, plan.ToString());
+        plan.ToString().Should().Contain("allowed fields are planned only for callers who may manage connectors");
+        plan.ToString().Should().NotContain($"{type}.Ssn").And.NotContain("Ssn");
+        Changes(plan).Should().BeEmpty("a grant does not count toward the status for a caller who may not see it");
+    }
+
+    [Fact]
+    public async Task A_plan_for_a_caller_who_may_only_view_connectors_answers_alike_for_a_stored_and_an_unstored_entry()
+    {
+        var tenant = await _callers.TenantAsync();
+        var type = TestNames.Compact("grp");
+        await _callers.StoreInTenantAsync(tenant, TypeOf(
+            type, Field("Title"), Field("Ssn", SensitivityLevel.Sensitive), Field("Tin", SensitivityLevel.Sensitive)));
+        var slug = TestNames.Slug("cg");
+        await _callers.StoreInTenantAsync(tenant, Linked(slug, $"{type}.Ssn"));
+        var viewer = await HoldingAsync(tenant, SystemCapabilities.ManageConfig, SystemCapabilities.ViewConnectors);
+
+        var (storedResponse, stored) = await PlanAsync(viewer, Document(slug, Home, [$"{type}.Ssn"]));
+        var (unstoredResponse, unstored) = await PlanAsync(viewer, Document(slug, Home, [$"{type}.Tin"]));
+
+        unstoredResponse.StatusCode.Should().Be(storedResponse.StatusCode, unstored.ToString());
+        unstored.GetProperty("sections").ToString().Should().Be(stored.GetProperty("sections").ToString());
+        unstored.ToString().Should().NotContain("Tin").And.NotContain("may not read");
+        stored.ToString().Should().NotContain("Ssn");
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Core.Validation;
+using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using Marten;
@@ -152,7 +153,7 @@ internal static class ConnectorGrants
 }
 
 /// <summary>What a save leaves as a connector's grant, or why it cannot be saved.</summary>
-internal sealed record GrantOutcome(List<string>? Entries, string? Refusal, bool Forbidden = false);
+internal sealed record GrantOutcome(List<string>? Entries, string? Refusal, bool Forbidden = false, bool Busy = false);
 
 /// <summary>Decides a connector's grant on a save: validates what a request adds and keeps what it does not touch.</summary>
 internal static class ConnectorGrantRules
@@ -167,9 +168,14 @@ internal static class ConnectorGrantRules
     /// A signed-in caller needs read rights on each entry added. The host, which applies a file it
     /// was configured with, skips that one rule and no other.
     /// </param>
+    /// <param name="writer">
+    /// The session a save writes through. When given, the field change lock is taken on each type an
+    /// entry adds, as the block bindings route takes it, and a change running on one refuses the save.
+    /// A plan passes none: it writes nothing.
+    /// </param>
     public static async Task<GrantOutcome> NextAsync(
         IQuerySession session, ISensitivityService? sensitivity, ConfigCaller who,
-        List<string>? requested, List<string>? stored, bool moved, CancellationToken ct)
+        List<string>? requested, List<string>? stored, bool moved, CancellationToken ct, IDocumentSession? writer = null)
     {
         var kept = moved ? [] : stored ?? [];
         if (requested is null) return new(kept.Count > 0 ? [.. kept] : null, null);
@@ -181,6 +187,11 @@ internal static class ConnectorGrantRules
         }
 
         var held = ConnectorGrants.SetOf(kept);
+        if (writer is not null && await BusyTypeAsync(writer, requested, held, ct) is { } busy)
+        {
+            return new(null, FieldChanges.Busy(busy), Busy: true);
+        }
+
         var next = new List<string>();
         var seen = ConnectorGrants.SetOf(null);
         foreach (var raw in requested)
@@ -202,6 +213,32 @@ internal static class ConnectorGrantRules
     }
 
     private static GrantOutcome Refused(string reason) => new(null, reason);
+
+    /// <summary>
+    /// Locks each type the save adds an entry for, lowest lowered name first, and returns the field
+    /// change running on one of them. Taken before the type is read by the check, so a change that
+    /// finished in between is seen and one that is running is not missed.
+    /// </summary>
+    private static async Task<FieldChange?> BusyTypeAsync(
+        IDocumentSession writer, List<string> requested, ISet<string> held, CancellationToken ct)
+    {
+        var types = requested
+            .Where(raw => ConnectorGrants.TryParse(raw, out _, out _))
+            .Select(raw => { ConnectorGrants.TryParse(raw, out var type, out var field); return (Type: type, Key: ConnectorGrants.Key(type, field)); })
+            .Where(e => !held.Contains(e.Key))
+            .Select(e => e.Type.ToLower())
+            .Distinct()
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        foreach (var type in types)
+        {
+            await FieldChanges.LockTypeAsync(writer, type, ct);
+            if (await FieldChanges.RunningAsync(writer, type, ct) is { } running) return running;
+        }
+
+        return null;
+    }
 
     private static string Show(string? raw) =>
         raw is { Length: <= 100 } && !raw.Any(char.IsControl) ? raw : "(not a valid grant)";

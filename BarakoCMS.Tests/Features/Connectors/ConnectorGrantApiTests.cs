@@ -360,4 +360,44 @@ public class ConnectorGrantApiTests(IntegrationTestFixture fixture)
         connector.Slug.Should().Be("old-link");
         connector.AllowedFields.Should().BeNull("a connector stored before this release has no grant");
     }
+
+    private async Task RunFieldChangeAsync(string type) => await GrantKit.StoreAsync(fixture, new FieldChange
+    {
+        Id = Guid.NewGuid(), ContentType = type, Field = "Perk", Kind = FieldChangeKind.Rename, NewName = "Bonus",
+        State = FieldChangeState.Running, Total = 1, StartedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+    });
+
+    [Fact]
+    public async Task A_grant_naming_a_type_with_a_field_change_running_is_refused_with_409_on_create_and_on_update()
+    {
+        var type = await TypeAsync();
+        var (client, _) = await ReaderAsync(type);
+        var slug = await CreatedAsync(client, Home, null);
+        await RunFieldChangeAsync(type);
+        var refused = GrantKit.Name("lk");
+
+        var created = await CreateAsync(client, refused, Home, [$"{type}.Ssn"]);
+        var updated = await SaveAsync(client, slug, Home, [$"{type}.Ssn"]);
+
+        created.StatusCode.Should().Be(HttpStatusCode.Conflict, await created.Content.ReadAsStringAsync(Ct));
+        (await created.Content.ReadAsStringAsync(Ct)).Should().Contain("field change running");
+        updated.StatusCode.Should().Be(HttpStatusCode.Conflict, await updated.Content.ReadAsStringAsync(Ct));
+        (await StoredAsync(slug)).AllowedFields.Should().BeNull();
+        using var scope = fixture.Services.CreateScope();
+        (await scope.ServiceProvider.GetRequiredService<IQuerySession>().Query<Connector>().AnyAsync(c => c.Slug == refused, Ct))
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_save_that_adds_nothing_is_not_held_up_by_a_field_change_on_a_type_it_names()
+    {
+        var type = await TypeAsync();
+        var (client, _) = await ReaderAsync(type);
+        var slug = await CreatedAsync(client, Home, [$"{type}.Ssn"]);
+        await RunFieldChangeAsync(type);
+
+        var response = await SaveAsync(client, slug, Home, [$"{type}.Ssn"]);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+    }
 }

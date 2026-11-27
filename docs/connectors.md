@@ -224,7 +224,13 @@ Hidden is never sent through a grant.
   configuration file or a seed skips the read check only. Everything else above applies to it.
 - **Who sees it.** Only a `manage_connectors` holder sees `allowedFields`, in the list, a read, the
   configuration export and every response. An export without it, applied back, keeps the stored
-  grant, and its plan does not call that a destructive change.
+  grant, and its plan does not call that a destructive change. A plan for any other caller never
+  reads the stored list, counts it toward the change status or checks an entry. A document that
+  sends `allowedFields` gets one fixed note that grants are planned only for callers who may
+  manage connectors.
+- **While a field change runs.** A save that adds an entry takes the content type's field change
+  lock, the one the block bindings take. It answers 409 while a field change is running on a type
+  an added entry names. This covers create, update and a configuration apply, not a plan.
 - **Moving `baseUrl` clears the grant.** A change of scheme, host or port, of the path (compared
   as written, a trailing slash ignored) or of the query counts. A list sent in the same request as
   the move is judged as all new entries. The move and the clear happen together or not at all. A
@@ -240,9 +246,15 @@ Hidden is never sent through a grant.
   Email and SMS steps, webhooks and Publish are not changed by a grant.
 - **Dry run.** `POST /api/requests/{slug}/dry-run/{entryId}` masks a granted value with `***` in
   the URL, the headers and the body when the caller may not read that field, one hole at a time.
+  A `{{query.rows}}` hole the caller may not read, or that follows a reference, shows one row with
+  a key for each field the query projects and `***` for every value. Nothing in it comes from the
+  rows, so the preview does not tell how many entries matched.
 - **Saving a workflow.** A saver who cannot read a granted field that one of the workflow's Request
   templates names, or that a `{{query.*}}` row projects, filters, sorts on or follows, is refused,
-  and the field is named.
+  and the field is named. A Request whose path is itself templated (`{{` in the slug) names no
+  connector until it runs, so the saver needs read on every granted field of every connector in
+  the tenant. With no granted connector nothing changes. The read check runs when a workflow is
+  saved, so a later request edit or a later grant is the connector admin's call.
 - **Changing the type.** Removing or renaming a field, or deleting a content type, answers 409
   naming the connector while a grant names it (see [field-changes.md](field-changes.md)).
 - **Audit.** The connector's create, update and delete rows hold the old and new lists as field

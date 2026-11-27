@@ -94,8 +94,7 @@ internal sealed class ConnectorConfigProvider(
     public async Task<ConfigSectionExport?> ExportAsync(ConfigCaller caller, CancellationToken ct)
     {
         var connectors = await session.Query<Connector>().ToListAsync(ct);
-        var showGrants = caller.Principal is not { } principal
-                         || await capabilities.HoldsAsync(principal, WriteCapability, ct);
+        var showGrants = await MayManageGrantsAsync(caller, ct);
 
         return new ConfigSectionExport
         {
@@ -109,6 +108,10 @@ internal sealed class ConnectorConfigProvider(
         };
     }
 
+    /// <summary>Whether grants are shown to this caller: the host applying a file, or a manager of connectors.</summary>
+    private async Task<bool> MayManageGrantsAsync(ConfigCaller caller, CancellationToken ct) =>
+        caller.Principal is not { } principal || await capabilities.HoldsAsync(principal, WriteCapability, ct);
+
     public async Task<ConfigSectionPlan> PlanAsync(
         IReadOnlyDictionary<string, JsonElement> desired, ConfigCaller caller, CancellationToken ct)
     {
@@ -116,6 +119,11 @@ internal sealed class ConnectorConfigProvider(
         var notes = new List<string>();
         var changes = new List<ConfigChange>();
         var stored = (await session.Query<Connector>().ToListAsync(ct)).ToDictionary(c => c.Slug, StringComparer.Ordinal);
+
+        // The export's rule: a plan shows a grant only to a caller who may manage connectors. For any
+        // other caller it never reads or compares the stored list, so what it says cannot tell a
+        // stored entry from one that is not, or a changed grant from an unchanged one.
+        var showGrants = await MayManageGrantsAsync(caller, ct);
 
         foreach (var (slug, document) in desired.OrderBy(d => d.Key, StringComparer.Ordinal))
         {
@@ -125,11 +133,16 @@ internal sealed class ConnectorConfigProvider(
             }
 
             stored.TryGetValue(slug, out var current);
-            var grants = await NextGrantsAsync(config, current, caller, ct);
+            var grants = showGrants ? await NextGrantsAsync(config, current, caller, ct) : new GrantOutcome(null, null);
             if (grants.Refusal is not null)
             {
                 errors.Add($"'{slug}': {grants.Refusal}");
                 continue;
+            }
+
+            if (!showGrants && config.AllowedFields is not null)
+            {
+                notes.Add($"'{slug}': allowed fields are planned only for callers who may manage connectors.");
             }
 
             var missing = (config.Secrets ?? []).Except(current?.SecretKeys ?? [], StringComparer.Ordinal).ToList();
@@ -139,7 +152,7 @@ internal sealed class ConnectorConfigProvider(
                           + $"{(missing.Count == 1 ? "it" : "them")} with PUT /api/connectors/{slug} after the apply.");
             }
 
-            if (Plan(slug, config, current, document, grants.Entries) is { } change)
+            if (Plan(slug, config, current, document, grants.Entries, showGrants) is { } change)
             {
                 changes.Add(change);
             }
@@ -188,7 +201,7 @@ internal sealed class ConnectorConfigProvider(
                 continue;
             }
 
-            var grants = await NextGrantsAsync(config, current, caller, ct);
+            var grants = await NextGrantsAsync(config, current, caller, ct, locking: true);
             if (grants.Refusal is not null)
             {
                 errors.Add($"'{change.Key}': {grants.Refusal}");
@@ -241,10 +254,11 @@ internal sealed class ConnectorConfigProvider(
     /// The grant the connector holds after this document, or why it cannot be. A caller with no
     /// principal is the host applying a file: it skips the read right and nothing else.
     /// </summary>
-    private Task<GrantOutcome> NextGrantsAsync(ConnectorConfig config, Connector? current, ConfigCaller caller, CancellationToken ct) =>
+    private Task<GrantOutcome> NextGrantsAsync(
+        ConnectorConfig config, Connector? current, ConfigCaller caller, CancellationToken ct, bool locking = false) =>
         ConnectorGrantRules.NextAsync(
             session, sensitivity, caller, config.AllowedFields, current?.AllowedFields,
-            current is not null && ConnectorOrigin.Moved(current.BaseUrl, config.BaseUrl), ct);
+            current is not null && ConnectorOrigin.Moved(current.BaseUrl, config.BaseUrl), ct, locking ? session : null);
 
     /// <summary>The name of the file the host was configured to apply, for the audit actor.</summary>
     private string FileName() =>
@@ -314,7 +328,7 @@ internal sealed class ConnectorConfigProvider(
         || (secrets.ValueKind == JsonValueKind.Array && secrets.EnumerateArray().All(s => s.ValueKind == JsonValueKind.String));
 
     private static ConfigChange? Plan(
-        string slug, ConnectorConfig config, Connector? current, JsonElement document, List<string>? grants)
+        string slug, ConnectorConfig config, Connector? current, JsonElement document, List<string>? grants, bool showGrants)
     {
         if (current is null)
         {
@@ -328,7 +342,7 @@ internal sealed class ConnectorConfigProvider(
         var held = ConnectorConfig.Of(current).WithoutSecrets();
         var wanted = config.WithoutSecrets();
         var cleared = Cleared(config, current).ToList();
-        var grantsChanged = !ConnectorGrants.SetOf(current.AllowedFields).SetEquals(grants ?? []);
+        var grantsChanged = showGrants && !ConnectorGrants.SetOf(current.AllowedFields).SetEquals(grants ?? []);
         if (ConfigJson.Same(held, wanted) && cleared.Count == 0 && !grantsChanged)
         {
             return null;
