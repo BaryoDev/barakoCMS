@@ -109,7 +109,9 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContex
             return Refuse(filterRefusal);
         }
 
-        if (!string.IsNullOrWhiteSpace(definition.SortField) && !allowed.ContainsKey(definition.SortField))
+        if (!string.IsNullOrWhiteSpace(definition.SortField)
+            && !allowed.ContainsKey(definition.SortField)
+            && !(context is not null && IsSystemField(definition.SortField)))
         {
             return Refuse(Unknown(definition.SortField, allowed, schema.Name, "sorted on"));
         }
@@ -123,7 +125,7 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContex
 
         foreach (var field in definition.Fields)
         {
-            if (!allowed.ContainsKey(field))
+            if (!allowed.ContainsKey(field) && !(context is not null && IsSystemField(field)))
             {
                 return Refuse(Unknown(field, allowed, schema.Name, "returned from"));
             }
@@ -154,7 +156,8 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContex
 
         foreach (var filter in definition.Filters)
         {
-            if (!allowed.ContainsKey(filter.Field))
+            var system = context is not null && IsSystemField(filter.Field);
+            if (!system && !allowed.ContainsKey(filter.Field))
             {
                 return Unknown(filter.Field, allowed, schema.Name, "filtered on");
             }
@@ -164,7 +167,12 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContex
                 return $"Unknown operator '{Safe(filter.Op)}'. Supported: {string.Join(", ", Ops.Keys)}.";
             }
 
-            if (lists.Contains(filter.Field) && Ops[filter.Op] is not (FilterOp.Eq or FilterOp.Ne))
+            if (system && SystemOps(filter.Field) is { } fits && !fits.Contains(Ops[filter.Op]))
+            {
+                return $"Operator '{Safe(filter.Op)}' does not apply to '{filter.Field}'.";
+            }
+
+            if (!system && lists.Contains(filter.Field) && Ops[filter.Op] is not (FilterOp.Eq or FilterOp.Ne))
             {
                 return DeliveryQuery.ListOperatorError(filter.Op, filter.Field, offerHas: false);
             }
@@ -219,6 +227,22 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContex
 
         foreach (var filter in definition.Filters)
         {
+            if (context is not null && IsSystemField(filter.Field))
+            {
+                var text = filter.Value;
+                if (filter.Param is not null)
+                {
+                    var (raw, missing) = QueryParameters.Raw(filter.Param, context.Values);
+                    if (missing is not null) return QueryResult.Refused(missing);
+                    text = raw!;
+                }
+
+                var (narrowed, refusal) = SystemFilter(query, filter.Field, Ops[filter.Op], text, filter.Param);
+                if (refusal is not null) return QueryResult.Refused(refusal);
+                query = narrowed!;
+                continue;
+            }
+
             var type = typeOf[filter.Field];
             var value = filter.Value;
             if (filter.Param is not null)
@@ -239,8 +263,10 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContex
 
         if (!string.IsNullOrWhiteSpace(definition.SortField))
         {
-            query = query.OrderBySql(
-                DeliveryQuery.ToOrderBySql(new DeliverySort(canonical[definition.SortField], definition.Descending)));
+            query = context is not null && IsSystemField(definition.SortField)
+                ? SystemOrder(query, definition.SortField, definition.Descending)
+                : query.OrderBySql(
+                    DeliveryQuery.ToOrderBySql(new DeliverySort(canonical[definition.SortField], definition.Descending)));
         }
 
         // Validated above, so the limit is already known to be within the ceiling. There used to be
@@ -258,6 +284,12 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContex
 
             foreach (var field in definition.Fields)
             {
+                if (context is not null && IsSystemField(field))
+                {
+                    item[field] = SystemValue(row, field);
+                    continue;
+                }
+
                 // Matched case-insensitively, the way public delivery matches, because a record can
                 // hold "price" under a schema field named "Price".
                 foreach (var (key, value) in row.Data)
@@ -275,6 +307,89 @@ internal sealed class QueryRunner(IQuerySession session) : IQueryRunner, IContex
 
         return new QueryResult(projected, null) { Ids = [.. rows.Select(r => r.Id)] };
     }
+
+    // ---- the fields every entry has ---------------------------------------------------------
+
+    /// <summary>Whether this is the exact spelling of a field every entry has: id, status, createdAt or updatedAt.</summary>
+    private static bool IsSystemField(string name) => Array.IndexOf(barakoCMS.Core.Expressions.QueryText.SystemFields, name) >= 0;
+
+    private static FilterOp[]? SystemOps(string field) => field switch
+    {
+        "id" or "status" => [FilterOp.Eq, FilterOp.Ne],
+        _ => [FilterOp.Eq, FilterOp.Ne, FilterOp.Lt, FilterOp.Lte, FilterOp.Gt, FilterOp.Gte],
+    };
+
+    /// <summary>A system field's value in the form a step keeps it: an id, the status name, or a UTC time in round-trip form.</summary>
+    private static string SystemValue(Content row, string field) => field switch
+    {
+        "id" => row.Id.ToString(),
+        "status" => row.Status.ToString(),
+        "createdAt" => row.CreatedAt.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+        _ => row.UpdatedAt.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+    };
+
+    /// <remarks>
+    /// Typed LINQ over the entry's own members, never a SQL fragment, so a system field adds no text
+    /// to a statement. The value is parsed strictly; the message names the field, or the parameter
+    /// when the value came from one, and never repeats the value.
+    /// </remarks>
+    private static (IQueryable<Content>? Query, string? Refusal) SystemFilter(
+        IQueryable<Content> query, string field, FilterOp op, string text, string? param)
+    {
+        var what = param is null ? $"The value of the filter on '{field}'" : $"The value of @{param}";
+        switch (field)
+        {
+            case "id":
+                if (!Guid.TryParse(text.Trim(), out var id)) return (null, $"{what} is not an id.");
+                return (op == FilterOp.Eq ? query.Where(c => c.Id == id) : query.Where(c => c.Id != id), null);
+
+            case "status":
+                var word = text.Trim();
+                if (word.Length == 0 || char.IsDigit(word[0]) || !Enum.TryParse<ContentStatus>(word, ignoreCase: true, out var status))
+                    return (null, $"{what} is not a status. A status is Draft, Published, Archived or Scheduled.");
+                return (op == FilterOp.Eq ? query.Where(c => c.Status == status) : query.Where(c => c.Status != status), null);
+
+            default:
+                if (!DateTimeOffset.TryParse(
+                        text.Trim(), System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var at))
+                    return (null, $"{what} is not a date or a time.");
+
+                var utc = at.UtcDateTime;
+                return (field == "createdAt"
+                    ? op switch
+                    {
+                        FilterOp.Eq => query.Where(c => c.CreatedAt == utc),
+                        FilterOp.Ne => query.Where(c => c.CreatedAt != utc),
+                        FilterOp.Lt => query.Where(c => c.CreatedAt < utc),
+                        FilterOp.Lte => query.Where(c => c.CreatedAt <= utc),
+                        FilterOp.Gt => query.Where(c => c.CreatedAt > utc),
+                        _ => query.Where(c => c.CreatedAt >= utc),
+                    }
+                    : op switch
+                    {
+                        FilterOp.Eq => query.Where(c => c.UpdatedAt == utc),
+                        FilterOp.Ne => query.Where(c => c.UpdatedAt != utc),
+                        FilterOp.Lt => query.Where(c => c.UpdatedAt < utc),
+                        FilterOp.Lte => query.Where(c => c.UpdatedAt <= utc),
+                        FilterOp.Gt => query.Where(c => c.UpdatedAt > utc),
+                        _ => query.Where(c => c.UpdatedAt >= utc),
+                    }, null);
+        }
+    }
+
+    /// <summary>A sort on a system field, with the id last so two entries never swap places between runs.</summary>
+    private static IQueryable<Content> SystemOrder(IQueryable<Content> query, string field, bool descending) => (field, descending) switch
+    {
+        ("id", false) => query.OrderBy(c => c.Id),
+        ("id", true) => query.OrderByDescending(c => c.Id),
+        ("status", false) => query.OrderBy(c => c.Status).ThenBy(c => c.Id),
+        ("status", true) => query.OrderByDescending(c => c.Status).ThenBy(c => c.Id),
+        ("createdAt", false) => query.OrderBy(c => c.CreatedAt).ThenBy(c => c.Id),
+        ("createdAt", true) => query.OrderByDescending(c => c.CreatedAt).ThenBy(c => c.Id),
+        (_, false) => query.OrderBy(c => c.UpdatedAt).ThenBy(c => c.Id),
+        _ => query.OrderByDescending(c => c.UpdatedAt).ThenBy(c => c.Id),
+    };
 
     /// <summary>A name as it may be shown back: only when it is the plain kind, so text a caller wrote is never echoed.</summary>
     private static string Safe(string? name) =>
@@ -304,17 +419,24 @@ internal static class QueryParameters
     /// double. A reference is a well-formed id, written in one spelling. The message names the
     /// parameter and never repeats the value.
     /// </remarks>
-    public static (string? Text, string? Refusal) Bind(string name, string declaredType, IReadOnlyDictionary<string, string>? values)
+    /// <summary>The value a run was given for the parameter, or why there is none. An empty value is not one.</summary>
+    public static (string? Raw, string? Refusal) Raw(string name, IReadOnlyDictionary<string, string>? values)
     {
         if (values is null || !values.TryGetValue(name, out var raw) || raw is null)
         {
             return (null, $"The query needs a value for @{name}, and this run has none.");
         }
 
-        if (raw.Length == 0)
-        {
-            return (null, $"The value of @{name} is empty, so it would match every entry that holds nothing in that field.");
-        }
+        return raw.Length == 0
+            ? (null, $"The value of @{name} is empty, so it would match every entry that holds nothing in that field.")
+            : (raw, null);
+    }
+
+    public static (string? Text, string? Refusal) Bind(string name, string declaredType, IReadOnlyDictionary<string, string>? values)
+    {
+        var (raw, missing) = Raw(name, values);
+        if (missing is not null) return (null, missing);
+        raw = raw!;
 
         if (barakoCMS.Core.Validation.FieldTypeRegistry.IsNumericType(declaredType))
         {
