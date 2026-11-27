@@ -13,7 +13,7 @@
     <PackageReference Include="Aspire.Hosting.AppHost" />
     <PackageReference Include="Aspire.Hosting.PostgreSQL" />
     <PackageReference Include="Aspire.Hosting.Docker" />
-    <!-- Aspire 13.5 needs KubernetesClient 19 and core pins 18.0.13. The AppHost runs the API as a
+    <!-- Aspire 13.5 needs KubernetesClient 19 and core pins 21.0.41. The AppHost runs the API as a
          separate process, so it can carry its own version without moving any shipped project. -->
     <PackageReference Include="KubernetesClient" VersionOverride="19.0.2" />
   </ItemGroup>

@@ -71,8 +71,8 @@
       },
       "Fractions": {
         "type": "Transitive",
-        "resolved": "7.3.0",
-        "contentHash": "2bETFWLBc8b7Ut2SVi+bxhGVwiSpknHYGBh2PADyGWONLkTxT7bKyDRhF8ao+XUv90tq8Fl7GTPxSI5bacIRJw=="
+        "resolved": "8.3.2",
+        "contentHash": "q0Xzg9nmBd1Y0fTn/EEG84dWqd02EogojtdBh/MUmtHhwIJBMJk3jo+4MRDCdLfi6lVDXD8UZBA0QkBH3FUh8A=="
       },
       "Humanizer.Core": {
         "type": "Transitive",
@@ -1024,8 +1024,8 @@
       },
       "YamlDotNet": {
         "type": "Transitive",
-        "resolved": "16.3.0",
-        "contentHash": "SgMOdxbz8X65z8hraIs6hOEdnkH6hESTAIUa7viEngHOYaH+6q5XJmwr1+yb9vJpNQ19hCQY69xbFsLtXpobQA=="
+        "resolved": "18.1.0",
+        "contentHash": "5K+9KFg2TdTl7VXv88Qzi/0lqK6JFoNP3lRuImPYGRV7K/QYklDyTrj4+A+KAki1JsQi6qKY+hDyY7d6WRqjrw=="
       },
       "barakocms": {
         "type": "Project",
@@ -1043,7 +1043,7 @@
           "FastEndpoints.Swagger": "[8.3.0, )",
           "IdentityModel": "[7.0.0, )",
           "JasperFx": "[2.102.0, )",
-          "KubernetesClient": "[18.0.13, )",
+          "KubernetesClient": "[21.0.41, )",
           "Markdig": "[1.6.0, )",
           "Marten": "[9.63.0, )",
           "Microsoft.Extensions.DependencyModel": "[10.0.15, )",
@@ -1182,12 +1182,12 @@
       },
       "KubernetesClient": {
         "type": "CentralTransitive",
-        "requested": "[18.0.13, )",
-        "resolved": "18.0.13",
-        "contentHash": "X5IuxmydftB148XeULtc7rD5/RvqLuW5SzkIjFovPgJpvV4RAoRqNPruVB7GEFu1Xg+zHVIk88WqdV8JjbgHbA==",
+        "requested": "[21.0.41, )",
+        "resolved": "21.0.41",
+        "contentHash": "PMf2gothjvOhnby/ihpZXkex/OiKtOJobTTd2VVYENvzexwoi9fHy65Wjxg4hYSEO+W/GSYU7MmtxZEV+CQN+Q==",
         "dependencies": {
-          "Fractions": "7.3.0",
-          "YamlDotNet": "16.3.0"
+          "Fractions": "8.3.2",
+          "YamlDotNet": "18.1.0"
         }
       },
       "Markdig": {

@@ -56,8 +56,9 @@ public sealed class S3StorageOptions
 
     /// <summary>
     /// Tries after the first that the SDK makes for one call. Unset is <see cref="DefaultMaxErrorRetry"/>,
-    /// or fewer when the lease is too short for that many. The SDK's own default is four, which with
-    /// its default timeout could run one call past the lease of the job it runs in.
+    /// or fewer when the lease is too short for that many. It is always set on the client, because the
+    /// SDK's own value follows its retry mode (two in standard mode, its default since AWSSDK 4) or
+    /// the host's AWS_MAX_ATTEMPTS, and neither knows the lease of the job the call runs in.
     /// </summary>
     public int? MaxErrorRetry { get; set; }
 
@@ -68,8 +69,8 @@ public sealed class S3StorageOptions
     public double? TimeoutSeconds { get; set; }
 
     /// <summary>
-    /// The longest the SDK waits between two tries. Legacy retry mode, the SDK's default, caps each
-    /// wait at 30 s and standard mode at 20 s, so the larger is assumed whichever is in use.
+    /// The longest the SDK waits between two tries. Standard retry mode, the SDK's default, caps each
+    /// wait at 20 s and legacy mode at 30 s, so the larger is assumed whichever is in use.
     /// Adaptive mode can also wait for its own rate limiter, which this does not count.
     /// </summary>
     internal static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(30);

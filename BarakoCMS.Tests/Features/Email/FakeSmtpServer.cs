@@ -124,6 +124,12 @@ internal sealed class FakeSmtpServer : IDisposable
                             break;
                         }
 
+                        if (_afterData == AfterData.NotAuthenticated)
+                        {
+                            await writer.WriteLineAsync("530 5.7.0 Authentication required");
+                            break;
+                        }
+
                         await writer.WriteLineAsync("250 2.0.0 Ok: queued as fake");
                         break;
 
@@ -159,4 +165,7 @@ internal enum AfterData
 
     /// <summary>Never answers, so the client only stops when it gives up.</summary>
     Hang,
+
+    /// <summary>Answers 530 after the whole message arrived, so the relay has it and the client is told to log in.</summary>
+    NotAuthenticated,
 }

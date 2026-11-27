@@ -72,7 +72,7 @@ bucket" rather than as an error.
 | `ForcePathStyle` | Usually `true` for self-hosted stores |
 | `PublicBaseUrl` | Serve public files from your CDN domain. The key is appended, so a public file's URL is `{PublicBaseUrl}/public/{name}` |
 | `UsePublicReadAcl` | Defaults to `false` (`true` before 5.0). Set it to `true` only for an AWS bucket with ACLs enabled that serves public files by ACL. Otherwise grant read on `public/*` as below, not on the bucket |
-| `MaxErrorRetry` | Unset is `2`, or fewer on a short lease. Tries after the first the SDK makes for one call, 0 to 10. The SDK's own default is 4 |
+| `MaxErrorRetry` | Unset is `2`, or fewer on a short lease. Tries after the first the SDK makes for one call, 0 to 10. The module always sets it, so the SDK's retry mode and `AWS_MAX_ATTEMPTS` do not apply (the SDK's own default is 2 in standard mode) |
 | `TimeoutSeconds` | Unset is `45`, or less on a short lease. How long one try may take, a body upload included |
 
 Keys belong in environment variables or a secret store, never in a checked-in `appsettings.json`.
@@ -89,7 +89,7 @@ address unless `Modules:Files.S3:AllowPrivateServiceUrl` is `true`.
 A file read or write inside a background job or a workflow action has to finish inside its lease,
 or another node runs the work again. The longest one call can take is every try running to
 `TimeoutSeconds` plus a wait of up to 30 seconds between tries (the SDK's legacy retry mode caps a
-wait at 30 seconds, its standard mode at 20): 195 seconds with the defaults. The limit is 80% of
+wait at 30 seconds, its standard mode, the default, at 20): 195 seconds with the defaults. The limit is 80% of
 the shorter of the workflow runner's 5 minute lease and `Jobs:LeaseSeconds`. An unset value gives
 way to fit it: first fewer retries, then a shorter timeout. Values set by hand are used as they are,
 and the host refuses to start when they cannot fit. `MaxErrorRetry` is always set on the client, so
