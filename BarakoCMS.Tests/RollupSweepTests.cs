@@ -2,8 +2,9 @@ using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
+using NSubstitute;
 using barakoCMS.Features.Site.ShareLinks;
 using barakoCMS.Infrastructure.Rollups;
 using barakoCMS.Models;
@@ -368,5 +369,51 @@ public class RollupSweepTests
         partitions.Contains(null).Should().Be(
             barakoCMS.Infrastructure.Multitenancy.TenantPartitions.ServesDefaultPartition(
                 _fixture.Services.GetRequiredService<IConfiguration>()));
+    }
+
+    [Fact]
+    public async Task A_tick_that_cannot_read_the_tenant_list_logs_the_failure_and_does_not_throw()
+    {
+        var store = Substitute.For<IDocumentStore>();
+        store.QuerySession().Returns(_ => throw new InvalidOperationException("the database is not there"));
+        var log = new ListLogger();
+        var service = new RollupSweepService(store, new ConfigurationBuilder().Build(), log);
+
+        // A throw out of ExecuteAsync stops the whole host, so a failed tick must end here.
+        await service.Invoking(x => x.TickAsync(Ct)).Should().NotThrowAsync();
+
+        log.Of(LogLevel.Error).Should().ContainSingle().Which.Should().Contain("next one runs");
+    }
+
+    [Fact]
+    public async Task The_service_warns_about_an_unknown_zone_once_a_day_not_once_a_tick()
+    {
+        var s = await SetupAsync("Mars/Olympus");
+        var log = new ListLogger();
+        var service = new RollupSweepService(Store, _fixture.Services.GetRequiredService<IConfiguration>(), log);
+
+        using var scope = R.ScopeOf(_fixture, s.Tenant);
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        foreach (var at in new[] { "2026-11-20T00:10:00Z", "2026-11-20T00:15:00Z", "2026-11-20T23:55:00Z", "2026-11-21T00:00:00Z" })
+        {
+            await service.NewClock(At(at)).TodayAsync(session, Ct);
+        }
+
+        log.Of(LogLevel.Warning).Should().HaveCount(2, "the unknown zone counts in UTC, and that is 20 and 21 November");
+    }
+
+    private sealed class ListLogger : ILogger<RollupSweepService>
+    {
+        private readonly List<(LogLevel Level, string Text)> _lines = [];
+
+        public IEnumerable<string> Of(LogLevel level) => _lines.Where(l => l.Level == level).Select(l => l.Text);
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel level) => true;
+
+        public void Log<TState>(
+            LogLevel level, EventId id, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            _lines.Add((level, formatter(state, exception)));
     }
 }

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using barakoCMS.Features.Queries.Run;
 using barakoCMS.Features.Site.ShareLinks;
 using barakoCMS.Infrastructure.Logging;
@@ -19,8 +20,10 @@ internal sealed record RollupToday(DateOnly Date, TimeZoneInfo Zone);
 /// <remarks>
 /// The site <c>TimeZone</c> is the zone, as the rule engine reads it. No site, no setting, or a zone
 /// this server does not know is UTC, and an unknown one logs one warning for the run and never fails it.
+/// A caller that builds a clock every few minutes passes one <see cref="RollupZoneWarnings"/> to all
+/// of them, so the warning is logged once a day per tenant.
 /// </remarks>
-internal sealed class RollupClock(TimeProvider? time = null, ILogger? log = null)
+internal sealed class RollupClock(TimeProvider? time = null, ILogger? log = null, RollupZoneWarnings? warnings = null)
 {
     private static readonly ILogger Fallback = new SerilogLoggerFactory().CreateLogger(typeof(RollupClock).FullName!);
 
@@ -46,16 +49,38 @@ internal sealed class RollupClock(TimeProvider? time = null, ILogger? log = null
             .Take(1)
             .FirstOrDefaultAsync(ct);
         var named = EntryUrls.Setting(site, "TimeZone");
-        var zone = TemplateExpression.Zone(named);
-        if (named is not null && zone is null)
+        var known = TemplateExpression.Zone(named);
+        var zone = known ?? TimeZoneInfo.Utc;
+        var date = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(Now, zone).DateTime);
+        if (named is not null && known is null
+            && (warnings?.FirstToday(session.TenantId, named, date) ?? true))
         {
             _log.LogWarning(
                 "Tenant {Tenant} has a site time zone this server does not know, so its rollup windows count in UTC: {Zone}",
                 LogSafe.Value(session.TenantId), LogSafe.Value(named));
         }
 
-        zone ??= TimeZoneInfo.Utc;
-        _today = new RollupToday(DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(Now, zone).DateTime), zone);
+        _today = new RollupToday(date, zone);
         return _today;
+    }
+}
+
+/// <summary>The unknown zone each tenant was last warned about, and the day it was.</summary>
+/// <remarks>One entry per tenant, so it holds no more entries than there are tenants.</remarks>
+internal sealed class RollupZoneWarnings
+{
+    private readonly ConcurrentDictionary<string, (string Zone, DateOnly Day)> _last = new(StringComparer.Ordinal);
+
+    /// <summary>True when the tenant has not been warned about this zone on this day yet.</summary>
+    public bool FirstToday(string tenant, string zone, DateOnly day)
+    {
+        var entry = (zone, day);
+        if (_last.TryGetValue(tenant, out var last) && last == entry)
+        {
+            return false;
+        }
+
+        _last[tenant] = entry;
+        return true;
     }
 }
