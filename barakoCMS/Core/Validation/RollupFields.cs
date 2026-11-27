@@ -306,7 +306,15 @@ internal static class RollupFields
         if (!Same(via.Type, "reference") || via.Multiple || !ContentTypeName.Same(via.ReferenceType, definition.Name))
             return [$"Field '{field.Name}' rolls up through '{via.Name}', which must be a single reference to '{definition.Name}' on '{from.Name}'."];
 
-        return [];
+        // The count of entries that point at a header is itself the reference's information.
+        if (SensitivityRank.Exposure(field.Sensitivity) > SensitivityRank.Exposure(via.Sensitivity))
+        {
+            return [$"Field '{field.Name}' is {field.Sensitivity} and rolls up through '{via.Name}', which is {via.Sensitivity}. "
+                + "A rollup may not be more widely readable than the reference it goes through."];
+        }
+
+        return ComputedFields.ReadAudienceErrors(field, via)
+            .Select(e => e.Replace(" computes from ", " rolls up through ", StringComparison.Ordinal)).ToList();
     }
 
     private static List<string> SourceErrors(FieldDefinition field, ContentTypeDefinition from, string fn)
@@ -368,15 +376,20 @@ internal static class RollupFields
     private static async Task<List<string>> CallerErrorsAsync(
         IDocumentSession session, FieldDefinition field, ContentTypeDefinition from, RollupCaller caller, CancellationToken ct)
     {
+        // Loaded the way every acting check is, so a principal key is judged too. A caller that
+        // resolves to no user is refused, never skipped.
+        if (await ActingCaller.LoadAsync(session, caller.Principal, ct) is not { } user)
+            return [$"Who is saving '{field.Name}' could not be identified, so a rollup over '{from.Name}' cannot be checked against what they may read."];
+
         var errors = new List<string>();
-        var userId = ActingCaller.IdOf(caller.Principal);
-        var stored = userId is { } id ? await session.LoadAsync<User>(id, ct) : null;
-        if (stored is not null && !await caller.Permissions.CanPerformActionAsync(stored, from.Name, "read", null, ct))
+        if (!await caller.Permissions.CanPerformActionAsync(user, from.Name, "read", null, ct))
             errors.Add($"You may not read '{from.Name}', so you may not roll it up in '{field.Name}'.");
 
         var read = new List<string>();
-        if (field.Rollup!.Field is { } source && from.Fields.FieldNamed(source) is { } sourceField)
-            read.Add(source);
+        if (from.Fields.FieldNamed(field.Rollup!.Via) is { } via)
+            read.Add(via.Name);
+        if (from.Fields.FieldNamed(field.Rollup.Field) is { } source)
+            read.Add(source.Name);
 
         foreach (var name in read)
         {
