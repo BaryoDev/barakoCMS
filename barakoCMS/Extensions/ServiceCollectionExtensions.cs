@@ -987,15 +987,6 @@ public static class ServiceCollectionExtensions
             .Index(x => x.UpdatedAt)
             .Index(x => x.Status)
             .Index(x => new { x.ContentType, x.CreatedAt })
-            // A rollup window on createdAt reads one tenant's entries of one type in a time range, with
-            // the type compared ignoring case as the aggregate does. An existing database needs
-            // migrations/6.0.0/content-type-created-at-tenant-index.sql.
-            .Index(x => new { x.ContentType, x.CreatedAt }, idx =>
-            {
-                idx.Casing = Marten.Schema.ComputedIndex.Casings.Lower;
-                idx.Name = "mt_doc_contents_idx_content_type_created_at_tenant";
-                idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
-            })
             .Index(x => new { x.ContentType, x.Status }); // Composite for status filtering
             // NOTE: no dedicated index on ScheduledPublishAt/ScheduledUnpublishAt. The scheduler
             // sweep leads with Status (indexed above), which is the selective predicate; the
@@ -1070,11 +1061,29 @@ public static class ServiceCollectionExtensions
         options.Schema.For<barakoCMS.Modules.ModuleSeededType>().MultiTenanted().DocumentAlias("module_seeded_types");
         // migrations/6.0.0/rollup-marks.sql creates the table in an existing database.
         options.Schema.For<barakoCMS.Infrastructure.Rollups.RollupMark>().MultiTenanted().DocumentAlias("rollup_marks");
+        MapRollupStorage(options);
         // Global: a webhook carries no tenant, and the receiver has to find a replay before it
         // knows whose data the event touches.
         options.Schema.For<InboundWebhookEvent>()
             .SingleTenanted()
             .DocumentAlias("inbound_webhook_events");
+    }
+
+    /// <summary>What the rollup sweep and its windows need stored. An existing database needs the 6.0.0 scripts named here.</summary>
+    private static void MapRollupStorage(StoreOptions options)
+    {
+        // migrations/6.0.0/rollup-sweep-state.sql creates the table in an existing database.
+        options.Schema.For<barakoCMS.Infrastructure.Rollups.RollupSweepState>().MultiTenanted().DocumentAlias("rollup_sweep_state");
+
+        // A rollup window on createdAt reads one tenant's entries of one type in a time range, with
+        // the type compared ignoring case as the aggregate does.
+        // migrations/6.0.0/content-type-created-at-tenant-index.sql creates the index in an existing database.
+        options.Schema.For<Content>().Index(x => new { x.ContentType, x.CreatedAt }, idx =>
+        {
+            idx.Casing = Marten.Schema.ComputedIndex.Casings.Lower;
+            idx.Name = "mt_doc_contents_idx_content_type_created_at_tenant";
+            idx.TenancyScope = Marten.Schema.Indexing.Unique.TenancyScope.PerTenant;
+        });
     }
 
     // The changed-since poll orders workflow runs by (UpdatedAt, id), so the index carries both.
@@ -2049,6 +2058,7 @@ public static class ServiceCollectionExtensions
 
         // Background service that applies scheduled publish/unpublish across all tenants
         services.AddHostedService<barakoCMS.Infrastructure.Services.ScheduledContentService>();
+        services.AddHostedService<barakoCMS.Infrastructure.Rollups.RollupSweepService>();
 
         // Background service that refills collections from their outside sources across all tenants.
         // On unless a deployment says otherwise: a staging copy of a production database would

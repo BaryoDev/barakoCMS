@@ -453,6 +453,20 @@ public class IntegrationTestFixture : WebApplicationFactory<Program>, IAsyncLife
 
             services.Remove(retention);
 
+            // The rollup sweep, for the same reason: it marks the headers of every tenant by the
+            // real clock, so a test that reads the marks it expects would find the sweep's too.
+            // The rollup sweep tests run RollupSweep themselves, on a fixed clock.
+            var rollupSweep = services.SingleOrDefault(d =>
+                d.ImplementationType == typeof(barakoCMS.Infrastructure.Rollups.RollupSweepService));
+            if (rollupSweep is null)
+            {
+                throw new InvalidOperationException(
+                    "RollupSweepService is no longer registered the way this fixture expects, "
+                  + "so the rollup sweep may still be marking headers in tests.");
+            }
+
+            services.Remove(rollupSweep);
+
             // The delivery log sweep, for the same reason: it would delete a row a test seeded as
             // old on purpose to prove the sweep removes it.
             var deliveryRetention = services.SingleOrDefault(d =>

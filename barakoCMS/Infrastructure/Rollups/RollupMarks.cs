@@ -183,7 +183,7 @@ internal static class RollupMarks
         Guid.TryParse(Raw(data, rollup.Field.Rollup!.Via)?.ToString(), out var id) ? id : null;
 
     /// <summary>Queues one drain for the session's next commit, and no second until that commit has happened.</summary>
-    private static async Task WakeAsync(IDocumentSession session, CancellationToken ct)
+    internal static async Task WakeAsync(IDocumentSession session, CancellationToken ct)
     {
         var wake = Wakes.GetValue(session, s =>
         {
