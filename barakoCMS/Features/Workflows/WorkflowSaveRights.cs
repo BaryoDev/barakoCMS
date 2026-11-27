@@ -93,7 +93,7 @@ internal static class WorkflowSaveRights
         }
 
         missing.AddRange(await TemplateDatasetsMissingAsync(session, permissions, sensitivity, user, templates, ct));
-        missing.AddRange(await RequestGrantsMissingAsync(session, sensitivity, principal, workflow, requests, ct));
+        missing.AddRange(await RequestGrantsMissingAsync(session, permissions, sensitivity, principal, user, workflow, requests, ct));
         return missing;
     }
 
@@ -112,8 +112,8 @@ internal static class WorkflowSaveRights
     /// request names, on each type the workflow triggers on. Without a way to ask, they cannot.
     /// </summary>
     private static async Task<List<string>> RequestGrantsMissingAsync(
-        IDocumentSession session, barakoCMS.Core.Interfaces.ISensitivityService? sensitivity,
-        ClaimsPrincipal principal, WorkflowDefinition workflow, List<string> requests, CancellationToken ct)
+        IDocumentSession session, IPermissionResolver permissions, barakoCMS.Core.Interfaces.ISensitivityService? sensitivity,
+        ClaimsPrincipal principal, User? user, WorkflowDefinition workflow, List<string> requests, CancellationToken ct)
     {
         var missing = new List<string>();
         var types = workflow.TriggerContentTypes.Append(workflow.TriggerContentType)
@@ -129,6 +129,7 @@ internal static class WorkflowSaveRights
 
             var grants = barakoCMS.Infrastructure.Connectors.ConnectorGrants.SetOf(connector.AllowedFields);
             var templates = request.HeaderTemplates.Values.Append(request.PathTemplate).Append(request.BodyTemplate).ToList();
+            missing.AddRange(await QueryRowsMissingAsync(session, permissions, sensitivity, user, request, connector, templates, ct));
             foreach (var type in types)
             {
                 var schema = await AccountContentTypes.ResolveAsync(session, type, ct);
@@ -143,6 +144,50 @@ internal static class WorkflowSaveRights
                     }
                 }
             }
+        }
+
+        return missing;
+    }
+
+    /// <summary>
+    /// A request whose templates hold <c>{{query.*}}</c> holes sends the rows of its query, and with
+    /// grants those rows carry granted fields. The saver must be able to read all the query reads,
+    /// as for a Query step, including a followed reference field on the type it points at. A query
+    /// that cannot be found or judged refuses, since nothing says what it would send.
+    /// </summary>
+    private static async Task<List<string>> QueryRowsMissingAsync(
+        IDocumentSession session, IPermissionResolver permissions, barakoCMS.Core.Interfaces.ISensitivityService? sensitivity,
+        User? user, RequestDefinition request, Connector connector, List<string?> templates, CancellationToken ct)
+    {
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(request.QuerySlug)
+            || !templates.Any(t => t is not null && t.Contains("query.", StringComparison.OrdinalIgnoreCase)))
+        {
+            return missing;
+        }
+
+        var slug = request.QuerySlug.Trim();
+        var saved = await session.Query<QueryDefinition>().FirstOrDefaultAsync(q => q.Slug == slug && q.DeletedAt == null, ct);
+        string? refusal;
+        if (saved is null)
+        {
+            refusal = "That query could not be found.";
+        }
+        else if (user is null)
+        {
+            refusal = "Who is saving this could not be found.";
+        }
+        else
+        {
+            var runner = new barakoCMS.Infrastructure.Connectors.QueryRunner(session, permissions, sensitivity);
+            refusal = await ((barakoCMS.Infrastructure.Connectors.IContextQueryRunner)runner).ValidateAsync(
+                saved, new barakoCMS.Infrastructure.Connectors.QueryRunContext(null) { AsActor = true, Actor = user.Id }, ct);
+        }
+
+        if (refusal is not null)
+        {
+            missing.Add($"You cannot read everything the saved query '{slug}' reads, which the request '{request.Slug}' sends "
+                        + $"through the connector '{connector.Slug}', so you cannot save a workflow that runs it. {refusal}");
         }
 
         return missing;
