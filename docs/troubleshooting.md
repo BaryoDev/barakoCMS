@@ -405,7 +405,8 @@ Let's Encrypt rate limits repeated failures, so fix DNS first. See
 ## How this page is kept true
 
 `BarakoCMS.Tests/TroubleshootingPageTests.cs` reads every `text` block on this page, takes the
-`source` comment above it, and checks that each fixed part of each line is in that file. A message
+`source` comment above it, and checks that each fixed part of each line is in that file. Numbers the page states, such as the minimum key and password lengths, are checked against the code's constants. A message
 that changes in the code and not here fails. It also fails when a class under
 `barakoCMS/Infrastructure/Security/` that can stop startup is not named on this page, and when a
-class on its list stops throwing.
+class on its list stops throwing. That check is at file level: a new refusal inside a class
+the page already names is not caught, so the page covers the common refusals, not every one.
