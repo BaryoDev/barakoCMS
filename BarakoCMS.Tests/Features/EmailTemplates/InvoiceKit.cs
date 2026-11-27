@@ -182,10 +182,14 @@ internal sealed class InvoiceKit(IntegrationTestFixture fixture, string? tenant 
         return (result, recorder.Messages.FirstOrDefault());
     }
 
-    /// <summary>The text of the lines from the one starting with <paramref name="first"/> to the one starting with <paramref name="last"/>.</summary>
+    /// <summary>
+    /// The text of the lines from the one starting with <paramref name="first"/> to the one starting with <paramref name="last"/>.
+    /// The layout's head (its style rule) is dropped first, since it shares a line with the body's first line.
+    /// </summary>
     public static IReadOnlyList<string> TextOf(string html, string first = "Invoice ", string last = "Total ")
     {
-        var text = WebUtility.HtmlDecode(Regex.Replace(html, "<[^>]*>", string.Empty));
+        var body = Regex.Replace(html, "<head>.*?</head>", string.Empty, RegexOptions.Singleline);
+        var text = WebUtility.HtmlDecode(Regex.Replace(body, "<[^>]*>", string.Empty));
         var lines = text.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
         var from = lines.FindIndex(l => l.StartsWith(first, StringComparison.Ordinal));
         var to = lines.FindLastIndex(l => l.StartsWith(last, StringComparison.Ordinal));

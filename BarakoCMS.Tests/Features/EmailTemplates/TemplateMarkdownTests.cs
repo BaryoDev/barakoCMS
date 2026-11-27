@@ -79,7 +79,8 @@ public class TemplateMarkdownTests(IntegrationTestFixture fixture)
 
         result.Succeeded.Should().BeTrue(result.Error);
         var body = sent!.Body;
-        Regex.Matches(body, "<tr>").Should().HaveCount(4, "one header row and one for each line");
+        var table = Regex.Match(body, "<table>.*?</table>", RegexOptions.Singleline).Value;
+        Regex.Matches(table, "<tr>").Should().HaveCount(4, "one header row and one for each line, not counting the layout's own rows");
         Regex.Matches(body, "<tr>\\s*(<td[^>]*>[^<]*</td>\\s*){3}</tr>").Select(m => Regex.Replace(Regex.Replace(m.Value, "<[^>]*>", " "), "\\s+", " ").Trim())
             .Should().Equal("Widget 2 20.00", "Gadget 3 12.00", "Gizmo 1 7.50");
         body.Should().NotContain("{{");

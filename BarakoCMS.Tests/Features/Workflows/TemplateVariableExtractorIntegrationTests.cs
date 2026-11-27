@@ -76,7 +76,7 @@ public class TemplateVariableExtractorIntegrationTests
             ContentType = "TestType",
             CreatedAt = new DateTime(2026, 9, 14, 0, 30, 0, DateTimeKind.Utc),
             UpdatedAt = new DateTime(2026, 9, 14, 9, 0, 0, DateTimeKind.Utc),
-            Data = new Dictionary<string, object> { ["Field"] = "12.5", ["Qty"] = "2", ["Price"] = "625" },
+            Data = new Dictionary<string, object> { ["Field"] = "12.5", ["Qty"] = 2m, ["Price"] = 625m },
         };
         var context = new TemplateContext(
             TimeZoneInfo.Utc,
