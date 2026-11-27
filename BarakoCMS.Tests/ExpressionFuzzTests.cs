@@ -4,6 +4,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 using static BarakoCMS.Tests.ExpressionKit;
+using R = barakoCMS.Core.Expressions.Rules;
 
 namespace BarakoCMS.Tests;
 
@@ -155,7 +156,22 @@ public class ExpressionFuzzTests
     private static ValueResolver Resolver(int seed, int index)
     {
         var random = new Random(unchecked((seed * 100_003) + index));
-        return name => RandomValue(random, name.IsSystem ? SystemType(name.Name) : Resolve(name.Name));
+        return name => RandomValue(random, name.IsSystem ? SystemType(name.Name) : FuzzResolve(name.Name));
+    }
+
+    // The shared schema plus a field named like the system name status, so a bare status
+    // is refused as ambiguous and data.status still reads the field. Only the fuzz sees it.
+    private static ExprType? FuzzResolve(string field) =>
+        field.Equals("status", StringComparison.OrdinalIgnoreCase) ? ExprType.Text : Resolve(field);
+
+    private static ParseResult FuzzCheck(string source) => ExpressionEngine.ParseAndCheck(source, FuzzResolve, false);
+
+    [Fact]
+    public void The_fuzz_schema_reaches_the_ambiguous_name_path()
+    {
+        FuzzCheck("status = \"x\"").Errors.Should().Contain(e => e.Rule == R.AmbiguousName);
+        FuzzCheck("data.status = \"x\"").IsValid.Should().BeTrue();
+        Check("status = \"x\"").IsValid.Should().BeTrue("the shared schema has no field called status");
     }
 
     private static ExprType? SystemType(string name) => name is "createdAt" or "updatedAt" ? ExprType.Date : ExprType.Text;
@@ -171,7 +187,10 @@ public class ExpressionFuzzTests
 
         if (roll < 20 || type is null)
         {
-            return RandomOf(random, (ExprType)random.Next(5), wrongOnly: true);
+            var wrong = type is null
+                ? (ExprType)random.Next(5)
+                : Enum.GetValues<ExprType>().Where(t => t != type.Value).ElementAt(random.Next(Enum.GetValues<ExprType>().Length - 1));
+            return RandomOf(random, wrong, wrongOnly: true);
         }
 
         return RandomOf(random, type.Value, wrongOnly: false);
@@ -232,7 +251,7 @@ public class ExpressionFuzzTests
 
         foreach (var warm in inputs.Take(300).Concat(Corpus))
         {
-            var checkedWarm = Check(warm);
+            var checkedWarm = FuzzCheck(warm);
             if (checkedWarm.IsValid)
             {
                 ExpressionEngine.Evaluate(checkedWarm.Expression!, Resolver(seed, 0), FuzzClock);
@@ -251,7 +270,7 @@ public class ExpressionFuzzTests
             var clock = Stopwatch.StartNew();
             try
             {
-                var result = Check(source);
+                var result = FuzzCheck(source);
                 if (result.IsValid)
                 {
                     parsed++;
@@ -301,7 +320,7 @@ public class ExpressionFuzzTests
             var resolver = Resolver(seed, i);
             var act = () =>
             {
-                var result = Check(source);
+                var result = FuzzCheck(source);
                 if (result.IsValid)
                 {
                     ExpressionEngine.Evaluate(result.Expression!, resolver, FuzzClock);
