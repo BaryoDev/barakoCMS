@@ -317,6 +317,79 @@ public class ArchitectureTests
         }
     }
 
+    // What the formula language must never reach for. The folder is a closed grammar and a fixed
+    // function table, so a way to run text as code or look up a member by name has no place in it.
+    private static readonly string[] ForbiddenInExpressions =
+    [
+        "System.Reflection", "System.Linq.Expressions", "System.Linq.Dynamic", "System.Text.RegularExpressions",
+        "Microsoft.CodeAnalysis", "System.CodeDom", "System.Runtime.Loader", "System.Management.Automation",
+        "Regex", "dynamic", "Activator", "Assembly.", "MethodInfo", "GetType()", "Type.GetType", "Expression.Lambda",
+        "CSharpScript", "ScriptOptions", "DynamicInvoke", "Process.Start", "Environment.GetEnvironmentVariable",
+    ];
+
+    [Fact]
+    public void The_expression_evaluator_uses_no_reflection_pattern_engine_or_scripting()
+    {
+        var folder = Path.Combine(RepoPaths.Root, "barakoCMS", "Core", "Expressions");
+        var files = Directory.GetFiles(folder, "*.cs", SearchOption.AllDirectories);
+        files.Should().NotBeEmpty("a scan that finds no files passes every check below");
+        files.Should().Contain(f => f.EndsWith("Parser.cs", StringComparison.Ordinal));
+
+        var found = new List<string>();
+        foreach (var file in files)
+        {
+            var code = StripComments(File.ReadAllText(file));
+            foreach (var word in ForbiddenInExpressions)
+            {
+                if (ContainsWord(code, word))
+                {
+                    found.Add($"{Path.GetFileName(file)}: {word}");
+                }
+            }
+        }
+
+        found.Should().BeEmpty("the formula language is hand-written recursive descent over a fixed function table (#1420)");
+    }
+
+    [Fact]
+    public void The_expression_evaluator_scan_catches_what_it_forbids()
+    {
+        ContainsWord("using System.Text.RegularExpressions;", "System.Text.RegularExpressions").Should().BeTrue();
+        ContainsWord("var r = new Regex(\"a\");", "Regex").Should().BeTrue();
+        ContainsWord("dynamic x = 1;", "dynamic").Should().BeTrue();
+        ContainsWord("// Regex is not used", "Regex").Should().BeTrue("the scan itself does not strip, StripComments does");
+        StripComments("// Regex\nvar a = 1; /* dynamic */").Should().NotContain("Regex").And.NotContain("dynamic");
+        ContainsWord("var notDynamicAtAll = 1;", "dynamic").Should().BeFalse("only whole words count");
+    }
+
+    private static string StripComments(string source)
+    {
+        var text = System.Text.RegularExpressions.Regex.Replace(source, @"/\*.*?\*/", string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline);
+        return string.Join('\n', text.Split('\n').Select(line =>
+        {
+            var at = line.IndexOf("//", StringComparison.Ordinal);
+            return at < 0 ? line : line[..at];
+        }));
+    }
+
+    private static bool ContainsWord(string code, string word)
+    {
+        for (var at = code.IndexOf(word, StringComparison.Ordinal); at >= 0; at = code.IndexOf(word, at + 1, StringComparison.Ordinal))
+        {
+            var before = at == 0 ? ' ' : code[at - 1];
+            var end = at + word.Length;
+            var after = end >= code.Length ? ' ' : code[end];
+            var startsWord = !char.IsLetterOrDigit(word[0]) || !(char.IsLetterOrDigit(before) || before == '_');
+            var endsWord = !char.IsLetterOrDigit(word[^1]) || !(char.IsLetterOrDigit(after) || after == '_');
+            if (startsWord && endsWord)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static bool IsFluentValidator(Type type) =>
         type is { IsClass: true, IsAbstract: false } && InheritsFrom(type, "FluentValidation.AbstractValidator`1");
 
