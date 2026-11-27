@@ -329,29 +329,38 @@ internal static class TemplateExpression
         return dataset.Rows;
     }
 
-    /// <summary>The transition names a template links to, through <c>links.transition</c> and <c>links.action</c>.</summary>
-    public static IEnumerable<string> LinkedTransitions(string? template)
+    /// <summary>The holes of a template, all of them or an exception. A template is never read in part.</summary>
+    /// <exception cref="TemplateScanException">The template is over the cap, or reading it timed out.</exception>
+    private static List<Match> HoleMatches(string template)
     {
-        if (string.IsNullOrEmpty(template)) yield break;
-
-        MatchCollection holes;
+        TemplateHoles.Guard(template);
         try
         {
-            holes = Token.Matches(template);
+            return Token.Matches(template).ToList();
         }
         catch (RegexMatchTimeoutException)
         {
-            yield break;
+            throw TemplateScanException.Slow();
         }
+    }
 
-        foreach (Match hole in holes)
+    /// <summary>The transition names a template links to, through <c>links.transition</c> and <c>links.action</c>.</summary>
+    /// <exception cref="TemplateScanException">The template is over the cap, or reading it timed out. A link is never counted as absent for that.</exception>
+    public static IEnumerable<string> LinkedTransitions(string? template)
+    {
+        if (string.IsNullOrEmpty(template)) return [];
+
+        var names = new List<string>();
+        foreach (var hole in HoleMatches(template))
         {
             var link = Link.Match(hole.Groups[1].Value);
             if (link.Success && link.Groups["name"].Value != "links.site")
             {
-                yield return link.Groups["argument"].Value;
+                names.Add(link.Groups["argument"].Value);
             }
         }
+
+        return names;
     }
 
     /// <summary>The reference fields a set of templates follows or loops over, by name.</summary>
@@ -384,7 +393,24 @@ internal static class TemplateExpression
     {
         if (string.IsNullOrEmpty(template)) yield break;
 
-        foreach (Match match in Token.Matches(template))
+        List<Match>? holes = null;
+        string? unreadable = null;
+        try
+        {
+            holes = HoleMatches(template);
+        }
+        catch (TemplateScanException ex)
+        {
+            unreadable = ex.Message;
+        }
+
+        if (holes is null)
+        {
+            yield return $"{unreadable} It is sent as written.";
+            yield break;
+        }
+
+        foreach (var match in holes)
         {
             var problem = LoopOpen.IsMatch(match.Groups[1].Value) || LoopClose.IsMatch(match.Groups[1].Value)
                 ? null
@@ -615,8 +641,18 @@ internal static class TemplateExpression
     {
         if (string.IsNullOrEmpty(template)) yield break;
 
+        List<Match> holes;
+        try
+        {
+            holes = HoleMatches(template);
+        }
+        catch (TemplateScanException)
+        {
+            yield break;
+        }
+
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (Match match in Token.Matches(template))
+        foreach (var match in holes)
         {
             var link = Link.Match(match.Groups[1].Value);
             if (!link.Success || link.Groups["name"].Value == "links.site") continue;
