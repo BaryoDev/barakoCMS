@@ -307,15 +307,22 @@ internal static class EmailTemplateRenderer
             return $"ph{nonce}x{holes.Count - 1}x";
         });
 
-        var shielded = Lift(Rows(source, nonce, holes, openers, closers));
-        var html = Markdig.Markdown.ToHtml(shielded, Pipeline);
+        try
+        {
+            var shielded = Lift(Rows(source, nonce, holes, openers, closers));
+            var html = Markdig.Markdown.ToHtml(shielded, Pipeline);
 
-        if (openers.Count > 0 || closers.Count > 0) html = MoveLoopsOutOfRows(html, nonce, openers, closers);
+            if (openers.Count > 0 || closers.Count > 0) html = MoveLoopsOutOfRows(html, nonce, openers, closers);
 
-        return Regex.Replace(
-            html, $"ph{nonce}x(\\d+)x",
-            match => int.TryParse(match.Groups[1].ValueSpan, out var index) && index < holes.Count ? holes[index] : match.Value,
-            RegexOptions.None, ScanTimeout);
+            return Regex.Replace(
+                html, $"ph{nonce}x(\\d+)x",
+                match => int.TryParse(match.Groups[1].ValueSpan, out var index) && index < holes.Count ? holes[index] : match.Value,
+                RegexOptions.None, ScanTimeout);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            throw TemplateScanException.Slow();
+        }
     }
 
     /// <summary>A random token that is not in the text, so nothing the author wrote can read as a placeholder.</summary>

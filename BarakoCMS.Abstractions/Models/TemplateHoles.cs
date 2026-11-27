@@ -80,11 +80,19 @@ public static class TemplateHoles
         }
     }
 
+    /// <summary>
+    /// A test sets this on its own flow to make every scan time out. Every pattern here is linear, so
+    /// no template under the cap takes two seconds, and this is the only way to prove what a
+    /// timeout does to each caller.
+    /// </summary>
+    internal static readonly AsyncLocal<bool> TimeOutScans = new();
+
     /// <summary>Refuses a template over <see cref="MaxScanLength"/>, so no check reads a template in part.</summary>
     /// <exception cref="TemplateScanException">The template is too long.</exception>
     public static void Guard(string? template)
     {
         if (template is not null && template.Length > MaxScanLength) throw TemplateScanException.Long();
+        if (TimeOutScans.Value) throw TemplateScanException.Slow();
     }
 
     private static TemplateHole Classify(string whole, string body)
