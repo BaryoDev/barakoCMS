@@ -57,9 +57,11 @@ internal static class RollupAggregate
     /// </summary>
     /// <param name="headerType">The type that declares the rollup, for the warning.</param>
     /// <param name="source">The summed field on the <c>from</c> type, or null for a count.</param>
+    /// <param name="clock">What a window counts by. Null is the system clock, and only a windowed rollup reads it.</param>
     public static async Task<Dictionary<Guid, object?>> ValuesAsync(
         IDocumentSession session, string headerType, FieldDefinition rollup, FieldDefinition? source,
-        IReadOnlyCollection<Guid> headers, CancellationToken ct, SensitivityLevel? level = null, ILogger? log = null)
+        IReadOnlyCollection<Guid> headers, CancellationToken ct, SensitivityLevel? level = null, ILogger? log = null,
+        RollupClock? clock = null)
     {
         var values = new Dictionary<Guid, object?>();
         if (headers.Count == 0)
@@ -76,7 +78,8 @@ internal static class RollupAggregate
             values[id] = empty;
         }
 
-        var (sql, args) = Build(session, rollup, fn, kind, headers, level ?? rollup.Sensitivity);
+        var today = RollupFields.WindowOf(def) is null ? null : await (clock ?? new RollupClock()).TodayAsync(session, ct);
+        var (sql, args) = Build(session, rollup, fn, kind, headers, level ?? rollup.Sensitivity, today);
         var rows = await session.QueryAsync<Row>(sql, ct, args);
         foreach (var row in rows)
         {
@@ -102,7 +105,8 @@ internal static class RollupAggregate
     }
 
     private static (string Sql, object[] Args) Build(
-        IDocumentSession session, FieldDefinition rollup, string fn, string kind, IReadOnlyCollection<Guid> headers, SensitivityLevel level)
+        IDocumentSession session, FieldDefinition rollup, string fn, string kind, IReadOnlyCollection<Guid> headers, SensitivityLevel level,
+        RollupToday? today)
     {
         var def = rollup.Rollup!;
         var args = new List<object>();
@@ -121,22 +125,67 @@ internal static class RollupAggregate
                 : EntryFieldSql.Number("lower(?)", "d")) + " as n";
         }
 
+        // A window on a date or datetime field reads the value as a column of the inner select and
+        // filters on it outside. A window on createdAt filters inside, on the indexed expression.
+        var window = today is null ? null : RollupFields.WindowOf(def);
+        var onField = window is { } w && !RollupFields.IsCreatedAt(w.Key);
+        var fromWindow = onField ? FieldWindowSelect(window!.Value.Key, today!.Zone, args) : string.Empty;
+
         args.Add(session.TenantId);
         args.Add(def.From.ToLowerInvariant());
         var statuses = CountedStatuses(level);
         var levels = CountedLevels(level);
         args.AddRange(statuses.Select(s => (object)(int)s));
         args.AddRange(levels.Select(l => (object)(int)l));
+
+        var created = string.Empty;
+        var local = string.Empty;
+        if (window is { } chosen)
+        {
+            var days = RelativeDateWindow.Resolve(chosen.Word, today!.Date);
+            created = onField ? string.Empty : CreatedFilter(schema, days, today.Zone, args);
+            local = onField ? LocalFilter(days, today.Zone, args) : string.Empty;
+        }
+
         args.AddRange(headers.Select(h => (object)h.ToString()));
 
         var sql = $"select jsonb_build_object('Header', t.ref, 'Value', {value}) from ("
-            + $"select unnest({EntryFieldSql.References("lower(?)", "d")}) as ref{summed} "
+            + $"select unnest({EntryFieldSql.References("lower(?)", "d")}) as ref{summed}{fromWindow} "
             + $"from {schema}.mt_doc_contents d "
             + "where d.tenant_id = ? and lower(d.data ->> 'ContentType') = ? "
             + $"and (d.data ->> 'Status')::int in ({Marks(statuses.Length)}) "
-            + $"and (d.data ->> 'Sensitivity')::int in ({Marks(levels.Length)})) t "
-            + $"where t.ref in ({Marks(headers.Count)}) group by t.ref";
+            + $"and (d.data ->> 'Sensitivity')::int in ({Marks(levels.Length)}){created}) t "
+            + $"where {local}t.ref in ({Marks(headers.Count)}) group by t.ref";
         return (sql, args.ToArray());
+    }
+
+    /// <summary>The window field as a column of the inner select. The zone appears twice in the text, so it is bound twice.</summary>
+    private static string FieldWindowSelect(string key, TimeZoneInfo zone, List<object> args)
+    {
+        args.Add(key);
+        args.Add(zone.Id);
+        args.Add(zone.Id);
+        return ", " + EntryFieldSql.DateValue("lower(?)", "d", "?::text") + " as w";
+    }
+
+    /// <summary>The createdAt window, on the indexed expression. Bounds are unspecified wall times so they bind as timestamp.</summary>
+    private static string CreatedFilter(string schema, (DateOnly From, DateOnly To) days, TimeZoneInfo zone, List<object> args)
+    {
+        var (fromUtc, toUtc) = RelativeDateWindow.UtcBounds(days.From, days.To, zone);
+        args.Add(fromUtc);
+        args.Add(toUtc);
+        var stamp = $"{schema}.mt_immutable_timestamp(d.data ->> 'CreatedAt')";
+        return $" and {stamp} >= ?::timestamp and {stamp} < ?::timestamp";
+    }
+
+    /// <summary>The window on a date or datetime field, compared as the local date in the site zone.</summary>
+    private static string LocalFilter((DateOnly From, DateOnly To) days, TimeZoneInfo zone, List<object> args)
+    {
+        args.Add(zone.Id);
+        args.Add(days.From.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        args.Add(zone.Id);
+        args.Add(days.To.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        return "(t.w at time zone ?::text)::date >= ?::date and (t.w at time zone ?::text)::date <= ?::date and ";
     }
 
     private static string Marks(int count) => string.Join(", ", Enumerable.Repeat("?", count));

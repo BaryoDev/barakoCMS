@@ -46,7 +46,7 @@ internal static class RollupRecompute
     /// </summary>
     internal static async Task<Dictionary<Guid, Dictionary<string, object?>>> ValuesAsync(
         IDocumentSession session, ContentTypeDefinition header, IReadOnlyCollection<Guid> ids, CancellationToken ct,
-        string? only = null, SensitivityLevel? level = null)
+        string? only = null, SensitivityLevel? level = null, RollupClock? clock = null)
     {
         var values = ids.ToDictionary(id => id, _ => new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase));
         var rollups = header.Fields
@@ -66,7 +66,7 @@ internal static class RollupRecompute
                 continue;
             }
 
-            foreach (var (id, value) in await RollupAggregate.ValuesAsync(session, header.Name, rollup, source.Field, ids, ct, level))
+            foreach (var (id, value) in await RollupAggregate.ValuesAsync(session, header.Name, rollup, source.Field, ids, ct, level, clock: clock))
             {
                 values[id][rollup.Name] = value;
             }

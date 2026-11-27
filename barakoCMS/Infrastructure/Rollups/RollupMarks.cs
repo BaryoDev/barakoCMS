@@ -158,6 +158,7 @@ internal static class RollupMarks
         var def = rollup.Field.Rollup!;
         return !Same(ViaText(before.Data, def), ViaText(after.Data, def))
             || (RollupFields.FnOf(def) != "count" && !Same(Raw(before.Data, def.Field), Raw(after.Data, def.Field)))
+            || (RollupFields.WindowFieldOf(def) is { } window && !Same(Raw(before.Data, window), Raw(after.Data, window)))
             || (before.Status == ContentStatus.Archived) != (after.Status == ContentStatus.Archived)
             || (before.Status == ContentStatus.Published) != (after.Status == ContentStatus.Published)
             || before.Sensitivity != after.Sensitivity;

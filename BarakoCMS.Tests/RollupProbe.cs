@@ -93,14 +93,14 @@ internal static class RollupProbe
     public static async Task<Guid> SeedAsync(
         IntegrationTestFixture fixture, string type, Dictionary<string, object> data,
         ContentStatus status = ContentStatus.Published, SensitivityLevel level = SensitivityLevel.Public,
-        string tenant = Tenant)
+        string tenant = Tenant, DateTime? createdAt = null)
     {
         using var scope = ScopeOf(fixture, tenant);
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var writer = scope.ServiceProvider.GetRequiredService<barakoCMS.Core.Interfaces.IContentWriter>();
         var id = Guid.NewGuid();
         await writer.CreateAsync(
-            new barakoCMS.Events.ContentCreated(id, type, data, status, Guid.NewGuid(), null, level, DateTime.UtcNow), Ct);
+            new barakoCMS.Events.ContentCreated(id, type, data, status, Guid.NewGuid(), null, level, createdAt ?? DateTime.UtcNow), Ct);
         await session.SaveChangesAsync(Ct);
         return id;
     }
