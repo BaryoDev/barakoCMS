@@ -22,7 +22,8 @@ public class QueryActionTests(IntegrationTestFixture factory)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private async Task<Guid> ActorAsync(QueryFlow flow, params string[]? readable) =>
+    /// <summary>A user who reads the students: every field when none is named. Not a params list, since no arguments would be an empty list and a user who reads no field.</summary>
+    private async Task<Guid> ActorAsync(QueryFlow flow, string[]? readable = null) =>
         await QueryKit.ActorAsync(flow.Store, Ct, (flow.Students, readable));
 
     [Fact]
@@ -126,7 +127,7 @@ public class QueryActionTests(IntegrationTestFixture factory)
         await flow.SeedTypesAsync(null, flow.Student("S-1", "one@example.com", "One"));
         await flow.SaveQueryAsync();
         // Reads Name and nothing else: the query selects Email.
-        var enrollment = await flow.EnrollAsync("S-1", await ActorAsync(flow, "Name"));
+        var enrollment = await flow.EnrollAsync("S-1", await ActorAsync(flow, ["Name"]));
 
         var run = await flow.RunAsync(enrollment, flow.QueryStep("Email", "Name"), QueryFlow.Then());
 

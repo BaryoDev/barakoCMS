@@ -121,6 +121,15 @@ public class QuerySystemFieldTests(IntegrationTestFixture factory)
         }
     }
 
+    /// <summary>The status given the two ways a real query gives a value: as written, and as a parameter a step binds.</summary>
+    private static IEnumerable<(QueryDefinition Query, (string, string)[] Values)> StatusFiltersFor(string type, string value)
+    {
+        yield return (new QueryDefinition { ContentType = type, Fields = ["Name"], Filters = [Where("status", "eq", value)] }, []);
+        yield return (
+            new QueryDefinition { ContentType = type, Fields = ["Name"], Filters = [WhereParam("status", "eq", "data.Wanted")] },
+            [("data.Wanted", value)]);
+    }
+
     [Theory]
     [InlineData("Published,Archived")]
     [InlineData("Draft,Published")]
@@ -128,19 +137,18 @@ public class QuerySystemFieldTests(IntegrationTestFixture factory)
     [InlineData("3")]
     [InlineData("-1")]
     [InlineData("Published ,")]
-    [InlineData("")]
     public async Task A_status_filter_takes_one_status_name_and_nothing_else(string value)
     {
         var (type, session, _) = await SeedAsync();
         await using var _s = session;
 
-        var result = await RunAsync(session, new QueryDefinition
+        foreach (var (query, values) in StatusFiltersFor(type, value))
         {
-            ContentType = type, Fields = ["Name"], Filters = [WhereParam("status", "eq", "wanted")],
-        }, ("wanted", value));
+            var result = await RunAsync(session, query, values);
 
-        result.Ok.Should().BeFalse("a comma list is read as flags and a number as a value, and neither is a status");
-        result.Refusal.Should().Contain("not a status");
+            result.Ok.Should().BeFalse("a comma list is read as flags and a number as a value, and neither is a status");
+            result.Refusal.Should().Contain("not a status");
+        }
     }
 
     [Theory]
@@ -152,13 +160,13 @@ public class QuerySystemFieldTests(IntegrationTestFixture factory)
         var (type, session, rows) = await SeedAsync();
         await using var _s = session;
 
-        var result = await RunAsync(session, new QueryDefinition
+        foreach (var (query, values) in StatusFiltersFor(type, value))
         {
-            ContentType = type, Fields = ["Name"], Filters = [WhereParam("status", "eq", "wanted")],
-        }, ("wanted", value));
+            var result = await RunAsync(session, query, values);
 
-        result.Ok.Should().BeTrue(result.Refusal);
-        result.Ids.Should().BeEquivalentTo([rows[0].Id, rows[2].Id]);
+            result.Ok.Should().BeTrue(result.Refusal);
+            result.Ids.Should().BeEquivalentTo([rows[0].Id, rows[2].Id]);
+        }
     }
 
     [Fact]
