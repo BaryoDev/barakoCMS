@@ -71,7 +71,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         CheckLimits(bundleTypes.Count, records.Count, configuration);
 
         var existing = (await _session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
-        await CheckTypesAsync(bundleTypes, existing, configuration, ct);
+        var rollupChecks = await CheckTypesAsync(bundleTypes, existing, configuration, ct);
 
         var (toStore, created, reindex, recompute) = Upsert(bundleTypes, existing, report);
 
@@ -98,6 +98,12 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         var failures = await Resolve<IContentBatchRunner>().RunAsync(async (scope, token) =>
         {
             var session = scope.GetRequiredService<IDocumentSession>();
+            var rollupErrors = await RollupFailuresAsync(scope, session, rollupChecks, bundleTypes, token);
+            if (rollupErrors.Count > 0)
+            {
+                return new ContentBatchOutcome<List<ValidationFailure>>(rollupErrors, false);
+            }
+
             await StoreTypesAsync(scope, session, toStore, created, reindex, configuration, userId, token);
 
             var refused = await BundleEntries.WriteAsync(
@@ -110,13 +116,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             var commit = refused.Count == 0 && !req.DryRun;
             if (commit)
             {
-                await AuditLog.RecordAsync(session, _tenant.Slug, "portability.imported", userId, User.FindFirst("Username")?.Value,
-                    metadata: new()
-                    {
-                        ["contentTypesCreated"] = report.ContentTypesCreated,
-                        ["contentTypesUpdated"] = report.ContentTypesUpdated,
-                        ["contentsCreated"] = report.ContentsCreated,
-                    }, ct: token);
+                await RecordImportAsync(session, report, userId, token);
                 await session.SaveChangesAsync(token);
             }
 
@@ -219,9 +219,10 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
     /// Refuses the whole bundle before anything is stored when one type would not be written by the
     /// content-type endpoints, so a refused import leaves no type and no content behind.
     /// </summary>
-    private async Task CheckTypesAsync(
+    private async Task<List<(int Index, ContentTypeDefinition Type, ContentTypeDefinition? Stored)>> CheckTypesAsync(
         List<ContentTypeDefinition> bundleTypes, List<ContentTypeDefinition> existing, IConfiguration configuration, CancellationToken ct)
     {
+        var rollupChecks = new List<(int Index, ContentTypeDefinition Type, ContentTypeDefinition? Stored)>();
         // Same rule as the content-type endpoints: a type already stored over the cap may be
         // imported again at its size, only growth past the cap is refused.
         var maxFields = ContentTypeFieldLimit.Resolve(configuration);
@@ -260,18 +261,47 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
                 AddError(new ValidationFailure($"contentTypes[{i}]", $"Content type '{Shorten(type.Name)}': {error}"));
             }
 
-            var pending = bundleTypes.Where(t => !string.IsNullOrWhiteSpace(t.Name)).ToList();
-            foreach (var error in await ContentTypeUpsert.RollupErrorsAsync(
-                         _session, type, match, pending, User, Resolve<barakoCMS.Core.Interfaces.ISensitivityService>(),
-                         Resolve<barakoCMS.Infrastructure.Services.IPermissionResolver>(), ct))
-            {
-                AddError(new ValidationFailure($"contentTypes[{i}]", $"Content type '{Shorten(type.Name)}': {error}"));
-            }
+            // What the stored type held before the bundle is written over it.
+            rollupChecks.Add((i, type, match is null ? null : new ContentTypeDefinition { Name = match.Name, Fields = match.Fields }));
         }
 
         // Records are checked against the types as this bundle leaves them, so there is no point
         // checking them against a type that is itself refused.
         ThrowIfAnyErrors();
+        return rollupChecks;
+    }
+
+    private async Task RecordImportAsync(IDocumentSession session, ImportReport report, Guid userId, CancellationToken token) =>
+        await AuditLog.RecordAsync(session, _tenant.Slug, "portability.imported", userId, User.FindFirst("Username")?.Value,
+            metadata: new()
+            {
+                ["contentTypesCreated"] = report.ContentTypesCreated,
+                ["contentTypesUpdated"] = report.ContentTypesUpdated,
+                ["contentsCreated"] = report.ContentsCreated,
+            }, ct: token);
+
+    /// <summary>
+    /// What the bundle's rollups break or get wrong. The checks take the type locks, so they run in
+    /// the session that writes: a lock held by the request session would block its shared lock.
+    /// </summary>
+    private async Task<List<ValidationFailure>> RollupFailuresAsync(
+        IServiceProvider scope, IDocumentSession session,
+        List<(int Index, ContentTypeDefinition Type, ContentTypeDefinition? Stored)> checks,
+        List<ContentTypeDefinition> bundleTypes, CancellationToken ct)
+    {
+        var failures = new List<ValidationFailure>();
+        var pending = bundleTypes.Where(t => !string.IsNullOrWhiteSpace(t.Name)).ToList();
+        foreach (var (index, type, stored) in checks)
+        {
+            foreach (var error in await ContentTypeUpsert.RollupErrorsAsync(
+                         session, type, stored, pending, User, scope.GetRequiredService<barakoCMS.Core.Interfaces.ISensitivityService>(),
+                         scope.GetRequiredService<barakoCMS.Infrastructure.Services.IPermissionResolver>(), ct))
+            {
+                failures.Add(new ValidationFailure($"contentTypes[{index}]", $"Content type '{Shorten(type.Name)}': {error}"));
+            }
+        }
+
+        return failures;
     }
 
     /// <summary>
