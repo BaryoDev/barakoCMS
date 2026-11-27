@@ -583,7 +583,10 @@ internal sealed class RequestComposer(
             if (name.StartsWith("query.", StringComparison.OrdinalIgnoreCase))
             {
                 if (format is not null) return null;
-                return mask.Query ? Escape(MaskText, escaping) : SubstituteQuery(name["query.".Length..], queryRows, escaping);
+                var queryField = name["query.".Length..];
+                return mask.Query
+                    ? MaskedQuery(queryField, queryRows, escaping)
+                    : SubstituteQuery(queryField, queryRows, escaping);
             }
 
             if (mask.Fields.Count > 0 && mask.Fields.Contains(TemplateHoles.Bare(name).Split('.', 2)[0]))
@@ -626,6 +629,18 @@ internal sealed class RequestComposer(
         Escaping.Url => Uri.EscapeDataString(value),
         _ => value,
     };
+
+    /// <summary>
+    /// A query hole the previewer may not read. The rows keep their shape, one object per row with
+    /// each value masked, so a body that is JSON stays JSON and the preview mirrors the send.
+    /// </summary>
+    private static string MaskedQuery(string field, IReadOnlyList<Dictionary<string, object>> rows, Escaping escaping)
+    {
+        if (!string.Equals(field, "rows", StringComparison.OrdinalIgnoreCase)) return Escape(MaskText, escaping);
+
+        var masked = rows.Select(r => r.Keys.ToDictionary(k => k, _ => (object)MaskText)).ToList();
+        return SubstituteQuery("rows", masked, escaping);
+    }
 
     private static string SubstituteQuery(
         string field, IReadOnlyList<Dictionary<string, object>> rows, Escaping escaping)

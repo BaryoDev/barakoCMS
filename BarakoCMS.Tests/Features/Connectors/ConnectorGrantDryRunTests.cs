@@ -57,7 +57,8 @@ public class ConnectorGrantDryRunTests(IntegrationTestFixture fixture)
         var dry = await DryRunAsync(blind, slug, subject.EntryId);
 
         dry.GetProperty("wouldSend").GetBoolean().Should().BeTrue();
-        dry.GetProperty("url").GetString().Should().Contain(Mask).And.NotContain(SsnValue);
+        // The dry run shows the URL as it would be sent, so the mask in the path is escaped.
+        dry.GetProperty("url").GetString().Should().EndWith("/people/" + Uri.EscapeDataString(Mask)).And.NotContain(SsnValue);
         dry.GetProperty("headers").GetProperty("X-Ref").GetString().Should().Be(Mask);
         dry.GetProperty("body").GetString().Should().Contain(Mask).And.NotContain(SsnValue);
         dry.GetRawText().Should().NotContain(SsnValue);
@@ -122,7 +123,10 @@ public class ConnectorGrantDryRunTests(IntegrationTestFixture fixture)
         var dry = await DryRunAsync(blind, slug, seed.Subject.EntryId);
 
         dry.GetProperty("wouldSend").GetBoolean().Should().BeTrue();
-        dry.GetProperty("body").GetString().Should().Contain(Mask);
+        var body = dry.GetProperty("body").GetString()!;
+        body.Should().Contain(Mask);
+        var parse = () => JsonDocument.Parse(body);
+        parse.Should().NotThrow("a masked body keeps the shape of the send, so it is still JSON");
         dry.GetRawText().Should().NotContain(NoteValue);
     }
 
