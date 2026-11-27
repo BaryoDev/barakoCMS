@@ -276,5 +276,95 @@
       "postgres",
       "pgvector/pgvector"
     ]
+  },
+  {
+    "id": "CVE-2026-11979",
+    "package": "libxml2",
+    "reason": "libxml2 in the newest postgres:16-alpine image (built 2026-11-18); Alpine ships the fix but the image is not rebuilt yet. Move the pin when it is.",
+    "expires": "2026-12-20",
+    "images": [
+      "postgres"
+    ]
+  },
+  {
+    "id": "CVE-2026-86138",
+    "package": "libxml2",
+    "reason": "libxml2 in the newest postgres:16-alpine image (built 2026-11-18); Alpine ships the fix but the image is not rebuilt yet. Move the pin when it is.",
+    "expires": "2026-12-20",
+    "images": [
+      "postgres"
+    ]
+  },
+  {
+    "id": "CVE-2026-86139",
+    "package": "libxml2",
+    "reason": "libxml2 in the newest postgres:16-alpine image (built 2026-11-18); Alpine ships the fix but the image is not rebuilt yet. Move the pin when it is.",
+    "expires": "2026-12-20",
+    "images": [
+      "postgres"
+    ]
+  },
+  {
+    "id": "CVE-2026-86140",
+    "package": "libxml2",
+    "reason": "libxml2 in the newest postgres:16-alpine image (built 2026-11-18); Alpine ships the fix but the image is not rebuilt yet. Move the pin when it is.",
+    "expires": "2026-12-20",
+    "images": [
+      "postgres"
+    ]
+  },
+  {
+    "id": "CVE-2026-86142",
+    "package": "libxml2",
+    "reason": "libxml2 in the newest postgres:16-alpine image (built 2026-11-18); Alpine ships the fix but the image is not rebuilt yet. Move the pin when it is.",
+    "expires": "2026-12-20",
+    "images": [
+      "postgres"
+    ]
+  },
+  {
+    "id": "CVE-2026-86143",
+    "package": "libxml2",
+    "reason": "libxml2 in the newest postgres:16-alpine image (built 2026-11-18); Alpine ships the fix but the image is not rebuilt yet. Move the pin when it is.",
+    "expires": "2026-12-20",
+    "images": [
+      "postgres"
+    ]
+  },
+  {
+    "id": "CVE-2025-6020",
+    "package": "libpam-modules",
+    "reason": "PAM in the newest pgvector/pgvector:pg16 image (Debian 12, built 2026-11-12); Debian ships the fix but the image is not rebuilt yet. The pg16-trixie variant would change the Debian release and glibc under existing data. Move the pin when it is.",
+    "expires": "2026-12-20",
+    "images": [
+      "pgvector/pgvector"
+    ]
+  },
+  {
+    "id": "CVE-2025-6020",
+    "package": "libpam-modules-bin",
+    "reason": "PAM in the newest pgvector/pgvector:pg16 image (Debian 12, built 2026-11-12); Debian ships the fix but the image is not rebuilt yet. The pg16-trixie variant would change the Debian release and glibc under existing data. Move the pin when it is.",
+    "expires": "2026-12-20",
+    "images": [
+      "pgvector/pgvector"
+    ]
+  },
+  {
+    "id": "CVE-2025-6020",
+    "package": "libpam-runtime",
+    "reason": "PAM in the newest pgvector/pgvector:pg16 image (Debian 12, built 2026-11-12); Debian ships the fix but the image is not rebuilt yet. The pg16-trixie variant would change the Debian release and glibc under existing data. Move the pin when it is.",
+    "expires": "2026-12-20",
+    "images": [
+      "pgvector/pgvector"
+    ]
+  },
+  {
+    "id": "CVE-2025-6020",
+    "package": "libpam0g",
+    "reason": "PAM in the newest pgvector/pgvector:pg16 image (Debian 12, built 2026-11-12); Debian ships the fix but the image is not rebuilt yet. The pg16-trixie variant would change the Debian release and glibc under existing data. Move the pin when it is.",
+    "expires": "2026-12-20",
+    "images": [
+      "pgvector/pgvector"
+    ]
   }
 ]

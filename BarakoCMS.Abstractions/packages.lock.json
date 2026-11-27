@@ -30,9 +30,9 @@
       },
       "Marten": {
         "type": "Direct",
-        "requested": "[9.62.0, )",
-        "resolved": "9.62.0",
-        "contentHash": "CrsHvX7BwUhyNgcm121wMsjkbLIICeLwsLKKtyQ5lMxinYyCzA5gRnqdbjcW03L5U3a/F851H4nxSjPfUtODnQ==",
+        "requested": "[9.63.0, )",
+        "resolved": "9.63.0",
+        "contentHash": "BQSw2bPiFmGpkatWGwvhp5ufIiZMZo5QrxfVHeSN4m6tByW0eXfEaFueJMxGrDtxLpOAP6uoF4Bsz6f1cGO/1Q==",
         "dependencies": {
           "JasperFx": "2.102.0",
           "JasperFx.Events": "2.102.0",
