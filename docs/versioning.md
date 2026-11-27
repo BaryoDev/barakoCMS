@@ -25,7 +25,7 @@ notes say so under Security and name the setting that restores the old behaviour
 Deprecation comes first. Something a major removes was marked deprecated in an earlier release.
 On the C# surface that is `[Obsolete]`, with a removal version at least one full major away
 (the rules file at the repository root, section 6, "Public API stability"). On the HTTP surface it is a `Deprecation` header on the response, as in
-[delivery-api.md](delivery-api.md).
+[delivery-api.md](delivery-api.md). Today only `POST /api/preview` sets it.
 
 ## What holds each rule today
 
@@ -51,7 +51,8 @@ fails when a startup message the page quotes changes in the code.
 
 **Secure defaults.** Review rule, with parts held. The startup guards refuse an example JWT key, an
 example database password, an open `AllowedHosts` and a database role that bypasses row level
-security. `JwtKeyGuardTests`, `DatabasePasswordGuardTests` and `DatabaseRoleGuardTests` pin them.
+security. `JwtKeyGuardTests`, `DatabasePasswordGuardTests`, `DatabaseRoleGuardTests` and `SecureDefaultsTests`
+(which pins the `AllowedHosts` guard) pin them.
 `ComposeDefaultsTests` and `scripts/check-compose-hardening.sh` hold the compose files: no
 literal admin password, no host mounts of credentials, Postgres not published off host, and the
 memory, process and capability limits on every service. A secure default that no test pins is held by review.

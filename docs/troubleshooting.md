@@ -34,8 +34,10 @@ Why: the key signs every token. The first message is a key that is unset or unde
 second is the placeholder in the Kubernetes secret manifest. The third is a key this repository prints
 in its own compose files and docs, refused outside Development.
 
-Fix: set `JWT_KEY` (compose) or `JWT__Key` to a random value of 32 characters or more, for example
-`openssl rand -base64 48`. Keep it ASCII. Do not reuse it as a key under `Secrets`, `Mfa` or
+Fix: set the key to a random value of 32 characters or more, for example `openssl rand -base64 48`.
+The variable is `JWT_KEY` in `quickstart/docker-compose.yml` and `docker-compose.prod.yml`,
+`JWT_SECRET` in `docker-compose.yml` and `docker-compose.hub.yml`, or `JWT__Key` when you run the
+image yourself. Keep it ASCII. Do not reuse it as a key under `Secrets`, `Mfa` or
 `Connectors`.
 
 ### InitialAdmin:Password is refused
@@ -52,7 +54,9 @@ name or its email, or it is an example or default value from the samples and doc
 never printed.
 
 Fix: set `ADMIN_PASSWORD` in `.env` (the compose files pass it on as `InitialAdmin__Password`) to a
-random value of 12 characters or more, or remove it and read the generated one from the first boot.
+random value of 12 characters or more. In `docker-compose.yml` and `docker-compose.hub.yml` you can
+instead remove it and read the generated one from the first boot. `quickstart/docker-compose.yml`
+and `docker-compose.prod.yml` require it, so there it must be set.
 
 ### The database password is an example value
 
@@ -65,8 +69,10 @@ The database password in ConnectionStrings:DefaultConnection (or DATABASE_URL) i
 In the compose files the API connects as the app role, so the variable is DB_APP_PASSWORD; DB_PASSWORD is the database owner's, which the API does not use, and the app role job refuses example values for it.
 ```
 
-Fix: set `DB_APP_PASSWORD` to a random value. If the database already exists, change the role's
-password in Postgres too, or the API starts and then cannot sign in.
+Fix: set `DB_APP_PASSWORD` to a random value. If the database already exists, run
+`docker compose up -d` again: the role job sets the role's password from `DB_APP_PASSWORD` on every
+run. Outside compose, run `scripts/db-app-role.sql` or `ALTER ROLE` yourself, or the API starts and
+then cannot sign in.
 
 ### The API connects as a superuser
 
@@ -98,7 +104,8 @@ The secrets directory ... cannot be listed. Check that the user the API runs as 
 The secret file '...' in ... cannot be read. Check that the user the API runs as (uid 1654 in the shipped image) owns it or can read it.
 ```
 
-Fix: make the directory and each file readable by uid 1654 (`chown 1654` or `chmod o+r`). The message
+Fix: make the directory and each file readable by uid 1654: `chmod o+rx` on the directory and
+`chmod o+r` on each file, or `chown 1654` on both. The message
 names the file, never its content.
 
 ### A key ring under Secrets, Mfa or Connectors is wrong
@@ -157,6 +164,9 @@ warning instead.
 ```text
 AllowedHosts is '*' or empty, which accepts any Host header. Set AllowedHosts to the host names this API answers to, for example AllowedHosts=api.example.com (environment variable AllowedHosts). To accept any host on purpose, set Security:AllowAnyHost=true (environment variable Security__AllowAnyHost).
 ```
+
+`0.0.0.0` and `[::]` count as open too, alone or anywhere in a list, and the message still says
+`*`.
 
 Fix: set `ALLOWED_HOSTS` (compose) or `AllowedHosts` to the names the API answers to, separated by
 semicolons. Keep `APP_BASE_URL` set too. See [quickstart/README.md](../quickstart/README.md#behind-a-domain-production).
@@ -361,6 +371,10 @@ set DB_APP_PASSWORD, the API connects as this role
 pin a version in .env or your shell, for example 5.9.0
 set JWT_SECRET to a random value of 32+ characters
 ```
+
+In `docker-compose.prod.yml` a missing `JWT_KEY`, `ADMIN_PASSWORD` or `DB_APP_PASSWORD` is reported
+as `required variable SECRETS_AS_FILES`, because the file also accepts those as secret files. The
+text after the colon names the variable to set.
 
 Fix: copy `quickstart/.env.example` (quickstart) or `.env.prod.example` (production) to `.env` and fill each one. `BARAKO_TAG` has no
 default on purpose: pin a published version, not `latest`.
