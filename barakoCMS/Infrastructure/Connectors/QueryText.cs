@@ -34,6 +34,12 @@ internal static class QueryText
     /// <summary>The same cap as the filters of a saved query have always had.</summary>
     public const int MaxFilters = 10;
 
+    /// <summary>The refusal for a query, in either form, that lists more than <see cref="MaxTerms"/> fields, filters or measures.</summary>
+    public static string? TermRefusal(int fields, int filters, int measures) =>
+        fields > MaxTerms || filters > MaxTerms || measures > MaxTerms
+            ? $"A query may list at most {MaxTerms} fields, filters or measures."
+            : null;
+
     private const int MaxNamePart = 64;
     private const int MaxEcho = 24;
 
@@ -105,7 +111,7 @@ internal static class QueryText
         if (definition.Measures is { Count: > 0 } measures)
         {
             text.Append(' ').AppendJoin(", ", measures.Select(m =>
-                m.Fn + (string.IsNullOrEmpty(m.Field) ? "" : " " + (string.IsNullOrEmpty(m.Via) ? Name(m.Field) : Name(m.Via) + "." + Name(m.Field)))
+                m.Fn + (string.IsNullOrEmpty(m.Field) ? "" : " " + (string.IsNullOrEmpty(m.Via) ? Name(m.Field) : Name(m.Via + "." + m.Field)))
                 + " as " + m.As));
         }
 
@@ -128,12 +134,14 @@ internal static class QueryText
         return text.ToString();
     }
 
-    /// <summary>A name, in quotes when it is a keyword. A dotted reference name is printed a part at a time.</summary>
+    /// <summary>
+    /// A name, in quotes when it is a keyword. A dotted reference name is quoted whole when any part
+    /// needs it, because a quoted part followed by <c>.Name</c> is two tokens and reads back as neither.
+    /// </summary>
     private static string Name(string name)
     {
         if (string.IsNullOrEmpty(name)) return "\"\"";
-        var parts = name.Split('.');
-        return string.Join('.', parts.Select(p => Reserved.Contains(p) || !IsBare(p) ? Quote(p) : p));
+        return name.Split('.').Any(p => Reserved.Contains(p) || !IsBare(p)) ? Quote(name) : name;
     }
 
     private static string Literal(string? value)

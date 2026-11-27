@@ -65,6 +65,40 @@ public class QueryTextTests
             .Excluding(d => d.CreatedAt).Excluding(d => d.UpdatedAt));
     }
 
+    [Theory]
+    [InlineData("Order.Name")]
+    [InlineData("Group.Name")]
+    [InlineData("To.X")]
+    [InlineData("From.X")]
+    [InlineData("Select.Order")]
+    public void A_followed_reference_with_a_keyword_part_prints_text_that_reads_back_as_the_same_query(string field)
+    {
+        var definition = new QueryDefinition { ContentType = "line", Fields = [field], Limit = 5 };
+
+        var again = QueryText.Parse(QueryText.Print(definition));
+
+        again.Ok.Should().BeTrue(again.Error);
+        again.Definition!.Fields.Should().Equal(field);
+        QueryText.Print(again.Definition).Should().Be(QueryText.Print(definition));
+    }
+
+    [Theory]
+    [InlineData("Order", "Name")]
+    [InlineData("Group", "Total")]
+    public void A_measure_through_a_reference_with_a_keyword_part_reads_back_as_the_same_query(string via, string field)
+    {
+        var definition = new QueryDefinition
+        {
+            ContentType = "line",
+            Measures = [new QueryMeasure { Fn = "sum", Field = field, Via = via, As = "Figure" }],
+        };
+
+        var again = QueryText.Parse(QueryText.Print(definition));
+
+        again.Ok.Should().BeTrue(again.Error);
+        again.Definition!.Measures.Should().ContainSingle().Which.Should().BeEquivalentTo(definition.Measures[0]);
+    }
+
     [Fact]
     public void A_literal_that_starts_with_an_at_sign_stays_a_literal()
     {
