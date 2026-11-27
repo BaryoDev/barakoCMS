@@ -11,8 +11,13 @@
 #   SHA256SUMS                         the archive's sum, in the format `sha256sum -c` reads
 #
 # The compose file inside defaults BARAKO_TAG to <version>, and so does .env.prod.example, so the
-# files and the image they start cannot drift. The repository's own compose file keeps requiring
-# the tag, because there a default would turn the next pull into an unplanned upgrade.
+# files and the image they start cannot drift. The comments beside both are rewritten to say so.
+# The repository's own compose file keeps requiring the tag, because there a default would turn the
+# next pull into an unplanned upgrade.
+#
+# .env.prod.example also gets COMPOSE_PROJECT_NAME=barako-cms. Compose names the data volumes after
+# the project, which defaults to the directory name, and every release unpacks into a directory
+# named for its version. Without a fixed name each release would start on an empty database.
 #
 # The archive is reproducible: sorted members, no owner, one modification time. Building the same
 # commit twice gives the same sum.
@@ -63,8 +68,9 @@ for f in "${FILES[@]}"; do
   cp "$f" "$STAGE/$NAME/$f"
 done
 
-# Pin the tag in the two places that carry it. Each replacement must hit exactly once, so a
-# reworded line fails the build instead of shipping a bundle that still asks for a tag.
+# Pin the tag in the two places that carry it and rewrite the two comments that say it is required
+# or must be pinned. Each replacement must hit exactly once, so a reworded line fails the build
+# instead of shipping a bundle that still asks for a tag or says one thing above another.
 python3 - "$STAGE/$NAME" "$VERSION" <<'PY'
 import pathlib, sys
 
@@ -76,9 +82,15 @@ def replace_once(path, old, new):
         sys.exit(f"build-prod-bundle: expected exactly one '{old}' in {path.name}, found {text.count(old)}")
     path.write_text(text.replace(old, new), encoding="utf-8")
 
-replace_once(root / "docker-compose.prod.yml",
+compose = root / "docker-compose.prod.yml"
+replace_once(compose,
              "${BARAKO_TAG:?pin a version in .env, for example 3.21.0}",
              "${BARAKO_TAG:-" + version + "}")
+replace_once(compose,
+             "  # BARAKO_TAG is required rather than defaulting to latest, because with a default the\n"
+             "  # next `docker compose pull` is an unplanned major upgrade.\n",
+             "  # BARAKO_TAG defaults to the release this bundle came from, so the image and these files\n"
+             "  # agree. Change it only to deploy another release. It never defaults to latest.\n")
 
 env = root / ".env.prod.example"
 lines = env.read_text(encoding="utf-8").splitlines(keepends=True)
@@ -87,9 +99,26 @@ if len(hits) != 1:
     sys.exit(f"build-prod-bundle: expected one BARAKO_TAG= line in .env.prod.example, found {len(hits)}")
 lines[hits[0]] = "BARAKO_TAG=" + version + "\n"
 env.write_text("".join(lines), encoding="utf-8")
+
+replace_once(env,
+             "# Pin it. With a default, the next `docker compose pull` is an unplanned upgrade.\n",
+             "# This bundle defaults to the release it came from, so leave it. Change it only to deploy\n"
+             "# another release (Upgrading in docs/deploy-in-production.md).\n")
+replace_once(env,
+             "# --- Version -----------------------------------------------------------------\n",
+             "# --- Compose project ---------------------------------------------------------\n"
+             "# Compose names the data volumes after this. Without it they take the name of the directory,\n"
+             "# and each release unpacks into a directory named for its version, so an upgrade would start\n"
+             "# on an empty database. Keep it the same in every release's .env.\n"
+             "COMPOSE_PROJECT_NAME=barako-cms\n"
+             "\n"
+             "# --- Version -----------------------------------------------------------------\n")
 PY
 
-# Every ./path the compose file mounts has to be in the bundle.
+# Every ./path the compose file mounts has to be in the bundle. The sed below reads the short form
+# the file uses today (an unquoted `- ./x:/y` line); a quoted or long-form mount is not seen here.
+# scripts/prod-bundle-check.sh, run by the compose job in ci.yml, resolves every mount form from
+# `docker compose config` against the unpacked directory, so a form this check misses fails there.
 missing=0
 while IFS= read -r src; do
   if [ ! -e "$STAGE/$NAME/$src" ]; then

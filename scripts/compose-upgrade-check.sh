@@ -198,6 +198,7 @@ doc, out = sys.argv[1], sys.argv[2]
 text = open(doc, encoding="utf-8").read()
 start = text.index("\n## Upgrading\n")
 end = text.index("\n### Upgrading past 4.0.2", start)
+# The bundle step at the top of the section is a ```sh block, so it is not one of the four.
 blocks = re.findall(r"```bash\n(.*?)```", text[start:end], re.S)
 if len(blocks) != 4:
     sys.exit("expected 4 bash blocks, found %d" % len(blocks))

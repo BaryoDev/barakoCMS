@@ -11,6 +11,8 @@
 #
 #   1. the archive matches its SHA256SUMS
 #   2. the compose file with no BARAKO_TAG in the environment resolves to the bundle's version
+#   2b. the compose project name is barako-cms from .env, so the data volumes do not change name
+#      when the next release unpacks into another directory
 #   3. every bind mount the compose file declares exists in the unpacked directory (this covers
 #      the Caddyfile, which this check does not start because Caddy needs ACME)
 #   4. postgres starts, then app and db-backup, so compose runs the app role job through
@@ -84,6 +86,12 @@ grep -v '^BARAKO_TAG=' "$DIR/.env" > "$WORK/no-tag.env"
 resolved="$(cd "$DIR" && docker compose --env-file "$WORK/no-tag.env" -f docker-compose.prod.yml config --images | grep 'barako-cms')"
 [ "$resolved" = "$BUNDLED_IMAGE" ] || fail "the compose file resolves to '$resolved', not $BUNDLED_IMAGE"
 echo "$resolved"
+
+step "the compose project name is the bundle's, not the directory's"
+project_name="$(cd "$DIR" && docker compose --env-file "$DIR/.env" -f docker-compose.prod.yml config --format json \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)["name"])')"
+[ "$project_name" = "barako-cms" ] || fail "the project name is '$project_name', so the data volumes would follow the directory name"
+echo "$project_name"
 
 step "every bind mount the compose file declares is in the unpacked directory"
 dc config --format json | python3 -c '

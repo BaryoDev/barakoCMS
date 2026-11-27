@@ -65,6 +65,16 @@ cmp -s "$WORK/out/SHA256SUMS" "$WORK/out2/SHA256SUMS"; check "building twice giv
 tar -tzf "$WORK/out/barako-cms-prod-9.8.7.tar.gz" | grep -qx 'barako-cms-prod-9.8.7/scripts/backup-cron.sh'; check "the archive carries the backup script" $?
 tar -xzOf "$WORK/out/barako-cms-prod-9.8.7.tar.gz" barako-cms-prod-9.8.7/docker-compose.prod.yml | grep -qF '${BARAKO_TAG:-9.8.7}'; check "the compose file defaults BARAKO_TAG to the version" $?
 grep -qF '${BARAKO_TAG:?' "$REPO/docker-compose.prod.yml"; check "the repository's compose file still requires BARAKO_TAG" $?
+bundled_compose="$(tar -xzOf "$WORK/out/barako-cms-prod-9.8.7.tar.gz" barako-cms-prod-9.8.7/docker-compose.prod.yml)"
+bundled_env="$(tar -xzOf "$WORK/out/barako-cms-prod-9.8.7.tar.gz" barako-cms-prod-9.8.7/.env.prod.example)"
+! printf '%s' "$bundled_compose" | grep -qF 'BARAKO_TAG is required'; check "the bundle's compose file does not say BARAKO_TAG is required" $?
+printf '%s' "$bundled_compose" | grep -qF 'defaults to the release this bundle came from'; check "the bundle's compose file says the tag defaults to its release" $?
+! printf '%s' "$bundled_env" | grep -qF 'Pin it'; check "the bundle's env example does not tell people to pin a tag it defaults" $?
+printf '%s' "$bundled_env" | grep -qF 'defaults to the release it came from'; check "the bundle's env example says the tag defaults to its release" $?
+printf '%s\n' "$bundled_env" | grep -xF 'COMPOSE_PROJECT_NAME=barako-cms' >/dev/null; check "the bundle's env example fixes the compose project name" $?
+grep -qF 'Pin it' "$REPO/.env.prod.example"; check "the repository's env example keeps its own wording" $?
+refuses bash scripts/release-assets-check.sh 9.8.7 "$WORK/out" --download-typo x; check "an unknown third argument fails" $?
+refuses bash scripts/release-assets-check.sh 9.8.7 "$WORK/out" --download; check "--download without a tag fails" $?
 
 refuses bash "$SRC/scripts/build-prod-bundle.sh" 'latest' "$WORK/out3"; check "a version that is not a version fails" $?
 refuses bash "$SRC/scripts/build-prod-bundle.sh" '6.0.0;x' "$WORK/out3"; check "a version with a shell character fails" $?
@@ -94,6 +104,16 @@ assert t.count(old) == 1
 open(p, "w").write(t.replace(old, "for example 3.22.0}"))
 PY
 refuses bash "$SRC/scripts/build-prod-bundle.sh" 9.8.7 "$WORK/out5"; check "a reworded BARAKO_TAG line fails the build instead of shipping unpinned" $?
+cp "$SRC/docker-compose.prod.yml.orig" "$SRC/docker-compose.prod.yml"
+python3 - "$SRC/docker-compose.prod.yml" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+old = "is required rather than defaulting to latest"
+assert t.count(old) == 1
+open(p, "w").write(t.replace(old, "is needed rather than defaulting to latest"))
+PY
+refuses bash "$SRC/scripts/build-prod-bundle.sh" 9.8.7 "$WORK/out7"; check "a reworded BARAKO_TAG comment fails the build instead of shipping the old text" $?
 cp "$SRC/docker-compose.prod.yml.orig" "$SRC/docker-compose.prod.yml"
 rm "$SRC/scripts/db-app-role.sql"
 refuses bash "$SRC/scripts/build-prod-bundle.sh" 9.8.7 "$WORK/out6"; check "a missing script fails the build" $?

@@ -632,7 +632,7 @@ BASE=https://github.com/BaryoDev/barakoCMS/releases/download/v$VERSION
 curl -fsSLO $BASE/barako-cms-prod-$VERSION.tar.gz
 curl -fsSLO $BASE/SHA256SUMS
 sha256sum -c SHA256SUMS   # on macOS: shasum -a 256 -c SHA256SUMS
-tar -xzf barako-cms-prod-$VERSION.tar.gz
+tar -xzpf barako-cms-prod-$VERSION.tar.gz
 cd barako-cms-prod-$VERSION
 cp .env.prod.example .env
 $EDITOR .env
@@ -641,11 +641,15 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 The bundle is attached to each release and holds everything the compose file mounts, so the machine
-needs Docker and these commands, not a checkout of the repository.
+needs Docker and these commands, not a checkout of the repository. Extract with `-p`: under a strict
+umask (027 or 077) tar would otherwise drop the archive's modes, and the role job reads the mounted
+SQL as another user. Upgrading a bundle deploy starts with the new bundle, see
+[deploy-in-production.md](deploy-in-production.md#upgrading).
 
 The required variables are `DOMAIN_API`, `ACME_EMAIL`, `FRONTEND_ORIGINS`, `BARAKO_TAG`,
-`DB_PASSWORD`, `DB_APP_PASSWORD`, `JWT_KEY` and `ADMIN_PASSWORD`. The `DOMAIN_API` record must resolve before you start
-the stack, because Caddy requests a certificate on first boot. The console moved to its own
+`DB_PASSWORD`, `DB_APP_PASSWORD`, `JWT_KEY` and `ADMIN_PASSWORD`. From the bundle, `BARAKO_TAG` already
+defaults to the bundle's release, so you change it only to deploy another one. The `DOMAIN_API` record
+must resolve before you start the stack, because Caddy requests a certificate on first boot. The console moved to its own
 repository, so there is no second domain to point here any more.
 
 Delivery-specific things to get right at this point:

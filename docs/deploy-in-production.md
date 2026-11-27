@@ -39,7 +39,7 @@ BASE=https://github.com/BaryoDev/barakoCMS/releases/download/v$VERSION
 curl -fsSLO $BASE/barako-cms-prod-$VERSION.tar.gz
 curl -fsSLO $BASE/SHA256SUMS
 sha256sum -c SHA256SUMS            # on macOS: shasum -a 256 -c SHA256SUMS
-tar -xzf barako-cms-prod-$VERSION.tar.gz
+tar -xzpf barako-cms-prod-$VERSION.tar.gz
 cd barako-cms-prod-$VERSION
 cp .env.prod.example .env
 $EDITOR .env
@@ -48,6 +48,14 @@ docker compose -f docker-compose.prod.yml up -d
 
 Stop if the check does not print `OK`. The sum is published beside the archive, so it catches a
 damaged or partial download. It does not replace verifying the image, below.
+
+Extract with `-p`: under a strict umask (027 or 077) tar would otherwise drop the archive's 0644
+modes, and the role job reads the mounted `scripts/db-app-role.sql` as another user (70:70).
+
+The bundle's `.env.prod.example` sets `COMPOSE_PROJECT_NAME=barako-cms`. Compose names the data
+volumes after the project, which defaults to the directory, and each release unpacks into a
+directory named for its version, so keep that line in `.env` or an upgrade starts on an empty
+database.
 
 The archive is built by `scripts/build-prod-bundle.sh`, and CI starts `postgres`, `app` and
 `db-backup` from an unpacked copy in an empty directory (`scripts/prod-bundle-check.sh`), so a file
@@ -800,7 +808,30 @@ undefined type can still be edited. `RequireContentTypeTests` covers this.
 
 ## Upgrading
 
-Change `BARAKO_TAG` first, then pull and stop the API. From 6.0 the API connects as the app role,
+If you deployed from a bundle, its compose file and scripts are still the old release's, so take the
+new bundle first. Download it and its `SHA256SUMS`, check the sum, extract it beside the old
+directory with `tar -xzpf`, copy `.env` across, set `BARAKO_TAG` in it to the new version, and run
+everything below from the new directory:
+
+```sh
+VERSION=6.0.1   # the release you are moving to, without the v
+BASE=https://github.com/BaryoDev/barakoCMS/releases/download/v$VERSION
+curl -fsSLO $BASE/barako-cms-prod-$VERSION.tar.gz
+curl -fsSLO $BASE/SHA256SUMS
+sha256sum -c SHA256SUMS            # on macOS: shasum -a 256 -c SHA256SUMS
+tar -xzpf barako-cms-prod-$VERSION.tar.gz
+cp barako-cms-prod-<old version>/.env barako-cms-prod-$VERSION/.env
+cd barako-cms-prod-$VERSION
+$EDITOR .env                        # BARAKO_TAG=$VERSION; compare it with .env.prod.example for new variables
+```
+
+The copied `.env` carries `COMPOSE_PROJECT_NAME`, which is what keeps the new directory on the same
+containers and data volumes. A stack first started from a checkout used the checkout directory's
+name as its project name (lowercased); put that in `.env` as `COMPOSE_PROJECT_NAME` before the first
+`up` from a bundle, or the stack starts on new, empty volumes.
+
+From here the steps are the same for a bundle and a checkout. Change `BARAKO_TAG` first, then pull
+and stop the API. From 6.0 the API connects as the app role,
 which the `postgres-extensions` job creates and hands the tables to, so the job runs before any
 `db-migrate` or `db-assert`. On a 5.x volume the role does not exist yet and those commands cannot
 sign in. Where the role exists but the job has not run, a migration's DDL fails as a non-owner.
