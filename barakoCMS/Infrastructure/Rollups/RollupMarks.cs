@@ -39,6 +39,8 @@ internal static class RollupMarks
 
     private static readonly ConditionalWeakTable<IDocumentSession, Wake> Wakes = new();
 
+    private static readonly ConditionalWeakTable<IDocumentSession, PendingMarks> Pending = new();
+
     /// <summary>The rollup fields of every stored type, read once for the session.</summary>
     public static Task<IReadOnlyList<RollupRef>> RollupsAsync(IQuerySession session) =>
         Definitions.GetValue(session, s => ReadAsync(s));
@@ -108,12 +110,19 @@ internal static class RollupMarks
             return;
         }
 
-        // In id order, and the drain deletes in the same order, so two writes that move lines
-        // between the same two headers in opposite directions lock the mark rows alike.
+        // Held until the commit, and stored then in id order across every call of the transaction,
+        // as the drain deletes them, so two transactions that touch the same headers in opposite
+        // order lock the mark rows alike.
         var now = Now();
-        foreach (var (id, headerType) in headers.OrderBy(h => h.Key))
+        var pending = Pending.GetValue(session, s =>
         {
-            session.Store(new RollupMark { Id = id, HeaderType = headerType, MarkedAt = now });
+            var created = new PendingMarks();
+            s.Listeners.Add(created);
+            return created;
+        });
+        foreach (var (id, headerType) in headers)
+        {
+            pending.Marks[id] = new RollupMark { Id = id, HeaderType = headerType, MarkedAt = now };
         }
 
         await WakeAsync(session, ct);
@@ -190,6 +199,23 @@ internal static class RollupMarks
         using (JobEnqueue.On(session))
         {
             await new RollupDrainCommand { TenantId = session.TenantId }.QueueJobAsync(DateTime.UtcNow.AddSeconds(1), ct: ct);
+        }
+    }
+
+    /// <summary>The marks a session has noted and not yet stored. The commit stores them, sorted by id.</summary>
+    private sealed class PendingMarks : DocumentSessionListenerBase
+    {
+        public Dictionary<Guid, RollupMark> Marks { get; } = [];
+
+        public override Task BeforeSaveChangesAsync(IDocumentSession session, CancellationToken token)
+        {
+            foreach (var mark in Marks.Values.OrderBy(m => m.Id))
+            {
+                session.Store(mark);
+            }
+
+            Marks.Clear();
+            return Task.CompletedTask;
         }
     }
 

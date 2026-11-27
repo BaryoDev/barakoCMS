@@ -428,9 +428,45 @@ public class RollupWriteTests
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         await RollupMarks.NoteAsync(session, before, line, Ct);
+        var probe = new MarkOrderProbe();
+        session.Listeners.Add(probe);
+        await session.SaveChangesAsync(Ct);
 
-        var stored = session.PendingChanges.Updates().OfType<RollupMark>().Select(m => m.Id).ToList();
-        stored.Should().Equal(ids, "the mark rows are locked in one order, so opposite moves cannot wait on each other");
+        probe.Seen.Should().Equal(ids, "the mark rows are locked in one order, so opposite moves cannot wait on each other");
+    }
+
+    [Fact]
+    public async Task Marks_noted_in_two_calls_of_one_transaction_are_stored_once_in_id_order()
+    {
+        var pair = await R.StorePairAsync(_fixture);
+        var ids = new[] { Guid.NewGuid(), Guid.NewGuid() }.OrderBy(i => i).ToArray();
+        Content LineFor(Guid header) => new()
+        {
+            Id = Guid.NewGuid(), ContentType = pair.Line, Status = ContentStatus.Published,
+            Data = new() { ["Teacher"] = header.ToString(), ["Hours"] = 4m },
+        };
+
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        await RollupMarks.NoteAsync(session, null, LineFor(ids[1]), Ct);
+        var probe = new MarkOrderProbe();
+        session.Listeners.Add(probe);
+        await RollupMarks.NoteAsync(session, null, LineFor(ids[0]), Ct);
+        await session.SaveChangesAsync(Ct);
+
+        probe.Seen.Should().Equal(ids, "a later call does not store its header after an earlier call's");
+    }
+
+    /// <summary>Reads the mark writes pending when the commit starts, after the listener that stores them.</summary>
+    private sealed class MarkOrderProbe : DocumentSessionListenerBase
+    {
+        public List<Guid> Seen { get; } = [];
+
+        public override Task BeforeSaveChangesAsync(IDocumentSession session, CancellationToken token)
+        {
+            Seen.AddRange(session.PendingChanges.Updates().OfType<RollupMark>().Select(m => m.Id));
+            return Task.CompletedTask;
+        }
     }
 
     [Fact]
