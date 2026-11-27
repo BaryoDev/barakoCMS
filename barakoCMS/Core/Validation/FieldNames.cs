@@ -40,6 +40,10 @@ internal static class FieldNames
             .Where(f => f.ShownWhenListedIn is not null && Same(f.ShownWhenListedIn, field))
             .Select(f => $"field '{f.Name}' (ShownWhenListedIn)"));
 
+        named.AddRange(definition.Fields
+            .Where(f => f.Computed is { } c && ComputedFields.HasExpression(c) && ComputedFields.Reads(c, field))
+            .Select(f => $"the formula of '{f.Name}'"));
+
         return named;
     }
 

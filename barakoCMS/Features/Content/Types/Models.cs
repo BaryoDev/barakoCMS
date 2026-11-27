@@ -26,9 +26,10 @@ internal sealed record ReadableField(
     ComputedDefinition? Computed,
     string? BlockSchema)
 {
-    // A computation that reads a field the caller cannot see would name it, so it is left out.
-    private static ComputedDefinition? ReadableComputed(ComputedDefinition? c, ISet<string> hidden) =>
-        c is null || c.Args.Any(hidden.Contains) ? null : c;
+    // A computation that reads a field the caller cannot see would name it, so it is left out. A
+    // formula goes whole or not at all, and one that does not parse is read as naming every field.
+    internal static ComputedDefinition? ReadableComputed(ComputedDefinition? c, ISet<string> hidden) =>
+        c is null || (hidden.Count > 0 && barakoCMS.Core.Validation.ComputedFields.ReadsAny(c, hidden)) ? null : c;
 
     /// <summary>Where the block schema of a <c>blocks</c> field is served.</summary>
     public const string BlockSchemaRoute = "/api/blocks/schema";

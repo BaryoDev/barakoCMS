@@ -109,15 +109,15 @@ internal class RollbackEndpoint(
         // the correct answer: the alternative is a write path that launders rejected data back in,
         // and it is reachable by anyone who can press Restore.
 
-        if (!await PassesUpdateGatesAsync(actor, content, data, userId, ct))
+        var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, content.ContentType, ct);
+
+        if (!await PassesUpdateGatesAsync(actor, content, definition, data, userId, ct))
         {
             return;
         }
 
         // Rebuild SearchText using the current field-sensitivity definition so a rollback
         // cannot reintroduce values that are no longer Public into the searchable text.
-        var definition = await barakoCMS.Infrastructure.Services.AccountContentTypes.ResolveAsync(session, content.ContentType, ct);
-
         var searchText = BuildSearchText(definition, data);
 
         // 5. Create a new update event with the old data and rebuilt SearchText
@@ -148,12 +148,32 @@ internal class RollbackEndpoint(
 
     /// <summary>Runs the gates an update runs on the restored data. Answers the refusal itself and returns false when one fails.</summary>
     private async Task<bool> PassesUpdateGatesAsync(
-        barakoCMS.Models.User actor, barakoCMS.Models.Content content, Dictionary<string, object> data, Guid userId, CancellationToken ct)
+        barakoCMS.Models.User actor, barakoCMS.Models.Content content, ContentTypeDefinition? definition,
+        Dictionary<string, object> data, Guid userId, CancellationToken ct)
     {
+        // A computed field's value is the server's, worked out from the inputs. The old version
+        // holds the value its own inputs gave, and the entry may hold different inputs now, so the
+        // restored value would be refused as a value the caller sent. Drop them and work them out
+        // from the restored inputs, which is what the write stores (the writer does it again).
+        var computed = (definition?.Fields ?? []).Where(barakoCMS.Core.Validation.ComputedFields.IsComputed).ToList();
+        foreach (var field in computed)
+        {
+            foreach (var key in data.Keys.Where(k => string.Equals(k, field.Name, StringComparison.OrdinalIgnoreCase)).ToList())
+                data.Remove(key);
+        }
+
         // WRITE-PATH SENSITIVITY: a caller who may not see a field may not change it, and restoring
         // an old value is a change. Reverts any such field to what is stored, and refuses a restore
         // that changes a field the Update rule does not let the caller set.
         await PutBackOwnedFieldsAsync(content, data, ct);
+
+        // Worked out before the update rule and the hooks, so they see the values the entry will hold. The
+        // validator is handed the restored data without them, as it takes no computed value from a caller.
+        var withoutComputed = new Dictionary<string, object>(data);
+        if (computed.Count > 0)
+        {
+            barakoCMS.Core.Validation.ComputedFields.Apply(definition!.Fields, data);
+        }
 
         // The update rule has to hold for the entry as restored too, or restoring an old version
         // moves the entry out of the rows the rule limits this caller to.
@@ -164,7 +184,7 @@ internal class RollbackEndpoint(
         }
 
         var validationResult = await Resolve<barakoCMS.Infrastructure.Services.IContentValidatorService>()
-            .ValidateAsync(content.ContentType, data, existing: content, caller: User);
+            .ValidateAsync(content.ContentType, withoutComputed, existing: content, caller: User);
         if (!validationResult.IsValid)
         {
             await RefuseRestoreAsync(validationResult.Errors, ct);

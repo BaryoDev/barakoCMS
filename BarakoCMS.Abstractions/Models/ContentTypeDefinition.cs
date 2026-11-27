@@ -591,7 +591,7 @@ public enum SensitivityMode
     All,           // reserved: strict lockdown (currently behaves as SensitiveOnly)
 }
 
-/// <summary>A computed field's function and what it reads: <c>{ "fn": "hours", "args": ["TimeIn", "TimeOut"], "round": 2 }</c>.</summary>
+/// <summary>A computed field's rule: a function and what it reads, <c>{ "fn": "hours", "args": ["TimeIn", "TimeOut"], "round": 2 }</c>, or a formula, <c>{ "expression": "data.Qty * data.Price" }</c>. A rule has one or the other.</summary>
 public class ComputedDefinition
 {
     /// <summary>One of add, subtract, multiply, divide, round, min, max, hours, days, duration, concat, coalesce.</summary>
@@ -602,4 +602,7 @@ public class ComputedDefinition
 
     /// <summary>Decimal places a numeric result is rounded to, 0 to 10. Null leaves a decimal as it comes out.</summary>
     public int? Round { get; set; }
+
+    /// <summary>A formula over the entry's fields, written data.Field, instead of fn and args. Checked when the type is saved and worked out inside every write. A formula may not read the clock or a system name. Null for a rule that uses fn.</summary>
+    public string? Expression { get; set; }
 }

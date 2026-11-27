@@ -426,10 +426,7 @@ internal class UpdateFieldAction : IWorkflowAction
                 // and write the document plainly, the same shape of write this action always made
                 // for this content before #571. The marker staged above still commits with it in
                 // the same SaveChangesAsync below.
-                foreach (var @event in events)
-                {
-                    barakoCMS.Infrastructure.Services.ContentProjection.Apply(targetContent, @event, DateTime.UtcNow);
-                }
+                await ApplyByHandAsync(targetContent, events, ct);
 
                 // The writer is what applies a type's uniqueness rules, and this write goes around
                 // it. A refusal ejects what is staged, the marker included, as the writer does, so
@@ -475,6 +472,21 @@ internal class UpdateFieldAction : IWorkflowAction
     /// is about to call <c>SaveChangesAsync</c> itself, right after staging its own marker and
     /// content change, so the removals land in that same commit rather than one of their own.
     /// </remarks>
+    /// <summary>
+    /// Applies the events to content that has no stream. The writer is also what puts the server's
+    /// tokens, number and computed values into an update, so the same issuer does it here, or this
+    /// entry would keep a computed value that no longer matches the field just set.
+    /// </summary>
+    private async Task ApplyByHandAsync(barakoCMS.Models.Content targetContent, List<object> events, CancellationToken ct)
+    {
+        var owned = new barakoCMS.Infrastructure.Services.ContentTokenIssuer(_session, _logger);
+        foreach (var @event in events)
+        {
+            await owned.KeepAsync(targetContent, @event, ct);
+            barakoCMS.Infrastructure.Services.ContentProjection.Apply(targetContent, @event, DateTime.UtcNow);
+        }
+    }
+
     private async Task PruneStaleMarkersAsync(CancellationToken ct)
     {
         var cutoff = DateTimeOffset.UtcNow - MarkerRetention;

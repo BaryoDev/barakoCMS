@@ -73,7 +73,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         var existing = (await _session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
         await CheckTypesAsync(bundleTypes, existing, configuration, ct);
 
-        var (toStore, created, reindex) = Upsert(bundleTypes, existing, report);
+        var (toStore, created, reindex, recompute) = Upsert(bundleTypes, existing, report);
 
         // Each record is checked against its type as this bundle leaves it, not as it is stored.
         // No singleton cap: an import is a restore and lands what the bundle holds.
@@ -98,35 +98,14 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         var failures = await Resolve<IContentBatchRunner>().RunAsync(async (scope, token) =>
         {
             var session = scope.GetRequiredService<IDocumentSession>();
-
-            foreach (var definition in toStore)
-            {
-                session.Store(definition);
-            }
-
-            // Recorded here as well as in the create endpoint, because this is the other way a
-            // content type comes into existence. A type with no policy row reads as not event
-            // sourced, which is the right answer, but nothing stops the name being claimed as event
-            // sourced later. DecideAsync never overwrites, so a name that already has a decision
-            // keeps it.
-            var sourcing = scope.GetRequiredService<IContentSourcingPolicy>();
-            foreach (var definition in created)
-            {
-                await sourcing.DecideAsync(definition.Name, false, token);
-            }
-
-            await session.SaveChangesAsync(token);
-
-            // Entries already stored were indexed before the type hid a field from public readers.
-            foreach (var definition in reindex)
-            {
-                await OwnerHiddenReindex.RebuildAsync(session, definition, configuration, token, userId);
-            }
-
-            await session.SaveChangesAsync(token);
+            await StoreTypesAsync(scope, session, toStore, created, reindex, configuration, userId, token);
 
             var refused = await BundleEntries.WriteAsync(
                 session, scope.GetRequiredService<IContentCreator>(), prepared, userId, HttpContext, batch, token);
+            if (refused.Count == 0)
+            {
+                refused = await StartRecomputesAsync(session, recompute, userId, token);
+            }
 
             var commit = refused.Count == 0 && !req.DryRun;
             if (commit)
@@ -152,6 +131,66 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         ThrowIfAnyErrors();
 
         await Send.ResponseAsync(report, cancellation: ct);
+    }
+
+    /// <summary>
+    /// Stores the bundle's types, records each new one as not event sourced, and reindexes the
+    /// entries of a type that now hides a field from public readers.
+    /// </summary>
+    /// <remarks>
+    /// The sourcing decision is recorded here as well as in the create endpoint, because this is the
+    /// other way a content type comes into existence. A type with no policy row reads as not event
+    /// sourced, which is the right answer, but nothing stops the name being claimed as event sourced
+    /// later. DecideAsync never overwrites, so a name that already has a decision keeps it.
+    /// </remarks>
+    private static async Task StoreTypesAsync(
+        IServiceProvider scope, IDocumentSession session, List<ContentTypeDefinition> toStore,
+        List<ContentTypeDefinition> created, List<ContentTypeDefinition> reindex, IConfiguration configuration,
+        Guid userId, CancellationToken token)
+    {
+        foreach (var definition in toStore)
+        {
+            session.Store(definition);
+        }
+
+        var sourcing = scope.GetRequiredService<IContentSourcingPolicy>();
+        foreach (var definition in created)
+        {
+            await sourcing.DecideAsync(definition.Name, false, token);
+        }
+
+        await session.SaveChangesAsync(token);
+
+        // Entries already stored were indexed before the type hid a field from public readers.
+        foreach (var definition in reindex)
+        {
+            await OwnerHiddenReindex.RebuildAsync(session, definition, configuration, token, userId);
+        }
+
+        await session.SaveChangesAsync(token);
+    }
+
+    /// <summary>
+    /// A formula that changed is worked out again for the entries already stored, by the field
+    /// change job, after this commits. Started once the bundle's own entries are written, because a
+    /// write to the type waits while a field change runs on it. Returns the types whose change could
+    /// not start, so the import is refused; empty when every change started.
+    /// </summary>
+    private static async Task<List<ValidationFailure>> StartRecomputesAsync(
+        IDocumentSession session, List<(ContentTypeDefinition Definition, List<FieldDefinition> Before)> recompute,
+        Guid userId, CancellationToken token)
+    {
+        var blocked = new List<ValidationFailure>();
+        foreach (var (definition, before) in recompute)
+        {
+            if (await ComputedRecompute.StartAsync(session, definition, before, userId, token) is { } busy)
+            {
+                blocked.Add(new ValidationFailure($"contentTypes.{definition.Name}", busy));
+            }
+        }
+
+        await session.SaveChangesAsync(token);
+        return blocked;
     }
 
     /// <summary>
@@ -232,12 +271,14 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
     /// one. A new type joins <paramref name="existing"/> whether or not this is a dry run, so records
     /// later in the same bundle resolve against a type this bundle creates.
     /// </summary>
-    private static (List<ContentTypeDefinition> ToStore, List<ContentTypeDefinition> Created, List<ContentTypeDefinition> Reindex) Upsert(
+    private static (List<ContentTypeDefinition> ToStore, List<ContentTypeDefinition> Created, List<ContentTypeDefinition> Reindex,
+        List<(ContentTypeDefinition Definition, List<FieldDefinition> Before)> Recompute) Upsert(
         List<ContentTypeDefinition> bundleTypes, List<ContentTypeDefinition> existing, ImportReport report)
     {
         var toStore = new List<ContentTypeDefinition>();
         var created = new List<ContentTypeDefinition>();
         var reindex = new List<ContentTypeDefinition>();
+        var recompute = new List<(ContentTypeDefinition, List<FieldDefinition>)>();
 
         foreach (var type in bundleTypes.Where(t => !string.IsNullOrWhiteSpace(t.Name)))
         {
@@ -245,8 +286,14 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             {
                 report.ContentTypesUpdated++;
                 var hiddenBefore = OwnerHiddenReindex.HiddenNames(match);
+                var fieldsBefore = match.Fields;
                 ContentTypeUpsert.MergeInto(match, type);
                 toStore.Add(match);
+                if (ComputedRecompute.Needed(fieldsBefore, match))
+                {
+                    recompute.Add((match, fieldsBefore));
+                }
+
                 if (OwnerHiddenReindex.Gained(hiddenBefore, match))
                 {
                     reindex.Add(match);
@@ -262,7 +309,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             created.Add(definition);
         }
 
-        return (toStore, created, reindex);
+        return (toStore, created, reindex, recompute);
     }
 
     private static string Shorten(string name) => name.Length > 100 ? name[..100] + "..." : name;
