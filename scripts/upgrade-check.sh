@@ -135,14 +135,7 @@ PLAN=$(migration_plan "$FROM_VERSION") || fail "the upgrade plan could not be re
 CORE_FILES=$(awk '$1 == "core" { print $2 }' <<< "$PLAN")
 MODULE_FILES=$(awk '$1 == "module" { print $2 }' <<< "$PLAN")
 ROLLBACK_FILES=$(awk '$1 == "rollback" { print $2 }' <<< "$PLAN")
-# A 4.x start with no file would prove nothing: every 4.x release since has a schema change. A 5.9
-# start has none until a release after 5.9.0 ships one, and then it has both a file and its rollback.
-EMPTY_PLAN=0
-if [ -z "$CORE_FILES" ] && [ -z "$MODULE_FILES" ] && [ -z "$ROLLBACK_FILES" ] && [ "$SEEDED" = 1 ]; then
-    EMPTY_PLAN=1
-elif [ -z "$CORE_FILES" ] || [ -z "$ROLLBACK_FILES" ]; then
-    fail "the upgrade plan from ${FROM_VERSION} has no core or no rollback files, so this run would prove nothing"
-fi
+decide_empty_plan "$SEEDED" "$CORE_FILES" "$MODULE_FILES" "$ROLLBACK_FILES"
 
 # Checks tied to one file, made around it as it runs. A file with none needs nothing here.
 before_file() {
@@ -290,6 +283,7 @@ if ! docker exec "$PG" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
 fi
 
 step "creating a ${FROM_VERSION} database with data in it"
+require_image_is_release "$IMAGE" "$FROM_VERSION"
 # Database__AllowSuperuser: a throwaway container in CI, which connects as postgres. A from-version
 # that holds the superuser guard needs it; an older one ignores it. The later restart of this
 # container (docker start) keeps the same environment.

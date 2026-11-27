@@ -84,7 +84,7 @@ seed_api() {
     local extra=() out code
     if [ -n "${4:-}" ]; then extra+=(-H 'Content-Type: application/json' -d "$4"); fi
     if [ -n "${5:-}" ]; then extra+=(-H "X-Tenant: $5"); fi
-    out=$(curl -sS -w '\n%{http_code}' -X "$1" "$2" -H "Authorization: Bearer $3" ${extra[@]+"${extra[@]}"}) || return 1
+    out=$(curl -sS --max-time 30 -w '\n%{http_code}' -X "$1" "$2" -H "Authorization: Bearer $3" ${extra[@]+"${extra[@]}"}) || return 1
     code=${out##*$'\n'}
     out=${out%$'\n'*}
     case "$code" in
@@ -96,14 +96,44 @@ seed_api() {
 # $1 a Python expression over the parsed JSON on stdin, called d. Prints its value.
 seed_json() { python3 -c "import sys, json; d = json.load(sys.stdin); print($1)"; }
 
-# A list answer is either {"items": [...]} or a bare array.
-seed_listed() { # $1 id or name, stdin the list; prints 1 when an item has it as id, name or slug
+# Every item of a list route, all pages, as one JSON array. $1 base url, $2 token, $3 path, $4
+# optional tenant. A list answer is either {"items": [...], "totalPages": n} or a bare array, and
+# the stations route is the second kind. Reading only the first page would pass whenever the
+# record sorted onto it and say nothing about the rest.
+seed_all() {
+    local page=1 body pages lines=""
+    while :; do
+        body=$(seed_api GET "$1$3?page=$page&pageSize=100" "$2" "" "${4:-}") || return 1
+        lines+=$(printf '%s' "$body" | seed_json "json.dumps(d['items'] if isinstance(d, dict) else d)")$'\n'
+        pages=$(printf '%s' "$body" | seed_json "d.get('totalPages', 1) if isinstance(d, dict) else 1")
+        [ "$page" -lt "$pages" ] || break
+        page=$((page + 1))
+    done
+    printf '%s' "$lines" | python3 -c "
+import sys, json
+print(json.dumps([i for line in sys.stdin if line.strip() for i in json.loads(line)]))"
+}
+
+# stdin the array seed_all prints. $1 the id, name or slug to find. Prints 1 when an item has it.
+seed_listed() {
     python3 -c "
 import sys, json
-d = json.load(sys.stdin)
-items = d['items'] if isinstance(d, dict) else d
 want = sys.argv[1]
-print(1 if any(want in (i.get('id'), i.get('name'), i.get('slug')) for i in items) else 0)" "$1"
+print(1 if any(want in (i.get('id'), i.get('name'), i.get('slug')) for i in json.load(sys.stdin)) else 0)" "$1"
+}
+
+# stdin the array seed_all prints. $1 the id, name or slug to find, $2 a Python expression over the
+# item, called i. Prints its value, or MISSING when there is no such item.
+seed_field() {
+    python3 -c "
+import sys, json
+want = sys.argv[1]
+for i in json.load(sys.stdin):
+    if want in (i.get('id'), i.get('name'), i.get('slug')):
+        print(eval(sys.argv[2]))
+        break
+else:
+    print('MISSING')" "$1" "$2"
 }
 
 seed_keep() { printf '%s\t%s\n' "$1" "$2" >> "$SEED_FILE"; }
@@ -112,6 +142,37 @@ seed_get() { awk -F'\t' -v k="$1" '$1 == k { print $2 }' "$SEED_FILE"; }
 # $1 what was being read, $2 what it was, $3 what it should be. Reports which side of the upgrade.
 seed_expect() {
     [ "$2" = "$3" ] || fail "${SEED_WHEN}: $1 is '$2', expected '$3'"
+}
+
+# Ties a digest to the release it is said to be. $1 the image, $2 FROM_VERSION. A tag can be
+# moved and a digest cannot, but nothing said the digest in CI was the one built from v5.9.0. The
+# image carries BARAKO_BUILD_SHA, the commit it was built from, and the tag names a commit, so the
+# two are compared. An image that is a tag and not a digest is left to the registry, as before.
+# Needs the tag in the checkout: git fetch --depth=1 origin tag v<version>.
+require_image_is_release() {
+    local want have
+    case "$1" in *@sha256:*) ;; *) return 0 ;; esac
+    want=$(git rev-parse --verify --quiet "v$2^{commit}") \
+        || fail "the tag v$2 is not in this checkout, so $1 cannot be tied to that release. Fetch it with: git fetch --depth=1 origin tag v$2"
+    docker pull -q "$1" >/dev/null || fail "could not pull $1"
+    have=$(docker image inspect "$1" --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^BARAKO_BUILD_SHA=//p')
+    [ -n "$have" ] || fail "$1 carries no BARAKO_BUILD_SHA, so it cannot be tied to v$2"
+    [ "$have" = "$want" ] \
+        || fail "$1 was built from $have, and the tag v$2 is $want. The digest is not the ${2} release: move the digest and the version together."
+}
+
+# Whether the plan from FROM_VERSION may be empty. $1 is 1 when FROM_VERSION is a 5.x start, then
+# the core, module and rollback file lists. Sets EMPTY_PLAN. A 4.x start with no file would prove
+# nothing: every 4.x release since has a schema change. A 5.9 start has none until a release after
+# 5.9.0 ships one, and then it has both a file and its rollback.
+# shellcheck disable=SC2034 # EMPTY_PLAN is read by the caller
+decide_empty_plan() {
+    EMPTY_PLAN=0
+    if [ -z "$2" ] && [ -z "$3" ] && [ -z "$4" ] && [ "$1" = 1 ]; then
+        EMPTY_PLAN=1
+    elif [ -z "$2" ] || [ -z "$4" ]; then
+        fail "the upgrade plan from ${FROM_VERSION} has no core or no rollback files, so this run would prove nothing"
+    fi
 }
 
 # $1 base url, $2 a token of the default tenant. Creates the records and keeps their ids. The token
@@ -195,11 +256,10 @@ verify_seed_data() {
     seed_expect "the document entry's Title" "$(printf '%s' "$got" | seed_json "d['data'].get('Title', '')")" "doc one"
     seed_expect "the document entry's Marker, set by the workflow" "$(printf '%s' "$got" | seed_json "d['data'].get('Marker', '')")" "set-by-workflow"
 
-    got=$(seed_api GET "$url/api/content-types" "$tok") || fail "${SEED_WHEN}: the content types cannot be listed"
+    got=$(seed_all "$url" "$tok" /api/content-types) || fail "${SEED_WHEN}: the content types cannot be listed"
     seed_expect "content type esnote listed" "$(printf '%s' "$got" | seed_listed esnote)" "1"
     seed_expect "content type docnote listed" "$(printf '%s' "$got" | seed_listed docnote)" "1"
-    seed_expect "content type esnote still event sourced" \
-        "$(printf '%s' "$got" | seed_json "[i['eventSourced'] for i in d['items'] if i['name'] == 'esnote'][0]")" "True"
+    seed_expect "content type esnote still event sourced" "$(printf '%s' "$got" | seed_field esnote "i['eventSourced']")" "True"
 
     id=$(seed_get role)
     got=$(seed_api GET "$url/api/roles/$id" "$tok") || fail "${SEED_WHEN}: the role $id cannot be read"
@@ -210,15 +270,41 @@ verify_seed_data() {
     got=$(seed_api GET "$url/api/user-groups/$id" "$tok") || fail "${SEED_WHEN}: the user group $id cannot be read"
     seed_expect "the user group's name" "$(printf '%s' "$got" | seed_json "d['name']")" "upgrade-seed-group"
 
-    seed_expect "the redirect listed" "$(seed_api GET "$url/api/redirects" "$tok" | seed_listed "$(seed_get redirect)")" "1"
-    seed_expect "the connector listed" "$(seed_api GET "$url/api/connectors" "$tok" | seed_listed upgrade-seed)" "1"
-    seed_expect "the workflow listed" "$(seed_api GET "$url/api/workflows" "$tok" | seed_listed "$(seed_get workflow)")" "1"
-    seed_expect "the station listed" "$(seed_api GET "$url/api/stations" "$tok" | seed_listed "$(seed_get station)")" "1"
-    seed_expect "the API key listed" "$(seed_api GET "$url/api/api-keys" "$tok" | seed_listed "$(seed_get apikey)")" "1"
+    # Each record is found among all of its list's pages and then compared field by field against
+    # what was sent. A row that came back with the right id and empty fields is the failure this
+    # is for.
+    local all
+    all=$(seed_all "$url" "$tok" /api/redirects) || fail "${SEED_WHEN}: the redirects cannot be listed"
+    id=$(seed_get redirect)
+    seed_expect "the redirect's fromPath" "$(printf '%s' "$all" | seed_field "$id" "i['fromPath']")" "/upgrade-old"
+    seed_expect "the redirect's toPath" "$(printf '%s' "$all" | seed_field "$id" "i['toPath']")" "/upgrade-new"
+    seed_expect "the redirect's permanent flag" "$(printf '%s' "$all" | seed_field "$id" "i['permanent']")" "True"
+
+    all=$(seed_all "$url" "$tok" /api/connectors) || fail "${SEED_WHEN}: the connectors cannot be listed"
+    seed_expect "the connector's name" "$(printf '%s' "$all" | seed_field upgrade-seed "i['name']")" "Upgrade seed"
+    seed_expect "the connector's baseUrl" "$(printf '%s' "$all" | seed_field upgrade-seed "i['baseUrl']")" "https://example.com"
+
+    all=$(seed_all "$url" "$tok" /api/workflows) || fail "${SEED_WHEN}: the workflows cannot be listed"
+    id=$(seed_get workflow)
+    seed_expect "the workflow's name" "$(printf '%s' "$all" | seed_field "$id" "i['name']")" "upgrade-seed-workflow"
+    seed_expect "the workflow's action count" "$(printf '%s' "$all" | seed_field "$id" "len(i['actions'])")" "1"
+    seed_expect "the workflow's first action" "$(printf '%s' "$all" | seed_field "$id" "i['actions'][0]['type']")" "UpdateField"
+
+    all=$(seed_all "$url" "$tok" /api/stations) || fail "${SEED_WHEN}: the stations cannot be listed"
+    id=$(seed_get station)
+    seed_expect "the station's name" "$(printf '%s' "$all" | seed_field "$id" "i['name']")" "upgrade-seed-station"
+    seed_expect "the station's capabilities" "$(printf '%s' "$all" | seed_field "$id" "','.join(i['capabilities'])")" "view_audit_log"
+    seed_expect "the station's revoked flag" "$(printf '%s' "$all" | seed_field "$id" "i['revoked']")" "False"
+
+    all=$(seed_all "$url" "$tok" /api/api-keys) || fail "${SEED_WHEN}: the API keys cannot be listed"
+    id=$(seed_get apikey)
+    seed_expect "the API key's name" "$(printf '%s' "$all" | seed_field "$id" "i['name']")" "upgrade-seed-key"
+    seed_expect "the API key's scopes" "$(printf '%s' "$all" | seed_field "$id" "','.join(i['scopes'])")" "content:read"
+    seed_expect "the API key's revoked flag" "$(printf '%s' "$all" | seed_field "$id" "i['revoked']")" "False"
 
     # The key's secret was stored as a hash. It still has to match the one the old build made.
     local code
-    code=$(curl -s -o /dev/null -w '%{http_code}' "$url/api/contents/$(seed_get doc_entry)" -H "Authorization: Bearer $(seed_get apikey_secret)")
+    code=$(curl -s --max-time 30 -o /dev/null -w '%{http_code}' "$url/api/contents/$(seed_get doc_entry)" -H "Authorization: Bearer $(seed_get apikey_secret)")
     seed_expect "the status of a read with the seeded API key" "$code" "200"
 }
 
@@ -232,6 +318,12 @@ seed_tenant_data() {
         seed_api POST "$url/api/tenants" "$tok" "{\"handle\":\"$SEED_TENANT\",\"name\":\"Upgrade seed\"}" >/dev/null \
             || fail "could not create the second tenant on ${FROM_VERSION}"
     fi
+    # The switch answering is not the row being right, so the tenant is read from the list first,
+    # with the token that is about to be retired. Status is Active: Suspended and Archived tenants
+    # refuse the token, so a changed status would also fail the switch, but with a worse message.
+    got=$(seed_all "$url" "$tok" /api/tenants) || fail "${SEED_WHEN}: the tenants cannot be listed"
+    seed_expect "the second tenant's name" "$(printf '%s' "$got" | seed_field "$SEED_TENANT" "i['name']")" "Upgrade seed"
+    seed_expect "the second tenant's status" "$(printf '%s' "$got" | seed_field "$SEED_TENANT" "i['status']")" "Active"
     ttok=$(seed_api POST "$url/api/me/switch" "$tok" "{\"tenant\":\"$SEED_TENANT\"}" | seed_json "d['token']") \
         || fail "${SEED_WHEN}: cannot switch to the second tenant"
     if [ "$mode" = "seed" ]; then

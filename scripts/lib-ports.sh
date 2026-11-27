@@ -152,7 +152,7 @@ listen_port() {
 remove_started() {
     local file
     for file in "$@"; do
-        [ -s "$file" ] && docker rm -f "$(cat "$file")" >/dev/null 2>&1
+        [ -s "$file" ] && docker rm -fv "$(cat "$file")" >/dev/null 2>&1
     done
     return 0
 }

@@ -315,6 +315,8 @@ jobs:
   upgrade:
     name: Upgrade from 4.x
     runs-on: ubuntu-latest
+    # The three upgrade runs and the Suite check took about 3.5 minutes together at #1480.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -350,6 +352,11 @@ jobs:
         env:
           FROM_VERSION: 4.1.0
 
+      # The checkout holds one commit and no tags. The script compares the image's build commit with
+      # the one this tag names, so the tag is fetched.
+      - name: Fetch the v5.9.0 tag
+        run: git fetch --depth=1 origin tag v5.9.0
+
       # The newest published 5.9 image, pinned by digest so a retagged image cannot change what this
       # proves (#1437). 5.9.0 is the only 5.9 release. The script first seeds the data
       # scripts/lib-upgrade-data.sh describes through the 5.9 API: an event sourced and a document
@@ -358,7 +365,7 @@ jobs:
       # tree's build, reads every record back, runs the stored workflow, rolls back and reads them
       # back from 5.9.0 again. No migration follows 5.9.0 yet, so db-assert must pass as the database
       # stands; the first file under a later migrations/ folder joins this plan with no edit here.
-      # When 5.9.1 is published, move the digest and the version together.
+      # When 5.9.1 is published, move the digest, the version and the tag together.
       - name: Prove a 5.9.0 database with data can be upgraded and rolled back
         run: bash scripts/upgrade-check.sh
         env:
