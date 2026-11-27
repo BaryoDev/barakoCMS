@@ -88,6 +88,19 @@ structured data and SEO fields). A write landing between two batches could other
 entry in a shape the job had already passed, and an edit storing the definition it read before the
 change's definition step would undo that step.
 
+## Recomputing a formula
+
+Saving a type with a new or changed computed `expression`, while the type has entries, starts a
+field change of kind `recompute` in the same commit as the type. A worker works the value out again
+for every entry in batches, the same way as the other kinds. Each rewrite is a
+`ContentFieldChanged` event, so it is not an edit and fires no workflow. A change to an `fn` rule
+starts no job.
+
+Adding a computed field with a formula to a type that has entries, `POST /api/config/apply` and a
+bundle import all start it. The first two answer 409 when another field change is running on the
+type. A bundle import starts it after the bundle's entries are written, and only when nothing in
+the bundle was refused. See [computed-fields.md](computed-fields.md).
+
 ## Progress and resuming
 
 | Route | Does |
