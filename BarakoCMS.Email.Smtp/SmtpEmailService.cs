@@ -187,14 +187,17 @@ public sealed class SmtpEmailService : IEmailService
     /// <see cref="SmtpErrorCode.RecipientNotAccepted"/>. <see cref="SmtpErrorCode.MessageNotAccepted"/>
     /// is not on the list: MailKit raises it both for a refused DATA command and for a refusal after
     /// the whole message went over, and the two cannot be told apart. A 530 (the relay wants a login
-    /// first) is raised as <see cref="SmtpServiceNotAuthenticatedException"/> since MailKit 5, and
-    /// the relay sends it in place of accepting a sender or recipient. A dropped connection or a
-    /// timeout during the send is not on it either, since the relay may have queued the message.
+    /// first) was raised as <c>ServiceNotAuthenticatedException</c> in MailKit 4, which this did not
+    /// match. MailKit 5 raises <see cref="SmtpServiceNotAuthenticatedException"/> and names the
+    /// command, so a 530 at MAIL FROM or RCPT TO is now reported as not sent. The same exception
+    /// also comes from DATA and BDAT, after the message went over, and those are not on the list. A
+    /// dropped connection or a timeout during the send is not on it either, since the relay may have
+    /// queued the message.
     /// </remarks>
     internal static bool NothingSent(Exception ex, bool sending) =>
         !sending
         || ex is SmtpCommandException { ErrorCode: SmtpErrorCode.SenderNotAccepted or SmtpErrorCode.RecipientNotAccepted }
-        || ex is SmtpServiceNotAuthenticatedException;
+        || ex is SmtpServiceNotAuthenticatedException { Command: SmtpCommand.MailFrom or SmtpCommand.RcptTo };
 
     private static ContentType MimeTypeOf(EmailAttachment attachment) =>
         ContentType.TryParse(attachment.ContentType, out var parsed)

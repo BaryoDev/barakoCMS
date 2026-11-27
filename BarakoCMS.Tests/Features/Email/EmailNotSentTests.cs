@@ -82,6 +82,22 @@ public class EmailNotSentTests
         relay.Messages.Should().ContainSingle("the relay received the message, which is why this is not 'not sent'");
     }
 
+    /// <summary>
+    /// MailKit 5 raises the same exception for a 530 at MAIL FROM or RCPT TO and for a 530 after
+    /// DATA. Only the first is "not sent": by the second the relay has the whole message.
+    /// </summary>
+    [Fact]
+    public async Task An_smtp_530_after_the_message_went_over_is_not_reported_as_not_sent()
+    {
+        using var relay = new FakeSmtpServer(afterData: AfterData.NotAuthenticated);
+
+        var send = () => Smtp(relay.Port).SendEmailAsync("someone@example.com", "s", "<p>b</p>", Ct);
+
+        var failure = (await send.Should().ThrowAsync<InvalidOperationException>()).Which;
+        failure.Should().NotBeOfType<EmailNotSentException>();
+        relay.Messages.Should().ContainSingle("the relay received the message, which is why this is not 'not sent'");
+    }
+
     [Fact]
     public async Task An_smtp_message_the_relay_took_and_never_answered_times_out_without_saying_not_sent()
     {
