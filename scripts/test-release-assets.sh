@@ -72,6 +72,12 @@ printf '%s' "$bundled_compose" | grep -qF 'defaults to the release this bundle c
 ! printf '%s' "$bundled_env" | grep -qF 'Pin it'; check "the bundle's env example does not tell people to pin a tag it defaults" $?
 printf '%s' "$bundled_env" | grep -qF 'defaults to the release it came from'; check "the bundle's env example says the tag defaults to its release" $?
 printf '%s\n' "$bundled_env" | grep -xF 'COMPOSE_PROJECT_NAME=barako-cms' >/dev/null; check "the bundle's env example fixes the compose project name" $?
+NAME_LINE='name: "${COMPOSE_PROJECT_NAME:?set COMPOSE_PROJECT_NAME in .env: barako-cms for a bundle install, or the old project name for a stack started from a checkout}"'
+printf '%s\n' "$bundled_compose" | grep -xF "$NAME_LINE" >/dev/null; check "the bundle's compose file requires COMPOSE_PROJECT_NAME in a top-level name: line" $?
+! grep -q '^name:' "$REPO/docker-compose.prod.yml"; check "the repository's compose file has no top-level name: line" $?
+printf '%s' "$bundled_env" | grep -qF 'a value in .env wins over the compose default'; check "the bundle's env example says a BARAKO_TAG in .env wins over the default" $?
+printf '%s' "$bundled_env" | grep -qF 'set BARAKO_TAG in .env to the new version'; check "the bundle's env example says to set BARAKO_TAG to the new version on upgrade" $?
+grep -qF 'set COMPOSE_PROJECT_NAME in .env' "$REPO/scripts/prod-bundle-check.sh"; check "prod-bundle-check.sh asserts the missing-name message" $?
 grep -qF 'Pin it' "$REPO/.env.prod.example"; check "the repository's env example keeps its own wording" $?
 refuses bash scripts/release-assets-check.sh 9.8.7 "$WORK/out" --download-typo x; check "an unknown third argument fails" $?
 refuses bash scripts/release-assets-check.sh 9.8.7 "$WORK/out" --download; check "--download without a tag fails" $?
@@ -79,7 +85,48 @@ refuses bash scripts/release-assets-check.sh 9.8.7 "$WORK/out" --download; check
 refuses bash "$SRC/scripts/build-prod-bundle.sh" 'latest' "$WORK/out3"; check "a version that is not a version fails" $?
 refuses bash "$SRC/scripts/build-prod-bundle.sh" '6.0.0;x' "$WORK/out3"; check "a version with a shell character fails" $?
 
-printf 'tampered' >> "$WORK/out/barako-cms-prod-9.8.7.tar.gz"
+# The read-back has to notice a bundle whose compose file lost the name: line. A repack that keeps
+# the line is the control, so the refusal below is the line and not the repack.
+sums() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+repack() { # label, 1 to drop the name: line from the compose file
+  local dir="$WORK/repack-$1"
+  mkdir -p "$dir/x" "$dir/out"
+  tar -xzpf "$WORK/out/barako-cms-prod-9.8.7.tar.gz" -C "$dir/x"
+  if [ "$2" = 1 ]; then
+    grep -v '^name:' "$dir/x/barako-cms-prod-9.8.7/docker-compose.prod.yml" > "$dir/compose.tmp"
+    cp "$dir/compose.tmp" "$dir/x/barako-cms-prod-9.8.7/docker-compose.prod.yml"
+  fi
+  tar -czf "$dir/out/barako-cms-prod-9.8.7.tar.gz" -C "$dir/x" barako-cms-prod-9.8.7
+  (cd "$dir/out" && sums barako-cms-prod-9.8.7.tar.gz > SHA256SUMS)
+  cp "$GOOD" "$dir/out/openapi-9.8.7.json"
+  bash scripts/release-assets-check.sh 9.8.7 "$dir/out" 2>&1
+}
+repack keep 0 >/dev/null; check "the read-back passes a repacked bundle that keeps the name: line (control)" $?
+msg="$(repack drop 1)"; rc=$?
+[ "$rc" != 0 ]; ok=$?; check "the read-back fails a bundle whose compose file has no name: line" "$ok"
+printf '%s' "$msg" | grep -qF 'top-level name: line'; check "the failure names the missing name: line" $?
+
+# The line has to do its job in compose itself: a missing COMPOSE_PROJECT_NAME stops compose with
+# the message, and the name is barako-cms when it is set, with the secrets file added too. This is
+# prod-bundle-check.sh's assertion without starting anything, and needs only the docker CLI.
+if docker compose version >/dev/null 2>&1; then
+  cfg="$WORK/cfg"
+  mkdir -p "$cfg" && tar -xzpf "$WORK/out/barako-cms-prod-9.8.7.tar.gz" -C "$cfg"
+  cdir="$cfg/barako-cms-prod-9.8.7"
+  { cat "$cdir/.env.prod.example"; printf 'DB_PASSWORD=a\nDB_APP_PASSWORD=b\nJWT_KEY=%s\nADMIN_PASSWORD=Ci-abc-Aa1!\n' "$(printf 'k%.0s' $(seq 40))"; } > "$cdir/.env"
+  grep -v '^COMPOSE_PROJECT_NAME=' "$cdir/.env" > "$cdir/no-name.env"
+  nn_out="$(cd "$cdir" && env -u COMPOSE_PROJECT_NAME docker compose --env-file no-name.env -f docker-compose.prod.yml config 2>&1)"; rc=$?
+  [ "$rc" != 0 ]; ok=$?; check "compose refuses the bundle when .env has no COMPOSE_PROJECT_NAME" "$ok"
+  printf '%s' "$nn_out" | grep -qF 'set COMPOSE_PROJECT_NAME in .env'; check "compose prints the message that names the variable" $?
+  nm="$(cd "$cdir" && env -u COMPOSE_PROJECT_NAME docker compose --env-file .env -f docker-compose.prod.yml config --format json | python3 -c 'import json, sys; print(json.load(sys.stdin)["name"])')"
+  [ "$nm" = barako-cms ]; ok=$?; check "compose resolves the project name to barako-cms from .env" "$ok"
+  nm="$(cd "$cdir" && env -u COMPOSE_PROJECT_NAME SECRETS_AS_FILES=true docker compose --env-file .env -f docker-compose.prod.yml -f docker-compose.secrets.yml config --format json | python3 -c 'import json, sys; print(json.load(sys.stdin)["name"])')"
+  [ "$nm" = barako-cms ]; ok=$?; check "the project name is still barako-cms with docker-compose.secrets.yml added" "$ok"
+else
+  echo "  skip  compose cases: no docker compose on this machine"
+fi
+
+printf 'tampered' >>"$WORK/out/barako-cms-prod-9.8.7.tar.gz"
 refuses bash scripts/release-assets-check.sh 9.8.7 "$WORK/out"; check "the read-back fails when the archive does not match its sum" $?
 
 # A mount the compose file declares and the bundle does not carry is the failure #1436 is about.
@@ -114,6 +161,16 @@ assert t.count(old) == 1
 open(p, "w").write(t.replace(old, "is needed rather than defaulting to latest"))
 PY
 refuses bash "$SRC/scripts/build-prod-bundle.sh" 9.8.7 "$WORK/out7"; check "a reworded BARAKO_TAG comment fails the build instead of shipping the old text" $?
+cp "$SRC/docker-compose.prod.yml.orig" "$SRC/docker-compose.prod.yml"
+python3 - "$SRC/docker-compose.prod.yml" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+old = "\nservices:\n"
+assert t.count(old) == 1
+open(p, "w").write(t.replace(old, "\nservices:  # the stack\n"))
+PY
+refuses bash "$SRC/scripts/build-prod-bundle.sh" 9.8.7 "$WORK/out8"; check "a reworded services line fails the build instead of shipping no name: line" $?
 cp "$SRC/docker-compose.prod.yml.orig" "$SRC/docker-compose.prod.yml"
 rm "$SRC/scripts/db-app-role.sql"
 refuses bash "$SRC/scripts/build-prod-bundle.sh" 9.8.7 "$WORK/out6"; check "a missing script fails the build" $?

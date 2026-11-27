@@ -18,6 +18,9 @@
 # .env.prod.example also gets COMPOSE_PROJECT_NAME=barako-cms. Compose names the data volumes after
 # the project, which defaults to the directory name, and every release unpacks into a directory
 # named for its version. Without a fixed name each release would start on an empty database.
+# The bundle's compose file also gets a top-level `name:` that requires the variable, so an .env
+# copied from an older install that lacks the line stops compose before anything starts, and
+# does not quietly start on empty volumes.
 #
 # The archive is reproducible: sorted members, no owner, one modification time. Building the same
 # commit twice gives the same sum.
@@ -92,6 +95,15 @@ replace_once(compose,
              "  # BARAKO_TAG defaults to the release this bundle came from, so the image and these files\n"
              "  # agree. Change it only to deploy another release. It never defaults to latest.\n")
 
+# The name is quoted because the message holds a colon followed by a space, which a plain YAML
+# scalar cannot carry. Only the bundle gets it: from a checkout the old project name may be the
+# directory's, so there the file keeps compose's default.
+replace_once(compose,
+             "\nservices:\n",
+             "\nname: \"${COMPOSE_PROJECT_NAME:?set COMPOSE_PROJECT_NAME in .env: barako-cms for a bundle install, "
+             "or the old project name for a stack started from a checkout}\"\n"
+             "\nservices:\n")
+
 env = root / ".env.prod.example"
 lines = env.read_text(encoding="utf-8").splitlines(keepends=True)
 hits = [i for i, l in enumerate(lines) if l.startswith("BARAKO_TAG=")]
@@ -103,7 +115,9 @@ env.write_text("".join(lines), encoding="utf-8")
 replace_once(env,
              "# Pin it. With a default, the next `docker compose pull` is an unplanned upgrade.\n",
              "# This bundle defaults to the release it came from, so leave it. Change it only to deploy\n"
-             "# another release (Upgrading in docs/deploy-in-production.md).\n")
+             "# another release (Upgrading in docs/deploy-in-production.md). The line below is a real setting\n"
+             "# and a value in .env wins over the compose default, so an .env copied from an older install\n"
+             "# keeps its old tag and runs the old image. On upgrade, set BARAKO_TAG in .env to the new version.\n")
 replace_once(env,
              "# --- Version -----------------------------------------------------------------\n",
              "# --- Compose project ---------------------------------------------------------\n"

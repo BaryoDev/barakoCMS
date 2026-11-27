@@ -13,6 +13,8 @@
 #   2. the compose file with no BARAKO_TAG in the environment resolves to the bundle's version
 #   2b. the compose project name is barako-cms from .env, so the data volumes do not change name
 #      when the next release unpacks into another directory
+#   2c. an .env without that line stops compose with a message naming the variable, so an .env
+#      copied from an older install cannot start the stack on new, empty volumes
 #   3. every bind mount the compose file declares exists in the unpacked directory (this covers
 #      the Caddyfile, which this check does not start because Caddy needs ACME)
 #   4. postgres starts, then app and db-backup, so compose runs the app role job through
@@ -92,6 +94,15 @@ project_name="$(cd "$DIR" && docker compose --env-file "$DIR/.env" -f docker-com
   | python3 -c 'import json, sys; print(json.load(sys.stdin)["name"])')"
 [ "$project_name" = "barako-cms" ] || fail "the project name is '$project_name', so the data volumes would follow the directory name"
 echo "$project_name"
+
+step "an .env without COMPOSE_PROJECT_NAME stops compose before anything starts"
+grep -v '^COMPOSE_PROJECT_NAME=' "$DIR/.env" > "$WORK/no-name.env"
+if no_name_out="$(cd "$DIR" && env -u COMPOSE_PROJECT_NAME docker compose --env-file "$WORK/no-name.env" -f docker-compose.prod.yml config 2>&1)"; then
+  fail "compose resolved the bundle with no COMPOSE_PROJECT_NAME in .env, so a copied older .env would start on empty volumes"
+fi
+printf '%s\n' "$no_name_out" | grep -qF 'set COMPOSE_PROJECT_NAME in .env' \
+  || fail "compose refused the .env without COMPOSE_PROJECT_NAME but did not print the message: $no_name_out"
+echo "$no_name_out"
 
 step "every bind mount the compose file declares is in the unpacked directory"
 dc config --format json | python3 -c '

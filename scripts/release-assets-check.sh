@@ -10,9 +10,9 @@
 # taken as it is, which is how the release job's build step and a local run use it.
 #
 # Then, on the files themselves: the sum matches the archive, the archive holds the six files the
-# bundle is meant to carry (by name), its compose file defaults BARAKO_TAG to <version> and its
-# .env.prod.example sets it and the compose project name, and the OpenAPI document has paths and
-# /api/public/{type}.
+# bundle is meant to carry (by name), its compose file defaults BARAKO_TAG to <version> and
+# requires COMPOSE_PROJECT_NAME in a top-level name: line, its .env.prod.example sets both, and
+# the OpenAPI document has paths and /api/public/{type}.
 #
 # This does not check the compose file's mounts. scripts/build-prod-bundle.sh checks the short form
 # the file uses today (an unquoted `- ./x:/y` line) when it builds, and scripts/prod-bundle-check.sh,
@@ -67,6 +67,9 @@ done
 tar -xzOf "$DIR/$BUNDLE" "barako-cms-prod-$VERSION/docker-compose.prod.yml" \
   | grep -xF "    image: ghcr.io/baryodev/barako-cms:\${BARAKO_TAG:-$VERSION}" >/dev/null \
   || fail "the bundle's compose file does not have the line image: ghcr.io/baryodev/barako-cms:\${BARAKO_TAG:-$VERSION}"
+tar -xzOf "$DIR/$BUNDLE" "barako-cms-prod-$VERSION/docker-compose.prod.yml" \
+  | grep -xF 'name: "${COMPOSE_PROJECT_NAME:?set COMPOSE_PROJECT_NAME in .env: barako-cms for a bundle install, or the old project name for a stack started from a checkout}"' >/dev/null \
+  || fail "the bundle's compose file does not have the top-level name: line that requires COMPOSE_PROJECT_NAME"
 envfile="$(tar -xzOf "$DIR/$BUNDLE" "barako-cms-prod-$VERSION/.env.prod.example")"
 printf '%s\n' "$envfile" | grep -xF "BARAKO_TAG=$VERSION" >/dev/null \
   || fail "the bundle's .env.prod.example does not set BARAKO_TAG=$VERSION"
