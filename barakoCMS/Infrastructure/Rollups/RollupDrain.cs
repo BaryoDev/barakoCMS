@@ -171,7 +171,7 @@ internal static class RollupDrain
         }
     }
 
-    private static (bool Ok, FieldDefinition? Field) SourceOf(IReadOnlyList<ContentTypeDefinition> definitions, FieldDefinition rollup)
+    internal static (bool Ok, FieldDefinition? Field) SourceOf(IReadOnlyList<ContentTypeDefinition> definitions, FieldDefinition rollup)
     {
         var def = rollup.Rollup!;
         var from = definitions.FirstOrDefault(d => ContentTypeName.Same(d.Name, def.From));

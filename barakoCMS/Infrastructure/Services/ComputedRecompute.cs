@@ -12,7 +12,8 @@ public static class ComputedRecompute
 {
     /// <summary>Whether <paramref name="after"/> holds a formula that is new or different from the one in <paramref name="before"/>.</summary>
     public static bool Needed(IEnumerable<FieldDefinition>? before, ContentTypeDefinition after) =>
-        FieldChanges.ChangedFormulas(before, after.Fields).Count > 0;
+        FieldChanges.ChangedFormulas(before, after.Fields).Count > 0
+        || Rollups.RollupRecompute.Changed(before, after.Fields).Count > 0;
 
     /// <summary>
     /// Starts the backfill on <paramref name="session"/>, so it commits with the definition. Returns
