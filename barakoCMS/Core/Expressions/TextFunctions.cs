@@ -44,7 +44,15 @@ internal static class TextFunctions
         return text;
     }
 
-    /// <summary>Joins the parts that are not null, empty or whitespace only, as the concat computed field does. Gives null when none is left.</summary>
+    /// <summary>
+    /// Joins the parts that are not null, empty or whitespace only, as the concat computed field
+    /// does, and gives null when none is left. Parts are not trimmed. A number prints with its own
+    /// trailing zeros in the invariant culture, as the computed field prints it. A stored entry
+    /// holds a date as its ISO text and the computed field prints that text as it is; a date here
+    /// is a value, so it prints as yyyy-MM-dd, or yyyy-MM-ddTHH:mm:ss when it has a time of day.
+    /// That is the same text for a stored date with no zone suffix. A double a resolver gives is
+    /// read as a decimal, so 0.1 + 0.2 as doubles prints 0.3 here and 0.30000000000000004 there.
+    /// </summary>
     private static object? Concat(Evaluator ev, CallNode call, object?[] a)
     {
         var parts = new List<string>();

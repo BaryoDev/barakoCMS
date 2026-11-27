@@ -1,6 +1,8 @@
 using System.Globalization;
 using barakoCMS.Core.Expressions;
 using R = barakoCMS.Core.Expressions.Rules;
+using barakoCMS.Core.Validation;
+using barakoCMS.Models;
 using FluentAssertions;
 using Xunit;
 using static BarakoCMS.Tests.ExpressionKit;
@@ -96,6 +98,58 @@ public class ExpressionFunctionTests
     [InlineData("startsWith(\"hello\", \"lo\")", "false")]
     [InlineData("startsWith(null, \"a\")", "null")]
     public void Text_functions(string source, string expected) => Shown(source).Should().Be(expected, source);
+
+    private static FieldDefinition ConcatField(params string[] args) => new()
+    {
+        Name = "Out",
+        DisplayName = "Out",
+        Type = "string",
+        Computed = new ComputedDefinition { Fn = "concat", Args = args.ToList() },
+    };
+
+    private static string ConcatOfExpression(string source, Dictionary<string, object> entry)
+    {
+        NameResolver types = field => entry.TryGetValue(field, out var v) ? ExpressionTypeOf(v) : null;
+        var parsed = ExpressionEngine.ParseAndCheck(source, types, false);
+        parsed.IsValid.Should().BeTrue(string.Join("; ", parsed.Errors));
+        var result = ExpressionEngine.Evaluate(parsed.Expression!, name => entry.TryGetValue(name.Name, out var v) ? v : null, new Microsoft.Extensions.Time.Testing.FakeTimeProvider(Start));
+        return (string)result.Value!;
+    }
+
+    private static ExprType? ExpressionTypeOf(object value) => value switch
+    {
+        string => ExprType.Text,
+        bool => ExprType.Bool,
+        DateTime => ExprType.Date,
+        _ => ExprType.Number,
+    };
+
+    [Fact]
+    public void Concat_prints_a_stored_entry_as_the_computed_field_does()
+    {
+        // An entry holds a date as its ISO text, which the computed field prints as it is. The
+        // formula is given that day as a date value, which prints as yyyy-MM-dd with no time of day.
+        var entry = new Dictionary<string, object> { ["Name"] = "Ada", ["Born"] = "2026-10-04", ["Qty"] = 1.50m, ["Active"] = true };
+
+        var field = ComputedFields.Compute(ConcatField("Name", "Born", "Qty", "Active"), entry);
+        var asValues = new Dictionary<string, object>(entry)
+        {
+            ["Born"] = DateTime.ParseExact((string)entry["Born"], "yyyy-MM-dd", CultureInfo.InvariantCulture),
+        };
+        var formula = ConcatOfExpression("concat(Name, Born, Qty, Active)", asValues);
+
+        field.Should().Be("Ada2026-10-041.50true");
+        formula.Should().Be(field as string);
+    }
+
+    [Fact]
+    public void Concat_reads_a_double_as_a_decimal_where_the_computed_field_prints_it_as_it_is()
+    {
+        var entry = new Dictionary<string, object> { ["Sum"] = 0.1d + 0.2d };
+
+        ComputedFields.Compute(ConcatField("Sum"), entry).Should().Be("0.30000000000000004");
+        ConcatOfExpression("concat(Sum)", entry).Should().Be("0.3");
+    }
 
     [Theory]
     [InlineData("left(\"hello\", -1)")]
