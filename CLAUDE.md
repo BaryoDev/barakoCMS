@@ -239,9 +239,9 @@ Within a major version, do not make a breaking change to the package surface. In
 
 The HTTP surface has no `[Obsolete]` to reach for, and it does not share the package surface's
 major-version boundary: the numbers in `barakoCMS.Features.Monitoring.Meta.ApiContract` track it
-independently, the same way a module-contract change is independent of the CMS version. A breaking
-HTTP change can land in any release, but it moves the number of the surface it breaks and gets
-called out explicitly in the pull request, the same as an unavoidable break to the package surface.
+independently, the same way a module-contract change is independent of the CMS version. From 6.0 a
+breaking HTTP change waits for a major, moves the number of the surface it breaks, and is called
+out in the pull request.
 
 There is one number per surface, and a change moves only the surface it touches:
 
