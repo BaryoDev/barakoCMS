@@ -59,6 +59,11 @@ internal static class RollupDrain
 
     private sealed record Outcome(int Done, bool Blocked, bool More);
 
+    /// <summary>Drains the marks of a tenant, a batch at a time, and queues another run when marks are left.</summary>
+    /// <param name="store">The document store the tenant's sessions are opened from.</param>
+    /// <param name="configuration">Read by the writer the drain appends its events through.</param>
+    /// <param name="tenant">The tenant whose marks are drained. A run takes every mark in it.</param>
+    /// <param name="ct">Stops the run between batches.</param>
     /// <param name="listener">Added to each batch's session. Only a test passes one, to act between the drain's read and its commit.</param>
     public static async Task RunAsync(
         IDocumentStore store, IConfiguration configuration, string tenant, CancellationToken ct,
