@@ -698,6 +698,25 @@ An `UpdateField` or `CreateTask` parameter that names `{{createdBy.email}}` or
 public field of a deliverable type is served by delivery, address included. The save is not
 refused, because the field and the entry such an action writes can themselves be placeholders.
 
+### Conditions
+
+The `Condition` of a `Conditional` keeps its old form: `{{data.Status}} == Approved`, one
+placeholder, `==` or `!=`, then a plain value, compared without regard to case. Any other condition
+is an [expression](expressions.md) with `data.Field`, `status`, `contentType`, `id`, `createdAt`,
+`updatedAt` and the output of an earlier step as `actions.N.Name`:
+
+```text
+actions.1.count > 3 and data.Total >= 100
+```
+
+`==` and `=` both compare. `{{data.X}}` around a name is read as the name. A step output that is a
+plain number is a number, and every other output is text, so an output holding a quote or `{{...}}`
+is only a value to compare and never part of the formula. A right side that is unquoted and holds
+`and`, `or`, `not` or any of `()<>=!` is read as an expression, so quote it to keep the old compare.
+
+A condition that cannot be read or has no value is false, and the action result and the log say why,
+with no value in them. `today()` and `now()` read the site's time zone.
+
 ### References and loops
 
 `{{data.Field.Other}}` follows `Field` when the entry's type declares it a `reference` field, and
