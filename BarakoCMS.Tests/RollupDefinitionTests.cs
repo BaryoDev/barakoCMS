@@ -227,6 +227,51 @@ public class RollupDefinitionTests
     }
 
     [Fact]
+    public async Task Create_refuses_a_rollup_over_a_branch_scoped_type()
+    {
+        var (header, line) = Names();
+        var scoped = Type(line, R.Reference("Teacher", header), R.Plain("Hours", "decimal"));
+        scoped.BranchScoped = true;
+        await StoreAsync(scoped);
+
+        var res = await CreateAsync(await AdminAsync(), header, RollupField("Count", "int", line, "Teacher", "count"));
+
+        await AssertRefusedAsync(res, "is branch scoped");
+        await AssertNotStoredAsync(header);
+    }
+
+    [Fact]
+    public async Task A_config_apply_that_turns_on_branch_scoping_for_a_counted_type_is_refused_and_leaves_it_alone()
+    {
+        var (header, line) = await StoredPairAsync();
+        var config = new
+        {
+            document = new
+            {
+                version = 1,
+                contentTypes = new Dictionary<string, object>
+                {
+                    [line] = new
+                    {
+                        name = line, displayName = line, branchScoped = true,
+                        fields = new object[]
+                        {
+                            new { name = "Teacher", type = "reference", referenceType = header },
+                            new { name = "Hours", type = "decimal" },
+                        },
+                    },
+                },
+            },
+            allowDestructive = true,
+        };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync("/api/config/apply", config, Ct);
+
+        await AssertRefusedAsync(res, "is branch scoped");
+        (await Probe.StoredTypeAsync(_fixture, line)).BranchScoped.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Create_refuses_a_declared_type_that_does_not_fit_the_summed_field()
     {
         var (header, line) = await LineAsync();

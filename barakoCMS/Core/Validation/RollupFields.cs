@@ -245,6 +245,7 @@ internal static class RollupFields
         var after = new ContentTypeDefinition
         {
             Name = def.Name,
+            BranchScoped = def.BranchScoped,
             Fields = def.Fields.Select(f => f == field ? proposed : f).ToList(),
             Lines = def.Lines,
         };
@@ -299,6 +300,12 @@ internal static class RollupFields
 
     private static List<string> ViaErrors(ContentTypeDefinition definition, FieldDefinition field, ContentTypeDefinition from)
     {
+        if (from.BranchScoped)
+        {
+            return [$"Field '{field.Name}' rolls up '{from.Name}', which is branch scoped. A stored count covers the entries of every branch, "
+                + "and a branch scoped type is only read within its branch."];
+        }
+
         var via = from.Fields.FieldNamed(field.Rollup!.Via);
         if (via is null)
             return [$"Field '{field.Name}' rolls up through '{field.Rollup.Via}', which '{from.Name}' does not declare."];

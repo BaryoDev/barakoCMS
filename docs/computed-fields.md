@@ -126,11 +126,12 @@ the summed field has a type `fn` cannot use. It cannot be required, have a defau
 computed, be a line total field, or be owner-hidden. Its level must be at least as strict as the
 level of `field` and of `via`, even for `count`, because a count over a Sensitive reference would
 publish how many entries point at each header. The saver must be able to read `field` and `via`.
-Account-owned types do not take rollups.
+Account-owned types do not take rollups. Neither do branch scoped types: a stored count covers the
+entries of every branch, and a branch scoped type is read only within its branch.
 
 A change to `from` that would break a rollup is refused with a 409 naming it: renaming or
 removing `via` or `field`, changing their type, raising them above the rollup's level, changing the
-summed currency, or deleting `from`.
+summed currency, turning on branch scoping for `from`, or deleting `from`.
 
 ### Writes
 
@@ -168,8 +169,9 @@ change gains a step that recounts each header at the new level. Lowering the lev
 then changes the definition, then rebuilds the search text, so readers only ever see a count of
 fewer entries than the old level counted. Raising the level rebuilds the search text, changes the
 definition, then recounts, so the count that includes Sensitive entries and drafts is written only
-once readers are held to the new level. A type definition write (create, config apply, blueprint)
-that lowers the level of an existing rollup is refused, and points to the sensitivity endpoint.
+once readers are held to the new level. A config apply or import
+that changes the level of a rollup is refused, as it is for any field, and points to the sensitivity
+endpoint.
 
 A write to `from` whose transaction read the definitions before a new rollup was saved, and
 commits after the backfill passed its header, is not counted until the next write to that header's
