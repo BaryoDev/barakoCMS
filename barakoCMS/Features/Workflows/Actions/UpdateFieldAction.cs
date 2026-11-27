@@ -422,27 +422,8 @@ internal class UpdateFieldAction : IWorkflowAction
             }
             else
             {
-                // No stream, so IContentWriter never gets a chance to apply these; do it by hand
-                // and write the document plainly, the same shape of write this action always made
-                // for this content before #571. The marker staged above still commits with it in
-                // the same SaveChangesAsync below.
-                await ApplyByHandAsync(targetContent, events, ct);
-
-                // The writer is what applies a type's uniqueness rules, and this write goes around
-                // it. A refusal ejects what is staged, the marker included, as the writer does, so
-                // a later save on this session does not record the field as applied.
-                try
-                {
-                    await new barakoCMS.Infrastructure.Services.ContentUniqueness(_session, _logger)
-                        .EnforceAsync(targetContent, ct);
-                }
-                catch (barakoCMS.Core.Interfaces.ContentUniquenessException)
-                {
-                    _session.EjectAllPendingChanges();
-                    throw;
-                }
-
-                _session.Store(targetContent);
+                // No stream, so IContentWriter never gets a chance to apply these.
+                await WriteByHandAsync(targetContent, events, ct);
             }
 
             await _session.SaveChangesAsync(ct);
@@ -472,6 +453,32 @@ internal class UpdateFieldAction : IWorkflowAction
     /// is about to call <c>SaveChangesAsync</c> itself, right after staging its own marker and
     /// content change, so the removals land in that same commit rather than one of their own.
     /// </remarks>
+    /// <summary>
+    /// Writes content that has no stream the way this action always did for it before #571: the
+    /// events applied by hand and the document stored plainly, the marker staged by the caller
+    /// committing with it. The writer is what applies uniqueness and marks rollup headers, and this
+    /// write goes around it, so both are done here. A refusal ejects what is staged, the marker
+    /// included, so a later save on this session does not record the field as applied.
+    /// </summary>
+    private async Task WriteByHandAsync(barakoCMS.Models.Content targetContent, List<object> events, CancellationToken ct)
+    {
+        var before = barakoCMS.Infrastructure.Rollups.EntryFacts.Of(targetContent);
+        await ApplyByHandAsync(targetContent, events, ct);
+        try
+        {
+            await new barakoCMS.Infrastructure.Services.ContentUniqueness(_session, _logger)
+                .EnforceAsync(targetContent, ct);
+        }
+        catch (barakoCMS.Core.Interfaces.ContentUniquenessException)
+        {
+            _session.EjectAllPendingChanges();
+            throw;
+        }
+
+        await barakoCMS.Infrastructure.Rollups.RollupMarks.NoteAsync(_session, before, targetContent, ct);
+        _session.Store(targetContent);
+    }
+
     /// <summary>
     /// Applies the events to content that has no stream. The writer is also what puts the server's
     /// tokens, number and computed values into an update, so the same issuer does it here, or this

@@ -80,6 +80,9 @@ public sealed class ContentEraser(
             contentId, contentId);
         session.Delete(content);
 
+        // The header this entry counted toward is marked, so its rollups lose it in this commit.
+        await Rollups.RollupMarks.NoteAsync(session, Rollups.EntryFacts.Of(content), null, ct);
+
         // The entry's share links and preview tokens go with it. Once the entry is gone they open
         // nothing, and no route could list or revoke them.
         session.DeleteWhere<Models.SiteShareLink>(l => l.EntryId == contentId);

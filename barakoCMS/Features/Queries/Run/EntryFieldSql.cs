@@ -12,8 +12,9 @@ namespace barakoCMS.Features.Queries.Run;
 internal static class EntryFieldSql
 {
     private const string Day = @"[1-9][0-9]{3}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])";
-    private const string Clock = @"[T ]([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.][0-9]{1,9})?)?";
-    private const string Offset = @"(Z|[+-](0[0-9]|1[0-5]):?[0-5][0-9])";
+    // {0,1} and not ?, because Marten reads every question mark in a raw query as a parameter.
+    private const string Clock = @"[T ]([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.][0-9]{1,9}){0,1}){0,1}";
+    private const string Offset = @"(Z|[+-](0[0-9]|1[0-5]):{0,1}[0-5][0-9])";
 
     public static string Find(string key, string alias, string expression) =>
         $"(SELECT {expression} FROM jsonb_each({alias}.data -> 'Data') e WHERE lower(e.key) = {key} LIMIT 1)";
