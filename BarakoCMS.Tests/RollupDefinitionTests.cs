@@ -463,6 +463,65 @@ public class RollupDefinitionTests
         (await CallerErrorsAsync(new ClaimsPrincipal(new ClaimsIdentity()), header, line)).Should().Contain(e => e.Contains("could not be identified"));
     }
 
+    // Integration: the break check on every other writer of a counted type.
+
+    [Fact]
+    public async Task The_currency_endpoint_refuses_a_change_that_breaks_a_money_rollup_and_stores_nothing()
+    {
+        var (header, line) = Names();
+        var amount = R.Plain("Amount", "money");
+        amount.Currency = "USD";
+        var total = R.Rollup("Total", "money", line, "Teacher", "sum", "Amount");
+        total.Currency = "USD";
+        await StoreAsync(Type(line, R.Reference("Teacher", header), amount), Type(header, R.Plain("Name", "string"), total));
+
+        var res = await (await AdminAsync()).PutAsJsonAsync(
+            $"/api/content-types/{line}/fields/Amount/currency", new { currency = "EUR", force = true }, Ct);
+
+        await AssertRefusedAsync(res, "This would break the rollup", HttpStatusCode.Conflict);
+        (await StoredFieldAsync(line, "Amount"))!.Currency.Should().Be("USD");
+    }
+
+    [Fact]
+    public async Task The_lines_endpoint_refuses_a_rollup_as_the_lines_total_and_stores_nothing()
+    {
+        var (header, line) = await StoredPairAsync();
+
+        var res = await (await AdminAsync()).PutAsJsonAsync(
+            $"/api/content-types/{header}/lines",
+            new { lines = new { contentType = line, parentField = "Teacher", totalField = "Total", lineAmountField = "Hours" } }, Ct);
+
+        await AssertRefusedAsync(res, "is a rollup, so it cannot be the lines total");
+        (await Probe.StoredTypeAsync(_fixture, header)).Lines.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_bundle_import_that_breaks_a_rollup_is_refused_and_stores_nothing()
+    {
+        var (header, line) = await StoredPairAsync();
+        var bundle = new
+        {
+            contentTypes = new[]
+            {
+                new
+                {
+                    name = line, displayName = line, branchScoped = true,
+                    fields = new object[]
+                    {
+                        new { name = "Teacher", type = "reference", referenceType = header },
+                        new { name = "Hours", type = "decimal" },
+                    },
+                },
+            },
+            contents = Array.Empty<object>(),
+        };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync("/api/portability/import", bundle, Ct);
+
+        await AssertRefusedAsync(res, "is branch scoped");
+        (await Probe.StoredTypeAsync(_fixture, line)).BranchScoped.Should().BeFalse();
+    }
+
     // Integration: config as code.
 
     private static object ConfigOf(string header, params object[] fields) => new

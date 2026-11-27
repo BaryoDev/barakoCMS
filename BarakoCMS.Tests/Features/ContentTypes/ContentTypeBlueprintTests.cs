@@ -429,6 +429,40 @@ public class ContentTypeBlueprintTests
     }
 
     [Fact]
+    public async Task A_blueprint_with_a_rollup_the_set_cannot_support_is_refused_and_stores_nothing()
+    {
+        var dir = TempDirectory();
+        await File.WriteAllTextAsync(Path.Combine(dir, "shopfloor.json"), """
+            {
+              "name": "shopfloor",
+              "contentTypes": [
+                {
+                  "name": "shop",
+                  "displayName": "Shop",
+                  "fields": [
+                    { "name": "Name", "displayName": "Name", "type": "string" },
+                    { "name": "Visits", "displayName": "Visits", "type": "int", "rollup": { "from": "shop-visit", "via": "Nobody", "fn": "count" } }
+                  ]
+                },
+                {
+                  "name": "shop-visit",
+                  "displayName": "Visit",
+                  "fields": [ { "name": "Shop", "displayName": "Shop", "type": "reference", "referenceType": "shop" } ]
+                }
+              ]
+            }
+            """, TestContext.Current.CancellationToken);
+        var host = _factory.WithSetting("Blueprints:Path", dir);
+        var client = await AdminInAsync(await TenantAsync(), host);
+
+        var applied = await ApplyAsync(client, "shopfloor");
+
+        applied.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await applied.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Should().Contain("does not declare");
+        (await TypeNamesAsync(client)).Should().NotContain(["shop", "shop-visit"]);
+    }
+
+    [Fact]
     public async Task A_custom_file_cannot_shadow_a_built_in_blueprint()
     {
         var dir = TempDirectory();

@@ -404,6 +404,21 @@ public class RollupWriteTests
         stored.Should().Equal(ids, "the mark rows are locked in one order, so opposite moves cannot wait on each other");
     }
 
+    [Fact]
+    public async Task A_null_an_array_and_text_in_the_summed_field_count_as_entries_and_add_nothing()
+    {
+        var (pair, admin, header) = await StartAsync();
+        await R.LineAsync(_fixture, admin, pair, header, 4);
+        foreach (var kind in new object?[] { null, new object[] { 3, 4 }, "abc" })
+        {
+            await R.SeedAsync(_fixture, pair.Line, new() { ["Teacher"] = header.ToString(), ["Hours"] = kind! });
+        }
+
+        await R.DrainAsync(_fixture);
+
+        (await R.ValuesAsync(_fixture, header)).Should().Be((4m, 4m, 4m), "all four count, and only the number is summed");
+    }
+
     private const long Huge = 6_000_000_000_000_000_000;
 
     /// <summary>A header whose int sum two lines carry past the range of a long.</summary>
