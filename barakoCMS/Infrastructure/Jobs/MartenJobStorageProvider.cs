@@ -110,7 +110,8 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         session.Store(r);
 
         // FastEndpoints wakes the worker as soon as this returns, which is before the commit, so
-        // that wake finds nothing. This one fires after the commit and finds the job.
+        // that wake finds nothing. This one fires after the commit (inside a content batch, after
+        // the batch's commit) and finds the job.
         var trigger = new TriggerJobAfterCommit((ICommandBase)r.Command);
         session.Listeners.Add(trigger);
 
@@ -614,13 +615,36 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         UrlRedaction.InText(LogSafe.Text($"{ex.GetType().Name}: {ex.Message}", maxLength: 1000));
 
     /// <summary>Wakes the command's queue once the session the job was staged in has committed.</summary>
+    /// <remarks>
+    /// Inside a content batch a flush is not the commit, so a wake then finds nothing and the job
+    /// waits for the next storage probe. There the wake is held until the batch commits, once, and
+    /// a batch that rolls back never wakes the queue.
+    /// </remarks>
     private sealed class TriggerJobAfterCommit(ICommandBase command) : DocumentSessionListenerBase
     {
+        private bool _held;
+
         public bool Committed { get; private set; }
 
         public override Task AfterCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken token)
         {
             Committed = true;
+            if (_held)
+            {
+                return Task.CompletedTask;
+            }
+
+            if (BatchTransaction.TryDeferUntilCommit(_ => Wake()))
+            {
+                _held = true;
+                return Task.CompletedTask;
+            }
+
+            return Wake();
+        }
+
+        private Task Wake()
+        {
             command.TriggerJobExecution();
             return Task.CompletedTask;
         }

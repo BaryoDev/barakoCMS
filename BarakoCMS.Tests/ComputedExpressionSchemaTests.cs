@@ -632,6 +632,65 @@ public class ComputedExpressionSchemaTests
     }
 
     [Fact]
+    public async Task A_config_apply_wakes_the_recompute_job_when_its_batch_commits()
+    {
+        var (slug, admin) = await TenantAsync();
+        var type = NewName();
+        (await CreateTypeAsync(admin, type, ApiFields("Qty + Cost"))).StatusCode.Should().Be(HttpStatusCode.OK);
+        await CreateEntryAsync(admin, type, 3m, 4m);
+
+        var applied = await admin.PostAsJsonAsync("/api/config/apply", ConfigDocument(type, ApiFields("Qty * Cost"), allowDestructive: true), Ct);
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, await applied.Content.ReadAsStringAsync(Ct));
+
+        await CompletedWithinProbeAsync(slug, type);
+        (await EntriesAsync(slug, type)).Single().Data["Total"].ToString().Should().Be("12");
+    }
+
+    [Fact]
+    public async Task A_bundle_import_wakes_the_recompute_job_when_its_batch_commits()
+    {
+        var (slug, admin) = await TenantAsync();
+        var type = NewName();
+        (await CreateTypeAsync(admin, type, ApiFields("Qty + Cost"))).StatusCode.Should().Be(HttpStatusCode.OK);
+        await CreateEntryAsync(admin, type, 3m, 4m);
+
+        var imported = await admin.PostAsJsonAsync("/api/portability/import", new
+        {
+            dryRun = false,
+            contentTypes = new[] { new { name = type, displayName = type, isPubliclyDeliverable = true, fields = ApiFields("Qty * Cost") } },
+            contents = Array.Empty<object>(),
+        }, Ct);
+        imported.StatusCode.Should().Be(HttpStatusCode.OK, await imported.Content.ReadAsStringAsync(Ct));
+
+        await CompletedWithinProbeAsync(slug, type);
+        (await EntriesAsync(slug, type)).Single().Data["Total"].ToString().Should().Be("12");
+    }
+
+    /// <summary>
+    /// The worker polls storage every 60 s, so a wake that fired before the batch committed leaves
+    /// the change running far past this deadline.
+    /// </summary>
+    private async Task CompletedWithinProbeAsync(string slug, string type)
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        while (DateTime.UtcNow < deadline)
+        {
+            await using var session = store.QuerySession(slug);
+            var change = await session.Query<FieldChange>()
+                .SingleAsync(c => c.ContentType == type && c.Kind == FieldChangeKind.Recompute, Ct);
+            if (change.State == FieldChangeState.Completed)
+            {
+                return;
+            }
+
+            await Task.Delay(100, Ct);
+        }
+
+        throw new Xunit.Sdk.XunitException($"The recompute of {type} did not complete within 20 s of the commit.");
+    }
+
+    [Fact]
     public async Task A_plan_and_a_refused_apply_that_change_a_formula_commit_no_job()
     {
         var (slug, admin) = await TenantAsync();
