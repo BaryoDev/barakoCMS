@@ -49,7 +49,7 @@ public class EmailNotSentTests
         var send = () => Smtp(relay.Port).SendEmailAsync("someone@example.com", "s", "<p>b</p>", Ct);
 
         var failure = (await send.Should().ThrowAsync<EmailNotSentException>()).Which;
-        failure.Message.Should().Contain("530", "the relay's refusal is named");
+        failure.Message.Should().Contain("Authentication required", "the relay's refusal is named");
         relay.Messages.Should().BeEmpty("the relay refused before DATA");
     }
 
