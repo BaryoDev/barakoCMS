@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using barakoCMS.Core.Expressions;
 using barakoCMS.Models;
+using Microsoft.Extensions.Logging;
 
 namespace barakoCMS.Core.Validation;
 
@@ -9,7 +10,8 @@ namespace barakoCMS.Core.Validation;
 /// Computed fields: a field whose value the server works out from other fields of the same entry.
 /// </summary>
 /// <remarks>
-/// The function list is fixed, with no expression language and no code. The definition is checked
+/// A rule is either one of the fixed functions or a formula in the expression language, never both.
+/// The function list is fixed, with no code. The definition is checked
 /// when the type is saved (inputs exist, their types fit the function, no field reads itself or
 /// sits in a cycle). The value is worked out by <c>ContentWriter</c> inside every write, so a
 /// route that forgets the rule still cannot skip it, and it is stored with the entry so it filters,
@@ -47,6 +49,42 @@ internal static class ComputedFields
 
     public static bool IsComputed(FieldDefinition field) => field.Computed is not null;
 
+    /// <summary>Whether the rule is a formula. A blank <c>Expression</c> is no formula.</summary>
+    public static bool HasExpression(ComputedDefinition def) => !string.IsNullOrWhiteSpace(def.Expression);
+
+    /// <summary>
+    /// The names a rule reads: its arguments, or the fields its formula names. A formula that does not
+    /// parse reads nothing that can be told, so it gives an empty list; the save check refuses it.
+    /// </summary>
+    public static IReadOnlyList<string> Inputs(ComputedDefinition def) =>
+        HasExpression(def)
+            ? ExpressionEngine.Names(def.Expression)?.Fields ?? []
+            : def.Args ?? [];
+
+    /// <summary>
+    /// Whether a rule reads a field of this name, for the places that ask who or what is touched when a
+    /// field changes. A formula that does not parse is taken to read every field, the safe answer.
+    /// </summary>
+    public static bool Reads(ComputedDefinition? def, string field)
+    {
+        if (def is null)
+            return false;
+
+        if (HasExpression(def) && ExpressionEngine.Names(def.Expression) is null)
+            return true;
+
+        return Inputs(def).Any(a => Matches(a, field));
+    }
+
+    /// <summary>Whether a rule reads any of the named fields. A formula that does not parse counts as reading all of them.</summary>
+    public static bool ReadsAny(ComputedDefinition def, IEnumerable<string> names)
+    {
+        if (HasExpression(def) && ExpressionEngine.Names(def.Expression) is null)
+            return names.Any();
+
+        return Inputs(def).Any(a => names.Any(n => Matches(a, n)));
+    }
+
     private static bool IsSpan(string fn) => fn.ToLowerInvariant() is "hours" or "days" or "duration";
 
     private static bool IsNumeric(string fn) =>
@@ -78,6 +116,14 @@ internal static class ComputedFields
     {
         var def = field.Computed!;
         var name = field.Name;
+
+        if (HasExpression(def))
+        {
+            foreach (var error in ExpressionErrors(field, fields, carried))
+                yield return error;
+
+            yield break;
+        }
 
         if (!Functions.TryGetValue(def.Fn ?? string.Empty, out var arity))
         {
@@ -135,6 +181,109 @@ internal static class ComputedFields
         foreach (var error in InputTypeErrors(field, fn, inputs))
             yield return error;
     }
+
+    /// <summary>The save-time check of a rule that holds a formula.</summary>
+    private static IEnumerable<string> ExpressionErrors(FieldDefinition field, IReadOnlyCollection<FieldDefinition> fields, bool carried)
+    {
+        var def = field.Computed!;
+        var name = field.Name;
+
+        if (!string.IsNullOrWhiteSpace(def.Fn) || def.Args is { Count: > 0 })
+        {
+            yield return $"Field '{name}' has a formula and also fn or args. A computed field takes one or the other.";
+            yield break;
+        }
+
+        var parsed = ExpressionEngine.ParseAndCheck(def.Expression, FieldTypes(fields), refuseClock: true);
+        if (parsed.Expression is not { } expression)
+        {
+            foreach (var error in parsed.Errors)
+                yield return $"Field '{name}' has a formula that is refused ({error.Rule} at position {error.Position}): {error.Message}.";
+
+            yield break;
+        }
+
+        foreach (var system in expression.SystemNames)
+        {
+            yield return $"Field '{name}' has a formula that reads '{system}', which is not part of the entry's data, "
+                + "so the stored value would go stale. Read a field instead.";
+        }
+
+        if (def.Round is { } digits && (digits < 0 || digits > MaxRound))
+            yield return $"Field '{name}' rounds to {digits} places, and rounding is 0 to {MaxRound}.";
+
+        if (def.Round is not null && expression.Type != ExprType.Number)
+            yield return $"Field '{name}' has a formula that does not give a number, so it takes no round.";
+
+        if (field.IsRequired)
+            yield return $"Field '{name}' is computed by the server, so it cannot be required of a caller.";
+
+        if (field.DefaultValue is not null)
+            yield return $"Field '{name}' is computed by the server, so it takes no default value.";
+
+        if (ResultTypeError(field, expression.Type) is { } wrongType)
+            yield return wrongType;
+
+        foreach (var read in expression.Fields)
+        {
+            var input = fields.FirstOrDefault(f => f is not null && Matches(f.Name, read));
+            if (input is null)
+                continue;
+
+            if (Matches(input.Name, name))
+            {
+                yield return $"Field '{name}' computes from itself.";
+                continue;
+            }
+
+            if (SensitivityRank.Exposure(field.Sensitivity) > SensitivityRank.Exposure(input.Sensitivity))
+            {
+                yield return $"Field '{name}' is {field.Sensitivity} and computes from '{input.Name}', which is {input.Sensitivity}. "
+                    + "A computed value may not be more widely readable than what it is computed from.";
+            }
+
+            if (carried)
+                continue;
+
+            foreach (var leak in ReadAudienceErrors(field, input))
+                yield return leak;
+        }
+    }
+
+    private static string? ResultTypeError(FieldDefinition field, ExprType result)
+    {
+        var fieldType = field.Type.ToLowerInvariant();
+        var (fits, wants) = result switch
+        {
+            ExprType.Number => (NumericTypes.Contains(fieldType), "int, decimal or money"),
+            ExprType.Text => (TextTypes.Contains(fieldType), "string or text"),
+            ExprType.Bool => (fieldType == "bool", "bool"),
+            ExprType.Date => (MomentTypes.Contains(fieldType), "date or datetime"),
+            _ => (false, string.Empty),
+        };
+
+        if (result == ExprType.Null)
+            return $"Field '{field.Name}' has a formula that can only give no value. Give it a formula that gives a number, text, a bool or a date.";
+
+        return fits
+            ? null
+            : $"Field '{field.Name}' has a formula that gives {Values.Word(result)}, so its type has to be {wants}, not {field.Type}.";
+    }
+
+    /// <summary>The type a formula sees for a field name: null when the type has no such field, Null when it has one a formula cannot read.</summary>
+    private static NameResolver FieldTypes(IReadOnlyCollection<FieldDefinition> fields) => name =>
+        fields.FirstOrDefault(f => f is not null && Matches(f.Name, name)) is { } field
+            ? ExprTypeOf(field.Type) ?? ExprType.Null
+            : null;
+
+    private static ExprType? ExprTypeOf(string? type) => type?.ToLowerInvariant() switch
+    {
+        "int" or "decimal" or "money" => ExprType.Number,
+        "string" or "text" => ExprType.Text,
+        "bool" => ExprType.Bool,
+        "date" or "datetime" => ExprType.Date,
+        _ => null,
+    };
 
     private static IEnumerable<string> ShapeErrors(FieldDefinition field, string fn)
     {
@@ -269,7 +418,7 @@ internal static class ComputedFields
     {
         var edges = computed.ToDictionary(
             f => f.Name,
-            f => (f.Computed!.Args ?? []).Where(a => computed.Any(c => Matches(c.Name, a))).ToList(),
+            f => Inputs(f.Computed!).Where(a => computed.Any(c => Matches(c.Name, a))).ToList(),
             StringComparer.OrdinalIgnoreCase);
 
         var state = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -320,7 +469,7 @@ internal static class ComputedFields
         while (ordered.Count < computed.Count)
         {
             var next = computed.Where(f => !placed.Contains(f.Name))
-                .FirstOrDefault(f => (f.Computed!.Args ?? []).All(a =>
+                .FirstOrDefault(f => Inputs(f.Computed!).All(a =>
                     placed.Contains(a) || !computed.Any(c => Matches(c.Name, a))));
 
             next ??= computed.First(f => !placed.Contains(f.Name));
@@ -335,22 +484,34 @@ internal static class ComputedFields
     /// Removes whatever the data holds under each computed field and puts the computed value in its
     /// place, or nothing when the inputs do not give one.
     /// </summary>
-    public static void Apply(IEnumerable<FieldDefinition> fields, Dictionary<string, object> data)
+    /// <param name="fields">
+    /// The type's fields. A formula reads the types of the fields it names from this list, so it is
+    /// the whole list and not only the computed fields that is wanted.
+    /// </param>
+    /// <param name="log">Where a formula that gives no value says why: the field, the rule and the position, never a value.</param>
+    public static void Apply(IEnumerable<FieldDefinition> fields, Dictionary<string, object> data, ILogger? log = null)
     {
-        foreach (var field in InOrder(fields))
+        var all = fields as IReadOnlyCollection<FieldDefinition> ?? fields.ToList();
+        foreach (var field in InOrder(all))
         {
             foreach (var key in data.Keys.Where(k => Matches(k, field.Name)).ToList())
                 data.Remove(key);
 
-            if (Compute(field, data) is { } value)
+            if (Compute(field, data, all, log) is { } value)
                 data[field.Name] = value;
         }
     }
 
     /// <summary>The value of one computed field over the data, or null when the inputs give none.</summary>
-    public static object? Compute(FieldDefinition field, IReadOnlyDictionary<string, object> data)
+    /// <param name="fields">The type's fields, for a formula to read the types of what it names. Not needed for a function.</param>
+    public static object? Compute(
+        FieldDefinition field, IReadOnlyDictionary<string, object> data,
+        IReadOnlyCollection<FieldDefinition>? fields = null, ILogger? log = null)
     {
         var def = field.Computed!;
+        if (HasExpression(def))
+            return ComputeExpression(field, data, fields ?? [field], log);
+
         var fn = def.Fn.ToLowerInvariant();
         var args = def.Args ?? [];
 
@@ -391,6 +552,104 @@ internal static class ComputedFields
         }
 
         return ComputeNumber(field, fn, args, data);
+    }
+
+    /// <summary>
+    /// A formula over the stored data. The formula is checked again here with the default bounds,
+    /// because a stored type can predate a bound, and a failure gives no value and a log line that
+    /// names the field, the rule and the position. Nothing logged is an entry value or the formula's text.
+    /// </summary>
+    private static object? ComputeExpression(
+        FieldDefinition field, IReadOnlyDictionary<string, object> data, IReadOnlyCollection<FieldDefinition> fields, ILogger? log)
+    {
+        var parsed = ExpressionEngine.ParseAndCheck(field.Computed!.Expression, FieldTypes(fields), refuseClock: true);
+        if (parsed.Expression is not { } expression)
+        {
+            Say(log, field, parsed.Errors.FirstOrDefault());
+            return null;
+        }
+
+        if (expression.SystemNames.Count > 0)
+        {
+            Say(log, field, new ExpressionError("system-name", 0, "a stored formula may not read a system name"));
+            return null;
+        }
+
+        var result = ExpressionEngine.Evaluate(
+            expression, name => name.IsSystem ? null : ValueOf(fields, data, name.Name), TimeProvider.System);
+
+        if (result.Note is { } note)
+            Say(log, field, note);
+
+        return Stored(field, result.Value);
+    }
+
+    private static void Say(ILogger? log, FieldDefinition field, ExpressionError? error) =>
+        log?.LogWarning(
+            "Computed field {Field} gave no value: formula rule {Rule} at position {Position}.",
+            field.Name, error?.Rule ?? "unknown", error?.Position ?? 0);
+
+    /// <summary>What a formula's result is stored as, in the shape the field's type holds.</summary>
+    private static object? Stored(FieldDefinition field, object? value) => value switch
+    {
+        decimal number => Shape(field, number),
+        string text => text,
+        bool flag => flag,
+        DateTime moment => string.Equals(field.Type, "date", StringComparison.OrdinalIgnoreCase)
+            ? moment.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+            : moment.ToString("yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'", CultureInfo.InvariantCulture),
+        _ => null,
+    };
+
+    /// <summary>A stored value in the shape the formula's type for that field expects, or null when it is absent or does not fit.</summary>
+    private static object? ValueOf(IReadOnlyCollection<FieldDefinition> fields, IReadOnlyDictionary<string, object> data, string name)
+    {
+        var kind = fields.FirstOrDefault(f => f is not null && Matches(f.Name, name)) is { } declared
+            ? ExprTypeOf(declared.Type)
+            : null;
+
+        var raw = Find(data, name);
+        return kind switch
+        {
+            ExprType.Number => NumberOf(raw),
+            ExprType.Text => IsNull(raw) ? null : Unwrap(raw!) as string ?? TextOf(raw),
+            ExprType.Bool => BoolOf(raw),
+            ExprType.Date => MomentOf(raw),
+            _ => null,
+        };
+    }
+
+    private static bool IsNull(object? value) =>
+        value is null or JsonElement { ValueKind: JsonValueKind.Null or JsonValueKind.Undefined };
+
+    private static bool? BoolOf(object? value) => IsNull(value)
+        ? null
+        : Unwrap(value!) switch
+        {
+            bool b => b,
+            string s when bool.TryParse(s, out var parsed) => parsed,
+            _ => null,
+        };
+
+    private static DateTime? MomentOf(object? value)
+    {
+        if (IsNull(value))
+            return null;
+
+        switch (Unwrap(value!))
+        {
+            case DateTime moment:
+                return moment;
+            case DateTimeOffset offset:
+                return offset.UtcDateTime;
+        }
+
+        var text = TextOf(value);
+        return text is not null
+            && text.Contains('-')
+            && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed)
+                ? parsed.UtcDateTime
+                : null;
     }
 
     private static object? ComputeNumber(FieldDefinition field, string fn, List<string> args, IReadOnlyDictionary<string, object> data)
@@ -437,7 +696,7 @@ internal static class ComputedFields
     {
         var digits = string.Equals(field.Type, "int", StringComparison.OrdinalIgnoreCase)
             ? 0
-            : field.Computed!.Round ?? (field.Computed.Fn.Equals("round", StringComparison.OrdinalIgnoreCase) ? 0 : (int?)null);
+            : field.Computed!.Round ?? (string.Equals(field.Computed.Fn, "round", StringComparison.OrdinalIgnoreCase) ? 0 : (int?)null);
 
         if (digits is { } places)
             value = Math.Round(value, places, MidpointRounding.AwayFromZero);

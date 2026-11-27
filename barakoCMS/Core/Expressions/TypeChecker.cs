@@ -9,11 +9,15 @@ internal sealed class TypeChecker(NameResolver names, bool refuseClock)
 {
     private readonly HashSet<string> _used = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _usedInOrder = [];
+    private readonly List<string> _systemUsed = [];
 
     public List<ExpressionError> Errors { get; } = [];
 
     /// <summary>The fields the formula reads, as first written.</summary>
     public IReadOnlyList<string> FieldsUsed => _usedInOrder;
+
+    /// <summary>The system names the formula reads, once each.</summary>
+    public IReadOnlyList<string> SystemUsed => _systemUsed;
 
     public bool UsesClock { get; private set; }
 
@@ -50,6 +54,9 @@ internal sealed class TypeChecker(NameResolver names, bool refuseClock)
         {
             if (names(name.Name) is { } shadowed && shadowed != ExprType.Null)
                 return Report(Rules.AmbiguousName, name.Position, $"'{name.Name}' is a system name and a field of this type; write data. before it to read the field");
+
+            if (!_systemUsed.Contains(name.Name))
+                _systemUsed.Add(name.Name);
 
             name.Type = name.Name is "createdAt" or "updatedAt" ? ExprType.Date : ExprType.Text;
             return name.Type;

@@ -41,7 +41,7 @@ internal static class ExpressionEngine
         if (checker.Errors.Count > 0 || type is null)
             return new ParseResult(null, checker.Errors);
 
-        var expression = new CheckedExpression(tree.Root!, type.Value, tree.Nodes, source.Length, checker.FieldsUsed, checker.UsesClock);
+        var expression = new CheckedExpression(tree.Root!, type.Value, tree.Nodes, source.Length, checker.FieldsUsed, checker.UsesClock, checker.SystemUsed);
         return new ParseResult(expression, []);
     }
 
@@ -51,6 +51,59 @@ internal static class ExpressionEngine
     /// </summary>
     public static EvalResult Evaluate(CheckedExpression expression, ValueResolver values, TimeProvider clock, ExpressionLimits? limits = null) =>
         new Evaluator(limits ?? ExpressionLimits.Default, values, clock).Run(expression);
+
+    /// <summary>
+    /// The field names and the system names a formula reads, found without a schema, or null when it
+    /// does not parse. For readers that only need to know what a stored formula touches, such as who
+    /// may read it. Names are given as written, once each.
+    /// </summary>
+    public static (IReadOnlyList<string> Fields, IReadOnlyList<string> System)? Names(string? source, ExpressionLimits? limits = null)
+    {
+        limits ??= ExpressionLimits.Default;
+        if (string.IsNullOrWhiteSpace(source) || source.Length > limits.MaxSource)
+            return null;
+
+        var tokens = new List<Token>();
+        if (Lexer.TryLex(source, tokens) is not null)
+            return null;
+
+        var tree = Parser.Parse(tokens, limits);
+        if (tree.Error is not null || tree.Root is null)
+            return null;
+
+        var fields = new List<string>();
+        var system = new List<string>();
+        var pending = new Stack<Node>();
+        pending.Push(tree.Root);
+        while (pending.Count > 0)
+        {
+            switch (pending.Pop())
+            {
+                case NameNode name:
+                    var into = name.IsSystem ? system : fields;
+                    if (!into.Contains(name.Name, StringComparer.OrdinalIgnoreCase))
+                        into.Add(name.Name);
+                    break;
+                case UnaryNode unary:
+                    pending.Push(unary.Operand);
+                    break;
+                case BinaryNode binary:
+                    pending.Push(binary.Right);
+                    pending.Push(binary.Left);
+                    break;
+                case ChainNode chain:
+                    foreach (var operand in chain.Operands.Reverse())
+                        pending.Push(operand);
+                    break;
+                case CallNode call:
+                    foreach (var arg in call.Args.Reverse())
+                        pending.Push(arg);
+                    break;
+            }
+        }
+
+        return (fields, system);
+    }
 
     private static ParseResult Refused(ExpressionError error) => new(null, [error]);
 }
