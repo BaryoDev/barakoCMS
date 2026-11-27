@@ -54,7 +54,8 @@ public class ConnectorEgressTableTests(IntegrationTestFixture fixture)
         var masked = await blind.PostAsync($"/api/requests/{definition.Slug}/dry-run/{subject.EntryId}", null, Ct);
 
         (await seen.Content.ReadAsStringAsync(Ct)).Should().Contain(SsnValue);
-        (await masked.Content.ReadAsStringAsync(Ct)).Should().NotContain(SsnValue);
+        var maskedBody = await masked.Content.ReadAsStringAsync(Ct);
+        maskedBody.Should().Contain("***", "the dry run was not refused for another reason").And.NotContain(SsnValue);
     }
 
     [Fact]

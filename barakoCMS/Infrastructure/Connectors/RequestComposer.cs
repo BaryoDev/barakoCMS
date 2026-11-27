@@ -503,12 +503,12 @@ internal sealed class RequestComposer(
         var entry = new Content { ContentType = schema.Name };
         foreach (var name in ConnectorGrants.NamedFields(query))
         {
-            if (name.Contains('.')) return new QueryContext(rows, null, true, true);
+            if (name.Contains('.')) return new QueryContext(SchemaRows(query), null, true, true);
 
             var field = schema.Fields.FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
             if (field is not null && field.Sensitivity != SensitivityLevel.Public && !await mayRead(schema.Name, field, entry))
             {
-                return new QueryContext(rows, null, true, true);
+                return new QueryContext(SchemaRows(query), null, true, true);
             }
         }
 
@@ -631,16 +631,21 @@ internal sealed class RequestComposer(
     };
 
     /// <summary>
-    /// A query hole the previewer may not read. The rows keep their shape, one object per row with
-    /// each value masked, so a body that is JSON stays JSON and the preview mirrors the send.
+    /// A query hole the previewer may not read. <paramref name="rows"/> is already the one schema row
+    /// <see cref="SchemaRows"/> made, so the body stays JSON and nothing in it comes from the data.
     /// </summary>
-    private static string MaskedQuery(string field, IReadOnlyList<Dictionary<string, object>> rows, Escaping escaping)
-    {
-        if (!string.Equals(field, "rows", StringComparison.OrdinalIgnoreCase)) return Escape(MaskText, escaping);
+    private static string MaskedQuery(string field, IReadOnlyList<Dictionary<string, object>> rows, Escaping escaping) =>
+        string.Equals(field, "rows", StringComparison.OrdinalIgnoreCase)
+            ? SubstituteQuery("rows", rows, escaping)
+            : Escape(MaskText, escaping);
 
-        var masked = rows.Select(r => r.Keys.ToDictionary(k => k, _ => (object)MaskText)).ToList();
-        return SubstituteQuery("rows", masked, escaping);
-    }
+    /// <summary>
+    /// The rows a masked query hole shows: exactly one, with a key for each field the definition
+    /// projects and the mask text for every value. The row count and which keys a row holds depend on
+    /// entries the previewer may not read, so neither is taken from the run.
+    /// </summary>
+    private static IReadOnlyList<Dictionary<string, object>> SchemaRows(QueryDefinition query) =>
+        [query.Fields.Distinct(StringComparer.OrdinalIgnoreCase).ToDictionary(f => f, _ => (object)MaskText, StringComparer.OrdinalIgnoreCase)];
 
     private static string SubstituteQuery(
         string field, IReadOnlyList<Dictionary<string, object>> rows, Escaping escaping)

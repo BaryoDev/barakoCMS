@@ -141,4 +141,40 @@ public class ConnectorGrantDryRunTests(IntegrationTestFixture fixture)
 
         dry.GetProperty("body").GetString().Should().Contain(NoteValue);
     }
+
+    private async Task<string> StoreRequestForQueryAsync(GrantKit.LineSeed seed, params QueryFilter[] filters)
+    {
+        var query = new QueryDefinition
+        {
+            Id = Guid.NewGuid(), Slug = Name("dryf"), Name = "Dry run filter", ContentType = seed.Lines,
+            Fields = ["Qty", "Note"], Filters = [.. filters],
+        };
+        var definition = Definition(seed.Subject, "{{query.rows}}");
+        definition.QuerySlug = query.Slug;
+        await StoreAsync(fixture, query, definition);
+        return definition.Slug;
+    }
+
+    [Fact]
+    public async Task A_masked_rows_hole_is_one_row_of_the_projected_fields_whatever_the_query_matched()
+    {
+        var seed = await SeedLinesAsync(fixture, (lines, _) => [lines + ".Note"]);
+        await StoreAsync(
+            fixture,
+            new Content { Id = Guid.NewGuid(), ContentType = seed.Lines, Status = ContentStatus.Published, Data = new() { ["Qty"] = "3", ["Note"] = NoteValue } },
+            new Content { Id = Guid.NewGuid(), ContentType = seed.Lines, Status = ContentStatus.Published, Data = new() { ["Qty"] = "4" } });
+        var none = await StoreRequestForQueryAsync(seed, new QueryFilter { Field = "Qty", Op = "eq", Value = "no-such-qty" });
+        var three = await StoreRequestForQueryAsync(seed);
+        var blind = await CallerAsync(fixture, [SystemCapabilities.ManageRequests], seed.Lines);
+
+        var matchedNone = (await DryRunAsync(blind, none, seed.Subject.EntryId)).GetProperty("body").GetString()!;
+        var matchedThree = (await DryRunAsync(blind, three, seed.Subject.EntryId)).GetProperty("body").GetString()!;
+
+        matchedThree.Should().Be(matchedNone, "the preview must not tell how many entries matched");
+        var rows = JsonDocument.Parse(matchedThree).RootElement;
+        rows.GetArrayLength().Should().Be(1);
+        rows[0].EnumerateObject().Select(p => p.Name).Should().Equal("Qty", "Note");
+        rows[0].EnumerateObject().Select(p => p.Value.GetString()).Should().OnlyContain(v => v == Mask);
+        matchedThree.Should().NotContain(NoteValue);
+    }
 }
