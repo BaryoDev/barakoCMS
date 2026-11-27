@@ -169,6 +169,8 @@ internal static class MigrationCommand
             output.WriteLine($"pending    create {name}  (missing from the database, db-migrate creates it)");
         }
 
+        await WriteExpressionTemplatesAsync(store, output, ct);
+
         var pending = status.In(MigrationState.Pending).Count + missing.Count;
         var notNeeded = status.In(MigrationState.NotNeeded).Count;
         if (pending + notNeeded > 0)
@@ -222,6 +224,29 @@ internal static class MigrationCommand
             ? $"{migration.Key} had no row. Nothing was changed."
             : $"forgot     {migration.Key}  (the next db-migrate treats it as new)");
         return 0;
+    }
+
+    /// <summary>Lists stored texts holding the literal <c>{{=</c>, which evaluate from this release. Information only: it never changes the exit code.</summary>
+    private static async Task WriteExpressionTemplatesAsync(IDocumentStore? store, TextWriter output, CancellationToken ct)
+    {
+        if (store is null) return;
+
+        try
+        {
+            var held = await ExpressionTemplates.ListAsync(store, ct);
+            foreach (var line in held)
+            {
+                output.WriteLine($"review     {line} holds the text {{{{= and will be evaluated as an expression from this release");
+            }
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UndefinedTable)
+        {
+            // A database with no document tables yet holds no stored templates.
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or NpgsqlException or InvalidOperationException)
+        {
+            output.WriteLine("review     the stored templates could not be read for the text {{=, so check them by hand before upgrading.");
+        }
     }
 
     private static void WriteChanged(IReadOnlyList<MigrationStatusLine> changed, TextWriter output)
