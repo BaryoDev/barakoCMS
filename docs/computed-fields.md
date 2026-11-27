@@ -88,3 +88,81 @@ A formula names fields, so its text is shown only to a reader who may read every
 A reader who may not read one of them is shown the field without its `computed` rule, and the
 public type description never serves the rule. A formula whose text does not parse counts as
 reading every field. The value of a computed field follows the field's own sensitivity.
+
+## Rollups
+
+A rollup is a field on one type that summarises the entries of another type that point at it, such
+as a teacher's total hours or an invoice's paid amount. The server keeps the value. A client never
+sends it.
+
+```json
+{ "name": "HoursTotal", "type": "decimal",
+  "rollup": { "from": "timeEntry", "via": "Teacher", "fn": "sum", "field": "Hours", "round": 2 } }
+```
+
+`from` is the type of the entries that are counted. `via` is a field of `from` holding a single
+reference to the type that declares the rollup. `fn` is `count`, `sum`, `min`, `max` or `avg`.
+`field` names the summed field of `from`, and is left out for `count`. `round` is 0 to 10 and
+applies to `sum` and `avg`. Without it `avg` rounds to 2 places and `sum` keeps the exact value.
+
+The declared type follows `fn`. `count` is `int`. `sum` has the type of the summed field (`int`,
+`decimal` or `money`). `avg` is `decimal`, or `money` for a summed `money` field. `min` and `max`
+have the type of the summed field, which may also be `date` or `datetime`. A `money` rollup carries
+the summed field's currency. With nothing to count, `count` and `sum` are 0, and `min`, `max` and
+`avg` are left out.
+
+### Which entries count
+
+An entry counts toward a header when its `via` value names the header, it is not archived, its own
+sensitivity is not Hidden and is no stricter than the rollup's, and its status allows it. A
+Public or Members rollup counts Published entries only. A Sensitive or Hidden rollup also counts
+Draft and Scheduled ones. For `sum`, `min`, `max` and `avg`, an entry whose value is not a number
+(or a valid date) is skipped, and it still counts toward `count`.
+
+### Rules a type is saved under
+
+A rollup is refused when `from` does not exist, `via` is not a single reference to this type, or
+the summed field has a type `fn` cannot use. It cannot be required, have a default, be unique, be
+computed, be a line total field, or be owner-hidden. Its level must be at least as strict as the
+level of `field` and of `via`, even for `count`, because a count over a Sensitive reference would
+publish how many entries point at each header. The saver must be able to read `field` and `via`.
+Account-owned types do not take rollups.
+
+A change to `from` that would break a rollup is refused with a 409 naming it: renaming or
+removing `via` or `field`, changing their type, raising them above the rollup's level, changing the
+summed currency, or deleting `from`.
+
+### Writes
+
+A write that sends a rollup value is refused with a 400 when it differs from the stored one. A
+write that leaves it out keeps the stored value. Restoring an old version keeps the current value.
+Type permissions do not narrow a rollup: it counts every matching entry, whatever the reader may
+read of `from`. The field's sensitivity is what protects it.
+
+### Lag
+
+A write to an entry in `from` marks the headers it affects in the same transaction. A background
+job then recomputes the marked headers from the entries themselves, never from a change, so a
+repeated run gives the same value. The value follows about a second after the write commits, and a
+busy queue can delay it. If a write is lost between the commit and the job, the mark is still
+stored and the job runs again.
+
+The recompute writes the header through the same path as a field change, so the header's version
+moves and an `If-Match` taken before the change gets a 412. History records the change, the
+header's own update time is untouched, and no workflow starts.
+
+### Cost
+
+Each recompute scans the tenant's entries of `from` once per rollup field, in batches of up to 100
+headers. There is no index for it yet. A very large `from` type should wait for one.
+
+### Adding or changing a rollup
+
+Adding a rollup to a type with entries, or changing its `from`, `via`, `fn`, `field`, `round` or
+level, starts a background field change of kind `recompute`, as a formula does. Status, abandon and
+resume work the same way. The header type is write-locked while it runs, and marks for it are held
+until it ends.
+
+A write to `from` whose transaction read the definitions before a new rollup was saved, and
+commits after the backfill passed its header, is not counted until the next write to that header's
+entries. Field changes carry the same window.

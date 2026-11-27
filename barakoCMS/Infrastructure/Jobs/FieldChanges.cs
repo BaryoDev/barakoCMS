@@ -305,7 +305,6 @@ internal static class FieldChanges
             change.CompletedAt = now;
             session.Store(change);
             await session.SaveChangesAsync(ct);
-            await CountAgainAsync(session, definition, change, ct);
             return;
         }
 
@@ -331,13 +330,13 @@ internal static class FieldChanges
             return;
         }
 
-        var rollups = work == Work.Recompute
-            ? await Rollups.RollupRecompute.ValuesAsync(session, definition, batch.Select(c => c.Id).ToList(), ct)
-            : null;
+        var rollups = await RollupValuesAsync(session, work, change, definition, batch, ct);
         var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), configuration) { WritesForFieldChange = true };
         foreach (var content in batch)
         {
-            if (Rewrite(work, change, definition, content, rollups?.GetValueOrDefault(content.Id)) is { } @event)
+            var counted = rollups?.GetValueOrDefault(content.Id);
+            await RecountAsync(writer, work, change, definition, content, counted, ct);
+            if (Rewrite(work, change, definition, content, work == Work.Recompute ? counted : null) is { } @event)
             {
                 await writer.AppendAsync(content, @event, ct);
 
@@ -355,17 +354,37 @@ internal static class FieldChanges
     }
 
     /// <summary>
-    /// A rollup whose level changed counts different entries, so a finished sensitivity change on one
-    /// starts the recompute. It runs after the change committed as completed, which frees the type.
+    /// A rollup whose level changes is recounted at the new level in the same batch as the search
+    /// text, so it is never left showing what the old level counted.
     /// </summary>
-    private static async Task CountAgainAsync(IDocumentSession session, ContentTypeDefinition? definition, FieldChange change, CancellationToken ct)
+    private static async Task RecountAsync(
+        ContentWriter writer, Work work, FieldChange change, ContentTypeDefinition definition, Content content,
+        Dictionary<string, object?>? counted, CancellationToken ct)
     {
-        if (change.Kind == FieldChangeKind.Sensitivity
-            && definition?.Fields.Any(f => f?.Rollup is not null && string.Equals(f.Name, change.Field, StringComparison.OrdinalIgnoreCase)) == true)
+        if (work == Work.SearchText && counted is not null
+            && Rewrite(Work.Recompute, change, definition, content, counted) is { } recount)
         {
-            await StartRecomputeAsync(session, definition.Name, change.Field, change.RequestedBy, ct);
-            await session.SaveChangesAsync(ct);
+            await writer.AppendAsync(content, recount, ct);
         }
+    }
+
+    /// <summary>
+    /// The rollup values a step writes with the entries: all of the type's for a recompute, and for a
+    /// sensitivity change on a rollup field, that field's, counted at the level the change takes it to.
+    /// </summary>
+    private static async Task<Dictionary<Guid, Dictionary<string, object?>>?> RollupValuesAsync(
+        IDocumentSession session, Work work, FieldChange change, ContentTypeDefinition definition, IReadOnlyList<Content> batch, CancellationToken ct)
+    {
+        var ids = batch.Select(c => c.Id).ToList();
+        if (work == Work.Recompute)
+        {
+            return await Rollups.RollupRecompute.ValuesAsync(session, definition, ids, ct);
+        }
+
+        var level = change.Kind == FieldChangeKind.Sensitivity && work == Work.SearchText ? change.ToSensitivity : null;
+        return level is null || definition.Fields.All(f => f?.Rollup is null || !string.Equals(f.Name, change.Field, StringComparison.OrdinalIgnoreCase))
+            ? null
+            : await Rollups.RollupRecompute.ValuesAsync(session, definition, ids, ct, change.Field, level);
     }
 
     /// <summary>The definition step, with the block bindings a rename carries, committed with the step's progress.</summary>

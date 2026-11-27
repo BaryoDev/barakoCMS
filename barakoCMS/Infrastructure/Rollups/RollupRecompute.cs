@@ -26,12 +26,19 @@ internal static class RollupRecompute
             .ToList();
     }
 
-    /// <summary>The value of every rollup field of <paramref name="header"/> for each header id, as the drain computes it.</summary>
+    /// <summary>
+    /// The value of the rollup fields of <paramref name="header"/> for each header id, as the drain
+    /// computes it. <paramref name="only"/> limits it to one field, and <paramref name="level"/>
+    /// counts that field at a level other than its stored one.
+    /// </summary>
     internal static async Task<Dictionary<Guid, Dictionary<string, object?>>> ValuesAsync(
-        IDocumentSession session, ContentTypeDefinition header, IReadOnlyCollection<Guid> ids, CancellationToken ct)
+        IDocumentSession session, ContentTypeDefinition header, IReadOnlyCollection<Guid> ids, CancellationToken ct,
+        string? only = null, SensitivityLevel? level = null)
     {
         var values = ids.ToDictionary(id => id, _ => new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase));
-        var rollups = header.Fields.Where(f => f?.Rollup is not null).ToList();
+        var rollups = header.Fields
+            .Where(f => f?.Rollup is not null && (only is null || string.Equals(f.Name, only, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
         if (rollups.Count == 0)
         {
             return values;
@@ -46,7 +53,7 @@ internal static class RollupRecompute
                 continue;
             }
 
-            foreach (var (id, value) in await RollupAggregate.ValuesAsync(session, rollup, source.Field, ids, ct))
+            foreach (var (id, value) in await RollupAggregate.ValuesAsync(session, rollup, source.Field, ids, ct, level))
             {
                 values[id][rollup.Name] = value;
             }

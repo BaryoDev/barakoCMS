@@ -47,7 +47,8 @@ internal static class RollupAggregate
     /// </summary>
     /// <param name="source">The summed field on the <c>from</c> type, or null for a count.</param>
     public static async Task<Dictionary<Guid, object?>> ValuesAsync(
-        IDocumentSession session, FieldDefinition rollup, FieldDefinition? source, IReadOnlyCollection<Guid> headers, CancellationToken ct)
+        IDocumentSession session, FieldDefinition rollup, FieldDefinition? source, IReadOnlyCollection<Guid> headers, CancellationToken ct,
+        SensitivityLevel? level = null)
     {
         var values = new Dictionary<Guid, object?>();
         if (headers.Count == 0)
@@ -64,7 +65,7 @@ internal static class RollupAggregate
             values[id] = empty;
         }
 
-        var (sql, args) = Build(session, rollup, fn, kind, headers);
+        var (sql, args) = Build(session, rollup, fn, kind, headers, level ?? rollup.Sensitivity);
         var rows = await session.QueryAsync<Row>(sql, ct, args);
         foreach (var row in rows)
         {
@@ -86,7 +87,7 @@ internal static class RollupAggregate
     }
 
     private static (string Sql, object[] Args) Build(
-        IDocumentSession session, FieldDefinition rollup, string fn, string kind, IReadOnlyCollection<Guid> headers)
+        IDocumentSession session, FieldDefinition rollup, string fn, string kind, IReadOnlyCollection<Guid> headers, SensitivityLevel level)
     {
         var def = rollup.Rollup!;
         var args = new List<object>();
@@ -107,8 +108,8 @@ internal static class RollupAggregate
 
         args.Add(session.TenantId);
         args.Add(def.From.ToLowerInvariant());
-        var statuses = CountedStatuses(rollup.Sensitivity);
-        var levels = CountedLevels(rollup.Sensitivity);
+        var statuses = CountedStatuses(level);
+        var levels = CountedLevels(level);
         args.AddRange(statuses.Select(s => (object)(int)s));
         args.AddRange(levels.Select(l => (object)(int)l));
         args.AddRange(headers.Select(h => (object)h.ToString()));
