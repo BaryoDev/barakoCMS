@@ -89,6 +89,20 @@ public class QueryFilter
     public string Op { get; set; } = "eq";
 
     public string Value { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The name of a parameter this filter takes its value from, or null for a filter with a literal
+    /// <see cref="Value"/>. One of <c>id</c>, <c>createdAt</c>, <c>data.Field</c> or
+    /// <c>actions.N.name</c>, written <c>@name</c> in the text form.
+    /// </summary>
+    /// <remarks>
+    /// A separate member, not a convention on <see cref="Value"/>, so a literal that begins with an at
+    /// sign stays a literal. A run binds the parameter's value into the query as a value. It is never
+    /// joined into text and never read as a template. A reader that has no values to bind (the
+    /// request composer, a preview, an aggregate run) refuses the query by name rather than matching
+    /// an empty value.
+    /// </remarks>
+    public string? Param { get; set; }
 }
 
 /// <summary>A date field and the window it must fall in. A relative window or fixed bounds, not both.</summary>

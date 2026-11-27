@@ -6779,6 +6779,10 @@
             "nullable": true,
             "type": "string"
           },
+          "text": {
+            "description": "The query as text, in the one form a save of it reads back as the same query.",
+            "type": "string"
+          },
           "updatedAt": {
             "format": "date-time",
             "type": "string"
@@ -6886,6 +6890,11 @@
             "type": "string"
           },
           "sortField": {
+            "nullable": true,
+            "type": "string"
+          },
+          "text": {
+            "description": "The query written as text, for example from student where Number = @data.StudentNo select Email limit 1.\nGiven instead of the content type, filters, sort, fields, limit, range, groups and measures,\nand never with them.",
             "nullable": true,
             "type": "string"
           }
@@ -13799,6 +13808,11 @@
           },
           "op": {
             "description": "eq, ne, lt, lte, gt, gte or contains.",
+            "type": "string"
+          },
+          "param": {
+            "description": "The name of a parameter this filter takes its value from, or null for a filter with a literal\nValue. One of id, createdAt, data.Field or\nactions.N.name, written @name in the text form.",
+            "nullable": true,
             "type": "string"
           },
           "value": {

@@ -130,6 +130,17 @@ public interface ITemplateVariableExtractor
     IReadOnlyList<string> Notes => [];
 }
 
+/// <summary>
+/// Names the user behind the event that fired a run, so a step that reads data reads it as that user
+/// and not as the system. The extractor this host registers implements it; the answer is the same
+/// one references are followed with.
+/// </summary>
+internal interface IWorkflowActor
+{
+    /// <summary>The user on the event, or <see cref="Guid.Empty"/> when there is nobody.</summary>
+    Task<Guid> ActorOfAsync(Content content, string? triggerEvent, long eventSequence, CancellationToken ct);
+}
+
 /// <summary>How a substituted value is written into the text a template produces.</summary>
 public enum TemplateValueEncoding
 {
@@ -161,8 +172,11 @@ public class TemplateVariableExtractor(
     IDocumentSession session,
     IPermissionResolver? permissions,
     barakoCMS.Core.Interfaces.ISensitivityService? sensitivity,
-    Microsoft.Extensions.Configuration.IConfiguration? configuration) : ITemplateVariableExtractor
+    Microsoft.Extensions.Configuration.IConfiguration? configuration) : ITemplateVariableExtractor, IWorkflowActor
 {
+    Task<Guid> IWorkflowActor.ActorOfAsync(Content content, string? triggerEvent, long eventSequence, CancellationToken ct) =>
+        ActorAsync(content, triggerEvent, eventSequence, ct);
+
     /// <summary>The setting that holds the console's URL, which <c>links.console</c> is built on.</summary>
     public const string ConsoleUrlKey = "App:ConsoleUrl";
 

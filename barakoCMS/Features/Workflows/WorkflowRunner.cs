@@ -1187,7 +1187,7 @@ internal sealed class WorkflowRunner(
             {
                 Parameters = resolved,
                 Content = content,
-                TriggerEvent = run.TriggerEvent,
+                TriggerEvent = run.TriggerEvent, EventSequence = run.TriggeringEventSequence,
                 TenantId = TenantScopes.SlugFor(tenantId),
                 Outputs = outputs, ProducedFiles = ActionOutputs.KeptFiles(run), Ordinal = attempt.Ordinal, Undoing = undo,
             }, ct);
@@ -1244,7 +1244,7 @@ internal sealed class WorkflowRunner(
         // What the templates left out on purpose, such as a loop stopped at its cap, is
         // recorded on the attempt so a message that is short of entries says why.
         var files = (result.ProducedFiles ?? []).Where(id => id != Guid.Empty).Distinct().ToList();
-        var notes = templateNotes.Concat(dropped is null ? [] : [dropped]).Concat(ActionOutputs.DroppedFilesNote(files.Count)).ToList();
+        var notes = templateNotes.Concat(string.IsNullOrWhiteSpace(result.Note) ? [] : [result.Note]).Concat(dropped is null ? [] : [dropped]).Concat(ActionOutputs.DroppedFilesNote(files.Count)).ToList();
         return new Outcome(
             AttemptStatus.Succeeded, notes.Count == 0 ? null : string.Join(" ", notes), elapsedMs, Outputs: kept,
             ResponseStatus: result.ResponseStatus,

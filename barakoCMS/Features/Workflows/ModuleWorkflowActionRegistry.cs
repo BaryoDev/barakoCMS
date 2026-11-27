@@ -7,7 +7,7 @@ internal sealed class ModuleWorkflowActionRegistry
 {
     private static readonly HashSet<string> CoreTypes = new(StringComparer.Ordinal)
     {
-        "Email", "SMS", "Webhook", "CreateTask", "UpdateField", "Request", "Conditional", "CreateContent", "Transition",
+        "Email", "SMS", "Webhook", "CreateTask", "UpdateField", "Request", "Query", "Conditional", "CreateContent", "Transition",
     };
 
     private readonly Dictionary<string, string> _owners = new(StringComparer.Ordinal);
