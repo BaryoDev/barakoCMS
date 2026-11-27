@@ -348,6 +348,12 @@ the previewing user.
 and `where` when a workflow step runs the query. `status` is filterable. A step orders by what you
 gave, and the entry id breaks ties, so a `limit 1` keeps the same row every time.
 
+When the content type declares a field whose name matches one of these case-insensitively (a field
+called `Status`, say), the type's field wins everywhere: in `select`, `order by`, `where` and in
+whether the query needs a value for the run. The system field of that name cannot be named then.
+`status` takes one status name (`Draft`, `Published`, `Archived` or `Scheduled`, any case). A list, a number or
+anything else is refused as not a status.
+
 ## The Query workflow step
 
 `{ "type": "Query", "parameters": { "Query": "student-by-number" }, "capture": ["Email"] }` runs a
@@ -377,7 +383,8 @@ saved query from a workflow. The first row's fields become the step's outputs, s
   cannot feed a workflow."
 - No match is a success with empty outputs, and the attempt's note says so.
 - The run record keeps the number of rows the query returned (a limit caps it) in the attempt's
-  note, and the outputs the workflow captured. It lists no entry ids. `GET /api/workflow-runs/{id}`
+  note, and the outputs the workflow captured. The note lists no entry ids; an id is kept only if
+  the query selects `id` and the workflow captures it, as an output. `GET /api/workflow-runs/{id}`
   never serves a Query step's `outputs`, for any viewer, since they are entry values read as another
   user. The next step still reads them. Rows are not kept beyond the step.
 
