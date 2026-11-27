@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
+using barakoCMS.Infrastructure.Security;
 using Xunit;
 
 namespace BarakoCMS.Tests;
@@ -39,26 +41,29 @@ public sealed class TroubleshootingPageTests
         "SecretFiles.cs",
     ];
 
+    private static string N(int value) => value.ToString(CultureInfo.InvariantCulture);
+
     // Interpolation holes whose value is a constant, so the page can quote the text a reader sees.
-    // Keyed by file name and the text between the braces.
+    // Keyed by file name and the text between the braces. A number comes from the constant itself,
+    // so changing the constant fails the quote until the page says the new number.
     private static readonly Dictionary<(string File, string Expression), string> Holes = new()
     {
-        [("JwtKeyGuard.cs", "MinLength")] = "32",
-        [("InitialAdminGuard.cs", "MinLength")] = "12",
+        [("JwtKeyGuard.cs", "MinLength")] = N(JwtKeyGuard.MinLength),
+        [("InitialAdminGuard.cs", "MinLength")] = N(InitialAdminGuard.MinLength),
         [("HostFilteringGuard.cs", "CanonicalHost.AllowedHostsKey")] = "AllowedHosts",
         [("HostFilteringGuard.cs", "AllowAnyHostKey")] = "Security:AllowAnyHost",
         [("DatabaseRoleGuard.cs", "AllowKey")] = "Database:AllowSuperuser",
         [("DatabaseRoleGuard.cs", "AllowKey.Replace(\":\", \"__\")")] = "Database__AllowSuperuser",
         [("ForwardedHeadersSetup.cs", "Section")] = "ForwardedHeaders",
         [("HstsPolicy.cs", "Section")] = "Hsts",
-        [("HstsPolicy.cs", "DefaultMaxAgeDays")] = "90",
+        [("HstsPolicy.cs", "DefaultMaxAgeDays")] = N(HstsPolicy.DefaultMaxAgeDays),
         [("RateLimitSetup.cs", "Section")] = "RateLimiting",
-        [("RateLimitSetup.cs", "RendererKeyMinLength")] = "32",
+        [("RateLimitSetup.cs", "RendererKeyMinLength")] = N(RateLimitSetup.RendererKeyMinLength),
         [("RateLimitSetup.cs", "nameof(RateLimitWindow.PermitLimit)")] = "PermitLimit",
         [("RateLimitSetup.cs", "nameof(RateLimitPartitionBy.Ip)")] = "Ip",
         [("RateLimitSetup.cs", "nameof(RateLimitPartitionBy.User)")] = "User",
         [("RateLimitSetup.cs", "nameof(RateLimitPartitionBy.ApiKey)")] = "ApiKey",
-        [("KeyRing.cs", "MinimumKeyLength")] = "32",
+        [("KeyRing.cs", "MinimumKeyLength")] = N(KeyRing.MinimumKeyLength),
         [("EmailVerificationOptions.cs", "RequiredKey")] = "Auth:RequireEmailVerification",
         [("EmailVerificationOptions.cs", "AcknowledgeKey")] = "Auth:AcknowledgeUnverifiedRegistration",
         [("TenancyOptions.cs", "ModeKey")] = "Tenancy:Mode",
@@ -110,6 +115,35 @@ public sealed class TroubleshootingPageTests
             + string.Join("\n  ", problems));
     }
 
+    // The page also states some of these numbers in prose, outside any quoted block. Each must say
+    // what the constant says.
+    [Fact]
+    public void A_number_the_page_states_in_prose_is_the_one_the_code_uses()
+    {
+        var page = Normalise(File.ReadAllText(Path.Combine(RepoRoot(), Page)));
+        var jwt = N(JwtKeyGuard.MinLength);
+        var admin = N(InitialAdminGuard.MinLength);
+        var keyRing = N(KeyRing.MinimumKeyLength);
+        var renderer = N(RateLimitSetup.RendererKeyMinLength);
+
+        string[] expected =
+        [
+            $"unset or under {jwt} characters",
+            $"random value of {jwt} characters or more, for example",
+            $"it is shorter than {admin} characters",
+            $"random value of {admin} characters or more.",
+            $"a value of {keyRing} characters or more that is not the JWT key",
+            $"a secret of {renderer} characters or more, or absent",
+        ];
+
+        var missing = expected.Where(e => !page.Contains(Normalise(e), StringComparison.Ordinal)).ToList();
+        Assert.True(missing.Count == 0,
+            $"{Page} states a length that no longer matches the code. Update the page to the constant's value:\n  "
+            + string.Join("\n  ", missing));
+    }
+
+    // File level: a guard class has to be named, and has to still throw. This does not prove that
+    // each refusal inside it is on the page; the page lists the common ones.
     [Fact]
     public void Every_guard_that_can_stop_a_start_is_named_on_the_page()
     {
@@ -196,11 +230,12 @@ public sealed class TroubleshootingPageTests
     }
 
     // The text a user would read: comments gone, adjacent literals joined, constant holes filled in,
-    // escapes undone, runs of white space squeezed. A yml file is searched as it is.
+    // escapes undone, runs of white space squeezed. A yml file is searched as it is, minus its
+    // comment lines, so a comment cannot stand in for the text a reader sees.
     private static string SearchableText(string relativePath, string raw)
     {
         if (!relativePath.EndsWith(".cs", StringComparison.Ordinal))
-            return Normalise(raw);
+            return Normalise(string.Join('\n', raw.Split('\n').Where(l => !l.TrimStart().StartsWith('#'))));
 
         var file = Path.GetFileName(relativePath);
         var text = ConfigurationKeyScanner.StripComments(raw);
