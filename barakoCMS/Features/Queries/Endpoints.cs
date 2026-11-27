@@ -22,11 +22,23 @@ internal sealed class QueryResponse
     public QueryRange? Range { get; init; }
     public List<QueryGroup>? GroupBy { get; init; }
     public List<QueryMeasure>? Measures { get; init; }
+
+    /// <summary>The query as text, in the one form a save of it reads back as the same query.</summary>
+    public string Text { get; init; } = string.Empty;
+
     public DateTime CreatedAt { get; init; }
     public DateTime UpdatedAt { get; init; }
 
+    /// <summary>The text of a stored query. An old one that has no text form reads as empty and still lists.</summary>
+    private static string TextOf(QueryDefinition q)
+    {
+        try { return barakoCMS.Core.Expressions.QueryText.Print(q); }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or NullReferenceException) { return string.Empty; }
+    }
+
     public static QueryResponse From(QueryDefinition q) => new()
     {
+        Text = TextOf(q),
         Id = q.Id,
         Name = q.Name,
         Slug = q.Slug,
@@ -57,6 +69,37 @@ internal class SaveQueryRequest
     public QueryRange? Range { get; set; }
     public List<QueryGroup>? GroupBy { get; set; }
     public List<QueryMeasure>? Measures { get; set; }
+
+    /// <summary>
+    /// The query written as text, for example <c>from student where Number = @data.StudentNo select Email limit 1</c>.
+    /// Given instead of the content type, filters, sort, fields, limit, range, groups and measures,
+    /// and never with them.
+    /// </summary>
+    public string? Text { get; set; }
+}
+
+/// <summary>A preview of a saved query: the values its parameters take, when it has any.</summary>
+internal sealed class PreviewQueryRequest
+{
+    public string Slug { get; set; } = string.Empty;
+
+    /// <summary>The value of each parameter by its name without the at sign, for example <c>data.StudentNo</c>.</summary>
+    public Dictionary<string, string>? Parameters { get; set; }
+}
+
+internal static class QueryForms
+{
+    /// <summary>
+    /// Whether a query uses what only a step's run reads: a parameter, a system field or a followed
+    /// reference. Every other query is read exactly as it always was.
+    /// </summary>
+    public static bool NeedsAContext(QueryDefinition q) =>
+        q.Filters.Any(f => f.Param is not null || Array.IndexOf(barakoCMS.Core.Expressions.QueryText.SystemFields, f.Field) >= 0)
+        || (q.SortField is not null && Array.IndexOf(barakoCMS.Core.Expressions.QueryText.SystemFields, q.SortField) >= 0)
+        || q.Fields.Any(f => f.Contains('.') || Array.IndexOf(barakoCMS.Core.Expressions.QueryText.SystemFields, f) >= 0);
+
+    public static Guid UserIdOf(System.Security.Claims.ClaimsPrincipal user) =>
+        Guid.TryParse(user.FindFirst("UserId")?.Value, out var id) ? id : Guid.Empty;
 }
 
 internal sealed class QueryPreviewResponse
@@ -140,6 +183,7 @@ internal sealed class GetQueryEndpoint(IQuerySession session) : EndpointWithoutR
 internal sealed class SaveQueryEndpoint(
     IDocumentSession session,
     IQueryRunner runner,
+    IContextQueryRunner contextRunner,
     barakoCMS.Infrastructure.Services.IPermissionResolver permissions,
     barakoCMS.Core.Interfaces.ISensitivityService sensitivity,
     barakoCMS.Infrastructure.Multitenancy.TenantContext tenant) : Endpoint<SaveQueryRequest, QueryResponse>
@@ -165,9 +209,39 @@ internal sealed class SaveQueryEndpoint(
         return null;
     }
 
+    /// <summary>Fills the members from the text, or says why it cannot be read or why it was given with them.</summary>
+    private static string? ReadText(SaveQueryRequest req)
+    {
+        if (req.Text is null) return null;
+
+        if (!string.IsNullOrWhiteSpace(req.ContentType) || req.Filters is { Count: > 0 } || req.Fields is { Count: > 0 }
+            || !string.IsNullOrWhiteSpace(req.SortField) || req.Range is not null || req.GroupBy is { Count: > 0 }
+            || req.Measures is { Count: > 0 })
+        {
+            return "Give the query as text or as its parts, not both.";
+        }
+
+        var read = barakoCMS.Core.Expressions.QueryText.Parse(req.Text);
+        if (read.Definition is not { } parsed) return read.Error;
+
+        req.ContentType = parsed.ContentType;
+        req.Filters = parsed.Filters;
+        req.SortField = parsed.SortField;
+        req.Descending = parsed.Descending;
+        req.Limit = parsed.Limit;
+        req.Fields = parsed.Fields;
+        req.Range = parsed.Range;
+        req.GroupBy = parsed.GroupBy;
+        req.Measures = parsed.Measures;
+        return null;
+    }
+
     public override async Task HandleAsync(SaveQueryRequest req, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Name)) { ThrowError("Name is required.", 400); return; }
+
+        var textRefusal = ReadText(req);
+        if (textRefusal is not null) { ThrowError(textRefusal, 400); return; }
         if (!Slugs.IsValid(req.Slug))
         {
             ThrowError("Slug must be lowercase letters, digits and hyphens.", 400);
@@ -208,7 +282,12 @@ internal sealed class SaveQueryEndpoint(
         var refusal = definition.IsAggregate
             ? (await new Run.AggregateQuery(session, permissions, sensitivity)
                 .RunAsync(definition, User, null, null, execute: false, ct)).Refusal
-            : await runner.ValidateAsync(definition, ct);
+            : QueryForms.NeedsAContext(definition)
+                // Judged for whoever saves it, the same way a step reads, so a query that names a
+                // field its author may not read is refused here and not at the first run.
+                ? await contextRunner.ValidateAsync(
+                    definition, new QueryRunContext(null) { AsActor = true, Actor = QueryForms.UserIdOf(User) }, ct)
+                : await runner.ValidateAsync(definition, ct);
         if (refusal is not null)
         {
             ThrowError(refusal, 400);
@@ -375,8 +454,9 @@ internal sealed class EraseQueryEndpoint(
 internal sealed class PreviewQueryEndpoint(
     IQuerySession session,
     IQueryRunner runner,
+    IContextQueryRunner contextRunner,
     barakoCMS.Infrastructure.Services.IPermissionResolver permissions,
-    barakoCMS.Core.Interfaces.ISensitivityService sensitivity) : EndpointWithoutRequest<QueryPreviewResponse>
+    barakoCMS.Core.Interfaces.ISensitivityService sensitivity) : Endpoint<PreviewQueryRequest, QueryPreviewResponse>
 {
     public override void Configure()
     {
@@ -384,7 +464,7 @@ internal sealed class PreviewQueryEndpoint(
         Definition.RequireCapability(SystemCapabilities.ManageQueries, QueryGate.LegacyRoles);
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(PreviewQueryRequest req, CancellationToken ct)
     {
         var slug = Route<string>("slug") ?? string.Empty;
 
@@ -398,6 +478,24 @@ internal sealed class PreviewQueryEndpoint(
         if (definition is null)
         {
             await Send.NotFoundAsync(ct);
+            return;
+        }
+
+        if (!definition.IsAggregate && (QueryForms.NeedsAContext(definition) || req.Parameters is { Count: > 0 }))
+        {
+            // The values are the ones the caller typed, bound as values. The rows are read as the
+            // caller, the way a step reads as the user behind its event.
+            var shown = await contextRunner.RunAsync(
+                definition,
+                new QueryRunContext(req.Parameters) { AsActor = true, Actor = QueryForms.UserIdOf(User) }, ct);
+
+            await Send.ResponseAsync(new QueryPreviewResponse
+            {
+                Ok = shown.Ok,
+                Refusal = shown.Refusal,
+                Count = shown.Count,
+                Rows = shown.Rows,
+            }, cancellation: ct);
             return;
         }
 
