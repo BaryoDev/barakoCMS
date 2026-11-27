@@ -249,6 +249,11 @@ internal static class UniquenessRules
                 {
                     errors.Add($"Uniqueness rule '{label}' names the field '{Shorten(name)}', which the type does not declare.");
                 }
+                else if (field.Computed is { } computed && ComputedFields.HasExpression(computed))
+                {
+                    errors.Add($"Uniqueness rule '{label}' names the field '{field.Name}', which a formula computes. "
+                        + "A rule cannot compare a formula field, because a recompute would refuse the second entry that works out the same value.");
+                }
                 else if (!IsComparable(field.Type) || field.Multiple)
                 {
                     errors.Add($"Uniqueness rule '{label}' names the field '{field.Name}', and a rule compares a field "

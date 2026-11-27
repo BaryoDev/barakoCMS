@@ -297,6 +297,69 @@ public class ComputedExpressionSchemaTests
             .Should().BeFalse("a function rule keeps today's behaviour and starts no backfill");
     }
 
+    private static List<UniquenessRule> Unique(string rule, params string[] fields) =>
+        [new UniquenessRule { Name = rule, Fields = fields.ToList() }];
+
+    [Fact]
+    public void A_uniqueness_rule_over_a_formula_field_is_refused_with_the_rule_and_the_field()
+    {
+        var (isValid, errors) = ((IContentTypeValidatorService)Validator).ValidateUniqueness(Unique("OneTotal", "Total"), Order().ToList(), null);
+
+        isValid.Should().BeFalse();
+        errors.Should().ContainSingle(e => e.Contains("'OneTotal'") && e.Contains("'Total'") && e.Contains("formula"));
+    }
+
+    [Fact]
+    public void A_uniqueness_rule_over_a_function_rule_field_is_still_accepted()
+    {
+        var total = new FieldDefinition
+        {
+            Name = "Total", DisplayName = "Total", Type = "decimal",
+            Computed = new ComputedDefinition { Fn = "add", Args = ["Qty", "Cost"] },
+        };
+
+        var (isValid, errors) = ((IContentTypeValidatorService)Validator).ValidateUniqueness(
+            Unique("OneTotal", "Total"), [Plain("Qty", "decimal"), Plain("Cost", "decimal"), total], null);
+
+        errors.Should().BeEmpty();
+        isValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void An_upsert_turning_a_function_rule_into_a_formula_under_a_stored_uniqueness_rule_is_refused()
+    {
+        FieldDefinition[] Fields(ComputedDefinition computed) =>
+        [
+            Plain("Qty", "decimal"),
+            Plain("Cost", "decimal"),
+            new() { Name = "Total", DisplayName = "Total", Type = "decimal", Computed = computed },
+        ];
+
+        var stored = TypeOf(Fields(new ComputedDefinition { Fn = "add", Args = ["Qty", "Cost"] }));
+        stored.Uniqueness = Unique("OneTotal", "Total");
+        var incoming = TypeOf(Fields(new ComputedDefinition { Expression = "Qty * Cost" }));
+
+        var errors = ContentTypeUpsert.DefinitionErrors(Validator, incoming, stored, 100);
+
+        errors.Should().ContainSingle(e => e.Contains("'OneTotal'") && e.Contains("'Total'") && e.Contains("formula"));
+    }
+
+    [Fact]
+    public void An_upsert_leaving_a_function_rule_under_a_stored_uniqueness_rule_is_accepted()
+    {
+        FieldDefinition[] Fields() =>
+        [
+            Plain("Qty", "decimal"),
+            Plain("Cost", "decimal"),
+            new() { Name = "Total", DisplayName = "Total", Type = "decimal", Computed = new ComputedDefinition { Fn = "add", Args = ["Qty", "Cost"] } },
+        ];
+
+        var stored = TypeOf(Fields());
+        stored.Uniqueness = Unique("OneTotal", "Total");
+
+        ContentTypeUpsert.DefinitionErrors(Validator, TypeOf(Fields()), stored, 100).Should().BeEmpty();
+    }
+
     // Integration: a type saved through the API in its own tenant.
 
     private async Task<(string Slug, HttpClient Admin)> TenantAsync()
@@ -502,5 +565,38 @@ public class ComputedExpressionSchemaTests
 
         await using var session = _fixture.Services.GetRequiredService<IDocumentStore>().QuerySession(slug);
         (await session.Query<FieldChange>().CountAsync(c => c.ContentType == type, Ct)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_type_declaring_a_uniqueness_rule_over_a_formula_field_is_a_400()
+    {
+        var (_, admin) = await TenantAsync();
+
+        var res = await admin.PostAsJsonAsync("/api/content-types", new
+        {
+            name = NewName(), displayName = "Order", isPubliclyDeliverable = true, fields = ApiFields("Qty * Cost"),
+            uniqueness = new[] { new { name = "OneTotal", fields = new[] { "Total" } } },
+        }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, await res.Content.ReadAsStringAsync(Ct));
+        (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("'OneTotal'").And.Contain("'Total'").And.Contain("formula");
+    }
+
+    [Fact]
+    public async Task Setting_a_uniqueness_rule_over_a_formula_field_is_a_400_and_stores_nothing()
+    {
+        var (slug, admin) = await TenantAsync();
+        var type = NewName();
+        (await CreateTypeAsync(admin, type, ApiFields("Qty * Cost"))).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var res = await admin.PutAsJsonAsync(
+            $"/api/content-types/{type}/uniqueness",
+            new { uniqueness = new[] { new { name = "OneTotal", fields = new[] { "Total" } } } }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, await res.Content.ReadAsStringAsync(Ct));
+        (await res.Content.ReadAsStringAsync(Ct)).Should().Contain("'OneTotal'").And.Contain("'Total'").And.Contain("formula");
+
+        await using var session = _fixture.Services.GetRequiredService<IDocumentStore>().QuerySession(slug);
+        (await session.Query<ContentTypeDefinition>().SingleAsync(d => d.Name == type, Ct)).Uniqueness.Should().BeNullOrEmpty();
     }
 }

@@ -472,6 +472,16 @@ public static class ContentTypeUpsert
         {
             foreach (var name in rule?.Fields ?? [])
             {
+                // The stored rule stays, so a formula on a field it compares is refused here, the way
+                // a new type's rules are refused over a formula field.
+                if (type.Fields.FirstOrDefault(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is { Computed: { } formula } computed
+                    && barakoCMS.Core.Validation.ComputedFields.HasExpression(formula))
+                {
+                    yield return $"Uniqueness rule '{rule!.Name}' names the field '{computed.Name}', which a formula computes. "
+                                 + "A rule cannot compare a formula field. Keep the rule's field as it is stored.";
+                    continue;
+                }
+
                 if (string.Equals(name, UniquenessRule.CreatedByField, StringComparison.OrdinalIgnoreCase)
                     || !stored.Fields.Any(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
                     || type.Fields.Any(f => f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
