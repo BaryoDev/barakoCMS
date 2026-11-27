@@ -585,8 +585,7 @@ public static class ContentTypeUpsert
     private static bool TakesPartInComputation(ContentTypeDefinition type, FieldDefinition field, FieldDefinition held) =>
         field.Computed is not null
         || held.Computed is not null
-        || type.Fields.Any(f => f.Computed?.Args is { } args
-            && args.Any(a => string.Equals(a, field.Name, StringComparison.OrdinalIgnoreCase)));
+        || type.Fields.Any(f => barakoCMS.Core.Validation.ComputedFields.Reads(f.Computed, field.Name));
 
     /// <summary>
     /// Same level, role list, mask and computation as the stored field. A field matched to its
