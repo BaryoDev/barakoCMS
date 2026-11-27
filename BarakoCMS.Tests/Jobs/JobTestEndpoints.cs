@@ -93,3 +93,30 @@ internal sealed class AlwaysFailsCommandHandler : ICommandHandler<AlwaysFailsCom
     public Task ExecuteAsync(AlwaysFailsCommand command, CancellationToken ct) =>
         throw new InvalidOperationException(Reason);
 }
+
+/// <summary>
+/// Queues on a session other than the request's, then saves the one the query names: "other" or
+/// "request". The job commits with the first and never with the second.
+/// </summary>
+internal sealed class EnqueueOnOtherSessionEndpoint(IDocumentSession session, IDocumentStore store) : EndpointWithoutRequest<Guid>
+{
+    public override void Configure()
+    {
+        Post("/api/_test/jobs/enqueue-on-other-session");
+        AllowAnonymous();
+        Description(b => b.ExcludeFromDescription());
+    }
+
+    public override async Task HandleAsync(CancellationToken ct)
+    {
+        await using var other = store.LightweightSession(Query<string>("tenant")!);
+        Guid id;
+        using (JobEnqueue.On(other))
+        {
+            id = await new LogMessageCommand { Message = Query<string>("message")! }.QueueJobAsync(ct: ct);
+        }
+
+        await (Query<string>("save") == "other" ? other : session).SaveChangesAsync(ct);
+        await Send.OkAsync(id, ct);
+    }
+}

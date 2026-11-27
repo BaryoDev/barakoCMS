@@ -1,0 +1,1 @@
+- **A formula recompute started by an account add-field, a bundle import or a config apply left its type locked.** The change was saved running but its job was queued on the request's session and never committed. The job now queues on the session that saves the change, so it commits and rolls back with it.

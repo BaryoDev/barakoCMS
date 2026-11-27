@@ -110,7 +110,11 @@ internal static class FieldChanges
         session.Store(change);
 
         DateTime? executeAfter = inlineWhenSmall && RunsInline(change) ? DateTime.UtcNow.Add(InlineGrace) : null;
-        await new FieldChangeCommand { TenantId = session.TenantId, ChangeId = change.Id }.QueueJobAsync(executeAfter, ct: ct);
+        using (JobEnqueue.On(session))
+        {
+            await new FieldChangeCommand { TenantId = session.TenantId, ChangeId = change.Id }.QueueJobAsync(executeAfter, ct: ct);
+        }
+
         return null;
     }
 

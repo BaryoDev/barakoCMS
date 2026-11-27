@@ -10,7 +10,7 @@ using Marten.Services;
 namespace barakoCMS.Infrastructure.Jobs;
 
 /// <summary>
-/// FastEndpoints job storage on Marten, with the enqueue riding the request's own session.
+/// FastEndpoints job storage on Marten, with the enqueue riding the session the caller writes with.
 /// </summary>
 /// <remarks>
 /// <see cref="StoreJobAsync"/> receives a record and a token and nothing else, and this class is a
@@ -20,9 +20,13 @@ namespace barakoCMS.Infrastructure.Jobs;
 /// is staged into that session and commits when the endpoint calls <c>SaveChangesAsync</c>, or not
 /// at all. <c>TransactionalEnqueueTests</c> is the proof, both directions.
 ///
+/// A caller that writes with another session (a tenant session, a batch scope's session) names it
+/// with <see cref="JobEnqueue.On"/>. The job is then staged on that session, in that session's
+/// tenant, and commits or rolls back with it. Without the scope the request's session is used.
+///
 /// That is a property of how the request is written, not of the contract. Two rules follow, and
-/// both are on the endpoint: queue through the scoped session you are already writing with, and
-/// call <c>SaveChangesAsync</c> afterwards. A request that queues and never saves discards the job,
+/// both are on the endpoint: queue through the session you are writing with, and call
+/// <c>SaveChangesAsync</c> afterwards. A request that queues and never saves discards the job,
 /// and this class logs a warning when that happens on a successful response so it is at least
 /// visible.
 ///
@@ -90,9 +94,10 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         r.DequeueAfter = r.ExecuteAfter;
 
         var http = _http.HttpContext;
-        var session = http?.RequestServices.GetService<IDocumentSession>();
+        var requestSession = http?.RequestServices.GetService<IDocumentSession>();
+        var session = JobEnqueue.Current ?? requestSession;
 
-        if (http is null || session is null)
+        if (session is null)
         {
             await using var own = _store.LightweightSession();
             r.TenantId = own.TenantId;
@@ -108,8 +113,18 @@ internal sealed class MartenJobStorageProvider : IJobStorageProvider<JobRecord>
         // that wake finds nothing. This one fires after the commit and finds the job.
         var trigger = new TriggerJobAfterCommit((ICommandBase)r.Command);
         session.Listeners.Add(trigger);
-        var origin = Origin(http);
 
+        // Only the request's own session is expected to commit. A session named through
+        // JobEnqueue may be rolled back on purpose, as a plan or a dry run is.
+        if (http is not null && ReferenceEquals(session, requestSession))
+        {
+            WarnIfDiscarded(http, r, trigger);
+        }
+    }
+
+    private void WarnIfDiscarded(HttpContext http, JobRecord r, TriggerJobAfterCommit trigger)
+    {
+        var origin = Origin(http);
         http.Response.OnCompleted(() =>
         {
             if (!trigger.Committed && http.Response.StatusCode < 400)
