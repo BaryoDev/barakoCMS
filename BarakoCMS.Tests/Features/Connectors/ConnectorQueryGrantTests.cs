@@ -140,6 +140,25 @@ public class ConnectorQueryGrantTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
+    public async Task A_followed_reference_to_a_hidden_entry_sends_the_row_without_its_value()
+    {
+        var s = await GrantKit.SeedLinesAsync(fixture, (_, products) => [products + ".Cost"]);
+        using (var scope = fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            var product = await session.Query<Content>().Where(c => c.ContentType == s.Products).SingleAsync(Ct);
+            product.Sensitivity = SensitivityLevel.Hidden;
+            session.Store(product);
+            await session.SaveChangesAsync(Ct);
+        }
+
+        var composed = await ComposeAsync(s, new QueryDefinition { Fields = ["Qty", "Product.Cost"] });
+
+        composed.Ok.Should().BeTrue("got: {0}", composed.Refusal);
+        composed.Body.Should().Contain("Qty").And.NotContain(CostValue, "a grant on the type does not open an entry Hidden by its own level");
+    }
+
+    [Fact]
     public async Task A_query_judges_its_fields_by_the_account_definition_and_not_by_a_looser_tenant_copy()
     {
         var subject = await GrantKit.SeedAsync(fixture, []);
