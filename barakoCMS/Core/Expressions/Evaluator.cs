@@ -96,6 +96,7 @@ internal sealed class Evaluator(ExpressionLimits limits, ValueResolver values, T
             Literal literal => literal.Value,
             NameNode name => Read(name),
             UnaryNode unary => EvalUnary(unary, depth),
+            ChainNode chain => EvalChain(chain, depth),
             BinaryNode binary => EvalBinary(binary, depth),
             CallNode call => EvalCall(call, depth),
             _ => throw new Abort(new ExpressionError(Rules.Syntax, node.Position, "this part cannot be evaluated")),
@@ -122,31 +123,47 @@ internal sealed class Evaluator(ExpressionLimits limits, ValueResolver values, T
 
     private object? EvalBinary(BinaryNode node, int depth)
     {
-        if (node.Op is "and" or "or")
-            return EvalLogic(node, depth);
-
         var left = Eval(node.Left, depth + 1);
         var right = Eval(node.Right, depth + 1);
-        return node.Op is "+" or "-" or "*" or "/"
-            ? Arithmetic(node, left, right)
-            : Comparison(node, left, right);
+        return Comparison(node, left, right);
     }
 
-    private object? EvalLogic(BinaryNode node, int depth)
+    /// <summary>Walks a flat run left to right in a loop, so a long chain does not recurse.</summary>
+    private object? EvalChain(ChainNode node, int depth)
     {
-        var decisive = node.Op == "or";
-        var left = (bool?)Eval(node.Left, depth + 1);
-        if (left == decisive)
-            return decisive;
+        if (node.Ops[0] is "and" or "or")
+            return EvalLogic(node, depth);
 
-        var right = (bool?)Eval(node.Right, depth + 1);
-        if (right == decisive)
-            return decisive;
+        var acc = Eval(node.Operands[0], depth + 1);
+        for (var i = 0; i < node.Ops.Count; i++)
+        {
+            var right = Eval(node.Operands[i + 1], depth + 1);
+            acc = Arithmetic(node.Ops[i], node.OpPositions[i], acc, right);
+        }
 
-        return left is null || right is null ? null : !decisive;
+        return acc;
     }
 
-    private object? Arithmetic(BinaryNode node, object? left, object? right)
+    private object? EvalLogic(ChainNode node, int depth)
+    {
+        var decisive = node.Ops[0] == "or";
+        var acc = (bool?)Eval(node.Operands[0], depth + 1);
+        for (var i = 1; i < node.Operands.Count; i++)
+        {
+            if (acc == decisive)
+                return decisive;
+
+            var right = (bool?)Eval(node.Operands[i], depth + 1);
+            if (right == decisive)
+                return decisive;
+
+            acc = acc is null || right is null ? null : !decisive;
+        }
+
+        return acc;
+    }
+
+    private object? Arithmetic(string op, int position, object? left, object? right)
     {
         if (left is null || right is null)
             return null;
@@ -154,7 +171,7 @@ internal sealed class Evaluator(ExpressionLimits limits, ValueResolver values, T
         decimal a = (decimal)left, b = (decimal)right;
         try
         {
-            switch (node.Op)
+            switch (op)
             {
                 case "+":
                     return a + b;
@@ -163,12 +180,12 @@ internal sealed class Evaluator(ExpressionLimits limits, ValueResolver values, T
                 case "*":
                     return a * b;
                 default:
-                    return b == 0m ? Local(Rules.DivisionByZero, node.Position, "division by zero gives null") : a / b;
+                    return b == 0m ? Local(Rules.DivisionByZero, position, "division by zero gives null") : a / b;
             }
         }
         catch (OverflowException)
         {
-            return Local(Rules.Overflow, node.Position, "the number is out of range, so the result is null");
+            return Local(Rules.Overflow, position, "the number is out of range, so the result is null");
         }
     }
 

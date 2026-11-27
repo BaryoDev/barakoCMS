@@ -22,6 +22,7 @@ internal sealed class TypeChecker(NameResolver names, bool refuseClock)
         Literal literal => literal.Type,
         NameNode name => CheckName(name),
         UnaryNode unary => CheckUnary(unary),
+        ChainNode chain => CheckChain(chain),
         BinaryNode binary => CheckBinary(binary),
         CallNode call => CheckCall(call),
         _ => null,
@@ -47,12 +48,15 @@ internal sealed class TypeChecker(NameResolver names, bool refuseClock)
     {
         if (name.IsSystem)
         {
+            if (names(name.Name) is { } shadowed && shadowed != ExprType.Null)
+                return Report(Rules.AmbiguousName, name.Position, $"'{name.Name}' is a system name and a field of this type; write data. before it to read the field");
+
             name.Type = name.Name is "createdAt" or "updatedAt" ? ExprType.Date : ExprType.Text;
             return name.Type;
         }
 
         if (names(name.Name) is not { } type || type == ExprType.Null)
-            return Report(Rules.UnknownName, name.Position, $"the type has no field '{name.Name}' that a formula can read");
+            return Report(Rules.UnknownName, name.Position, "the type has no field of this name that a formula can read");
 
         if (_used.Add(name.Name))
             _usedInOrder.Add(name.Name);
@@ -69,6 +73,24 @@ internal sealed class TypeChecker(NameResolver names, bool refuseClock)
             Report(Rules.TypeMismatch, unary.Position, $"'{unary.Op}' takes {Values.Word(wanted)}, and this is {Values.Word(operand!.Value)}");
 
         return wanted;
+    }
+
+    private ExprType? CheckChain(ChainNode node)
+    {
+        var types = node.Operands.Select(Check).ToList();
+        var arithmetic = node.Ops[0] is "+" or "-" or "*" or "/";
+        var operands = arithmetic ? ExprType.Number : ExprType.Bool;
+        for (var i = 0; i < node.Ops.Count; i++)
+        {
+            var (left, right) = (i == 0 ? types[0] : operands, types[i + 1]);
+            if (left is null || right is null)
+                continue;
+
+            if (!Fits(left, operands) || !Fits(right, operands))
+                Report(Rules.TypeMismatch, node.OpPositions[i], $"'{node.Ops[i]}' takes {Values.Word(operands)} on both sides, and this has {Values.Word(left.Value)} and {Values.Word(right.Value)}");
+        }
+
+        return operands;
     }
 
     private ExprType? CheckBinary(BinaryNode node)
@@ -107,7 +129,7 @@ internal sealed class TypeChecker(NameResolver names, bool refuseClock)
         var types = call.Args.Select(Check).ToList();
         var def = FunctionTable.Find(call.Name);
         if (def is null)
-            return Report(Rules.UnknownFunction, call.Position, $"'{call.Name}' is not a function; the list is fixed");
+            return Report(Rules.UnknownFunction, call.Position, "this is not a function; the list is fixed");
 
         if (call.Args.Count < def.Min || (def.Max >= 0 && call.Args.Count > def.Max))
             return Report(Rules.Arity, call.Position, $"{def.Name} takes {ArityText(def)} arguments, and {call.Args.Count} were given");

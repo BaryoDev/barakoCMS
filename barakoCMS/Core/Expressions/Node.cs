@@ -42,6 +42,21 @@ internal sealed class BinaryNode(int position, string op, Node left, Node right)
     public Node Right { get; } = right;
 }
 
+/// <summary>
+/// A run of one precedence level, such as <c>a + b - c</c> or <c>a and b and c</c>, read left to
+/// right. It is one node however long the run is, so the tree stays flat and the evaluator loops.
+/// Operator <c>i</c> sits between operand <c>i</c> and operand <c>i + 1</c>.
+/// </summary>
+internal sealed class ChainNode(int position, IReadOnlyList<Node> operands, IReadOnlyList<string> ops, IReadOnlyList<int> opPositions)
+    : Node(position, operands.Max(o => o.Height) + 1)
+{
+    public IReadOnlyList<Node> Operands { get; } = operands;
+
+    public IReadOnlyList<string> Ops { get; } = ops;
+
+    public IReadOnlyList<int> OpPositions { get; } = opPositions;
+}
+
 internal sealed class CallNode(int position, string name, IReadOnlyList<Node> args)
     : Node(position, (args.Count == 0 ? 0 : args.Max(a => a.Height)) + 1)
 {

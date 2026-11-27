@@ -10,6 +10,7 @@ internal sealed record ParsedTree(Node? Root, int Nodes, ExpressionError? Error)
 /// </summary>
 /// <remarks>
 /// Precedence, loosest first: or, and, not, comparison (not chained), + and -, * and /, unary minus.
+/// A run of one level is one flat node, so a long chain costs one level of depth.
 /// </remarks>
 internal sealed class Parser
 {
@@ -83,29 +84,9 @@ internal sealed class Parser
         return node;
     }
 
-    private Node ParseOr()
-    {
-        var left = ParseAnd();
-        while (PeekWord("or"))
-        {
-            var at = Next().Position;
-            left = Make(new BinaryNode(at, "or", left, ParseAnd()));
-        }
+    private Node ParseOr() => ParseChain(ParseAnd, _ => PeekWord("or") ? "or" : null);
 
-        return left;
-    }
-
-    private Node ParseAnd()
-    {
-        var left = ParseNot();
-        while (PeekWord("and"))
-        {
-            var at = Next().Position;
-            left = Make(new BinaryNode(at, "and", left, ParseNot()));
-        }
-
-        return left;
-    }
+    private Node ParseAnd() => ParseChain(ParseNot, _ => PeekWord("and") ? "and" : null);
 
     private Node ParseNot()
     {
@@ -140,28 +121,38 @@ internal sealed class Parser
         return Make(new BinaryNode(at, op, left, ParseSum()));
     }
 
-    private Node ParseSum()
+    private Node ParseSum() => ParseChain(ParseProduct, t => t.Kind switch
     {
-        var left = ParseProduct();
-        while (Peek.Kind is TokenKind.Plus or TokenKind.Minus)
+        TokenKind.Plus => "+",
+        TokenKind.Minus => "-",
+        _ => null,
+    });
+
+    private Node ParseProduct() => ParseChain(ParseUnary, t => t.Kind switch
+    {
+        TokenKind.Star => "*",
+        TokenKind.Slash => "/",
+        _ => null,
+    });
+
+    /// <summary>Reads operands joined by operators of one level into a single flat node.</summary>
+    private Node ParseChain(Func<Node> operand, Func<Token, string?> opAt)
+    {
+        var first = operand();
+        if (opAt(Peek) is null)
+            return first;
+
+        var operands = new List<Node> { first };
+        var ops = new List<string>();
+        var positions = new List<int>();
+        while (opAt(Peek) is { } op)
         {
-            var token = Next();
-            left = Make(new BinaryNode(token.Position, token.Kind == TokenKind.Plus ? "+" : "-", left, ParseProduct()));
+            positions.Add(Next().Position);
+            ops.Add(op);
+            operands.Add(operand());
         }
 
-        return left;
-    }
-
-    private Node ParseProduct()
-    {
-        var left = ParseUnary();
-        while (Peek.Kind is TokenKind.Star or TokenKind.Slash)
-        {
-            var token = Next();
-            left = Make(new BinaryNode(token.Position, token.Kind == TokenKind.Star ? "*" : "/", left, ParseUnary()));
-        }
-
-        return left;
+        return Make(new ChainNode(positions[0], operands, ops, positions));
     }
 
     private Node ParseUnary()

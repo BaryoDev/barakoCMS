@@ -25,6 +25,7 @@ internal static class Rules
     public const string Syntax = "syntax";
     public const string MemberAccess = "member-access";
     public const string UnknownName = "unknown-name";
+    public const string AmbiguousName = "ambiguous-name";
     public const string UnknownFunction = "unknown-function";
     public const string Arity = "arity";
     public const string TypeMismatch = "type-mismatch";

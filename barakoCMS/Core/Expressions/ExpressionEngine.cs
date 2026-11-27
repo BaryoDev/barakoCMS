@@ -16,7 +16,7 @@ internal static class ExpressionEngine
     /// Parses a formula and checks every name and type. <paramref name="refuseClock"/> refuses
     /// <c>today()</c> and <c>now()</c>, for a stored computed field whose value would go stale.
     /// </summary>
-    public static ParseResult ParseAndCheck(string? source, NameResolver names, bool refuseClock = false, ExpressionLimits? limits = null)
+    public static ParseResult ParseAndCheck(string? source, NameResolver names, bool refuseClock, ExpressionLimits? limits = null)
     {
         limits ??= ExpressionLimits.Default;
         if (string.IsNullOrWhiteSpace(source))
@@ -49,8 +49,8 @@ internal static class ExpressionEngine
     /// Evaluates a checked formula. The result is a decimal, string, bool or DateTime, or null with
     /// an optional note saying why. The bounds are checked again here.
     /// </summary>
-    public static EvalResult Evaluate(CheckedExpression expression, ValueResolver values, TimeProvider? clock = null, ExpressionLimits? limits = null) =>
-        new Evaluator(limits ?? ExpressionLimits.Default, values, clock ?? TimeProvider.System).Run(expression);
+    public static EvalResult Evaluate(CheckedExpression expression, ValueResolver values, TimeProvider clock, ExpressionLimits? limits = null) =>
+        new Evaluator(limits ?? ExpressionLimits.Default, values, clock).Run(expression);
 
     private static ParseResult Refused(ExpressionError error) => new(null, [error]);
 }
