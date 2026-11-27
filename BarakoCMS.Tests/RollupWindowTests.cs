@@ -96,7 +96,7 @@ public class RollupWindowTests
         return R.SeedAsync(_fixture, s.Line, data, tenant: s.Tenant, createdAt: createdAt);
     }
 
-    private async Task DrainAsync(Setup s, FakeTimeProvider clock)
+    private async Task DrainAsync(Setup s, TimeProvider clock)
     {
         await R.DropQueuedDrainsAsync(_fixture, s.Tenant);
         var store = _fixture.Services.GetRequiredService<IDocumentStore>();
@@ -293,16 +293,27 @@ public class RollupWindowTests
     }
 
     [Fact]
-    public async Task A_drain_counts_every_header_of_a_job_by_the_day_it_started_on()
+    public async Task A_drain_counts_every_rollup_of_a_job_by_the_day_it_started_on()
     {
-        var s = await SetupAsync(null, Roll("createdAt", "today"));
+        var s = await SetupAsync(null, Roll("createdAt", "today"), Roll("createdAt", "today"));
         var header = await HeaderAsync(s);
         await LineAsync(s, header, createdAt: Utc("2026-11-20T23:59:00Z"));
-        var clock = At("2026-11-20T23:59:30Z");
 
-        await DrainAsync(s, clock);
-        clock.Advance(TimeSpan.FromMinutes(5));
+        // The run's first read of the clock is before midnight and every later read is after it,
+        // so a run that read the day again for its second rollup would count it on 21 November.
+        await DrainAsync(s, new SteppingClock(
+            DateTimeOffset.Parse("2026-11-20T23:59:30Z", System.Globalization.CultureInfo.InvariantCulture),
+            DateTimeOffset.Parse("2026-11-21T00:05:00Z", System.Globalization.CultureInfo.InvariantCulture)));
 
-        (await ValueAsync(s, header)).Should().Be(1);
+        (await ValueAsync(s, header, "R0")).Should().Be(1);
+        (await ValueAsync(s, header, "R1")).Should().Be(1, "both rollups count by the day the run started on");
+    }
+
+    /// <summary>A clock whose first read is <paramref name="first"/> and every later read <paramref name="later"/>.</summary>
+    private sealed class SteppingClock(DateTimeOffset first, DateTimeOffset later) : TimeProvider
+    {
+        private int _reads;
+
+        public override DateTimeOffset GetUtcNow() => Interlocked.Increment(ref _reads) == 1 ? first : later;
     }
 }
