@@ -79,6 +79,7 @@ internal class SaveQueryRequest
 }
 
 /// <summary>A preview of a saved query: the values its parameters take, when it has any.</summary>
+[barakoCMS.Infrastructure.OpenApi.OptionalBody]
 internal sealed class PreviewQueryRequest
 {
     public string Slug { get; set; } = string.Empty;
