@@ -286,7 +286,9 @@ public class RollupWriteTests
         result.Succeeded.Should().BeTrue(result.Error);
         await R.DrainAsync(_fixture);
 
-        (await R.ValuesAsync(_fixture, header)).Should().Be((1m, 8m, 8m));
+        // The action stores the text '8'. A number stored as text is skipped, as the aggregate query
+        // skips it, so the line counts and adds nothing. The count is what shows the header was marked.
+        (await R.ValuesAsync(_fixture, header)).Should().Be((1m, 0m, null));
     }
 
     [Fact]
