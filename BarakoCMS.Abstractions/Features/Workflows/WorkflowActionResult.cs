@@ -70,6 +70,13 @@ public sealed record WorkflowActionResult
     /// </remarks>
     public IReadOnlyList<Guid> ProducedFiles { get; init; } = [];
 
+    /// <summary>
+    /// A line for the attempt's record when the action succeeded but something about it is worth
+    /// reading later, such as a query that matched nothing. Stored and served over the API, so it
+    /// must not carry personal data. Null for none.
+    /// </summary>
+    public string? Note { get; init; }
+
     /// <summary>How many produced files one action may declare.</summary>
     public const int MaxProducedFiles = 20;
     /// <summary>The entries the action created, or null when it reported none.</summary>

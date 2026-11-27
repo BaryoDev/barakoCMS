@@ -257,7 +257,7 @@ for their runs to finish.
 
 An action can return outputs, and a later action of the same run can read them. A custom action
 returns them from `RunAsync(WorkflowContext, ct)` with `WorkflowActionResult.Success(outputs)`; none
-of the built-in actions returns any yet.
+of the built-in actions returns any except `Query`, which returns the first row of a saved query (docs/connectors.md, "The Query workflow step").
 
 The workflow says which outputs are kept, per action, in `capture`:
 
@@ -287,7 +287,8 @@ name, the reading action fails and is retried like any other failure, so an acti
 can wait for an earlier one still on its own retry. Saving a workflow warns about a reference to an
 action that does not run first or a name it does not capture.
 
-Kept outputs are served on each attempt as `outputs` in `GET /api/workflow-runs`, and are deleted
+Kept outputs are served on each attempt as `outputs` in `GET /api/workflow-runs`, except those of a
+`Query` step, which are entry values read as another user and are never served. They are deleted
 with the run when its retention window ends.
 
 ## Undoing what a run did

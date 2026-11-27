@@ -209,6 +209,8 @@ internal sealed partial class AggregateQuery(
                 return Unreadable(filter.Field, contentType);
             if (!Ops.TryGetValue(filter.Op ?? string.Empty, out var op))
                 return $"Unknown operator '{filter.Op}'. Supported: {string.Join(", ", Ops.Keys)}.";
+            if (filter.Param is not null)
+                return $"The filter on '{declared.Name}' takes a parameter, which only a workflow step gives a value. Use a literal value here.";
             if ((filter.Value?.Length ?? 0) > MaxFilterValueLength)
                 return $"The value of the filter on '{declared.Name}' is too long.";
 

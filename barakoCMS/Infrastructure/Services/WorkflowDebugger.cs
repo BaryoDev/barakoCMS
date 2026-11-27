@@ -195,7 +195,7 @@ public class WorkflowDebugger(IDocumentSession session, ILogger<WorkflowDebugger
     /// </remarks>
     private static readonly HashSet<string> RecordableParameterNames = new(StringComparer.OrdinalIgnoreCase)
     {
-        "ContentType", "Status", "Field", "TargetId", "Request", "TriggerEvent", "RunId", "WorkflowId", "Attempt",
+        "ContentType", "Status", "Field", "TargetId", "Request", "Query", "TriggerEvent", "RunId", "WorkflowId", "Attempt",
     };
 
     internal static Dictionary<string, string> RecordableParameters(IReadOnlyDictionary<string, string> parameters)

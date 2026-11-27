@@ -48,7 +48,8 @@ internal sealed class WorkflowConfigProvider(
     IWorkflowSchemaValidator validator,
     TenantContext tenant,
     IPermissionResolver permissions,
-    IWorkflowPluginRegistry registry) : IConfigProvider
+    IWorkflowPluginRegistry registry,
+    barakoCMS.Core.Interfaces.ISensitivityService? sensitivity = null) : IConfigProvider
 {
     public string Section => "workflows";
 
@@ -108,7 +109,7 @@ internal sealed class WorkflowConfigProvider(
             // workflow creates and moves. The host's own file (no caller) is the operator's to trust.
             if (caller.Principal is { } who)
             {
-                var missing = await WorkflowSaveRights.MissingAsync(session, permissions, registry, who, workflow, ct);
+                var missing = await WorkflowSaveRights.MissingAsync(session, permissions, registry, who, workflow, ct, sensitivity);
                 if (missing.Count > 0)
                 {
                     errors.AddRange(missing.Select(m => $"'{name}': {m}"));
