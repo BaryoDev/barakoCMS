@@ -160,6 +160,8 @@ public class ConnectorGrantApiTests(IntegrationTestFixture fixture)
     [InlineData("Ssn", "not a grant")]
     [InlineData("{type}.Ssn.Part", "not a grant")]
     [InlineData("{type}.", "not a grant")]
+    [InlineData("{type}.Ss\nn", "not a grant")]
+    [InlineData("{type}.\u0000Ssn", "not a grant")]
     public async Task An_entry_that_cannot_be_granted_is_refused_with_the_reason(string entry, string reason)
     {
         var type = await TypeAsync();
@@ -182,6 +184,7 @@ public class ConnectorGrantApiTests(IntegrationTestFixture fixture)
         var response = await CreateAsync(reader, GrantKit.Name("lk"), Home, entries);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(Ct)).Should().Contain("at most 200 entries");
     }
 
     [Theory]
