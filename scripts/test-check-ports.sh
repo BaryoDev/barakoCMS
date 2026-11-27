@@ -342,6 +342,7 @@ case "\${1:-}" in
         echo "\$id" ;;
     port) echo "127.0.0.1:\$(cat "$state/\$2.port")" ;;
     inspect) cat "$state/running" ;;
+    image) printf 'PATH=/bin\nBARAKO_BUILD_SHA=deadbeef\n' ;;
     exec)
         case " \$* " in
             *" -tAc "*mt_doc_roles*view_sensitive*) cat "$state/seeded-hr-granted" ;;
@@ -410,6 +411,187 @@ upgrade_data_cases() {
         grep -q "rollback-sensitivity-by-capability.sql left view_sensitive on the seeded HR role" "$output"
 }
 
+# The canned answers of the FROM_VERSION API, for the read back in lib-upgrade-data.sh. $1 method,
+# $2 url. SEED_PAGED=1 puts the redirect on the second page of two. Prints nothing and fails for a
+# route the seed does not have.
+seed_world() {
+    local route=${2#http://stub} q=""
+    case "$route" in *\?*) q=${route#*\?} ;; esac
+    route=${route%%\?*}
+    case "$1 $route" in
+        "GET /api/contents/E1") echo '{"data":{"Title":"es one edited"},"status":"Published","version":3}' ;;
+        "GET /api/contents/E1/history") echo '{"items":[{},{},{}]}' ;;
+        "GET /api/contents/D1") echo '{"data":{"Title":"doc one","Marker":"set-by-workflow"}}' ;;
+        "GET /api/content-types") echo '{"items":[{"id":"c1","name":"esnote","eventSourced":true},{"id":"c2","name":"docnote","eventSourced":false}],"totalPages":1}' ;;
+        "GET /api/roles/R1") echo '{"name":"UpgradeSeedRole","systemCapabilities":["view_audit_log"]}' ;;
+        "GET /api/user-groups/G1") echo '{"name":"upgrade-seed-group"}' ;;
+        "GET /api/redirects")
+            if [ "${SEED_PAGED:-}" = 1 ] && [ "$q" = "${q#page=2}" ]; then
+                echo '{"items":[{"id":"other","fromPath":"/a","toPath":"/b","permanent":false}],"totalPages":2}'
+            else
+                echo '{"items":[{"id":"RD1","fromPath":"/upgrade-old","toPath":"/upgrade-new","permanent":true}],"totalPages":'"$([ "${SEED_PAGED:-}" = 1 ] && echo 2 || echo 1)"'}'
+            fi ;;
+        "GET /api/connectors") echo '{"items":[{"id":"n1","name":"Upgrade seed","slug":"upgrade-seed","baseUrl":"https://example.com"}],"totalPages":1}' ;;
+        "GET /api/workflows") echo '{"items":[{"id":"W1","name":"upgrade-seed-workflow","actions":[{"type":"UpdateField"}]}],"totalPages":1}' ;;
+        "GET /api/stations") echo '[{"id":"S1","name":"upgrade-seed-station","capabilities":["view_audit_log"],"revoked":false}]' ;;
+        "GET /api/api-keys") echo '{"items":[{"id":"K1","name":"upgrade-seed-key","scopes":["content:read"],"revoked":false}],"totalPages":1}' ;;
+        "GET /api/tenants") echo '{"items":[{"id":"t1","slug":"upgrade-seed","name":"Upgrade seed","status":"Active"}],"totalPages":1}' ;;
+        "POST /api/me/switch") echo '{"token":"tenant-token"}' ;;
+        "GET /api/tenant-settings/cdn-purge") echo '{"targetId":"upgradeseedzone","tokenSet":true}' ;;
+        "GET /api/contents/T1") echo '{"data":{"Title":"tenant one"}}' ;;
+        *) return 1 ;;
+    esac
+}
+
+# seed_check <function and arguments>: one read of lib-upgrade-data.sh against seed_world, with the
+# answers changed by the sed script in SEED_MUT. Prints what it said and exits as it did.
+seed_check() {
+    # shellcheck disable=SC2329 # the stubs are called by the library once it is sourced
+    (
+        FROM_VERSION=9.9.9
+        SEED_FILE="$d/seed.tsv"
+        : > "$d/seed-calls"
+        printf 'es_entry\tE1\ndoc_entry\tD1\nrole\tR1\ngroup\tG1\nredirect\tRD1\nworkflow\tW1\nstation\tS1\napikey\tK1\napikey_secret\tnot-a-secret\ntenant_entry\tT1\n' > "$SEED_FILE"
+        fail() { printf 'FAILED: %s\n' "$1"; exit 1; }
+        psql_q() { echo 3; }
+        curl() { echo 200; }
+        . scripts/lib-upgrade-data.sh
+        seed_api() {
+            local body
+            # A reader with no cap would ask for a huge page count's pages one after another.
+            echo >> "$d/seed-calls"
+            [ "$(wc -l < "$d/seed-calls")" -le 300 ] || { echo "stub: more than 300 reads" >&2; return 1; }
+            body=$(seed_world "$1" "$2") || { echo "HTTP 404 from $1 $2" >&2; return 1; }
+            printf '%s' "$body" | sed "${SEED_MUT:-}"
+        }
+        "$@"
+    )
+}
+
+# seed_fails <sed script> <text the message has>: verify_seed_data fails, saying that.
+seed_fails() {
+    SEED_MUT="$1" seed_check verify_seed_data http://stub tok "before the upgrade" > "$output" 2>&1
+    [ $? -eq 1 ] && grep -qF -- "$2" "$output"
+}
+
+tenant_fails() {
+    SEED_MUT="$1" seed_check seed_tenant_data http://stub tok "after the upgrade" > "$output" 2>&1
+    [ $? -eq 1 ] && grep -qF -- "$2" "$output"
+}
+
+# image_check <image>: require_image_is_release for a 5.9.0 start, with git and docker replaced. GIT_SHA is
+# what the tag names, IMAGE_ENV what the image's environment lists.
+image_check() {
+    (
+        FROM_VERSION=5.9.0
+        fail() { printf 'FAILED: %s\n' "$1"; exit 1; }
+        git() { [ -n "${GIT_SHA:-}" ] && echo "$GIT_SHA"; }
+        docker() { case "$1" in pull) echo pulled >> "$d/docker-calls" ;; image) printf '%s' "${IMAGE_ENV:-}" ;; esac; }
+        . scripts/lib-upgrade-data.sh
+        require_image_is_release "$1" "$FROM_VERSION"
+    )
+}
+
+# plan_check <seeded> <core> <module> <rollback>: decide_empty_plan, printing EMPTY_PLAN.
+plan_check() {
+    (
+        FROM_VERSION=9.9.9
+        fail() { printf 'FAILED: %s\n' "$1"; exit 1; }
+        . scripts/lib-upgrade-data.sh
+        decide_empty_plan "$@" && echo "EMPTY_PLAN=$EMPTY_PLAN"
+    )
+}
+
+seed_read_cases() {
+    echo
+    echo "lib-upgrade-data.sh, the read back of the seeded records, against canned answers:"
+    expect "every record as it was seeded passes" \
+        seed_check verify_seed_data http://stub tok "before the upgrade"
+    expect "a redirect missing from the list fails" \
+        seed_fails 's/"RD1"/"gone"/' "the redirect's fromPath is 'MISSING'"
+    expect "a redirect with another toPath fails" \
+        seed_fails 's#/upgrade-new#/elsewhere#' "the redirect's toPath is '/elsewhere'"
+    SEED_PAGED=1 seed_check verify_seed_data http://stub tok "before the upgrade" > "$output" 2>&1
+    expect "a redirect on the second of two pages passes" [ $? -eq 0 ]
+    SEED_PAGED=1 SEED_MUT='s/"RD1"/"gone"/' seed_check verify_seed_data http://stub tok "before the upgrade" > "$output" 2>&1
+    expect "and one on neither page fails" [ $? -eq 1 ]
+    expect "a connector with another baseUrl fails" \
+        seed_fails 's#https://example.com#https://example.org#' "the connector's baseUrl is 'https://example.org'"
+    expect "a station with other capabilities fails" \
+        seed_fails 's/"capabilities":\["view_audit_log"\]/"capabilities":[]/' "the station's capabilities is ''"
+    expect "an API key with other scopes fails" \
+        seed_fails 's/content:read/content:write/' "the API key's scopes is 'content:write'"
+    expect "a revoked API key fails" \
+        seed_fails 's/"K1","name":"upgrade-seed-key","scopes":\["content:read"\],"revoked":false/"K1","name":"upgrade-seed-key","scopes":["content:read"],"revoked":true/' "the API key's revoked flag is 'True'"
+    expect "a workflow that lost its action fails" \
+        seed_fails 's/{"type":"UpdateField"}//' "the workflow's action count is '0'"
+    expect "the message says which side of the upgrade it was" \
+        grep -q "^FAILED: before the upgrade: " "$output"
+
+    echo
+    echo "lib-upgrade-data.sh, the second tenant:"
+    expect "a tenant as it was seeded passes" \
+        seed_check seed_tenant_data http://stub tok "after the upgrade"
+    expect "a tenant with another name fails" \
+        tenant_fails 's/"name":"Upgrade seed"/"name":"Renamed"/' "the second tenant's name is 'Renamed'"
+    expect "a suspended tenant fails" \
+        tenant_fails 's/"Active"/"Suspended"/' "the second tenant's status is 'Suspended'"
+    expect "a page count of null fails, and is not read as one page" \
+        seed_fails 's/"totalPages":1/"totalPages":null/' "reports totalPages null, which is not a whole number"
+    expect "a page count of a string fails" \
+        seed_fails 's/"totalPages":1/"totalPages":"x"/' 'reports totalPages "x", which is not a whole number'
+    expect "a page count of 2.0 fails" \
+        seed_fails 's/"totalPages":1/"totalPages":2.0/' "reports totalPages 2.0, which is not a whole number"
+    expect "a page count past the cap fails and does not loop" \
+        seed_fails 's/"totalPages":1/"totalPages":99999999999/' "reports 99999999999 pages, more than the 100 this reads"
+    expect "a tenant missing from the list fails" \
+        tenant_fails 's/"slug":"upgrade-seed"/"slug":"other"/' "the second tenant's name is 'MISSING'"
+
+    echo
+    echo "lib-upgrade-data.sh, the plan decision:"
+    expect "a 5.x start with no file at all is an empty plan" \
+        [ "$(plan_check 1 "" "" "")" = "EMPTY_PLAN=1" ]
+    expect "a 5.x start with a core file and its rollback is not" \
+        [ "$(plan_check 1 "migrations/6.0.0/a.sql" "" "migrations/6.0.0/r.sql")" = "EMPTY_PLAN=0" ]
+    expect "a 5.x start with a module file only is refused, there is no core or rollback file" \
+        not plan_check 1 "" "migrations/6.0.0/m.sql" "" >/dev/null
+    expect "a 4.x start with no file is refused" not plan_check 0 "" "" "" >/dev/null
+    plan_check 0 "" "" "" > "$output" 2>&1
+    expect "and the message says the run would prove nothing" \
+        grep -q "this run would prove nothing" "$output"
+    expect "a start with a core file and no rollback file is refused" \
+        not plan_check 1 "migrations/6.0.0/a.sql" "" "" >/dev/null
+
+    echo
+    echo "lib-upgrade-data.sh, tying a digest to its release:"
+    rm -f "$d/docker-calls"
+    expect "an image named by tag is not checked" image_check ghcr.io/example/image:5.9.0
+    expect "and nothing is pulled for it" [ ! -e "$d/docker-calls" ]
+    GIT_SHA=abc123 IMAGE_ENV=$'PATH=/bin\nBARAKO_BUILD_SHA=abc123\n' image_check ghcr.io/example/image@sha256:aa > "$output" 2>&1
+    expect "a digest whose build commit is the tag's passes" [ $? -eq 0 ]
+    GIT_SHA=abc123 IMAGE_ENV=$'PATH=/bin\nBARAKO_BUILD_SHA=def456\n' image_check ghcr.io/example/image@sha256:aa > "$output" 2>&1
+    expect "a digest built from another commit fails" [ $? -eq 1 ]
+    expect "and the message names both commits" grep -q "built from def456, and the tag v5.9.0 is abc123" "$output"
+    GIT_SHA=abc123 IMAGE_ENV='PATH=/bin' image_check ghcr.io/example/image@sha256:aa > "$output" 2>&1
+    expect "an image with no build commit fails" [ $? -eq 1 ]
+    GIT_SHA="" IMAGE_ENV='BARAKO_BUILD_SHA=abc123' image_check ghcr.io/example/image@sha256:aa > "$output" 2>&1
+    expect "a checkout without the tag fails" [ $? -eq 1 ]
+    expect "and the message says how to fetch it" grep -q "git fetch --depth=1 origin tag v5.9.0" "$output"
+}
+
+upgrade_image_cases() {
+    echo
+    echo "upgrade-check.sh, from a 5.9.0 image named by digest:"
+    stubs fake-pg
+    fake_docker true
+    run_upgrade FROM_VERSION=5.9.0 IMAGE=ghcr.io/example/image@sha256:aa
+    expect "the run fails" [ $? -ne 0 ]
+    expect "on the check that ties the digest to the v5.9.0 tag" \
+        grep -Eq "FAILED: .*(sha256:aa.*v5\.9\.0|v5\.9\.0.*sha256:aa)" "$output"
+    expect "the old container is never started" not grep -q "^run .*ghcr.io/example/image@sha256:aa" "$state/calls"
+    rm -f "$bin/docker"
+}
+
 # run_upgrade [NAME=value ...]: the assignments are the script's environment.
 run_upgrade() {
     local rc
@@ -440,8 +622,8 @@ upgrade_cases() {
     esac
     expect "the host is told to bind port 0" [ "$(recorded URLS)" = "http://127.0.0.1:0" ]
     expect "the host is told to log the line the port is read from" [ "$(recorded LISTEN)" = "Information" ]
-    expect "both containers are removed by the ids this run was given" \
-        [ "$(grep -cE '^rm -f fake-(pg|old)$' "$state/calls")" = 2 ]
+    expect "both containers, and their anonymous volumes, are removed by the ids this run was given" \
+        [ "$(grep -cE '^rm -fv fake-(pg|old)$' "$state/calls")" = 2 ]
     expect "and nothing is removed by name" [ "$(grep -c '^rm ' "$state/calls")" = 2 ]
     expect "on a 4.9.0 start, the default, the event correlation file is not applied: 4.9 already has it" \
         [ "$(grep -c "cp migrations/4.6.0/event-correlation-metadata.sql" "$state/calls")" = 0 ]
@@ -670,7 +852,9 @@ script_cases() {
 }
 
 upgrade_data_cases
+seed_read_cases
 upgrade_cases
+upgrade_image_cases
 
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     docker_lib_cases
