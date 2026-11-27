@@ -21,7 +21,7 @@ internal sealed class DatasetRightsHook(
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        var (datasets, problem) = EmailTemplateRenderer.DeclaredDatasets(EmailTemplateRenderer.Text(context.Data, "Datasets"));
+        var (datasets, problem) = EmailTemplateRenderer.DatasetsOf(context.Data);
         if (problem is not null) return [problem];
         if (datasets.Count == 0) return [];
 

@@ -108,8 +108,8 @@ internal static class WorkflowSaveRights
             var template = await barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.FindAsync(session, name, ct);
             if (template is null) continue;
 
-            var (datasets, _) = barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.DeclaredDatasets(
-                barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.Text(template, "Datasets"));
+            var (datasets, problem) = barakoCMS.Features.EmailTemplates.EmailTemplateRenderer.DatasetsOf(template.Data);
+            if (problem is not null) missing.Add($"The email template '{name}' cannot be sent by a workflow you save. {problem}");
             foreach (var refusal in await TemplateDatasetRights.RefusalsAsync(session, permissions, sensitivity, user, datasets, ct))
                 missing.Add($"The email template '{name}' cannot be sent by a workflow you save. {refusal}");
         }

@@ -200,7 +200,7 @@ internal static class EmailTemplateRenderer
 
         if (OverLength(sources) is { } tooLong) return (null, tooLong);
 
-        var (datasets, datasetProblem) = DeclaredDatasets(Text(template, "Datasets"));
+        var (datasets, datasetProblem) = DatasetsOf(template.Data);
         if (datasetProblem is not null) return (null, datasetProblem);
 
         var html = shell.Wrap(Markdown(header), Markdown(body), Markdown(footer));
@@ -231,6 +231,22 @@ internal static class EmailTemplateRenderer
 
     /// <summary>The most datasets one template declares.</summary>
     public const int MaxDatasets = 10;
+
+    /// <summary>
+    /// The datasets a template's data declares, or why they cannot be read. The save-time check and
+    /// the render both read them here, and a template holding the field under two spellings is
+    /// refused, so neither can read one while the other reads the second.
+    /// </summary>
+    internal static (IReadOnlyDictionary<string, string> Datasets, string? Problem) DatasetsOf(IReadOnlyDictionary<string, object>? data)
+    {
+        if (data is not null && data.Keys.Count(k => string.Equals(k, "Datasets", StringComparison.OrdinalIgnoreCase)) > 1)
+        {
+            return (new Dictionary<string, string>(StringComparer.Ordinal),
+                "The email template holds its Datasets field more than once, under spellings that differ only in case. Keep one.");
+        }
+
+        return DeclaredDatasets(Text(data, "Datasets"));
+    }
 
     /// <summary>The datasets a template declares, or why the declaration cannot be read.</summary>
     internal static (IReadOnlyDictionary<string, string> Datasets, string? Problem) DeclaredDatasets(string? json)

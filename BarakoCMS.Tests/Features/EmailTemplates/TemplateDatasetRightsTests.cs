@@ -85,6 +85,27 @@ public class TemplateDatasetRightsTests(IntegrationTestFixture factory)
         errors.Should().ContainSingle().Which.Should().Contain("Email");
     }
 
+    [Fact]
+    public async Task A_template_holding_Datasets_under_two_spellings_is_refused_at_save_and_at_render()
+    {
+        var (flow, _, full) = await SeededAsync();
+        var data = new Dictionary<string, object>
+        {
+            ["Subject"] = "s", ["Body"] = "b", ["Datasets"] = Datasets(flow), ["datasets"] = "{\"lines\":\"another-query\"}",
+        };
+
+        using var scope = factory.Services.CreateScope();
+        var errors = await scope.ServiceProvider.GetRequiredService<IContentLifecycleRunner>()
+            .RunBeforeSaveAsync(EmailTemplateRenderer.TemplateType, null, data, null, full, Ct);
+        errors.Should().ContainSingle().Which.Should().Contain("Datasets").And.Contain("case");
+
+        var stored = EmailTemplateData.Template("s", "b");
+        stored.Data = data;
+        var (rendered, error) = await EmailTemplateRenderer.RenderAsync(scope.ServiceProvider.GetRequiredService<IDocumentSession>(), stored, Ct);
+        rendered.Should().BeNull();
+        error.Should().Contain("Datasets").And.Contain("case");
+    }
+
     private async Task<Guid> StoreTemplateAsync(QueryFlow flow)
     {
         var template = EmailTemplateData.Template("s", "b", datasets: Datasets(flow));
