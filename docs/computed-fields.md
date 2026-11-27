@@ -34,7 +34,10 @@ The formula is checked when the type is saved. A save is refused (400, with the 
 position in the formula) when:
 
 - the formula does not parse, or names a field the type does not have, or a field a formula cannot
-  read (`time`, array and json fields);
+  read. A formula reads `int`, `decimal`, `money`, `string`, `text`, `bool`, `date` and `datetime`
+  fields. It cannot read any other type: `email`, `url`, `slug`, `uuid`, `richtext`, `markdown`,
+  `choice`, `reference`, `geopoint`, `object`, `json`, `time`, `token` and array fields. `concat`
+  in an `fn` rule still covers the text-like ones;
 - the formula reads the clock (`today()`, `now()`), because the stored value would go stale;
 - the formula reads `id`, `status`, `createdAt` or `updatedAt`, which are not part of the entry's
   data, so the value would go stale;

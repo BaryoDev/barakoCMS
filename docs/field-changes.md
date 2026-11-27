@@ -99,7 +99,12 @@ starts no job.
 Adding a computed field with a formula to a type that has entries, `POST /api/config/apply` and a
 bundle import all start it. The first two answer 409 when another field change is running on the
 type. A bundle import starts it after the bundle's entries are written, and only when nothing in
-the bundle was refused. See [computed-fields.md](computed-fields.md).
+the bundle was refused. Adding a formula field to an account's content type starts one change in
+each tenant of the account that holds entries of the type. See [computed-fields.md](computed-fields.md).
+
+Removing a formula from a field, or changing it to an `fn` rule, starts no recompute. The values
+already stored stay as they are. A later write to an entry works the value out by the `fn` rule,
+if the field has one.
 
 ## Progress and resuming
 
