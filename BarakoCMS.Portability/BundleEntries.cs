@@ -5,9 +5,6 @@ using FluentValidation.Results;
 using Marten;
 using Microsoft.AspNetCore.Http;
 
-// The bundle types are obsolete for callers outside the module, and this is the module.
-#pragma warning disable CS0618
-
 namespace BarakoCMS.Portability;
 
 /// <summary>A bundle's records, given their new ids and turned into creates, with what refused them already.</summary>
@@ -17,8 +14,8 @@ internal sealed record PreparedEntries(
     List<ValidationFailure> Errors);
 
 /// <summary>
-/// How a bundle's records become entries, for the import route and for the <c>contents</c> section
-/// of a config document alike.
+/// How a document's records become entries, for the <c>contents</c> section of a config
+/// document, on plan, apply and export.
 /// </summary>
 internal static class BundleEntries
 {
@@ -177,7 +174,7 @@ internal static class BundleEntries
         foreach (var c in contents)
         {
             // The same per-entry read rule as the content List endpoint. Whoever may take a bundle
-            // is decided by the route's capability, not which rows they may read.
+            // is decided by the section's capability, not which rows they may read.
             if (!await permissions.CanPerformActionAsync(caller, c.ContentType, "read", c, ct))
             {
                 withheld++;

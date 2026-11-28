@@ -9,21 +9,15 @@ namespace barakoCMS.Infrastructure.Services;
 /// is carried over, what is refused, and what is stored.
 /// </summary>
 /// <remarks>
-/// One copy for the two writers that take a whole definition, the Portability import and the config
-/// engine, so what one refuses the other refuses too. Public because the import is a module.
+/// The config engine's write of a whole definition.
 /// </remarks>
 public static class ContentTypeUpsert
 {
     /// <summary>How a refusal names the writer and what it read the definition from.</summary>
-    /// <param name="Source">What the definition came from, for example "the bundle".</param>
-    /// <param name="Writer">Who writes it, for example "an import", at the start of a sentence.</param>
-    /// <param name="ChecksAudience">
-    /// Whether the upsert refuses to turn on public delivery over a row-limited role. A config apply
-    /// leaves it false because the engine checks the roles and types it stages together.
-    /// </param>
-    public sealed record Wording(string Source, string Writer, bool ChecksAudience = false)
+    /// <param name="Source">What the definition came from, for example "the document".</param>
+    /// <param name="Writer">Who writes it, for example "an apply", at the start of a sentence.</param>
+    public sealed record Wording(string Source, string Writer)
     {
-        public static readonly Wording Import = new("the bundle", "An import", ChecksAudience: true);
         public static readonly Wording Config = new("the document", "An apply");
 
         public string Possessive => Source + "'s";
@@ -116,12 +110,6 @@ public static class ContentTypeUpsert
             {
                 errors.Add(TokenFieldEntries.Refusal(name, token.Name, holding));
             }
-        }
-
-        if (wording.ChecksAudience && type.IsPubliclyDeliverable && stored is not { IsPubliclyDeliverable: true }
-            && await PublicDeliveryAudience.TypeRefusalAsync(session, name, ct) is { } limited)
-        {
-            errors.Add(limited);
         }
 
         if (stored is null)

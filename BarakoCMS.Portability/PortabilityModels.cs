@@ -2,25 +2,8 @@ using barakoCMS.Models;
 
 namespace BarakoCMS.Portability;
 
-/// <summary>A portable snapshot of content-type definitions and their content data.</summary>
-[Obsolete("Use the config engine instead: GET /api/config/export, and POST /api/config/plan and /api/config/apply, which accept a Portability bundle as a document. Removal planned for barakoCMS 6.0.")]
-public class PortabilityBundle
-{
-    public int Version { get; set; } = 1;
-    public DateTime ExportedAt { get; set; } = DateTime.UtcNow;
-    public List<ContentTypeDefinition> ContentTypes { get; set; } = new();
-    public List<ContentRecord> Contents { get; set; } = new();
-
-    /// <summary>
-    /// Entries left out because the exporting caller may not read them at all, the same entries the
-    /// content read endpoints hide from that caller. Zero means the bundle holds every entry.
-    /// </summary>
-    public int ContentsWithheld { get; set; }
-}
-
-/// <summary>One content item, recreated under a new id wherever it is imported.</summary>
-[Obsolete("Use the config engine instead: GET /api/config/export, and POST /api/config/plan and /api/config/apply, which accept a Portability bundle as a document. Removal planned for barakoCMS 6.0.")]
-public class ContentRecord
+/// <summary>One entry of the <c>contents</c> section, recreated under a new id wherever it is applied.</summary>
+internal sealed class ContentRecord
 {
     /// <summary>
     /// The entry's id where it was exported. Import never reuses it: the entry gets a new id, and a
@@ -47,17 +30,8 @@ public class ContentRecord
     public SensitivityLevel? Sensitivity { get; set; }
 }
 
-[Obsolete("Use the config engine instead: GET /api/config/export, and POST /api/config/plan and /api/config/apply, which accept a Portability bundle as a document. Removal planned for barakoCMS 6.0.")]
-public class ImportRequest
-{
-    /// <summary>When true, report what would happen without writing anything.</summary>
-    public bool DryRun { get; set; }
-    public List<ContentTypeDefinition> ContentTypes { get; set; } = new();
-    public List<ContentRecord> Contents { get; set; } = new();
-}
-
-[Obsolete("Use the config engine instead: GET /api/config/export, and POST /api/config/plan and /api/config/apply, which accept a Portability bundle as a document. Removal planned for barakoCMS 6.0.")]
-public class ImportReport
+/// <summary>The counts a bundle's entries fill in while they are prepared.</summary>
+internal sealed class ImportReport
 {
     public bool DryRun { get; set; }
     public int ContentTypesCreated { get; set; }

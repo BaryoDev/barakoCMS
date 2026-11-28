@@ -4,8 +4,8 @@ namespace barakoCMS.Features.ContentType.Blueprints;
 
 /// <summary>A named set of content type definitions, as a blueprint file declares it.</summary>
 /// <remarks>
-/// The type entries are the same shape <c>POST /api/portability/import</c> takes, so a file can be
-/// assembled from an export. A blueprint carries no content, only schema.
+/// The type entries are the same shape a config document's <c>contentTypes</c> section holds, so a
+/// file can be assembled from an export. A blueprint carries no content, only schema.
 /// </remarks>
 internal sealed class Blueprint
 {

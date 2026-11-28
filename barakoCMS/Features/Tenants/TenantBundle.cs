@@ -145,7 +145,7 @@ internal static class TenantBundle
         };
     }
 
-    /// <summary>One entry in the shape of a Portability <c>ContentRecord</c>.</summary>
+    /// <summary>One entry in the shape a <c>contents</c> section document has.</summary>
     internal sealed class EntryRecord
     {
         public Guid Id { get; init; }

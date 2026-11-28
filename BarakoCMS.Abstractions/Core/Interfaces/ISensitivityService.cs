@@ -33,7 +33,7 @@ public interface ISensitivityService
     /// write that brings the type with it, as an import does.
     /// </summary>
     /// <remarks>
-    /// The default throws rather than falling back to the stored definition. A type the bundle
+    /// The default throws rather than falling back to the stored definition. A type the document
     /// creates is not stored yet, and falling back would find no fields to protect and drop nothing.
     /// </remarks>
     ValueTask ApplyWriteAsync(ContentTypeDefinition definition, IDictionary<string, object> incoming, IReadOnlyDictionary<string, object>? existing, HttpContext httpContext, CancellationToken ct = default)

@@ -7,26 +7,22 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using barakoCMS.Modules;
 
-// The bundle types are obsolete for callers outside the module, and this is the module.
-#pragma warning disable CS0618
-
 namespace BarakoCMS.Portability;
 
 /// <summary>
-/// The <c>contents</c> section: a Portability bundle's entries, so a bundle applies as a config
-/// document and the engine covers everything the bundle routes did.
+/// The <c>contents</c> section: a document's entries, so entries move with the types through
+/// <c>/api/config/export</c>, <c>plan</c> and <c>apply</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Entries are content, not configuration, so this section is exported only when it is named
-/// (<c>?sections=contentTypes,contents</c>), and as the bundle export reads them: each entry as the
-/// caller may read it, tokens left out, and an entry the caller may read nothing of withheld.
+/// (<c>?sections=contentTypes,contents</c>), and as the content read endpoints show them: each entry
+/// as the caller may read it, tokens left out, and an entry the caller may read nothing of withheld.
 /// </para>
 /// <para>
-/// Applied the way the import route applies a bundle: every record is created under a new id, with
-/// references inside the document pointed at the new ids, through the same write path as
-/// <c>POST /api/contents</c>. So it is not idempotent, as the import never was: applying the same
-/// entries twice creates them twice, and a plan names every record as a create. It needs a signed-in
+/// Every record is created under a new id, with references inside the document pointed at the
+/// new ids, through the same write path as <c>POST /api/contents</c>. So it is not idempotent:
+/// applying the same entries twice creates them twice, and a plan names every record as a create. It needs a signed-in
 /// caller, since what a caller may write is decided for that caller.
 /// </para>
 /// </remarks>
@@ -38,7 +34,7 @@ internal sealed class ContentsConfigProvider(
     IHttpContextAccessor http,
     IConfiguration configuration) : IConfigProvider
 {
-    // Enums as names, which is how the bundle route writes them, and numbers still read.
+    // Enums as names, which is how an export writes them, and numbers still read.
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
@@ -124,7 +120,7 @@ internal sealed class ContentsConfigProvider(
         var records = Read(plan.Changes.ToDictionary(c => c.Key, c => c.Desired!.Value, StringComparer.Ordinal), errors);
         var existing = (await session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
 
-        // No singleton cap: a bundle is a restore and lands what it holds, as the import does.
+        // No singleton cap: a bundle is a restore and lands what it holds.
         var batch = new ContentCreateBatch { CapSingletons = false };
         foreach (var definition in existing)
         {

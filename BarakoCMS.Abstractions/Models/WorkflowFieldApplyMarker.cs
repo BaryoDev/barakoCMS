@@ -14,9 +14,8 @@ namespace barakoCMS.Models;
 /// and <c>Features/Content/Update/Endpoint.cs</c>), so an editor saving the entry between the apply
 /// and a reclaimed retry silently dropped the mark, and the very race this exists to close reopened.
 /// Second, nothing filters an unknown <c>Data</c> key out of an authenticated read or an export
-/// (<c>SensitivityService</c> only masks fields a schema declares, and both
-/// <c>Features/Content/Get/Endpoint.cs</c> and <c>BarakoCMS.Portability.ExportEndpoint</c> copy
-/// <c>Data</c> whole), so the mark was visible to anyone who could read the entry.
+/// (<c>SensitivityService</c> only masks fields a schema declares, and
+/// <c>Features/Content/Get/Endpoint.cs</c> copies <c>Data</c> whole), so the mark was visible to anyone who could read the entry.
 /// </para>
 /// <para>
 /// A document of its own does not have either problem, and does not lose the one thing that made

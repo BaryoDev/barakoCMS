@@ -50,9 +50,9 @@ public class ContentTypeDefinition
     /// entry does not free the slot: that takes <c>DELETE /api/contents/{id}/erase</c>, which needs
     /// SuperAdmin and the <c>EraseContent</c> capability.
     ///
-    /// A Portability bundle import is not subject to the cap. It validates nothing by design, and it
-    /// runs during a restore or a migration, where dropping rows that the bundle holds loses content
-    /// at the worst possible moment. A bundle carrying two entries of a singleton type lands both.
+    /// A config apply of <c>contents</c> is not subject to the cap. It runs during a restore or a
+    /// migration, where dropping rows that the document holds loses content at the worst possible
+    /// moment. A document carrying two entries of a singleton type lands both.
     ///
     /// <c>SystemSetting</c> is not a substitute: it is deployment level with fixed categories,
     /// neither per tenant nor public.
@@ -318,8 +318,8 @@ public class UniquenessRule
 /// An email template that links to such a transition only warns. A type a module seeded keeps what
 /// the module seeded: removing or renaming a seeded state, removing or changing a seeded transition,
 /// or changing the seeded initial state is refused with the kind <c>module</c> while that module is
-/// registered, and additions stay allowed. A config apply and a bundle import still refuse a
-/// changed lifecycle.
+/// registered, and additions stay allowed. A config apply still refuses a changed
+/// lifecycle.
 /// </remarks>
 public class LifecycleDefinition
 {

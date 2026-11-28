@@ -48,7 +48,7 @@ public interface IContentValidatorService
     /// whether a batch may hold more than one entry of a singleton type is the batch's rule.
     ///
     /// The default throws rather than falling back to the stored schema. Falling back would check a
-    /// type the bundle is about to replace, or no type at all, and pass what should be refused.
+    /// type the document is about to replace, or no type at all, and pass what should be refused.
     /// </remarks>
     Task<(bool IsValid, List<string> Errors)> ValidateFieldsAsync(
         ContentTypeDefinition schema,

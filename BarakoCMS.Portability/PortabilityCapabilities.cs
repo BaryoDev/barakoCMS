@@ -13,7 +13,7 @@ namespace BarakoCMS.Portability;
 /// </remarks>
 public static class PortabilityCapabilities
 {
-    /// <summary>Export a tenant's content types and entries as a bundle.
+    /// <summary>Export a tenant's entries through config export.
     /// </summary>
     /// <remarks>
     /// Split from <see cref="ImportContent"/> because the risks are opposite. Export reads the
@@ -23,7 +23,7 @@ public static class PortabilityCapabilities
     /// </remarks>
     public const string ExportContent = "export_content";
 
-    /// <summary>Import a bundle into a tenant.</summary>
+    /// <summary>Apply entries to a tenant through config apply.</summary>
     public const string ImportContent = "import_content";
 
     internal static readonly string[] All = [ExportContent, ImportContent];

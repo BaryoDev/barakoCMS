@@ -14,8 +14,7 @@ namespace barakoCMS.Features.ContentType;
 /// <c>eventSourced</c> beside its definition.
 /// </summary>
 /// <remarks>
-/// A type is written the way a Portability import writes one (<see cref="ContentTypeUpsert"/>), so
-/// the two refuse the same things. A type the document leaves out is kept: the API has no route
+/// A type is written through <see cref="ContentTypeUpsert"/>. A type the document leaves out is kept: the API has no route
 /// that removes a content type, and an apply is not a way around that. Removing a field, changing a
 /// field's type or what a reference points at loses the values entries hold, so each is destructive.
 ///
@@ -44,7 +43,7 @@ internal sealed class ContentTypeConfigProvider(
 
     private static readonly string[] NotCarried = ["id", "name", "createdAt", "updatedAt"];
 
-    /// <summary>The cap the Portability import puts on a bundle's types, so a bundle sent here is held to it too.</summary>
+    /// <summary>The most types one apply writes.</summary>
     public const int MaxPerApply = 500;
 
     public async Task<ConfigSectionExport?> ExportAsync(ConfigCaller caller, CancellationToken ct)
