@@ -49,7 +49,10 @@ written. Generated token fields are left out of entries.
 stored ones. Neither can clear lines: `PUT /api/content-types/{name}/lines` with `lines: null` does.
 An omitted `rules` list clears the rules. Every save checks the lines as they will be stored, so a
 document that drops or retypes the total field, or the parent or amount field of a line type the
-stored lines name, is refused, and so is one that gives a stored line type lines of its own.
+stored lines name, is refused, and so is one that gives a stored line type lines of its own. Only a fault the
+save introduces is refused, so a tenant whose stored lines already have one can still apply its own export.
+A bundle that names one type twice ("Order" and "order") is refused at the second entry, as a config
+document is.
 
 ## Still to do under #897
 

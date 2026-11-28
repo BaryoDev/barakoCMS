@@ -140,6 +140,13 @@ public static class ContentTypeUpsert
     }
 
     /// <summary>
+    /// Takes the exclusive lock of every named type, lowest normalized name first, the order a
+    /// config apply takes them in, before the set is read or checked.
+    /// </summary>
+    public static Task LockTypesAsync(IDocumentSession session, IEnumerable<string> names, CancellationToken ct) =>
+        barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypesExclusiveAsync(session, names, ct);
+
+    /// <summary>
     /// What writing <paramref name="type"/> would break in rollups, and what is wrong with its own
     /// rollups that another type decides. <paramref name="pending"/> is every type written in the
     /// same set, which count as stored. A null <paramref name="principal"/> is the system.
@@ -187,17 +194,15 @@ public static class ContentTypeUpsert
     }
 
     /// <summary>
-    /// <paramref name="type"/> as it is stored once it is written over <paramref name="stored"/>, or
-    /// itself when nothing is stored. A copy: <paramref name="stored"/> is not changed.
+    /// <paramref name="type"/> as it is stored once it is written over <paramref name="stored"/>, or as
+    /// <see cref="Create"/> stores it under its normalized name when nothing is stored. A copy:
+    /// neither argument is changed.
     /// </summary>
     public static ContentTypeDefinition Effective(ContentTypeDefinition? stored, ContentTypeDefinition type)
     {
-        if (stored is null)
-        {
-            return type;
-        }
-
-        var merged = new ContentTypeDefinition { Id = stored.Id, Name = stored.Name, Lines = stored.Lines };
+        var merged = stored is null
+            ? new ContentTypeDefinition { Id = type.Id, Name = barakoCMS.Core.ContentTypeName.Normalize(type.Name) }
+            : new ContentTypeDefinition { Id = stored.Id, Name = stored.Name, Lines = stored.Lines };
         MergeInto(merged, type);
         return merged;
     }

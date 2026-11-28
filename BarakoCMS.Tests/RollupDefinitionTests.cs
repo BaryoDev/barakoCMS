@@ -1165,6 +1165,199 @@ public class RollupDefinitionTests
             "lines that do not hold are not respelled, and an unrelated apply does not refuse them");
     }
 
+    // Round 6: one normalized match, only what the save introduces, and one lock order.
+
+    /// <summary>A stored hyphenated header with lines, its line type, and a spelling of the header that normalizes to it.</summary>
+    private async Task<(string Header, string Line, string Spelled)> StoredHyphenatedAsync()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+        var (header, line) = ($"so-{id}", $"sol-{id}");
+        await StoreAsync(Type(line, R.Reference("Teacher", header), R.Plain("Hours", "decimal")));
+        var type = Type(header, R.Plain("Name", "string"), R.Plain(LinesTotal, "decimal"));
+        type.Lines = new LinesDefinition { ContentType = line, ParentField = "Teacher", TotalField = LinesTotal, LineAmountField = "Hours" };
+        await StoreAsync(type);
+        return (header, line, "So " + id);
+    }
+
+    [Fact]
+    public async Task A_config_apply_keyed_with_spaces_over_a_stored_header_checks_its_lines_and_refuses_a_text_total()
+    {
+        var (header, line, spelled) = await StoredHyphenatedAsync();
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((spelled, HeaderWithLines(spelled, line, "string", "Hours"))), Ct);
+
+        await AssertRefusedAsync(res, $"'{LinesTotal}' on '{header}' and 'Hours' on '{line}' must both be number fields.");
+        (await StoredFieldAsync(header, LinesTotal))!.Type.Should().Be("decimal", "a refused apply stores nothing");
+    }
+
+    [Fact]
+    public async Task A_bundle_import_naming_a_stored_header_with_spaces_checks_its_lines_and_refuses_a_text_total()
+    {
+        var (header, line, spelled) = await StoredHyphenatedAsync();
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/portability/import",
+            new { contentTypes = new[] { HeaderWithLines(spelled, line, "string", "Hours") }, contents = Array.Empty<object>() }, Ct);
+
+        await AssertRefusedAsync(res, $"'{LinesTotal}' on '{header}' and 'Hours' on '{line}' must both be number fields.");
+        (await StoredFieldAsync(header, LinesTotal))!.Type.Should().Be("decimal", "a refused import stores nothing");
+    }
+
+    [Fact]
+    public async Task A_config_apply_creating_a_header_keyed_with_spaces_accepts_a_line_type_that_references_its_normalized_name()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+        var (header, line, spelled) = ($"ord-{id}", $"ordl-{id}", "Ord " + id);
+        await StoreAsync(Type(line, R.Reference("Teacher", header), R.Plain("Hours", "decimal")));
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((spelled, HeaderWithLines(spelled, line, "decimal", "Hours"))), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_bundle_naming_one_type_twice_is_refused_at_the_second_entry_and_stores_nothing()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+        object Entry(string name) => new { name, displayName = name, fields = new object[] { new { name = "Name", type = "string" } } };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/portability/import",
+            new { contentTypes = new[] { Entry($"dup-x-{id}"), Entry($"Dup-X-{id}") }, contents = Array.Empty<object>() }, Ct);
+
+        var body = await BodyAsync(res);
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("contentTypes[1]").And.Contain($"dup-x-{id}, Dup-X-{id} name the same content type 'dup-x-{id}'.");
+        await AssertNotStoredAsync($"dup-x-{id}");
+        await AssertNotStoredAsync($"Dup-X-{id}");
+    }
+
+    [Fact]
+    public async Task A_config_apply_of_a_stored_chain_as_exported_is_not_refused_for_the_fault_it_already_had()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+        var (header, line, deeper) = ($"ch-{id}", $"cl-{id}", $"cd-{id}");
+        await StoreAsync(Type(deeper, R.Reference("Parent", line)));
+        var child = Type(line, R.Reference("Teacher", header), R.Plain("Hours", "decimal"));
+        child.Lines = new LinesDefinition { ContentType = deeper, ParentField = "Parent" };
+        var top = Type(header, R.Plain("Name", "string"), R.Plain(LinesTotal, "decimal"));
+        top.Lines = new LinesDefinition { ContentType = line, ParentField = "Teacher", TotalField = LinesTotal, LineAmountField = "Hours" };
+        await StoreAsync(child, top);
+        var childDoc = new
+        {
+            name = line, displayName = line,
+            lines = new { contentType = deeper, parentField = "Parent" },
+            fields = new object[] { new { name = "Teacher", type = "reference", referenceType = header }, new { name = "Hours", type = "decimal" } },
+        };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((header, HeaderWithLines(header, line, "decimal", "Hours")), (line, childDoc)), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    // The lock order. An import of [later, first] must take first before later, as a config apply does.
+
+    private string LockKey(string type)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        return $"barakocms:field-change:{scope.ServiceProvider.GetRequiredService<IDocumentSession>().TenantId}:{type}";
+    }
+
+    private async Task<long> AdvisoryLocksAsync(string type, bool granted)
+    {
+        await using var connection = _fixture.Services.GetRequiredService<IDocumentStore>().Storage.Database.CreateConnection();
+        await connection.OpenAsync(Ct);
+        await using var count = connection.CreateCommand();
+        // A bigint advisory key is stored as its high half in classid and its low half in objid.
+        count.CommandText = """
+            select count(*) from pg_locks
+            where locktype = 'advisory' and objsubid = 1 and granted = @granted
+              and classid = ((hashtextextended(@name, 0) >> 32) & 4294967295)::oid
+              and objid = (hashtextextended(@name, 0) & 4294967295)::oid
+            """;
+        count.Parameters.AddWithValue("granted", granted);
+        count.Parameters.AddWithValue("name", LockKey(type));
+        return (long)(await count.ExecuteScalarAsync(Ct))!;
+    }
+
+    private async Task<bool> TryLockFromAnotherSessionAsync(string type)
+    {
+        await using var connection = _fixture.Services.GetRequiredService<IDocumentStore>().Storage.Database.CreateConnection();
+        await connection.OpenAsync(Ct);
+        await using var attempt = connection.CreateCommand();
+        attempt.CommandText = "select pg_try_advisory_xact_lock(hashtextextended(@name, 0))";
+        attempt.Parameters.AddWithValue("name", LockKey(type));
+        return (bool)(await attempt.ExecuteScalarAsync(Ct))!;
+    }
+
+    private async Task WaitForQueuedLockAsync(string type)
+    {
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        limit.CancelAfter(TimeSpan.FromSeconds(10));
+        while (await AdvisoryLocksAsync(type, granted: false) < 1)
+        {
+            limit.Token.ThrowIfCancellationRequested();
+            await Task.Delay(25, limit.Token);
+        }
+    }
+
+    [Fact]
+    public async Task An_import_takes_the_type_locks_in_name_order_so_it_does_not_hold_a_later_type_while_it_waits_on_an_earlier_one()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+        var (first, later) = ($"lk-a-{id}", $"lk-b-{id}");
+        object Entry(string name) => new { name, displayName = name, fields = new object[] { new { name = "Name", type = "string" } } };
+        var holder = _fixture.Services.GetRequiredService<IDocumentStore>().LightweightSession();
+        Task<HttpResponseMessage> import;
+        try
+        {
+            await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeAsync(holder, first, Ct);
+            import = (await AdminAsync()).PostAsJsonAsync(
+                "/api/portability/import", new { contentTypes = new[] { Entry(later), Entry(first) }, contents = Array.Empty<object>() }, Ct);
+
+            await WaitForQueuedLockAsync(first);
+
+            (await TryLockFromAnotherSessionAsync(later)).Should().BeTrue(
+                "the import waits on the first type before it takes the later one, as a config apply does");
+        }
+        finally
+        {
+            await holder.DisposeAsync();
+        }
+
+        var res = await import;
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+    }
+
+    [Fact]
+    public async Task A_lock_on_a_type_is_keyed_by_the_normalized_name_so_a_spelling_with_spaces_waits_on_the_stored_name()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var holder = store.LightweightSession();
+        var waiter = store.LightweightSession();
+        Task wait;
+        try
+        {
+            await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeAsync(holder, $"lk-s-{id}", Ct);
+            wait = barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeAsync(waiter, $" Lk S-{id} ", Ct);
+
+            await WaitForQueuedLockAsync($"lk-s-{id}");
+        }
+        finally
+        {
+            await holder.DisposeAsync();
+        }
+
+        await wait;
+        await waiter.DisposeAsync();
+    }
+
     [Fact]
     public async Task A_config_apply_that_lowers_a_rollup_is_refused_and_leaves_the_type_alone()
     {
