@@ -60,9 +60,12 @@ directory named for its version, so keep that line in `.env`. The bundle's compo
 it in a top-level `name:` line, so an `.env` without it stops compose with a message that names
 the variable, before anything starts.
 
-The archive is built by `scripts/build-prod-bundle.sh`, and CI starts `postgres`, `app` and
-`db-backup` from an unpacked copy in an empty directory (`scripts/prod-bundle-check.sh`), so a file
-the compose file mounts and the bundle lacks fails the pull request that caused it.
+The archive is built by `scripts/build-prod-bundle.sh`, and CI starts `postgres`, `app`, `db-backup`
+and `caddy` from an unpacked copy in an empty directory (`scripts/prod-bundle-check.sh`), so a file
+the compose file mounts and the bundle lacks fails the pull request that caused it. The check uses
+`api.localhost` as the domain, so Caddy signs its certificate with its own local CA and proves that
+HTTPS reaches the API, strips the `Server` and `Via` headers and redirects plain HTTP. A real
+Let's Encrypt issue for your domain is not covered, which is why DNS has to point here first.
 
 The helper scripts this page names beyond the bundle (`check-compose-hardening.sh`,
 `verify-image-signature.sh`, `check-image-platforms.sh`, `restore-db.sh`) are not in it. They check
