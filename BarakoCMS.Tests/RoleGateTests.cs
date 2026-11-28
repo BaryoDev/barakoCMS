@@ -202,7 +202,7 @@ public class RoleGateTests
         new("POST", "/api/content-types/field-changes/{id}/resume", $"/api/content-types/field-changes/{NotAGuid}/resume"),
         new("POST", "/api/content-types/field-changes/{id}/abandon", $"/api/content-types/field-changes/{NotAGuid}/abandon"),
         new("POST", "/api/content-types/field-changes/{id}/retry", $"/api/content-types/field-changes/{NotAGuid}/retry"),
-        new("GET", "/api/content-types/{name}/field-changes", "/api/content-types/no-such-type/field-changes"),
+        new("GET", "/api/content-types/{name}/field-changes", "/api/content-types/no-such-type/field-changes?page=not-a-number"),
         new("PUT", "/api/content-types/{name}/numbering", "/api/content-types/no-such-type/numbering"),
         new("PUT", "/api/blocks/schema", "/api/blocks/schema"),
         new("PUT", "/api/blocks/presets/{id}", $"/api/blocks/presets/{NotAGuid}"),

@@ -19449,7 +19449,7 @@
     },
     "/api/content-types/field-changes/{id}/abandon": {
       "post": {
-        "description": "For a recompute whose job keeps failing, so the type is never write-locked for good by one entry\nthat will not save. Only a recompute is abandoned: stopping it part way is safe, because an\nentry not yet rewritten keeps its old computed value and the next write to it works the value\nout again from the current formula. The other kinds leave state a stop cannot undo (a rename's\nvalues under two names, a convert's mixed types, a removed field's values that come back when the\nname is added again), so they answer 409 and are resumed instead. A completed or already\nabandoned change is a 409, and so is one whose job is still queued or running, which abandoning\nwould race. Another tenant's change, like one that does not exist, is a 404.\nThe check and the store sit under the type's lock, the one a change starts under and a batch\ntakes, so an abandon never lands between a batch's read and its commit.",
+        "description": "For a recompute whose job keeps failing, so the type is never write-locked for good by one entry\nthat will not save. Only a recompute is abandoned: stopping it part way is safe, because an\nentry not yet rewritten keeps its old computed value and the next write to it works the value\nout again from the current formula. The other kinds leave state a stop cannot undo (a rename's\nvalues under two names, a convert's mixed types, a removed field's values that come back when the\nname is added again), so they answer 409 and are resumed instead. A completed or already\nabandoned change is a 409, and so is one whose job is still queued or running, which abandoning\nwould race. Abandoning a retry frees the change it was started for to be retried again.\nAnother tenant's change, like one that does not exist, is a 404.\nThe check and the store sit under the type's lock, the one a change starts under and a batch\ntakes, so an abandon never lands between a batch's read and its commit.",
         "operationId": "barakoCMSFeaturesContentTypeAbandonFieldChangeEndpoint",
         "parameters": [
           {
@@ -19572,7 +19572,7 @@
     },
     "/api/content-types/{name}/field-changes": {
       "get": {
-        "description": "How an operator finds a change that completed with skips, or one that is stuck, without its id.\nOrdered by when the change started, whatever sort order the request names. Paged like the\nuniqueness duplicates route. An unknown type, or another tenant's, is a 404; a type that has had\nno change is an empty page.",
+        "description": "How an operator finds a change that completed with skips, or one that is stuck, without its id.\nOrdered by when the change started, whatever sort order the request names. Paged like the\nuniqueness duplicates route. A type is the tenant's own or one its account owns, since an account\ntype is recomputed in each tenant too. An unknown type, or another tenant's or account's, is a\n404; a type that has had no change is an empty page.",
         "operationId": "barakoCMSFeaturesContentTypeListFieldChangesEndpoint",
         "parameters": [
           {
