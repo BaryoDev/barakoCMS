@@ -241,13 +241,11 @@ none. A build that is interrupted leaves an invalid index and `db-migrate` exits
 when the schema is what 6.0 declares. [deploy-in-production.md](deploy-in-production.md#upgrading) has the
 same steps with the reasons, and [migrations.md](migrations.md) explains the ledger.
 
-With the 6.0 `docker-compose.prod.yml` in place, that last `up -d` also recreates the `proxy` network
-once, to add the range Docker hands out
-automatic addresses from (`PROXY_IP_RANGE`, default `10.87.51.8/29`), so the app can no longer take
-Caddy's address on a fresh start. It restarts `caddy` and `app` briefly and touches no data. A
-container you attached to `proxy` by hand stops the old network being removed, so disconnect it
-first. If you set `PROXY_SUBNET`, also set `PROXY_IP_RANGE` to a part of it that leaves
-`PROXY_ADDRESS` out ([deploy-in-production.md](deploy-in-production.md#client-ips-behind-caddy)).
+Caddy's default address on the `proxy` network moves from `10.87.51.2` to `10.87.51.14`, the last
+address of the subnet, so a fresh start no longer fails at Caddy with `Address already in use`. That
+last `up -d` recreates `caddy` and `app` with the new address, and the network itself does not
+change. If your `.env` sets `PROXY_ADDRESS`, move it to the last address of your `PROXY_SUBNET`
+([deploy-in-production.md](deploy-in-production.md#client-ips-behind-caddy)).
 
 A new migration does not need a superuser from 6.0. Run ad hoc SQL as the app role, never as the
 owner ([#1449](https://github.com/BaryoDev/barakoCMS/pull/1449)). The hand-run migrations that
