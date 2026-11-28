@@ -209,6 +209,26 @@ internal static class FieldChanges
         }
     }
 
+    /// <summary>
+    /// Takes each lock of <paramref name="plan"/> in the order the plan lists them (lowest normalized
+    /// name first), exclusive or shared as it says. The one pass a save of several types takes
+    /// before it reads anything, so its later lock calls only re-take what the transaction holds.
+    /// </summary>
+    public static async Task LockPlanAsync(IDocumentSession session, IEnumerable<TypeLock> plan, CancellationToken ct)
+    {
+        foreach (var typeLock in plan.OrderBy(l => l.Name, StringComparer.Ordinal))
+        {
+            if (typeLock.Exclusive)
+            {
+                await LockTypeAsync(session, typeLock.Name, ct);
+            }
+            else
+            {
+                await LockTypeSharedAsync(session, typeLock.Name, ct);
+            }
+        }
+    }
+
     /// <summary>Whether a change is small enough for the request that asked for it to run.</summary>
     public static bool RunsInline(FieldChange change) => change.Total <= BatchSize;
 
