@@ -41,7 +41,9 @@ internal sealed class ContentsConfigProvider(
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
     };
 
-    private const string ContentTypeInSql = "lower(d.data ->> 'ContentType') = ANY(?)";
+    // Lowered on both sides by Postgres, since .NET and Postgres disagree on some code points, and a
+    // type name may be any text.
+    private const string ContentTypeInSql = "lower(d.data ->> 'ContentType') = ANY(SELECT lower(n) FROM unnest(?) AS n)";
 
     public string Section => "contents";
 
@@ -72,10 +74,12 @@ internal sealed class ContentsConfigProvider(
         IQueryable<Content> query = session.Query<Content>();
         if (caller.ExportTypes is { } wanted)
         {
-            // In the database, before the limit, so a narrowed export reads only those types' entries.
-            var names = wanted.ToArray();
-            query = query.Where(c => c.MatchesSql(ContentTypeInSql, new object[] { names }));
             types = types.Where(t => wanted.Contains(t.Name.ToLowerInvariant())).ToList();
+
+            // In the database, before the limit, so a narrowed export reads only those types' entries.
+            // The stored names go as they are written, so the entries match the types kept above.
+            var names = types.Select(t => t.Name).ToArray();
+            query = query.Where(c => c.MatchesSql(ContentTypeInSql, new object[] { names }));
         }
 
         var contents = await query.OrderBy(c => c.Id).Take(max + 1).ToListAsync(ct);

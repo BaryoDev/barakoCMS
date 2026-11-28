@@ -177,6 +177,26 @@ public class ConfigModuleSectionsTests
     }
 
     [Fact]
+    public async Task A_contents_export_narrowed_to_a_type_whose_name_starts_with_a_dotted_capital_I_includes_its_entry()
+    {
+        var tenant = await _callers.TenantAsync();
+
+        // U+0130, which .NET and Postgres do not lower the same way.
+        var dotted = "\u0130" + TestNames.Compact("x");
+        await _callers.StoreInTenantAsync(tenant,
+            Type(dotted, ("Title", "string")),
+            new Content { Id = Guid.NewGuid(), ContentType = dotted, Status = ContentStatus.Published, Data = new() { ["Title"] = "kept" } });
+        var client = await _callers.SuperAdminAsync(tenant);
+
+        var (response, body) = await ExportAsync(client, "contentTypes,contents", Uri.EscapeDataString(dotted));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        body.GetProperty("contentTypes").EnumerateObject().Select(p => p.Name).Should().Equal([dotted], "the control: the type itself is found");
+        body.GetProperty("contents").EnumerateObject().Select(p => p.Value.GetProperty("contentType").GetString())
+            .Should().Equal([dotted], "the entry is matched in the database the way the type is matched here");
+    }
+
+    [Fact]
     public async Task Types_that_match_nothing_export_no_types_and_no_entries()
     {
         var tenant = await _callers.TenantAsync();
