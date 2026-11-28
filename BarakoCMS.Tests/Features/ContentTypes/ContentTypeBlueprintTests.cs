@@ -357,7 +357,7 @@ public class ContentTypeBlueprintTests
         var list = await ListAsync(client);
 
         list.Problems.Should().BeEmpty();
-        list.Items.Where(i => i.BuiltIn).Should().HaveCount(7, "a custom directory adds to the built-ins");
+        list.Items.Where(i => i.BuiltIn).Should().HaveCount(9, "a custom directory adds to the built-ins");
         var agency = list.Items.Single(i => i.Name == "agency");
         agency.BuiltIn.Should().BeFalse();
         agency.Source.Should().Be("agency.json");
@@ -504,7 +504,7 @@ public class ContentTypeBlueprintTests
         var list = await ListAsync(client);
 
         list.Problems.Should().ContainSingle().Which.Should().Contain("Blueprints:Path");
-        list.Items.Where(i => i.BuiltIn).Should().HaveCount(7);
+        list.Items.Where(i => i.BuiltIn).Should().HaveCount(9);
     }
 
     [Fact]

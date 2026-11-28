@@ -915,11 +915,56 @@ public class RollupDefinitionTests
         var (header, line) = await StoredWithLinesAsync();
         var admin = await AdminAsync();
         var export = await (await admin.GetAsync("/api/config/export", Ct)).Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(Ct);
-        var types = export.GetProperty("sections").GetProperty("contentTypes");
+        var types = export.GetProperty("contentTypes");
         var documents = new[] { (header, types.GetProperty(header)), (line, types.GetProperty(line)) };
         await DeleteTypesAsync(header, line);
 
         var res = await admin.PostAsJsonAsync("/api/config/apply", ConfigOfTypes(documents.Select(d => (d.Item1, (object)d.Item2)).ToArray()), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_second_config_plan_of_the_same_miscased_lines_reports_no_change()
+    {
+        var (header, line) = Names();
+        var (headerType, lineType) = MiscasedPair(header, line);
+        var admin = await AdminAsync();
+        var document = ConfigOfTypes((header, headerType), (line, lineType));
+        (await admin.PostAsJsonAsync("/api/config/apply", document, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var plan = await admin.PostAsJsonAsync("/api/config/plan", document, Ct);
+
+        var body = await BodyAsync(plan);
+        plan.StatusCode.Should().Be(HttpStatusCode.OK, body);
+        var changes = System.Text.Json.JsonDocument.Parse(body).RootElement.GetProperty("sections").EnumerateArray()
+            .SelectMany(s => s.GetProperty("changes").EnumerateArray()).Select(c => c.GetProperty("key").GetString()).ToList();
+        changes.Should().NotContain(header, "the stored spelling of the lines is the same lines");
+    }
+
+    [Fact]
+    public async Task A_config_apply_adds_lines_to_a_stored_header_that_has_none_in_the_stored_spelling()
+    {
+        var (header, line) = await LineAsync();
+        await StoreAsync(Type(header, R.Plain("Name", "string"), R.Plain(LinesTotal, "decimal")));
+        var (headerType, _) = MiscasedPair(header, line);
+
+        var res = await (await AdminAsync()).PostAsJsonAsync("/api/config/apply", ConfigOfTypes((header, headerType)), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_bundle_import_adds_lines_to_a_stored_header_that_has_none_in_the_stored_spelling()
+    {
+        var (header, line) = await LineAsync();
+        await StoreAsync(Type(header, R.Plain("Name", "string"), R.Plain(LinesTotal, "decimal")));
+        var (headerType, _) = MiscasedPair(header, line);
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/portability/import", new { contentTypes = new[] { headerType }, contents = Array.Empty<object>() }, Ct);
 
         res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
         await AssertStoredLinesAsync(header, line);
