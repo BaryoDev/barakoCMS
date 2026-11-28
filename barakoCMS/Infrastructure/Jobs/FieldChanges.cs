@@ -501,6 +501,13 @@ internal static class FieldChanges
     }
 
     /// <summary>
+    /// Runs before each entry of a batch is rewritten, inside the guard that turns a recompute
+    /// entry's failure into a skip. A test throws from it to make one entry fail, since no
+    /// stored value makes the formulas or the writer throw.
+    /// </summary>
+    internal static Func<Content, CancellationToken, Task>? BeforeEntryForTests { get; set; }
+
+    /// <summary>
     /// Rewrites the batch's entries in order. A recompute entry that fails comes out as an
     /// <see cref="EntryFailure"/>, with the batch's session to be dropped; any other failure, and
     /// any other kind of change, throws as it always did.
@@ -515,6 +522,11 @@ internal static class FieldChanges
         {
             try
             {
+                if (BeforeEntryForTests is { } hook)
+                {
+                    await hook(content, ct);
+                }
+
                 if (Rewrite(work, change, definition, content, rollups?.GetValueOrDefault(content.Id)) is { } @event)
                 {
                     await writer.AppendAsync(content, @event, ct);
