@@ -23,9 +23,9 @@
       },
       "Talaan": {
         "type": "Direct",
-        "requested": "[0.4.0, )",
-        "resolved": "0.4.0",
-        "contentHash": "PNV9jKElrT+HDsLyKMXNsCORpzLEcqmo263QRTBHFKy2lKWkr1CvN+dJfTVl4qdUDibeRrqEHOMZpUP1WhITvQ=="
+        "requested": "[0.5.0, )",
+        "resolved": "0.5.0",
+        "contentHash": "G7lElqDyngO3OyL7EYLqzrywYSzbfFhDMcBjvC2w9L+Q74AqKyjPUjG2Bh8muiVmk2NssbWySQaSwDFgZ7Ce3A=="
       },
       "FastEndpoints.Attributes": {
         "type": "Transitive",
@@ -662,7 +662,7 @@
         "resolved": "18.1.0",
         "contentHash": "5K+9KFg2TdTl7VXv88Qzi/0lqK6JFoNP3lRuImPYGRV7K/QYklDyTrj4+A+KAki1JsQi6qKY+hDyY7d6WRqjrw=="
       },
-      "barakocms": {
+      "BarakoCMS": {
         "type": "Project",
         "dependencies": {
           "AspNetCore.HealthChecks.Npgsql": "[9.0.0, )",
