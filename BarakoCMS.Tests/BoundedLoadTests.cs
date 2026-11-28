@@ -96,6 +96,34 @@ public class BoundedLoadTests
                           && System.Text.RegularExpressions.Regex.IsMatch(sql, @"\b" + table + @"\b"));
 
     [Fact]
+    public async Task Export_of_named_types_filters_the_entries_in_postgres()
+    {
+        var wanted = await SeedTypeAsync("bl-exp-a", "one", "two");
+        var other = await SeedTypeAsync("bl-exp-b", "three");
+        await AuthenticateAsync();
+        _logger.Commands.Clear();
+
+        var response = await _client.GetAsync(
+            "/api/config/export?sections=contents&types=" + wanted.ToUpperInvariant(), TestContext.Current.CancellationToken);
+
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body);
+        using var document = JsonDocument.Parse(body);
+        var types = document.RootElement.GetProperty("contents").EnumerateObject()
+            .Select(e => e.Value.GetProperty("contentType").GetString()).ToList();
+        types.Should().HaveCount(2);
+        types.Should().OnlyContain(t => t == wanted);
+        types.Should().NotContain(other);
+
+        var selects = SelectsFrom("mt_doc_contents").ToList();
+        selects.Should().NotBeEmpty("the export has to read the entries from the content table");
+        selects.Should().OnlyContain(sql => sql.Contains("ANY(", StringComparison.Ordinal),
+            "an export of named types must not read every entry of the tenant and filter in memory");
+        SelectsFrom("mt_doc_contenttypedefinition").Should().NotBeEmpty(
+            "the type definitions are read separately and are not what this test is about");
+    }
+
+    [Fact]
     public async Task Export_of_entries_reads_a_bounded_number_in_postgres()
     {
         var wanted = await SeedTypeAsync("bl-exp-a", "one", "two");

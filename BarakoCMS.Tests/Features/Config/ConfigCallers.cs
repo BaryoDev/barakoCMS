@@ -99,9 +99,22 @@ internal sealed class ConfigCallers(IntegrationTestFixture fixture)
         string? tenant, Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>? host = null) =>
         ClientAsync(tenant, [SystemRoles.SuperAdminRoleId], host: host);
 
-    public static async Task<(HttpResponseMessage Response, JsonElement Body)> ExportAsync(HttpClient client, string? sections = null)
+    public static async Task<(HttpResponseMessage Response, JsonElement Body)> ExportAsync(
+        HttpClient client, string? sections = null, string? types = null)
     {
-        var response = await client.GetAsync(sections is null ? "/api/config/export" : $"/api/config/export?sections={sections}", Ct);
+        var query = new List<string>();
+        if (sections is not null)
+        {
+            query.Add($"sections={sections}");
+        }
+
+        if (types is not null)
+        {
+            query.Add($"types={types}");
+        }
+
+        var response = await client.GetAsync(
+            query.Count == 0 ? "/api/config/export" : $"/api/config/export?{string.Join('&', query)}", Ct);
         return (response, await BodyAsync(response));
     }
 

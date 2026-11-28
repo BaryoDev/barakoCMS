@@ -61,6 +61,53 @@ public class ExportLimitTests
     }
 
     [Fact]
+    public async Task A_tenant_over_the_limit_exports_one_type_under_it()
+    {
+        var tenant = await _callers.TenantAsync();
+        var big = ("expbig" + Guid.NewGuid().ToString("n"))[..14];
+        var small = ("expsmall" + Guid.NewGuid().ToString("n"))[..14];
+        var documents = new List<object>();
+        foreach (var (type, count) in new[] { (big, 3), (small, 1) })
+        {
+            documents.Add(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = type,
+                Fields = [new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" }],
+            });
+            for (var i = 0; i < count; i++)
+            {
+                documents.Add(new Content
+                {
+                    Id = Guid.NewGuid(),
+                    ContentType = type,
+                    Status = ContentStatus.Published,
+                    Data = new() { ["Title"] = $"t{i}" },
+                });
+            }
+        }
+
+        await _callers.StoreInTenantAsync(tenant, [.. documents]);
+        var client = await _callers.SuperAdminAsync(tenant, Host());
+
+        var (whole, wholeBody) = await ConfigCallers.ExportAsync(client, "contents");
+        whole.StatusCode.Should().Be(HttpStatusCode.OK, wholeBody.ToString());
+        wholeBody.GetProperty("gaps").GetProperty("contents").EnumerateArray()
+            .Select(g => g.GetString()).Should().ContainSingle(g => g!.Contains("?types="),
+                "the control: all four entries are over the limit of two, and the message names the way out");
+
+        var (response, body) = await ConfigCallers.ExportAsync(client, "contents", types: small);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        var exported = body.GetProperty("contents").EnumerateObject()
+            .Select(e => e.Value.GetProperty("contentType").GetString()).ToList();
+        exported.Should().HaveCount(1).And.OnlyContain(t => t == small);
+        body.TryGetProperty("gaps", out var gaps).Should().BeTrue();
+        gaps.TryGetProperty("contents", out _).Should().BeFalse("one type is under the limit, so nothing was left out");
+    }
+
+    [Fact]
     public async Task An_export_over_the_record_limit_holds_the_limit_and_names_it()
     {
         var client = await ExporterWithEntriesAsync(3);

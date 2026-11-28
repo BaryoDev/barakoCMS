@@ -193,6 +193,44 @@ public class CapabilityVocabularyTests
     }
 
     /// <summary>
+    /// The entries section is gated on export_content and import_content, and no route asks for
+    /// either, so they are listed because the section's provider names them.
+    /// </summary>
+    [Fact]
+    public async Task The_capabilities_of_a_config_section_with_no_route_are_listed_with_their_module()
+    {
+        var client = await SuperAdminOn(_factory);
+
+        var response = await client.GetAsync("/api/capabilities?pageSize=100", TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var items = await ItemsAsync(response);
+        var module = new BarakoCMS.Portability.PortabilityModule().Name;
+
+        items.Single(i => i.Name == BarakoCMS.Portability.PortabilityCapabilities.ExportContent).Source.Should().Be(module);
+        items.Single(i => i.Name == BarakoCMS.Portability.PortabilityCapabilities.ImportContent).Source.Should().Be(module);
+    }
+
+    [Fact]
+    public async Task A_role_granting_import_content_does_not_come_back_with_it_unknown()
+    {
+        var client = await SuperAdminOn(_factory);
+        var name = $"Importer Role {Guid.NewGuid():N}";
+
+        var response = await client.PostAsJsonAsync("/api/roles",
+            RoleBody(name, [
+                BarakoCMS.Portability.PortabilityCapabilities.ImportContent,
+                BarakoCMS.Portability.PortabilityCapabilities.ExportContent,
+                SystemCapabilities.ManageConfig,
+            ]),
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
+        body.GetProperty("unknownCapabilities").GetArrayLength().Should().Be(0);
+    }
+
+    /// <summary>
     /// A name is compared the way <see cref="SystemCapabilities.Satisfies"/> compares it, so a
     /// differently cased spelling of a real name is not reported as a typo.
     /// </summary>

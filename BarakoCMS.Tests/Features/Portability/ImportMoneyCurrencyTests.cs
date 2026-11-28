@@ -63,14 +63,10 @@ public class ImportMoneyCurrencyTests
     /// <summary>The type as <c>GET /api/config/export</c> writes it, with no other type.</summary>
     private static async Task<JsonObject> ExportAsync(HttpClient client, string type)
     {
-        var (exported, body) = await ConfigCallers.ExportAsync(client, "contentTypes");
+        var (exported, body) = await ConfigCallers.ExportAsync(client, "contentTypes", types: type);
         exported.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
 
         var document = JsonNode.Parse(body.GetRawText())!.AsObject();
-        foreach (var name in document["contentTypes"]!.AsObject().Select(p => p.Key).Where(k => k != type).ToList())
-        {
-            document["contentTypes"]!.AsObject().Remove(name);
-        }
 
         // The currency has to be in the document, or the applies below prove nothing about it.
         document["contentTypes"]!.AsObject().Count.Should().Be(1);

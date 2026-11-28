@@ -469,7 +469,11 @@ public class PublicSurfaceTests
             "ConfigCaller.ConfigCaller System { get; }",
             "ConfigCaller.ClaimsPrincipal Principal { get; }",
             "ConfigCaller.Boolean IsSystem { get; }",
+            // Added with the types filter of config export: a caller carries the narrowing, so the
+            // provider interface stays as it shipped.
+            "ConfigCaller.IReadOnlySet<String> ExportTypes { get; }",
             "ConfigCaller.static ForUser(ClaimsPrincipal principal): ConfigCaller",
+            "ConfigCaller.WithExportTypes(IEnumerable<String> names): ConfigCaller",
             "sealed class ConfigSectionExport",
             "ConfigSectionExport..ctor()",
             "ConfigSectionExport.required IReadOnlyDictionary<String, JsonElement> Documents { get; init; }",

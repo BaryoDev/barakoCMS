@@ -47,17 +47,11 @@ public class ImportFieldPresentationTests
     /// <summary>The type as <c>GET /api/config/export</c> writes it, with no other type.</summary>
     private static async Task<JsonObject> ExportAsync(HttpClient client, string type)
     {
-        var (exported, body) = await ConfigCallers.ExportAsync(client, "contentTypes");
+        var (exported, body) = await ConfigCallers.ExportAsync(client, "contentTypes", types: type);
         exported.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
 
         var document = JsonNode.Parse(body.GetRawText())!.AsObject();
-        var types = document["contentTypes"]!.AsObject();
-        foreach (var name in types.Select(p => p.Key).Where(k => k != type).ToList())
-        {
-            types.Remove(name);
-        }
-
-        types.Count.Should().Be(1);
+        document["contentTypes"]!.AsObject().Count.Should().Be(1);
         return document;
     }
 

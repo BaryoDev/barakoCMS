@@ -118,6 +118,51 @@ public class ConfigModuleSectionsTests
     }
 
     [Fact]
+    public async Task Types_narrows_the_content_types_and_entries_and_leaves_another_section_whole()
+    {
+        var tenant = await _callers.TenantAsync();
+        var kept = TestNames.Compact("kept");
+        var left = TestNames.Compact("left");
+        await _callers.StoreInTenantAsync(tenant, Type(kept, ("Title", "string")), Type(left, ("Title", "string")));
+        var client = await _callers.SuperAdminAsync(tenant);
+        foreach (var type in new[] { kept, left })
+        {
+            (await client.PostAsJsonAsync("/api/contents", new { contentType = type, status = "Published", data = new Dictionary<string, object> { ["Title"] = type } }, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        await _callers.StoreInTenantAsync(tenant, new Role { Id = Guid.NewGuid(), Name = TestNames.Compact("editor"), TenantSlug = tenant, SystemCapabilities = [] });
+
+        var (_, everything) = await ExportAsync(client, "contentTypes,contents,roles");
+        everything.GetProperty("contentTypes").EnumerateObject().Select(p => p.Name).Should().Contain([kept, left]);
+        var roles = everything.GetProperty("roles").EnumerateObject().Select(p => p.Name).ToList();
+        roles.Should().NotBeEmpty("the control: the tenant has a role of its own");
+
+        // Case does not matter, and a name that matches no type is ignored.
+        var (response, narrowed) = await ExportAsync(client, "contentTypes,contents,roles", $"{kept.ToUpperInvariant()},no-such-type");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, narrowed.ToString());
+        narrowed.GetProperty("contentTypes").EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo([kept]);
+        narrowed.GetProperty("contents").EnumerateObject()
+            .Select(p => p.Value.GetProperty("contentType").GetString()).Should().OnlyContain(t => t == kept).And.HaveCount(1);
+        narrowed.GetProperty("roles").EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(roles);
+    }
+
+    [Fact]
+    public async Task Types_that_match_nothing_export_no_types_and_no_entries()
+    {
+        var tenant = await _callers.TenantAsync();
+        await _callers.StoreInTenantAsync(tenant, Type(TestNames.Compact("some"), ("Title", "string")));
+        var client = await _callers.SuperAdminAsync(tenant);
+
+        var (response, body) = await ExportAsync(client, "contentTypes,contents", "no-such-type");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        body.GetProperty("contentTypes").EnumerateObject().Should().BeEmpty();
+        body.GetProperty("contents").EnumerateObject().Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Entries_are_exported_only_when_the_contents_section_is_named()
     {
         var tenant = await _callers.TenantAsync();
