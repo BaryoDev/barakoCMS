@@ -54,6 +54,20 @@ internal sealed class Endpoint(
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
     }
 
+    /// <summary>The blueprint's types, with every type lock the apply needs already held.</summary>
+    /// <remarks>
+    /// One sorted pass before anything is read or checked: a blueprint type exclusive, a rollup
+    /// source outside the blueprint shared. Taken type by type while the rollups are checked, two
+    /// saves whose types roll up over each other wait on each other and the database aborts one.
+    /// </remarks>
+    private async Task<List<ContentTypeDefinition>> MaterializeAndLockAsync(Blueprint blueprint, CancellationToken ct)
+    {
+        var types = BlueprintCatalog.Materialize(blueprint);
+        await barakoCMS.Infrastructure.Jobs.FieldChanges.LockPlanAsync(
+            session, barakoCMS.Infrastructure.Jobs.TypeLockPlan.ForTypes(types), ct);
+        return types;
+    }
+
     private async Task RefuseUnstorableAsync(string blueprint, List<ContentTypeDefinition> types, CancellationToken ct)
     {
         await RefuseStandingSourcingAsync(types, ct);
@@ -126,7 +140,7 @@ internal sealed class Endpoint(
             return;
         }
 
-        var types = BlueprintCatalog.Materialize(entry.Definition);
+        var types = await MaterializeAndLockAsync(entry.Definition, ct);
 
         var clashes = new List<string>();
         foreach (var type in types)

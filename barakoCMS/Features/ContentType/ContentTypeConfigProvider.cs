@@ -78,7 +78,7 @@ internal sealed class ContentTypeConfigProvider(
             return new ConfigSectionPlan { Section = Section, Errors = errors };
         }
 
-        var busy = await LockTypesAsync(desired.Keys, ct);
+        var busy = await LockTypesAsync(desired, ct);
         stored = (await session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
         var conflicts = new List<string>();
         var topicOwners = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -174,9 +174,10 @@ internal sealed class ContentTypeConfigProvider(
     }
 
     /// <summary>
-    /// Takes the field-change lock of each type the document names, in one order (lowest normalized
-    /// name first, the order a bundle import takes them in), and returns the refusal the type's
-    /// <c>{name}</c> routes give, by normalized name, for each with a field change running.
+    /// Takes every type lock the apply will need in one pass, lowest normalized name first: the
+    /// exclusive field-change lock of each type the document names, and the shared lock of each type
+    /// their rollups read that the document does not name. Returns the refusal the type's
+    /// <c>{name}</c> routes give, by normalized name, for each type with a field change running.
     /// A new type is locked too: the checks lock every type of the set, and two sets that meet on
     /// a new type must not wait on each other the other way round.
     /// </summary>
@@ -184,19 +185,19 @@ internal sealed class ContentTypeConfigProvider(
     /// Held until the apply commits or rolls back, so no field change starts on a type between this
     /// check and the write, and no block binding is saved on one. The caller reads the types again
     /// after this, so a change that ran to completion before the lock is seen in what it read.
+    /// The rollup sources are asked for here, not when each type's rollups are checked: two applies
+    /// whose types roll up over each other (A over X, X over A) would otherwise each hold their own
+    /// type and wait for the other's. See <see cref="barakoCMS.Infrastructure.Jobs.TypeLockPlan"/>.
     /// </remarks>
-    private async Task<Dictionary<string, string>> LockTypesAsync(IEnumerable<string> keys, CancellationToken ct)
+    private async Task<Dictionary<string, string>> LockTypesAsync(
+        IReadOnlyDictionary<string, JsonElement> documents, CancellationToken ct)
     {
         var busy = new Dictionary<string, string>(StringComparer.Ordinal);
-        var names = keys
-            .Where(k => !string.IsNullOrWhiteSpace(k))
-            .Select(barakoCMS.Core.ContentTypeName.Normalize)
-            .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal);
+        var plan = barakoCMS.Infrastructure.Jobs.TypeLockPlan.ForDocuments(documents);
+        await barakoCMS.Infrastructure.Jobs.FieldChanges.LockPlanAsync(session, plan, ct);
 
-        foreach (var name in names)
+        foreach (var name in plan.Where(l => l.Exclusive).Select(l => l.Name))
         {
-            await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeAsync(session, name, ct);
             if (await barakoCMS.Infrastructure.Jobs.FieldChanges.RunningAsync(session, name, ct) is { } running)
             {
                 busy[name] = barakoCMS.Infrastructure.Jobs.FieldChanges.Busy(running);

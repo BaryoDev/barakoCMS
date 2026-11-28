@@ -364,6 +364,15 @@ internal static class RollupFields
             Lines = def.Lines,
         };
 
+        // The type's own lock and every source the checks below will ask for, in one sorted pass,
+        // before BreaksAsync takes the own lock alone: a type that rolls up over this one, and is
+        // saved at the same time, then cannot hold a source this save waits for while it waits here.
+        // Sources only when the field is a rollup, the one case the checks below read them.
+        var sources = proposed.Rollup is null
+            ? []
+            : def.Fields.Concat(after.Fields).Where(f => f is not null && IsRollup(f) && !Blank(f.Rollup!.From)).Select(f => f.Rollup!.From);
+        await FieldChanges.LockTypesAsync(session, def.Name, sources, ct);
+
         var errors = new List<string>();
         var already = await BreaksAsync(session, def.Name, def, ct);
         errors.AddRange((await BreaksAsync(session, def.Name, after, ct)).Where(e => !already.Contains(e)));
