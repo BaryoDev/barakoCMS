@@ -306,12 +306,15 @@ networks:
   default: {}
   # A fixed subnet so Caddy's address is known in advance. Docker refuses to create it if another
   # network on the host already overlaps it, and a host or VPN route in the same range would stop
-  # the containers reaching it. Either way, set PROXY_SUBNET and PROXY_ADDRESS in .env to a free
-  # range. See docs/deploy-in-production.md, "Client IPs behind Caddy".
+  # the containers reaching it. Either way, set PROXY_SUBNET, PROXY_ADDRESS and PROXY_IP_RANGE in .env
+  # to a free range. See docs/deploy-in-production.md, "Client IPs behind Caddy".
+  # Automatic addresses come from PROXY_IP_RANGE, so the app cannot take Caddy's address on a fresh
+  # start. Without it the app starts first and gets the lowest free address, which is Caddy's.
   proxy:
     ipam:
       config:
         - subnet: ${PROXY_SUBNET:-10.87.51.0/28}
+          ip_range: ${PROXY_IP_RANGE:-${PROXY_SUBNET:-10.87.51.8/29}}
 
 volumes:
   postgres_prod_data:

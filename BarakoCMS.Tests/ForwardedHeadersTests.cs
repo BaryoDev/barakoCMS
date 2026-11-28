@@ -245,6 +245,30 @@ public class ForwardedHeadersTests
     }
 
     [Fact]
+    public void The_proxy_network_hands_out_automatic_addresses_away_from_Caddys_address()
+    {
+        var lines = ProductionComposeLines();
+        var subnetLine = lines.SingleOrDefault(l => l.StartsWith("- subnet:", StringComparison.Ordinal));
+        var rangeLine = lines.SingleOrDefault(l => l.StartsWith("ip_range:", StringComparison.Ordinal));
+        var caddy = CaddyAddressInProductionCompose();
+
+        subnetLine.Should().NotBeNull("the proxy network has a fixed subnet");
+        rangeLine.Should().NotBeNull(
+            "without an ip_range the app starts first, takes the lowest free address on the proxy "
+          + "network, which is Caddy's, and Caddy fails with 'Address already in use'");
+        caddy.Should().NotBeNull();
+
+        var subnet = IPNetwork.Parse(ResolveDefaults(subnetLine!["- subnet:".Length..].Trim()));
+        var range = IPNetwork.Parse(ResolveDefaults(rangeLine!["ip_range:".Length..].Trim()));
+        var caddyAddress = IPAddress.Parse(caddy!);
+
+        subnet.Contains(caddyAddress).Should().BeTrue("Caddy's address is on the proxy network");
+        subnet.Contains(range.BaseAddress).Should().BeTrue("a range outside the subnet stops `up`");
+        range.Contains(caddyAddress).Should().BeFalse(
+            "an automatic address could then land on Caddy's address");
+    }
+
+    [Fact]
     public void DeviceContext_does_not_read_the_forwarded_header_itself()
     {
         var ctx = new DefaultHttpContext();
