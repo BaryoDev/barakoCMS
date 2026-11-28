@@ -223,6 +223,7 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         List<ContentTypeDefinition> bundleTypes, List<ContentTypeDefinition> existing, IConfiguration configuration, CancellationToken ct)
     {
         var rollupChecks = new List<(int Index, ContentTypeDefinition Type, ContentTypeDefinition? Stored)>();
+        RefuseDuplicateTypes(bundleTypes);
         // Same rule as the content-type endpoints: a type already stored over the cap may be
         // imported again at its size, only growth past the cap is refused.
         var maxFields = ContentTypeFieldLimit.Resolve(configuration);
@@ -271,6 +272,26 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
         return rollupChecks;
     }
 
+    /// <summary>
+    /// Two entries that name one type ("Order" and "order") would merge into one stored type with
+    /// the last one's fields and lines, so the bundle is refused, as a config document is.
+    /// </summary>
+    private void RefuseDuplicateTypes(List<ContentTypeDefinition> bundleTypes)
+    {
+        var named = bundleTypes.Select((t, i) => (Index: i, t.Name)).Where(x => !string.IsNullOrWhiteSpace(x.Name))
+            .GroupBy(x => barakoCMS.Core.ContentTypeName.Normalize(x.Name)).Where(g => g.Count() > 1);
+        foreach (var group in named)
+        {
+            var message = $"{string.Join(", ", group.Select(x => Shorten(x.Name)))} name the same content type '{Shorten(group.Key)}'.";
+            foreach (var entry in group.Skip(1))
+            {
+                AddError(new ValidationFailure($"contentTypes[{entry.Index}]", message));
+            }
+        }
+
+        ThrowIfAnyErrors();
+    }
+
     private async Task RecordImportAsync(IDocumentSession session, ImportReport report, Guid userId, CancellationToken token) =>
         await AuditLog.RecordAsync(session, _tenant.Slug, "portability.imported", userId, User.FindFirst("Username")?.Value,
             metadata: new()
@@ -291,6 +312,9 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
     {
         var failures = new List<ValidationFailure>();
         var pending = bundleTypes.Where(t => !string.IsNullOrWhiteSpace(t.Name)).ToList();
+        // Every type of the bundle, lowest normalized name first, the order a config apply takes
+        // them in, so the two cannot wait on each other's second lock.
+        await ContentTypeUpsert.LockTypesAsync(session, pending.Select(t => t.Name), ct);
         foreach (var (index, type, stored) in checks)
         {
             foreach (var error in await ContentTypeUpsert.RollupErrorsAsync(
@@ -345,6 +369,12 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             existing.Add(definition);
             toStore.Add(definition);
             created.Add(definition);
+        }
+
+        // After every type of the bundle is written, so a header's line type may come later in it.
+        foreach (var held in toStore)
+        {
+            ContentTypeUpsert.RespellLines(held, existing);
         }
 
         return (toStore, created, reindex, recompute);

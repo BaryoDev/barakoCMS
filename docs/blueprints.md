@@ -28,11 +28,12 @@ gives.
 
 The audit log records `contenttype.blueprint_applied` with the names created.
 
-## The built-in seven
+## The built-in nine
 
-Every addressable type has a `Slug` field of type `slug`, which is what makes
-`/api/public/{type}/{slug}` exist, and every type but the two `email` ones is publicly deliverable. The `site` type is the
-exception to the slug: it is a singleton, one entry per tenant, read from the list. Fields that are for the
+Every addressable type in the site blueprints has a `Slug` field of type `slug`, which is what makes
+`/api/public/{type}/{slug}` exist, and every type in them but the two `email` ones is publicly deliverable. The `site` type is the
+exception to the slug: it is a singleton, one entry per tenant, read from the list. The `inventory` and
+`attendance` types are internal: no `Slug`, not publicly deliverable. Fields that are for the
 team and not the public are marked `Sensitive` (masked on the way out) or `Hidden` (removed).
 
 | Blueprint | Types | Notes |
@@ -44,6 +45,8 @@ team and not the public are marked `Sensitive` (masked on the way out) or `Hidde
 | `site` | `site` | A singleton holding the site's identity, theme and chrome, read by the renderer from `/api/public/site`. The theme and chrome fields are JSON; [site-settings.md](site-settings.md) gives their shapes. |
 | `email` | `email-template`, `email-layout` | Templates a workflow's Email action names instead of writing its own subject and body, and the layout wrapped around them. Not publicly deliverable. See [email-templates.md](email-templates.md). |
 | `devsite` | `page`, `post`, `category`, `author`, `doc`, `package`, `release`, `contributor`, `up-for-grabs`, `milestone` | A product site: the blog types under their own names, plus a flat `doc` type carrying its own section, order and parent fields for a documentation tree, and five types meant to be filled by collection syncs (#794) rather than typed by hand: `package` (NuGet), `release` and `contributor` (GitHub), `up-for-grabs` (open issues), `milestone` (open GitHub milestones, one per product). The shape barakocms.com runs on (BaryoDev/barakoCMS#959); see below for wiring it into a site's `Collections` setting. Its `page` has the same optional `HideTitle` as `blog`. |
+| `inventory` | `product`, `stock-move`, `sales-order`, `sales-order-line` | Stock and sales. Product has an `OnHand` sum and a `MovesThisMonth` count, both kept by the server from its stock moves. A sales order carries its lines and a `Total` that must equal their sum. Not publicly deliverable. See below. |
+| `attendance` | `employee`, `time-entry` | Time and attendance. A time entry's `Hours` is worked out from `TimeIn` and `TimeOut`, and the employee has `HoursLast7Days` and `EntriesThisMonth`. Employee email is Sensitive. Not publicly deliverable. See below. |
 
 The blueprints carry no SEO fields. Run `POST /api/content-types/{name}/seo-fields` on the types a
 frontend renders as pages; see [seo-fields.md](seo-fields.md).
@@ -57,6 +60,27 @@ it. Choose `richtext` only where the deployment sanitises on its own side.
 
 There is no media content type in the core, so an image is a `url` field. If a deployment models
 media as content, a custom blueprint can reference it instead.
+
+### Inventory
+
+Two rollups on `product` do the counting, so a client never sends them. `OnHand` is the sum of
+`stock-move.Qty` over the moves that point at the product, and `MovesThisMonth` counts those moves
+created this calendar month (a `where` window on `createdAt`). Write moves of `10`, `-3` and `5` and
+`OnHand` reads `12` once the rollup drain has run. Only Published moves count. Moving a stock move to
+another product recounts both. See [computed-fields.md](computed-fields.md) for rollups and their windows.
+
+`sales-order` declares `sales-order-line` as its lines. Create the order with a `lines` array of
+`Product`, `Qty` and `UnitPrice`, and a `Total`. The server works out each line's `LineTotal` as
+`Qty * UnitPrice`, rounded to 2 places, and refuses the order with 400 when `Total` is not the sum of
+the lines. Read them back with `GET /api/contents/{id}/lines`. See [money-fields.md](money-fields.md).
+
+### Attendance
+
+`time-entry.Hours` is a computed field: the hours between `TimeIn` and `TimeOut`, rounded to 2 places,
+so 08:00 to 16:30 reads `8.5`. The client does not send it. On `employee`, `HoursLast7Days` sums those
+hours over entries whose `TimeIn` falls in the last 7 days, and `EntriesThisMonth` counts entries whose
+`TimeIn` falls in this month. Windows follow the site time zone, UTC by default. An entry outside a
+window is left out of that total and still has its own `Hours`.
 
 ### Wiring devsite into a renderer
 

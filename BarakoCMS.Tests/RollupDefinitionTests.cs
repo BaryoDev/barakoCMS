@@ -709,7 +709,39 @@ public class RollupDefinitionTests
         (await Probe.StoredTypeAsync(_fixture, line)).BranchScoped.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task A_bundle_import_whose_header_has_a_text_line_amount_is_refused_on_that_entry_and_stores_nothing()
+    {
+        var (header, line) = await LineAsync(SensitivityLevel.Public, SensitivityLevel.Public, R.Plain("Memo", "string"));
+        var bundle = new
+        {
+            contentTypes = new[] { HeaderWithLines(header, line, "decimal", "Memo") },
+            contents = Array.Empty<object>(),
+        };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync("/api/portability/import", bundle, Ct);
+
+        await AssertRefusedAsync(res, $"Content type '{header}': '{LinesTotal}' on '{header}' and 'Memo' on '{line}' must both be number fields.");
+        await AssertNotStoredAsync(header);
+    }
+
     // Integration: config as code.
+
+    private const string LinesTotal = "Total";
+
+    /// <summary>A header whose lines are <paramref name="line"/>, summed into Total, with the line amount in <paramref name="amount"/>.</summary>
+    private static object HeaderWithLines(string header, string line, string totalType, string amount) => new
+    {
+        name = header, displayName = header,
+        lines = new { contentType = line, parentField = "Teacher", totalField = LinesTotal, lineAmountField = amount },
+        fields = new object[] { new { name = "Name", type = "string" }, new { name = LinesTotal, type = totalType } },
+    };
+
+    private static object ConfigOfTypes(params (string Key, object Type)[] types) => new
+    {
+        document = new { version = 1, contentTypes = types.ToDictionary(t => t.Key, t => t.Type) },
+        allowDestructive = true,
+    };
 
     private static object ConfigOf(string header, params object[] fields) => new
     {
@@ -749,6 +781,637 @@ public class RollupDefinitionTests
         res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
         (await StoredFieldAsync(header, "Count"))!.Rollup!.Fn.Should().Be("count");
     }
+
+    [Fact]
+    public async Task A_config_apply_whose_header_has_a_text_lines_total_is_refused_and_stores_nothing()
+    {
+        var (header, line) = await LineAsync();
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((header, HeaderWithLines(header, line, "string", "Hours"))), Ct);
+
+        await AssertRefusedAsync(res, $"'{LinesTotal}' on '{header}' and 'Hours' on '{line}' must both be number fields.");
+        await AssertNotStoredAsync(header);
+    }
+
+    [Fact]
+    public async Task A_config_apply_that_brings_a_header_and_its_line_type_together_is_not_refused_for_the_lines()
+    {
+        var (header, line) = Names();
+        var lineType = new
+        {
+            name = line, displayName = line,
+            fields = new object[]
+            {
+                new { name = "Teacher", type = "reference", referenceType = header },
+                new { name = "Hours", type = "decimal" },
+            },
+        };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((header, HeaderWithLines(header, line, "decimal", "Hours")), (line, lineType)), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        (await Probe.StoredTypeAsync(_fixture, header)).Name.Should().Be(header);
+        (await Probe.StoredTypeAsync(_fixture, line)).Name.Should().Be(line);
+    }
+
+    // Lines are stored by config apply and import, in the spelling the lines route stores.
+
+    /// <summary>A header and its line type, the lines naming everything in another case than the types hold it.</summary>
+    private static (object Header, object Line) MiscasedPair(string header, string line) => (
+        new
+        {
+            name = header, displayName = header,
+            lines = new { contentType = line.ToUpperInvariant(), parentField = "teacher", totalField = "total", lineAmountField = "hours" },
+            fields = new object[] { new { name = "Name", type = "string" }, new { name = LinesTotal, type = "decimal" } },
+        },
+        new
+        {
+            name = line, displayName = line,
+            fields = new object[]
+            {
+                new { name = "Teacher", type = "reference", referenceType = header },
+                new { name = "Hours", type = "decimal" },
+            },
+        });
+
+    private async Task AssertStoredLinesAsync(string header, string line)
+    {
+        var lines = (await Probe.StoredTypeAsync(_fixture, header)).Lines;
+        lines.Should().NotBeNull("the checks passed, so the lines are stored");
+        (lines!.ContentType, lines.ParentField, lines.TotalField, lines.LineAmountField)
+            .Should().Be((line, "Teacher", LinesTotal, "Hours"));
+    }
+
+    /// <summary>A stored line type and a header with lines, as the lines route stores them.</summary>
+    private async Task<(string Header, string Line)> StoredWithLinesAsync()
+    {
+        var (header, line) = await LineAsync();
+        var type = Type(header, R.Plain("Name", "string"), R.Plain(LinesTotal, "decimal"));
+        type.Lines = new LinesDefinition { ContentType = line, ParentField = "Teacher", TotalField = LinesTotal, LineAmountField = "Hours" };
+        await StoreAsync(type);
+        return (header, line);
+    }
+
+    private async Task DeleteTypesAsync(params string[] names)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        foreach (var type in await session.Query<ContentTypeDefinition>().Where(d => names.Contains(d.Name)).ToListAsync(Ct))
+            session.Delete(type);
+        await session.SaveChangesAsync(Ct);
+    }
+
+    [Fact]
+    public async Task A_config_apply_stores_the_lines_it_passed_in_the_stored_spelling()
+    {
+        var (header, line) = Names();
+        var (headerType, lineType) = MiscasedPair(header, line);
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((header, headerType), (line, lineType)), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_bundle_import_stores_the_lines_it_passed_in_the_stored_spelling()
+    {
+        var (header, line) = Names();
+        var (headerType, lineType) = MiscasedPair(header, line);
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/portability/import", new { contentTypes = new[] { headerType, lineType }.Cast<object>().ToArray(), contents = Array.Empty<object>() }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_second_config_apply_without_lines_keeps_the_stored_lines()
+    {
+        var (header, line) = Names();
+        var (headerType, lineType) = MiscasedPair(header, line);
+        var admin = await AdminAsync();
+        (await admin.PostAsJsonAsync("/api/config/apply", ConfigOfTypes((header, headerType), (line, lineType)), Ct))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var withoutLines = new
+        {
+            name = header, displayName = header,
+            fields = new object[] { new { name = "Name", type = "string" }, new { name = LinesTotal, type = "decimal" } },
+        };
+        var res = await admin.PostAsJsonAsync("/api/config/apply", ConfigOfTypes((header, withoutLines)), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_config_export_then_apply_into_an_empty_tenant_keeps_the_lines()
+    {
+        var (header, line) = await StoredWithLinesAsync();
+        var admin = await AdminAsync();
+        var export = await (await admin.GetAsync("/api/config/export", Ct)).Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(Ct);
+        var types = export.GetProperty("contentTypes");
+        var documents = new[] { (header, types.GetProperty(header)), (line, types.GetProperty(line)) };
+        await DeleteTypesAsync(header, line);
+
+        var res = await admin.PostAsJsonAsync("/api/config/apply", ConfigOfTypes(documents.Select(d => (d.Item1, (object)d.Item2)).ToArray()), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_second_config_plan_of_the_same_miscased_lines_reports_no_change()
+    {
+        var (header, line) = Names();
+        var (headerType, lineType) = MiscasedPair(header, line);
+        var admin = await AdminAsync();
+        var document = ConfigOfTypes((header, headerType), (line, lineType));
+        (await admin.PostAsJsonAsync("/api/config/apply", document, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var plan = await admin.PostAsJsonAsync("/api/config/plan", document, Ct);
+
+        var body = await BodyAsync(plan);
+        plan.StatusCode.Should().Be(HttpStatusCode.OK, body);
+        var changes = System.Text.Json.JsonDocument.Parse(body).RootElement.GetProperty("sections").EnumerateArray()
+            .SelectMany(s => s.GetProperty("changes").EnumerateArray()).Select(c => c.GetProperty("key").GetString()).ToList();
+        changes.Should().NotContain(header, "the stored spelling of the lines is the same lines");
+    }
+
+    [Fact]
+    public async Task A_config_apply_adds_lines_to_a_stored_header_that_has_none_in_the_stored_spelling()
+    {
+        var (header, line) = await LineAsync();
+        await StoreAsync(Type(header, R.Plain("Name", "string"), R.Plain(LinesTotal, "decimal")));
+        var (headerType, _) = MiscasedPair(header, line);
+
+        var res = await (await AdminAsync()).PostAsJsonAsync("/api/config/apply", ConfigOfTypes((header, headerType)), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_bundle_import_adds_lines_to_a_stored_header_that_has_none_in_the_stored_spelling()
+    {
+        var (header, line) = await LineAsync();
+        await StoreAsync(Type(header, R.Plain("Name", "string"), R.Plain(LinesTotal, "decimal")));
+        var (headerType, _) = MiscasedPair(header, line);
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/portability/import", new { contentTypes = new[] { headerType }, contents = Array.Empty<object>() }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_bundle_export_then_import_into_an_empty_tenant_keeps_the_lines()
+    {
+        var (header, line) = await StoredWithLinesAsync();
+        var admin = await AdminAsync();
+        var bundle = await (await admin.GetAsync($"/api/portability/export?types={header},{line}", Ct)).Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(Ct);
+        await DeleteTypesAsync(header, line);
+
+        var res = await admin.PostAsJsonAsync("/api/portability/import", bundle, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    // Lines are checked as they will be stored, on every path.
+
+    private static object HeaderDoc(string header, string? lineType, bool total = true, string lineName = "Teacher") => new
+    {
+        name = header, displayName = header,
+        lines = lineType is null ? null : new { contentType = lineType, parentField = lineName, totalField = LinesTotal, lineAmountField = "Hours" },
+        fields = total
+            ? new object[] { new { name = "Name", type = "string" }, new { name = LinesTotal, type = "decimal" } }
+            : [new { name = "Name", type = "string" }],
+    };
+
+    private async Task AssertStillStoredWithLinesAsync(string header, string line)
+    {
+        var stored = await Probe.StoredTypeAsync(_fixture, header);
+        stored.Fields.Should().Contain(f => f.Name == LinesTotal, "a refused save changes nothing");
+        stored.Lines.Should().NotBeNull();
+        stored.Lines!.ContentType.Should().Be(line);
+    }
+
+    [Fact]
+    public async Task A_config_apply_resolves_a_line_type_named_in_any_spelling_the_route_accepts()
+    {
+        var header = Names().Header;
+        var line = "ord-line-" + Guid.NewGuid().ToString("n")[..8];
+        await StoreAsync(Type(line, R.Reference("Teacher", header), R.Plain("Hours", "decimal")));
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((header, HeaderDoc(header, " " + line.Replace('-', ' ').ToUpperInvariant() + " "))), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_bundle_import_resolves_a_line_type_named_in_any_spelling_the_route_accepts()
+    {
+        var header = Names().Header;
+        var line = "ord-line-" + Guid.NewGuid().ToString("n")[..8];
+        await StoreAsync(Type(line, R.Reference("Teacher", header), R.Plain("Hours", "decimal")));
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/portability/import",
+            new { contentTypes = new[] { HeaderDoc(header, line.Replace('-', ' ').ToUpperInvariant()) }, contents = Array.Empty<object>() }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_config_apply_that_omits_lines_and_drops_the_stored_lines_total_is_refused()
+    {
+        var (header, line) = await StoredWithLinesAsync();
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((header, HeaderDoc(header, null, total: false))), Ct);
+
+        await AssertRefusedAsync(res, $"'{LinesTotal}' on '{header}' and 'Hours' on '{line}' must both be number fields.");
+        await AssertStillStoredWithLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_bundle_import_that_omits_lines_and_drops_the_stored_lines_total_is_refused()
+    {
+        var (header, line) = await StoredWithLinesAsync();
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/portability/import",
+            new { contentTypes = new[] { HeaderDoc(header, null, total: false) }, contents = Array.Empty<object>() }, Ct);
+
+        await AssertRefusedAsync(res, $"'{LinesTotal}' on '{header}' and 'Hours' on '{line}' must both be number fields.");
+        await AssertStillStoredWithLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_config_apply_that_redeclares_a_line_type_without_its_parent_field_is_refused_while_a_header_names_it()
+    {
+        var (header, line) = await StoredWithLinesAsync();
+        var redeclared = new { name = line, displayName = line, fields = new object[] { new { name = "Hours", type = "decimal" } } };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync("/api/config/apply", ConfigOfTypes((line, redeclared)), Ct);
+
+        await AssertRefusedAsync(res, $"This would break the lines of '{header}'. Line type '{line}' has no field 'Teacher'.");
+        (await Probe.StoredTypeAsync(_fixture, line)).Fields.Should().Contain(f => f.Name == "Teacher");
+    }
+
+    [Fact]
+    public async Task A_config_apply_that_gives_a_stored_line_type_that_keeps_its_lines_a_header_is_refused()
+    {
+        var (header, line) = Names();
+        var deeper = "rd" + Guid.NewGuid().ToString("n")[..10];
+        await StoreAsync(Type(deeper, R.Reference("Parent", line)));
+        var child = Type(line, R.Reference("Teacher", header), R.Plain("Hours", "decimal"));
+        child.Lines = new LinesDefinition { ContentType = deeper, ParentField = "Parent" };
+        await StoreAsync(child);
+        var childWithoutLines = new
+        {
+            name = line, displayName = line,
+            fields = new object[] { new { name = "Teacher", type = "reference", referenceType = header }, new { name = "Hours", type = "decimal" } },
+        };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((header, HeaderDoc(header, line)), (line, childWithoutLines)), Ct);
+
+        await AssertRefusedAsync(res, $"Line type '{line}' has lines of its own. Lines are one level deep.");
+        await AssertNotStoredAsync(header);
+    }
+
+    [Fact]
+    public async Task The_lines_route_refuses_lines_on_a_type_that_is_already_a_line_type()
+    {
+        var (header, line) = await StoredWithLinesAsync();
+        var deeper = "rd" + Guid.NewGuid().ToString("n")[..10];
+        await StoreAsync(Type(deeper, R.Reference("Parent", line)));
+
+        var res = await (await AdminAsync()).PutAsJsonAsync(
+            $"/api/content-types/{line}/lines", new { lines = new { contentType = deeper, parentField = "Parent" } }, Ct);
+
+        await AssertRefusedAsync(res, $"'{line}' is the line type of '{header}', so it cannot have lines of its own.");
+        (await Probe.StoredTypeAsync(_fixture, line)).Lines.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_config_apply_that_gives_a_type_that_is_a_line_type_lines_of_its_own_is_refused()
+    {
+        var (header, line) = await StoredWithLinesAsync();
+        var deeper = "rd" + Guid.NewGuid().ToString("n")[..10];
+        await StoreAsync(Type(deeper, R.Reference("Parent", line)));
+        var withLines = new
+        {
+            name = line, displayName = line,
+            lines = new { contentType = deeper, parentField = "Parent" },
+            fields = new object[] { new { name = "Teacher", type = "reference", referenceType = header }, new { name = "Hours", type = "decimal" } },
+        };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync("/api/config/apply", ConfigOfTypes((line, withLines)), Ct);
+
+        await AssertRefusedAsync(res, $"'{line}' is the line type of '{header}', so it cannot have lines of its own.");
+    }
+
+    [Fact]
+    public async Task The_lines_route_refuses_a_header_that_is_its_own_line_type()
+    {
+        var (header, _) = Names();
+        await StoreAsync(Type(header, R.Plain("Name", "string")));
+
+        var res = await (await AdminAsync()).PutAsJsonAsync(
+            $"/api/content-types/{header}/lines", new { lines = new { contentType = header, parentField = "Name" } }, Ct);
+
+        await AssertRefusedAsync(res, "A type cannot be its own line type.");
+    }
+
+    [Fact]
+    public async Task A_config_apply_of_a_header_that_is_its_own_line_type_is_refused()
+    {
+        var (header, _) = Names();
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((header, HeaderDoc(header, header, lineName: "Name"))), Ct);
+
+        await AssertRefusedAsync(res, "A type cannot be its own line type.");
+        await AssertNotStoredAsync(header);
+    }
+
+    [Fact]
+    public async Task A_config_apply_of_an_unrelated_type_leaves_a_stored_header_whose_lines_do_not_hold_alone()
+    {
+        var (header, line) = await LineAsync();
+        var broken = Type(header, R.Plain("Name", "string"), R.Plain(LinesTotal, "string"));
+        broken.Lines = new LinesDefinition { ContentType = line, ParentField = "teacher", TotalField = "total", LineAmountField = "hours" };
+        await StoreAsync(broken);
+        var unrelated = Names().Header;
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((unrelated, new { name = unrelated, displayName = unrelated, fields = new object[] { new { name = "Name", type = "string" } } })), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        var lines = (await Probe.StoredTypeAsync(_fixture, header)).Lines!;
+        (lines.ParentField, lines.TotalField, lines.LineAmountField).Should().Be(("teacher", "total", "hours"),
+            "lines that do not hold are not respelled, and an unrelated apply does not refuse them");
+    }
+
+    // Round 6: one normalized match, only what the save introduces, and one lock order.
+
+    /// <summary>A stored hyphenated header with lines, its line type, and a spelling of the header that normalizes to it.</summary>
+    private async Task<(string Header, string Line, string Spelled)> StoredHyphenatedAsync()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+        var (header, line) = ($"so-{id}", $"sol-{id}");
+        await StoreAsync(Type(line, R.Reference("Teacher", header), R.Plain("Hours", "decimal")));
+        var type = Type(header, R.Plain("Name", "string"), R.Plain(LinesTotal, "decimal"));
+        type.Lines = new LinesDefinition { ContentType = line, ParentField = "Teacher", TotalField = LinesTotal, LineAmountField = "Hours" };
+        await StoreAsync(type);
+        return (header, line, "So " + id);
+    }
+
+    [Fact]
+    public async Task A_config_apply_keyed_with_spaces_over_a_stored_header_checks_its_lines_and_refuses_a_text_total()
+    {
+        var (header, line, spelled) = await StoredHyphenatedAsync();
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((spelled, HeaderWithLines(spelled, line, "string", "Hours"))), Ct);
+
+        await AssertRefusedAsync(res, $"'{LinesTotal}' on '{header}' and 'Hours' on '{line}' must both be number fields.");
+        (await StoredFieldAsync(header, LinesTotal))!.Type.Should().Be("decimal", "a refused apply stores nothing");
+    }
+
+    [Fact]
+    public async Task A_bundle_import_naming_a_stored_header_with_spaces_checks_its_lines_and_refuses_a_text_total()
+    {
+        var (header, line, spelled) = await StoredHyphenatedAsync();
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/portability/import",
+            new { contentTypes = new[] { HeaderWithLines(spelled, line, "string", "Hours") }, contents = Array.Empty<object>() }, Ct);
+
+        await AssertRefusedAsync(res, $"'{LinesTotal}' on '{header}' and 'Hours' on '{line}' must both be number fields.");
+        (await StoredFieldAsync(header, LinesTotal))!.Type.Should().Be("decimal", "a refused import stores nothing");
+    }
+
+    [Fact]
+    public async Task A_config_apply_creating_a_header_keyed_with_spaces_accepts_a_line_type_that_references_its_normalized_name()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+        var (header, line, spelled) = ($"ord-{id}", $"ordl-{id}", "Ord " + id);
+        await StoreAsync(Type(line, R.Reference("Teacher", header), R.Plain("Hours", "decimal")));
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((spelled, HeaderWithLines(spelled, line, "decimal", "Hours"))), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_bundle_naming_one_type_twice_is_refused_at_the_second_entry_and_stores_nothing()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+        object Entry(string name) => new { name, displayName = name, fields = new object[] { new { name = "Name", type = "string" } } };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/portability/import",
+            new { contentTypes = new[] { Entry($"dup-x-{id}"), Entry($"Dup-X-{id}") }, contents = Array.Empty<object>() }, Ct);
+
+        var body = await BodyAsync(res);
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("contentTypes[1]").And.Contain($"dup-x-{id}, Dup-X-{id} name the same content type 'dup-x-{id}'.");
+        await AssertNotStoredAsync($"dup-x-{id}");
+        await AssertNotStoredAsync($"Dup-X-{id}");
+    }
+
+    [Fact]
+    public async Task A_config_apply_of_a_stored_chain_as_exported_is_not_refused_for_the_fault_it_already_had()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+        var (header, line, deeper) = ($"ch-{id}", $"cl-{id}", $"cd-{id}");
+        await StoreAsync(Type(deeper, R.Reference("Parent", line)));
+        var child = Type(line, R.Reference("Teacher", header), R.Plain("Hours", "decimal"));
+        child.Lines = new LinesDefinition { ContentType = deeper, ParentField = "Parent" };
+        var top = Type(header, R.Plain("Name", "string"), R.Plain(LinesTotal, "decimal"));
+        top.Lines = new LinesDefinition { ContentType = line, ParentField = "Teacher", TotalField = LinesTotal, LineAmountField = "Hours" };
+        await StoreAsync(child, top);
+        var childDoc = new
+        {
+            name = line, displayName = line,
+            lines = new { contentType = deeper, parentField = "Parent" },
+            fields = new object[] { new { name = "Teacher", type = "reference", referenceType = header }, new { name = "Hours", type = "decimal" } },
+        };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((header, HeaderWithLines(header, line, "decimal", "Hours")), (line, childDoc)), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    // The lock order. An import of [later, first] must take first before later, as a config apply does.
+
+    private string LockKey(string type)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        return $"barakocms:field-change:{scope.ServiceProvider.GetRequiredService<IDocumentSession>().TenantId}:{type}";
+    }
+
+    private async Task<long> AdvisoryLocksAsync(string type, bool granted)
+    {
+        await using var connection = _fixture.Services.GetRequiredService<IDocumentStore>().Storage.Database.CreateConnection();
+        await connection.OpenAsync(Ct);
+        await using var count = connection.CreateCommand();
+        // A bigint advisory key is stored as its high half in classid and its low half in objid.
+        count.CommandText = """
+            select count(*) from pg_locks
+            where locktype = 'advisory' and objsubid = 1 and granted = @granted
+              and classid = ((hashtextextended(@name, 0) >> 32) & 4294967295)::oid
+              and objid = (hashtextextended(@name, 0) & 4294967295)::oid
+            """;
+        count.Parameters.AddWithValue("granted", granted);
+        count.Parameters.AddWithValue("name", LockKey(type));
+        return (long)(await count.ExecuteScalarAsync(Ct))!;
+    }
+
+    private async Task<bool> TryLockFromAnotherSessionAsync(string type)
+    {
+        await using var connection = _fixture.Services.GetRequiredService<IDocumentStore>().Storage.Database.CreateConnection();
+        await connection.OpenAsync(Ct);
+        await using var attempt = connection.CreateCommand();
+        attempt.CommandText = "select pg_try_advisory_xact_lock(hashtextextended(@name, 0))";
+        attempt.Parameters.AddWithValue("name", LockKey(type));
+        return (bool)(await attempt.ExecuteScalarAsync(Ct))!;
+    }
+
+    private async Task WaitForQueuedLockAsync(string type)
+    {
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        limit.CancelAfter(TimeSpan.FromSeconds(10));
+        while (await AdvisoryLocksAsync(type, granted: false) < 1)
+        {
+            limit.Token.ThrowIfCancellationRequested();
+            await Task.Delay(25, limit.Token);
+        }
+    }
+
+    [Fact]
+    public async Task An_import_takes_the_type_locks_in_name_order_so_it_does_not_hold_a_later_type_while_it_waits_on_an_earlier_one()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+        var (first, later) = ($"lk-a-{id}", $"lk-b-{id}");
+        object Entry(string name) => new { name, displayName = name, fields = new object[] { new { name = "Name", type = "string" } } };
+        var holder = _fixture.Services.GetRequiredService<IDocumentStore>().LightweightSession();
+        Task<HttpResponseMessage> import;
+        try
+        {
+            await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeAsync(holder, first, Ct);
+            import = (await AdminAsync()).PostAsJsonAsync(
+                "/api/portability/import", new { contentTypes = new[] { Entry(later), Entry(first) }, contents = Array.Empty<object>() }, Ct);
+
+            await WaitForQueuedLockAsync(first);
+
+            (await TryLockFromAnotherSessionAsync(later)).Should().BeTrue(
+                "the import waits on the first type before it takes the later one, as a config apply does");
+        }
+        finally
+        {
+            await holder.DisposeAsync();
+        }
+
+        var res = await import;
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+    }
+
+    /// <summary>
+    /// Holds the lock of <paramref name="held"/> exclusively, asks for it as <paramref name="spelled"/>
+    /// with <paramref name="take"/>, and returns once the ask is queued, then releases and lets it finish.
+    /// Both sessions are disposed on every path, so a failed run leaves no transaction open.
+    /// </summary>
+    private async Task AssertSpellingWaitsOnHeldLockAsync(
+        string held, string spelled, Func<IDocumentSession, string, CancellationToken, Task> take)
+    {
+        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
+        var holder = store.LightweightSession();
+        var waiter = store.LightweightSession();
+        Task? wait = null;
+        try
+        {
+            await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeAsync(holder, held, Ct);
+            wait = take(waiter, spelled, Ct);
+
+            await WaitForQueuedLockAsync(held);
+            wait.IsCompleted.Should().BeFalse("the spelling is the held type, so it waits");
+
+            await holder.DisposeAsync();
+            await wait;
+        }
+        finally
+        {
+            await holder.DisposeAsync();
+            if (wait is not null)
+            {
+                try { await wait; } catch (Exception) { /* the run already failed or was released */ }
+            }
+
+            await waiter.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task A_lock_on_a_type_is_keyed_by_the_normalized_name_so_a_spelling_with_spaces_waits_on_the_stored_name()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+
+        await AssertSpellingWaitsOnHeldLockAsync($"lk-s-{id}", $" Lk S-{id} ",
+            (session, name, ct) => barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeAsync(session, name, ct));
+    }
+
+    [Fact]
+    public async Task A_shared_lock_on_a_type_is_keyed_by_the_normalized_name_so_a_spelling_with_spaces_waits_on_the_stored_name()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+
+        await AssertSpellingWaitsOnHeldLockAsync($"lk-h-{id}", $" Lk H-{id} ",
+            (session, name, ct) => barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeSharedAsync(session, name, ct));
+    }
+
+    [Fact]
+    public async Task A_config_apply_with_a_source_type_keyed_with_spaces_reads_the_source_as_the_document_has_it()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+        var (source, summary, spelled) = ($"sq-{id}", $"tq-{id}", "Sq " + id);
+        await StoreAsync(Type(source, R.Reference("Teacher", summary), R.Plain("Qty", "decimal")));
+        var sourceDoc = new
+        {
+            name = spelled, displayName = spelled,
+            fields = new object[] { new { name = "Teacher", type = "reference", referenceType = summary }, new { name = "Qty", type = "string" } },
+        };
+        var summaryDoc = new
+        {
+            name = summary, displayName = summary,
+            fields = WithName([RollupField("Total", "decimal", source, "Teacher", "sum", "Qty")]),
+        };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((spelled, sourceDoc), (summary, summaryDoc)), Ct);
+
+        await AssertRefusedAsync(res, "rolls up sum of 'Qty', which is a string.");
+        await AssertNotStoredAsync(summary);
+        (await StoredFieldAsync(source, "Qty"))!.Type.Should().Be("decimal", "a refused apply stores nothing");
+    }
+
 
     [Fact]
     public async Task A_config_apply_that_lowers_a_rollup_is_refused_and_leaves_the_type_alone()

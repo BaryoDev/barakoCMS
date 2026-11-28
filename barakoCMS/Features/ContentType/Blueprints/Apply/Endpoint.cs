@@ -154,11 +154,7 @@ internal sealed class Endpoint(
         // A blueprint file names roles, and a definition is stored with their ids, as on create.
         await barakoCMS.Core.RoleReferences.ToIdsAsync(session, types.SelectMany(t => t.Fields ?? []), ct);
 
-        foreach (var type in types)
-        {
-            session.Store(type);
-            await sourcing.DecideAsync(type.Name, false, ct);
-        }
+        await StoreTypesAsync(types, ct);
 
         var actorId = ActingCaller.IdOf(User);
         await AuditLog.RecordAsync(session, tenant.Slug, "contenttype.blueprint_applied", actorId,
@@ -199,6 +195,22 @@ internal sealed class Endpoint(
                 IsPubliclyDeliverable = t.IsPubliclyDeliverable,
             }).ToList(),
         }, ct);
+    }
+
+    private async Task StoreTypesAsync(List<ContentTypeDefinition> types, CancellationToken ct)
+    {
+        foreach (var type in types)
+        {
+            session.Store(type);
+            await sourcing.DecideAsync(type.Name, false, ct);
+        }
+
+        // After every type is written, so a header's line type may come later in the blueprint.
+        var known = types.Concat(await session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
+        foreach (var type in types)
+        {
+            barakoCMS.Infrastructure.Services.ContentTypeUpsert.RespellLines(type, known);
+        }
     }
 
     private async Task RefuseAccountOwnedAsync(string blueprint, string typeName, CancellationToken ct)

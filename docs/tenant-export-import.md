@@ -42,6 +42,18 @@ written. Generated token fields are left out of entries.
 - Entries need the Portability module (the `contents` section). Without it the bundle is refused.
 - At most `Tenants:MaxImportEntries` entries (default 5000) per import.
 
+## Lines in a document or bundle
+
+`POST /api/config/apply` and `POST /api/portability/import` store a type's `lines`, in the spelling
+`PUT /api/content-types/{name}/lines` stores. A document or bundle that omits `lines` keeps the
+stored ones. Neither can clear lines: `PUT /api/content-types/{name}/lines` with `lines: null` does.
+An omitted `rules` list clears the rules. Every save checks the lines as they will be stored, so a
+document that drops or retypes the total field, or the parent or amount field of a line type the
+stored lines name, is refused, and so is one that gives a stored line type lines of its own. Only a fault the
+save introduces is refused, so a tenant whose stored lines already have one can still apply its own export.
+A bundle that names one type twice ("Order" and "order") is refused at the second entry, as a config
+document is.
+
 ## Still to do under #897
 
 Move, archive and erase; members, API keys by reference, redirects and stored files in the bundle;

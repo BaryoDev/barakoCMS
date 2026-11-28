@@ -1,0 +1,38 @@
+{
+  "name": "attendance",
+  "description": "Time and attendance: employees and their time entries, with hours worked and recent totals kept by the server. Internal, not publicly deliverable.",
+  "contentTypes": [
+    {
+      "name": "employee",
+      "displayName": "Employee",
+      "description": "Someone who clocks time. The totals are kept by the server from their time entries.",
+      "fields": [
+        { "name": "Name", "displayName": "Name", "type": "string", "isRequired": true },
+        { "name": "Email", "displayName": "Email", "type": "email", "sensitivity": "Sensitive" },
+        {
+          "name": "HoursLast7Days", "displayName": "Hours, last 7 days", "type": "decimal",
+          "rollup": { "from": "time-entry", "via": "Employee", "fn": "sum", "field": "Hours", "round": 2, "where": { "TimeIn": "last7Days" } }
+        },
+        {
+          "name": "EntriesThisMonth", "displayName": "Entries this month", "type": "int",
+          "rollup": { "from": "time-entry", "via": "Employee", "fn": "count", "where": { "TimeIn": "thisMonth" } }
+        }
+      ]
+    },
+    {
+      "name": "time-entry",
+      "displayName": "Time entry",
+      "description": "One stretch of work. Hours is worked out from TimeIn and TimeOut.",
+      "fields": [
+        { "name": "Employee", "displayName": "Employee", "type": "reference", "referenceType": "employee", "isRequired": true },
+        { "name": "TimeIn", "displayName": "Time in", "type": "datetime" },
+        { "name": "TimeOut", "displayName": "Time out", "type": "datetime" },
+        {
+          "name": "Hours", "displayName": "Hours", "type": "decimal",
+          "computed": { "fn": "hours", "args": ["TimeIn", "TimeOut"], "round": 2 }
+        },
+        { "name": "Note", "displayName": "Note", "type": "text" }
+      ]
+    }
+  ]
+}

@@ -47,20 +47,14 @@ internal class Endpoint(
                 ? null
                 : await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == childName, ct);
 
-            var errors = Errors(def, child, asked);
+            var errors = LinesRules.Errors(def, child, asked, await session.Query<ContentTypeDefinition>().ToListAsync(ct));
             foreach (var error in errors)
             {
                 AddError(error);
             }
 
             ThrowIfAnyErrors();
-            lines = new LinesDefinition
-            {
-                ContentType = child!.Name,
-                ParentField = child.Fields.First(f => string.Equals(f.Name, asked.ParentField, StringComparison.OrdinalIgnoreCase)).Name,
-                TotalField = asked.TotalField is null ? null : def.Fields.First(f => string.Equals(f.Name, asked.TotalField, StringComparison.OrdinalIgnoreCase)).Name,
-                LineAmountField = asked.LineAmountField is null ? null : child.Fields.First(f => string.Equals(f.Name, asked.LineAmountField, StringComparison.OrdinalIgnoreCase)).Name,
-            };
+            lines = LinesRules.Stored(def, child!, asked);
         }
 
         var before = def.Lines?.ContentType ?? "none";
@@ -81,55 +75,4 @@ internal class Endpoint(
 
         await Send.OkAsync(new Response { Name = def.Name, Lines = def.Lines }, ct);
     }
-
-    private static List<string> Errors(ContentTypeDefinition header, ContentTypeDefinition? child, LinesDefinition asked)
-    {
-        if (child is null)
-        {
-            return [$"Line type '{asked.ContentType}' does not exist."];
-        }
-
-        if (string.Equals(child.Name, header.Name, StringComparison.OrdinalIgnoreCase))
-        {
-            return ["A type cannot be its own line type."];
-        }
-
-        if (child.Lines is not null)
-        {
-            return [$"Line type '{child.Name}' has lines of its own. Lines are one level deep."];
-        }
-
-        var parent = child.Fields.FieldNamed(asked.ParentField);
-        if (parent is null)
-        {
-            return [$"Line type '{child.Name}' has no field '{asked.ParentField}'."];
-        }
-
-        if (!string.Equals(parent.Type, "reference", StringComparison.OrdinalIgnoreCase)
-            || parent.Multiple
-            || !string.Equals(parent.ReferenceType, header.Name, StringComparison.OrdinalIgnoreCase))
-        {
-            return [$"Field '{parent.Name}' of '{child.Name}' must be a single reference to '{header.Name}'."];
-        }
-
-        if ((asked.TotalField is null) != (asked.LineAmountField is null))
-        {
-            return ["totalField and lineAmountField are set together or not at all."];
-        }
-
-        if (asked.TotalField is not null)
-        {
-            var total = header.Fields.FieldNamed(asked.TotalField);
-            var amount = child.Fields.FieldNamed(asked.LineAmountField);
-            if (total is null || !IsNumber(total) || amount is null || !IsNumber(amount))
-            {
-                return [$"'{asked.TotalField}' on '{header.Name}' and '{asked.LineAmountField}' on '{child.Name}' must both be number fields."];
-            }
-        }
-
-        return RollupFields.LinesErrors(header, child, asked).ToList();
-    }
-
-    private static bool IsNumber(FieldDefinition field) =>
-        field.Type.ToLowerInvariant() is "int" or "decimal" or "money" or "integer" or "number";
 }

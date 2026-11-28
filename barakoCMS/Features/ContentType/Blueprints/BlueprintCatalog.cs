@@ -8,7 +8,7 @@ using barakoCMS.Models;
 namespace barakoCMS.Features.ContentType.Blueprints;
 
 /// <summary>
-/// The blueprints this instance offers: the four built in, plus every <c>*.json</c> file in
+/// The blueprints this instance offers: the nine built in, plus every <c>*.json</c> file in
 /// <c>Blueprints:Path</c> when that is set.
 /// </summary>
 /// <remarks>

@@ -138,7 +138,7 @@ internal static class FieldChanges
         await session.BeginTransactionAsync(ct);
         await session.QueryAsync<int>(
             "select 1 from pg_advisory_xact_lock(hashtextextended(?, 0))", ct,
-            $"barakocms:field-change:{session.TenantId}:{contentType.ToLower()}");
+            $"barakocms:field-change:{session.TenantId}:{barakoCMS.Core.ContentTypeName.Normalize(contentType)}");
     }
 
     /// <summary>
@@ -158,7 +158,7 @@ internal static class FieldChanges
         await session.BeginTransactionAsync(ct);
         await session.QueryAsync<int>(
             "select 1 from pg_advisory_xact_lock_shared(hashtextextended(?, 0))", ct,
-            $"barakocms:field-change:{session.TenantId}:{contentType.ToLower()}");
+            $"barakocms:field-change:{session.TenantId}:{barakoCMS.Core.ContentTypeName.Normalize(contentType)}");
     }
 
     /// <summary>The type's definition, read after <see cref="LockTypeSharedAsync"/> so a committed edit is seen.</summary>
@@ -169,26 +169,37 @@ internal static class FieldChanges
     }
 
     /// <summary>
-    /// Takes <see cref="LockTypeSharedAsync"/> on each type, lowest lowered name first, the order
+    /// Takes <see cref="LockTypeAsync"/> on each type, lowest normalized name first, the order a
+    /// config apply takes its locks in. A save of several types asks for them here before it reads
+    /// anything, so it cannot wait on a type while holding another that a second save waits for.
+    /// </summary>
+    public static async Task LockTypesExclusiveAsync(IDocumentSession session, IEnumerable<string> contentTypes, CancellationToken ct)
+    {
+        foreach (var type in contentTypes.Select(barakoCMS.Core.ContentTypeName.Normalize).Distinct().Order(StringComparer.Ordinal))
+            await LockTypeAsync(session, type, ct);
+    }
+
+    /// <summary>
+    /// Takes <see cref="LockTypeSharedAsync"/> on each type, lowest normalized name first, the order
     /// ContentTypeConfigProvider takes its exclusive locks in. A write over several types asks for
     /// them here before it stages anything, so it cannot wait on a type while holding another that
     /// a change to the types is waiting for.
     /// </summary>
     public static async Task LockTypesSharedAsync(IDocumentSession session, IEnumerable<string> contentTypes, CancellationToken ct)
     {
-        foreach (var type in contentTypes.Select(t => t.ToLower()).Distinct().Order(StringComparer.Ordinal))
+        foreach (var type in contentTypes.Select(barakoCMS.Core.ContentTypeName.Normalize).Distinct().Order(StringComparer.Ordinal))
             await LockTypeSharedAsync(session, type, ct);
     }
 
     /// <summary>
     /// Takes the exclusive lock on <paramref name="own"/> and the shared lock on each of the others,
-    /// all in lowest lowered name first order, so two saves that point at each other cannot wait on
+    /// all in lowest normalized name first order, so two saves that point at each other cannot wait on
     /// one another's second lock.
     /// </summary>
     public static async Task LockTypesAsync(IDocumentSession session, string own, IEnumerable<string> others, CancellationToken ct)
     {
-        var ownKey = own.ToLower();
-        var names = others.Select(t => t.ToLower()).Append(ownKey).Distinct().Order(StringComparer.Ordinal);
+        var ownKey = barakoCMS.Core.ContentTypeName.Normalize(own);
+        var names = others.Select(barakoCMS.Core.ContentTypeName.Normalize).Append(ownKey).Distinct().Order(StringComparer.Ordinal);
         foreach (var name in names)
         {
             if (name == ownKey)

@@ -78,7 +78,7 @@ internal sealed class ContentTypeConfigProvider(
             return new ConfigSectionPlan { Section = Section, Errors = errors };
         }
 
-        var busy = await LockStoredTypesAsync(desired.Keys, stored, ct);
+        var busy = await LockTypesAsync(desired.Keys, ct);
         stored = (await session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
         var conflicts = new List<string>();
         var topicOwners = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -88,7 +88,7 @@ internal sealed class ContentTypeConfigProvider(
 
         foreach (var (key, document) in desired.OrderBy(d => d.Key, StringComparer.Ordinal))
         {
-            if (ContentTypeUpsert.StoredMatch(stored, key) is { } held && busy.TryGetValue(held.Name.ToLower(), out var running))
+            if (ContentTypeUpsert.StoredMatch(stored, key) is { } held && busy.TryGetValue(barakoCMS.Core.ContentTypeName.Normalize(held.Name), out var running))
             {
                 conflicts.Add(running);
                 continue;
@@ -174,22 +174,23 @@ internal sealed class ContentTypeConfigProvider(
     }
 
     /// <summary>
-    /// Takes the field-change lock of each stored type the document updates, in one order, and
-    /// returns the refusal the type's <c>{name}</c> routes give, by lowered name, for each with a
-    /// field change running.
+    /// Takes the field-change lock of each type the document names, in one order (lowest normalized
+    /// name first, the order a bundle import takes them in), and returns the refusal the type's
+    /// <c>{name}</c> routes give, by normalized name, for each with a field change running.
+    /// A new type is locked too: the checks lock every type of the set, and two sets that meet on
+    /// a new type must not wait on each other the other way round.
     /// </summary>
     /// <remarks>
     /// Held until the apply commits or rolls back, so no field change starts on a type between this
     /// check and the write, and no block binding is saved on one. The caller reads the types again
     /// after this, so a change that ran to completion before the lock is seen in what it read.
     /// </remarks>
-    private async Task<Dictionary<string, string>> LockStoredTypesAsync(
-        IEnumerable<string> keys, List<ContentTypeDefinition> stored, CancellationToken ct)
+    private async Task<Dictionary<string, string>> LockTypesAsync(IEnumerable<string> keys, CancellationToken ct)
     {
         var busy = new Dictionary<string, string>(StringComparer.Ordinal);
         var names = keys
-            .Select(k => ContentTypeUpsert.StoredMatch(stored, k)?.Name.ToLower())
-            .OfType<string>()
+            .Where(k => !string.IsNullOrWhiteSpace(k))
+            .Select(barakoCMS.Core.ContentTypeName.Normalize)
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal);
 
@@ -311,6 +312,15 @@ internal sealed class ContentTypeConfigProvider(
                 }
 
                 await AuditAsync(match, delivered, route, caller, ct);
+            }
+        }
+
+        // After every type is written, so a header's line type may come later in the same document.
+        foreach (var held in stored.Where(t => t.Lines is not null))
+        {
+            if (ContentTypeUpsert.RespellLines(held, stored))
+            {
+                session.Store(held);
             }
         }
 
@@ -443,6 +453,11 @@ internal sealed class ContentTypeConfigProvider(
     {
         var merged = JsonSerializer.Deserialize<ContentTypeDefinition>(ConfigJson.ToElement(stored), ConfigJson.Options)!;
         ContentTypeUpsert.MergeInto(merged, type);
+        if (ContentTypeUpsert.SameLines(stored.Lines, merged.Lines))
+        {
+            // Apply stores the lines in the spelling the lines route would, so another spelling is no change.
+            merged.Lines = stored.Lines;
+        }
 
         var before = Canonical(stored, eventSourced: false);
         var after = Canonical(merged, eventSourced: false);

@@ -211,20 +211,20 @@ internal static class RollupFields
         CancellationToken ct)
     {
         var rollups = definition.Fields.Where(f => f is not null && IsRollup(f) && !Blank(f.Name) && !Blank(f.Rollup!.From)).ToList();
-        if (rollups.Count == 0 && definition.Lines is null)
+        // A saved set is checked even when a type states no lines, since it may keep stored ones.
+        if (rollups.Count == 0 && definition.Lines is null && pendingTypes is null)
             return [];
 
         await FieldChanges.LockTypesAsync(session, definition.Name, rollups.Select(r => r.Rollup!.From.Trim()), ct);
         var stored = await session.Query<ContentTypeDefinition>().ToListAsync(ct);
 
         ContentTypeDefinition? Resolve(string? name) =>
-            (pendingTypes ?? []).FirstOrDefault(t => ContentTypeName.Same(t.Name, name))
-            ?? (ContentTypeName.Same(definition.Name, name) ? definition : null)
+            (pendingTypes ?? []).FirstOrDefault(t => SameType(t.Name, name))
+            ?? (SameType(definition.Name, name) ? definition : null)
             ?? stored.FirstOrDefault(t => ContentTypeName.Same(t.Name, name));
 
         var errors = new List<string>();
-        var child = definition.Lines is { } lines ? Resolve(lines.ContentType) : null;
-        errors.AddRange(LinesErrors(definition, child, definition.Lines));
+        errors.AddRange(StoredLinesErrors(definition, stored, pendingTypes));
         errors.AddRange(HeadersNamingLineAmount(definition, stored, pendingTypes));
 
         var owned = rollups.Count > 0 && await AccountContentTypes.FindAsync(session, definition.Name, ct) is not null;
@@ -239,11 +239,76 @@ internal static class RollupFields
         return errors;
     }
 
+    /// <summary>
+    /// What is wrong with the lines of <paramref name="definition"/> as they will be stored, and with
+    /// the lines of each stored header outside the set whose line type <paramref name="definition"/> is,
+    /// less what the stored state already has. A type that states no lines keeps the stored ones, and a
+    /// type written over a stored one keeps the stored lines of the type it names, so each is read as
+    /// <see cref="ContentTypeUpsert.MergeInto"/> leaves it. Only what the save introduces is reported,
+    /// as <see cref="IntroducedAsync"/> does, so a tenant whose stored lines already have a fault can
+    /// still apply its own export.
+    /// </summary>
+    private static List<string> StoredLinesErrors(
+        ContentTypeDefinition definition, IReadOnlyCollection<ContentTypeDefinition> stored,
+        IReadOnlyCollection<ContentTypeDefinition>? pending)
+    {
+        var written = (pending ?? []).ToList();
+        if (!written.Any(t => SameType(t.Name, definition.Name)))
+            written.Add(definition);
+
+        var asStored = stored
+            .Select(s => written.FirstOrDefault(w => SameType(w.Name, s.Name)) is { } w ? ContentTypeUpsert.Effective(s, w) : s)
+            .ToList();
+        // A new type is stored under its normalized name, as Create writes it.
+        asStored.AddRange(written
+            .Where(w => !stored.Any(s => SameType(s.Name, w.Name)))
+            .Select(w => ContentTypeUpsert.Effective(null, w)));
+
+        var errors = LinesErrorsOf(definition.Name, asStored, written, pending is not null);
+        if (errors.Count == 0)
+            return errors;
+
+        var already = LinesErrorsOf(definition.Name, stored.ToList(), written, pending is not null);
+        return errors.Where(e => !already.Contains(e)).ToList();
+    }
+
+    /// <summary>
+    /// The errors in the lines of the type named <paramref name="name"/> within <paramref name="types"/>,
+    /// and, when <paramref name="withOwners"/>, in those of each header not in <paramref name="written"/>
+    /// whose line type it is.
+    /// </summary>
+    private static List<string> LinesErrorsOf(
+        string name, List<ContentTypeDefinition> types, List<ContentTypeDefinition> written, bool withOwners)
+    {
+        ContentTypeDefinition? Named(string? n) => string.IsNullOrWhiteSpace(n) ? null : types.FirstOrDefault(t => SameType(t.Name, n));
+
+        var errors = new List<string>();
+        var header = Named(name);
+        if (header?.Lines is { } lines)
+            errors.AddRange(LinesRules.Errors(header, Named(lines.ContentType), lines, types));
+
+        if (withOwners && header is not null)
+        {
+            foreach (var other in types.Where(t => t.Lines is { } l && !SameType(t.Name, header.Name)
+                         && SameType(l.ContentType, header.Name) && !written.Any(w => SameType(w.Name, t.Name))))
+            {
+                errors.AddRange(LinesRules.Errors(other, header, other.Lines!, types)
+                    .Select(e => $"This would break the lines of '{other.Name}'. {e}"));
+            }
+        }
+
+        return errors;
+    }
+
+    /// <summary>Whether two names are the same type as every store and lookup of a type reads them.</summary>
+    private static bool SameType(string? a, string? b) =>
+        !string.IsNullOrWhiteSpace(a) && ContentTypeName.Normalize(a) == ContentTypeName.Normalize(b);
+
     /// <summary>Headers whose lines name a rollup of this type as their line amount.</summary>
     private static IEnumerable<string> HeadersNamingLineAmount(
         ContentTypeDefinition definition, IEnumerable<ContentTypeDefinition> stored, IReadOnlyCollection<ContentTypeDefinition>? pending)
     {
-        foreach (var header in stored.Concat(pending ?? []).Where(h => h.Lines is { } l && ContentTypeName.Same(l.ContentType, definition.Name)))
+        foreach (var header in stored.Concat(pending ?? []).Where(h => h.Lines is { } l && SameType(l.ContentType, definition.Name)))
         {
             if (definition.Fields.FieldNamed(header.Lines!.LineAmountField) is { Rollup: not null } amount)
                 yield return $"'{amount.Name}' is a rollup, and the lines of '{header.Name}' compare it as the line amount. Take it out of the lines first.";

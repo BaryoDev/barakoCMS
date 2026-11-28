@@ -1,0 +1,65 @@
+{
+  "name": "inventory",
+  "description": "Stock and sales: products with an on-hand count the server keeps from stock moves, and sales orders whose total must equal their lines. Internal, not publicly deliverable.",
+  "contentTypes": [
+    {
+      "name": "product",
+      "displayName": "Product",
+      "description": "Something you hold and sell. OnHand is the sum of its stock moves and is kept by the server.",
+      "fields": [
+        { "name": "Name", "displayName": "Name", "type": "string", "isRequired": true },
+        { "name": "Sku", "displayName": "SKU", "type": "string", "isRequired": true },
+        { "name": "ReorderLevel", "displayName": "Reorder level", "type": "int" },
+        {
+          "name": "OnHand", "displayName": "On hand", "type": "int",
+          "rollup": { "from": "stock-move", "via": "Product", "fn": "sum", "field": "Qty" }
+        },
+        {
+          "name": "MovesThisMonth", "displayName": "Moves this month", "type": "int",
+          "rollup": { "from": "stock-move", "via": "Product", "fn": "count", "where": { "createdAt": "thisMonth" } }
+        }
+      ]
+    },
+    {
+      "name": "stock-move",
+      "displayName": "Stock move",
+      "description": "A change to a product's stock. Positive adds, negative removes.",
+      "fields": [
+        { "name": "Product", "displayName": "Product", "type": "reference", "referenceType": "product", "isRequired": true },
+        { "name": "Qty", "displayName": "Quantity", "type": "int", "isRequired": true },
+        {
+          "name": "Reason", "displayName": "Reason", "type": "choice",
+          "options": [
+            { "value": "received", "label": "Received" },
+            { "value": "sold", "label": "Sold" },
+            { "value": "adjusted", "label": "Adjusted" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sales-order",
+      "displayName": "Sales order",
+      "description": "An order with its lines. Send the Total with the lines and it must equal their sum.",
+      "lines": { "contentType": "sales-order-line", "parentField": "Order", "totalField": "Total", "lineAmountField": "LineTotal" },
+      "fields": [
+        { "name": "Total", "displayName": "Total", "type": "money", "currency": "USD" }
+      ]
+    },
+    {
+      "name": "sales-order-line",
+      "displayName": "Sales order line",
+      "description": "One product on a sales order. LineTotal is worked out by the server.",
+      "fields": [
+        { "name": "Order", "displayName": "Order", "type": "reference", "referenceType": "sales-order", "isRequired": true },
+        { "name": "Product", "displayName": "Product", "type": "reference", "referenceType": "product", "isRequired": true },
+        { "name": "Qty", "displayName": "Quantity", "type": "int", "isRequired": true },
+        { "name": "UnitPrice", "displayName": "Unit price", "type": "money", "currency": "USD", "isRequired": true },
+        {
+          "name": "LineTotal", "displayName": "Line total", "type": "money", "currency": "USD",
+          "computed": { "expression": "Qty * UnitPrice", "round": 2 }
+        }
+      ]
+    }
+  ]
+}

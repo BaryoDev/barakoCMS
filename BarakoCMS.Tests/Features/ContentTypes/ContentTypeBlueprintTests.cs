@@ -157,7 +157,8 @@ public class ContentTypeBlueprintTests
         var list = await ListAsync(client);
 
         var builtIn = list.Items.Where(i => i.BuiltIn).ToList();
-        builtIn.Select(i => i.Name).Should().BeEquivalentTo(["blog", "devsite", "docs", "email", "events", "portfolio", "site"]);
+        builtIn.Select(i => i.Name).Should().BeEquivalentTo(
+            ["attendance", "blog", "devsite", "docs", "email", "events", "inventory", "portfolio", "site"]);
         builtIn.Should().OnlyContain(i => i.Errors.Count == 0,
             "a shipped blueprint that fails its own validation is a bug, and this is where it shows");
         builtIn.Should().OnlyContain(i => i.Description.Length > 0);
@@ -169,6 +170,9 @@ public class ContentTypeBlueprintTests
         builtIn.Single(i => i.Name == "portfolio").ContentTypes.Should().Equal("project", "client");
         builtIn.Single(i => i.Name == "docs").ContentTypes.Should().Equal("article", "section");
         builtIn.Single(i => i.Name == "site").ContentTypes.Should().Equal("site");
+        builtIn.Single(i => i.Name == "inventory").ContentTypes.Should().Equal(
+            "product", "stock-move", "sales-order", "sales-order-line");
+        builtIn.Single(i => i.Name == "attendance").ContentTypes.Should().Equal("employee", "time-entry");
         builtIn.Single(i => i.Name == "email").ContentTypes.Should().Equal("email-template", "email-layout");
         builtIn.Single(i => i.Name == "devsite").ContentTypes.Should().Equal(
             "page", "post", "category", "author", "doc", "package", "release", "contributor", "up-for-grabs", "milestone");
@@ -353,7 +357,7 @@ public class ContentTypeBlueprintTests
         var list = await ListAsync(client);
 
         list.Problems.Should().BeEmpty();
-        list.Items.Where(i => i.BuiltIn).Should().HaveCount(7, "a custom directory adds to the built-ins");
+        list.Items.Where(i => i.BuiltIn).Should().HaveCount(9, "a custom directory adds to the built-ins");
         var agency = list.Items.Single(i => i.Name == "agency");
         agency.BuiltIn.Should().BeFalse();
         agency.Source.Should().Be("agency.json");
@@ -368,6 +372,46 @@ public class ContentTypeBlueprintTests
         consultant.GetProperty("fields").EnumerateArray()
             .Single(f => f.GetProperty("name").GetString() == "Rate")
             .GetProperty("sensitivity").GetString().Should().Be("Hidden");
+    }
+
+    [Fact]
+    public async Task A_custom_blueprint_with_miscased_lines_stores_the_stored_spelling()
+    {
+        var dir = TempDirectory();
+        await File.WriteAllTextAsync(Path.Combine(dir, "orders.json"), """
+            {
+              "name": "orders",
+              "contentTypes": [
+                {
+                  "name": "sales-order",
+                  "displayName": "Sales order",
+                  "lines": { "contentType": "Sales Order Line", "parentField": "order", "totalField": "total", "lineAmountField": "linetotal" },
+                  "fields": [
+                    { "name": "Number", "displayName": "Number", "type": "string" },
+                    { "name": "Total", "displayName": "Total", "type": "decimal" }
+                  ]
+                },
+                {
+                  "name": "sales-order-line",
+                  "displayName": "Sales order line",
+                  "fields": [
+                    { "name": "Order", "displayName": "Order", "type": "reference", "referenceType": "sales-order" },
+                    { "name": "LineTotal", "displayName": "Line total", "type": "decimal" }
+                  ]
+                }
+              ]
+            }
+            """, TestContext.Current.CancellationToken);
+        var client = await AdminInAsync(await TenantAsync(), _factory.WithSetting("Blueprints:Path", dir));
+
+        var applied = await ApplyAsync(client, "orders");
+
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, await applied.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var lines = (await TypeAsync(client, "sales-order")).GetProperty("lines");
+        lines.GetProperty("contentType").GetString().Should().Be("sales-order-line");
+        lines.GetProperty("parentField").GetString().Should().Be("Order");
+        lines.GetProperty("totalField").GetString().Should().Be("Total");
+        lines.GetProperty("lineAmountField").GetString().Should().Be("LineTotal");
     }
 
     [Fact]
@@ -500,7 +544,7 @@ public class ContentTypeBlueprintTests
         var list = await ListAsync(client);
 
         list.Problems.Should().ContainSingle().Which.Should().Contain("Blueprints:Path");
-        list.Items.Where(i => i.BuiltIn).Should().HaveCount(7);
+        list.Items.Where(i => i.BuiltIn).Should().HaveCount(9);
     }
 
     [Fact]

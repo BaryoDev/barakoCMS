@@ -140,6 +140,13 @@ public static class ContentTypeUpsert
     }
 
     /// <summary>
+    /// Takes the exclusive lock of every named type, lowest normalized name first, the order a
+    /// config apply takes them in, before the set is read or checked.
+    /// </summary>
+    public static Task LockTypesAsync(IDocumentSession session, IEnumerable<string> names, CancellationToken ct) =>
+        barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypesExclusiveAsync(session, names, ct);
+
+    /// <summary>
     /// What writing <paramref name="type"/> would break in rollups, and what is wrong with its own
     /// rollups that another type decides. <paramref name="pending"/> is every type written in the
     /// same set, which count as stored. A null <paramref name="principal"/> is the system.
@@ -180,7 +187,53 @@ public static class ContentTypeUpsert
         stored.RealtimeTopic = type.RealtimeTopic;
         // An omitted list clears the rules, like Fields: the definition is the whole type.
         stored.Rules = type.Rules;
+        // Kept when the definition carries none: PUT lines with null is how lines are cleared, and a
+        // document written before lines existed must not drop them.
+        stored.Lines = type.Lines ?? stored.Lines;
         stored.UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>
+    /// <paramref name="type"/> as it is stored once it is written over <paramref name="stored"/>, or as
+    /// <see cref="Create"/> stores it under its normalized name when nothing is stored. A copy:
+    /// neither argument is changed.
+    /// </summary>
+    public static ContentTypeDefinition Effective(ContentTypeDefinition? stored, ContentTypeDefinition type)
+    {
+        var merged = stored is null
+            ? new ContentTypeDefinition { Id = type.Id, Name = barakoCMS.Core.ContentTypeName.Normalize(type.Name) }
+            : new ContentTypeDefinition { Id = stored.Id, Name = stored.Name, Lines = stored.Lines };
+        MergeInto(merged, type);
+        return merged;
+    }
+
+    /// <summary>Whether two lines definitions differ at most in the spelling of the names.</summary>
+    public static bool SameLines(LinesDefinition? a, LinesDefinition? b) =>
+        a is not null && b is not null
+        && barakoCMS.Core.ContentTypeName.Normalize(a.ContentType) == barakoCMS.Core.ContentTypeName.Normalize(b.ContentType)
+        && string.Equals(a.ParentField, b.ParentField, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(a.TotalField, b.TotalField, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(a.LineAmountField, b.LineAmountField, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gives the lines of <paramref name="type"/> the spelling the lines route stores, once the line
+    /// type is among <paramref name="known"/>. Run after every type of a set is written, since a
+    /// header and its line type may arrive together.
+    /// </summary>
+    public static bool RespellLines(ContentTypeDefinition type, IEnumerable<ContentTypeDefinition> known)
+    {
+        if (type.Lines is not { } asked
+            || StoredMatch(known, asked.ContentType) is not { } child
+            || barakoCMS.Core.Validation.LinesRules.Errors(type, child, asked, known).Count > 0)
+        {
+            return false;
+        }
+
+        var stored = barakoCMS.Core.Validation.LinesRules.Stored(type, child, asked);
+        var changed = stored.ContentType != asked.ContentType || stored.ParentField != asked.ParentField
+            || stored.TotalField != asked.TotalField || stored.LineAmountField != asked.LineAmountField;
+        type.Lines = stored;
+        return changed;
     }
 
     /// <summary>A new stored type from <paramref name="type"/>, under the normalised name.</summary>
@@ -204,6 +257,7 @@ public static class ContentTypeUpsert
         BranchScoped = type.BranchScoped,
         RealtimeTopic = type.RealtimeTopic,
         Rules = type.Rules,
+        Lines = type.Lines,
         CreatedAt = DateTimeOffset.UtcNow,
         UpdatedAt = DateTimeOffset.UtcNow,
     };
