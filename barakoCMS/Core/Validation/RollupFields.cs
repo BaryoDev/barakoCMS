@@ -219,8 +219,8 @@ internal static class RollupFields
         var stored = await session.Query<ContentTypeDefinition>().ToListAsync(ct);
 
         ContentTypeDefinition? Resolve(string? name) =>
-            (pendingTypes ?? []).FirstOrDefault(t => ContentTypeName.Same(t.Name, name))
-            ?? (ContentTypeName.Same(definition.Name, name) ? definition : null)
+            (pendingTypes ?? []).FirstOrDefault(t => SameType(t.Name, name))
+            ?? (SameType(definition.Name, name) ? definition : null)
             ?? stored.FirstOrDefault(t => ContentTypeName.Same(t.Name, name));
 
         var errors = new List<string>();
@@ -308,7 +308,7 @@ internal static class RollupFields
     private static IEnumerable<string> HeadersNamingLineAmount(
         ContentTypeDefinition definition, IEnumerable<ContentTypeDefinition> stored, IReadOnlyCollection<ContentTypeDefinition>? pending)
     {
-        foreach (var header in stored.Concat(pending ?? []).Where(h => h.Lines is { } l && ContentTypeName.Same(l.ContentType, definition.Name)))
+        foreach (var header in stored.Concat(pending ?? []).Where(h => h.Lines is { } l && SameType(l.ContentType, definition.Name)))
         {
             if (definition.Fields.FieldNamed(header.Lines!.LineAmountField) is { Rollup: not null } amount)
                 yield return $"'{amount.Name}' is a rollup, and the lines of '{header.Name}' compare it as the line amount. Take it out of the lines first.";

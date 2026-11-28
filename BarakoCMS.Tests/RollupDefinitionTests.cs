@@ -1334,29 +1334,84 @@ public class RollupDefinitionTests
         res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
     }
 
-    [Fact]
-    public async Task A_lock_on_a_type_is_keyed_by_the_normalized_name_so_a_spelling_with_spaces_waits_on_the_stored_name()
+    /// <summary>
+    /// Holds the lock of <paramref name="held"/> exclusively, asks for it as <paramref name="spelled"/>
+    /// with <paramref name="take"/>, and returns once the ask is queued, then releases and lets it finish.
+    /// Both sessions are disposed on every path, so a failed run leaves no transaction open.
+    /// </summary>
+    private async Task AssertSpellingWaitsOnHeldLockAsync(
+        string held, string spelled, Func<IDocumentSession, string, CancellationToken, Task> take)
     {
-        var id = Guid.NewGuid().ToString("n")[..8];
         var store = _fixture.Services.GetRequiredService<IDocumentStore>();
         var holder = store.LightweightSession();
         var waiter = store.LightweightSession();
-        Task wait;
+        Task? wait = null;
         try
         {
-            await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeAsync(holder, $"lk-s-{id}", Ct);
-            wait = barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeAsync(waiter, $" Lk S-{id} ", Ct);
+            await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeAsync(holder, held, Ct);
+            wait = take(waiter, spelled, Ct);
 
-            await WaitForQueuedLockAsync($"lk-s-{id}");
+            await WaitForQueuedLockAsync(held);
+            wait.IsCompleted.Should().BeFalse("the spelling is the held type, so it waits");
+
+            await holder.DisposeAsync();
+            await wait;
         }
         finally
         {
             await holder.DisposeAsync();
-        }
+            if (wait is not null)
+            {
+                try { await wait; } catch (Exception) { /* the run already failed or was released */ }
+            }
 
-        await wait;
-        await waiter.DisposeAsync();
+            await waiter.DisposeAsync();
+        }
     }
+
+    [Fact]
+    public async Task A_lock_on_a_type_is_keyed_by_the_normalized_name_so_a_spelling_with_spaces_waits_on_the_stored_name()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+
+        await AssertSpellingWaitsOnHeldLockAsync($"lk-s-{id}", $" Lk S-{id} ",
+            (session, name, ct) => barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeAsync(session, name, ct));
+    }
+
+    [Fact]
+    public async Task A_shared_lock_on_a_type_is_keyed_by_the_normalized_name_so_a_spelling_with_spaces_waits_on_the_stored_name()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+
+        await AssertSpellingWaitsOnHeldLockAsync($"lk-h-{id}", $" Lk H-{id} ",
+            (session, name, ct) => barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeSharedAsync(session, name, ct));
+    }
+
+    [Fact]
+    public async Task A_config_apply_with_a_source_type_keyed_with_spaces_reads_the_source_as_the_document_has_it()
+    {
+        var id = Guid.NewGuid().ToString("n")[..8];
+        var (source, summary, spelled) = ($"sq-{id}", $"tq-{id}", "Sq " + id);
+        await StoreAsync(Type(source, R.Reference("Teacher", summary), R.Plain("Qty", "decimal")));
+        var sourceDoc = new
+        {
+            name = spelled, displayName = spelled,
+            fields = new object[] { new { name = "Teacher", type = "reference", referenceType = summary }, new { name = "Qty", type = "string" } },
+        };
+        var summaryDoc = new
+        {
+            name = summary, displayName = summary,
+            fields = WithName([RollupField("Total", "decimal", source, "Teacher", "sum", "Qty")]),
+        };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((spelled, sourceDoc), (summary, summaryDoc)), Ct);
+
+        await AssertRefusedAsync(res, "rolls up sum of 'Qty', which is a string.");
+        await AssertNotStoredAsync(summary);
+        (await StoredFieldAsync(source, "Qty"))!.Type.Should().Be("decimal", "a refused apply stores nothing");
+    }
+
 
     [Fact]
     public async Task A_config_apply_that_lowers_a_rollup_is_refused_and_leaves_the_type_alone()
