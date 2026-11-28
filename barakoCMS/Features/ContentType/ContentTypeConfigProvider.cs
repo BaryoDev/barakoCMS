@@ -109,6 +109,15 @@ internal sealed class ContentTypeConfigProvider(
 
             if (match is null)
             {
+                // The create endpoint, the blueprint apply and the removed import all refused a tenant
+                // type named like one its account owns. A document is held to the same rule.
+                var name = barakoCMS.Core.ContentTypeName.Normalize(key);
+                if (await barakoCMS.Infrastructure.Services.AccountContentTypes.ClashMessageAsync(session, name, ct) is { } owned)
+                {
+                    errors.Add($"Content type '{name}': {owned}");
+                    continue;
+                }
+
                 changes.Add(new ConfigChange
                 {
                     Key = key, Kind = ConfigChangeKind.Create, Desired = document,
