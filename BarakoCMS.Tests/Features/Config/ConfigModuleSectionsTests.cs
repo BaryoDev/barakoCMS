@@ -328,6 +328,32 @@ public class ConfigModuleSectionsTests
     }
 
     [Fact]
+    public async Task A_role_with_import_content_and_no_manage_content_types_is_refused_a_plan_and_an_apply_of_a_new_type()
+    {
+        var tenant = await _callers.TenantAsync();
+        var importer = await CallerWithAsync(tenant, SystemCapabilities.ManageConfig, BarakoCMS.Portability.PortabilityCapabilities.ImportContent);
+        var type = TestNames.Compact("fresh");
+        var document = new
+        {
+            version = 1,
+            contentTypes = new Dictionary<string, object>
+            {
+                [type] = new { name = type, displayName = type, fields = new object[] { new { name = "Title", type = "string" } } },
+            },
+        };
+
+        var (planned, plan) = await PlanAsync(importer, document);
+        var (applied, result) = await ApplyAsync(importer, document);
+
+        planned.StatusCode.Should().Be(HttpStatusCode.Forbidden, plan.ToString());
+        plan.ToString().Should().Contain(SystemCapabilities.ManageContentTypes);
+        applied.StatusCode.Should().Be(HttpStatusCode.Forbidden, result.ToString());
+        result.ToString().Should().Contain(SystemCapabilities.ManageContentTypes);
+        (await _callers.InTenantAsync(tenant, s => s.Query<ContentTypeDefinition>().CountAsync(t => t.Name == type, Ct)))
+            .Should().Be(0, "a refused apply stores nothing");
+    }
+
+    [Fact]
     public async Task A_role_with_manage_config_only_is_refused_a_plan_of_entries_and_the_message_names_both_capabilities()
     {
         var (target, _, document) = await EntriesOnlyDocumentAsync();
