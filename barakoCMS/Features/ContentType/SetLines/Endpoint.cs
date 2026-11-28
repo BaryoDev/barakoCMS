@@ -47,7 +47,7 @@ internal class Endpoint(
                 ? null
                 : await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == childName, ct);
 
-            var errors = LinesRules.Errors(def, child, asked);
+            var errors = LinesRules.Errors(def, child, asked, await session.Query<ContentTypeDefinition>().ToListAsync(ct));
             foreach (var error in errors)
             {
                 AddError(error);

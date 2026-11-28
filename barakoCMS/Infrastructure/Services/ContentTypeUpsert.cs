@@ -186,6 +186,22 @@ public static class ContentTypeUpsert
         stored.UpdatedAt = DateTimeOffset.UtcNow;
     }
 
+    /// <summary>
+    /// <paramref name="type"/> as it is stored once it is written over <paramref name="stored"/>, or
+    /// itself when nothing is stored. A copy: <paramref name="stored"/> is not changed.
+    /// </summary>
+    public static ContentTypeDefinition Effective(ContentTypeDefinition? stored, ContentTypeDefinition type)
+    {
+        if (stored is null)
+        {
+            return type;
+        }
+
+        var merged = new ContentTypeDefinition { Id = stored.Id, Name = stored.Name, Lines = stored.Lines };
+        MergeInto(merged, type);
+        return merged;
+    }
+
     /// <summary>Whether two lines definitions differ at most in the spelling of the names.</summary>
     public static bool SameLines(LinesDefinition? a, LinesDefinition? b) =>
         a is not null && b is not null
@@ -203,7 +219,7 @@ public static class ContentTypeUpsert
     {
         if (type.Lines is not { } asked
             || StoredMatch(known, asked.ContentType) is not { } child
-            || barakoCMS.Core.Validation.LinesRules.Errors(type, child, asked).Count > 0)
+            || barakoCMS.Core.Validation.LinesRules.Errors(type, child, asked, known).Count > 0)
         {
             return false;
         }

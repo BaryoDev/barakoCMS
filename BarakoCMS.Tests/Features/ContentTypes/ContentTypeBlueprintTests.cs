@@ -375,6 +375,46 @@ public class ContentTypeBlueprintTests
     }
 
     [Fact]
+    public async Task A_custom_blueprint_with_miscased_lines_stores_the_stored_spelling()
+    {
+        var dir = TempDirectory();
+        await File.WriteAllTextAsync(Path.Combine(dir, "orders.json"), """
+            {
+              "name": "orders",
+              "contentTypes": [
+                {
+                  "name": "sales-order",
+                  "displayName": "Sales order",
+                  "lines": { "contentType": "Sales Order Line", "parentField": "order", "totalField": "total", "lineAmountField": "linetotal" },
+                  "fields": [
+                    { "name": "Number", "displayName": "Number", "type": "string" },
+                    { "name": "Total", "displayName": "Total", "type": "decimal" }
+                  ]
+                },
+                {
+                  "name": "sales-order-line",
+                  "displayName": "Sales order line",
+                  "fields": [
+                    { "name": "Order", "displayName": "Order", "type": "reference", "referenceType": "sales-order" },
+                    { "name": "LineTotal", "displayName": "Line total", "type": "decimal" }
+                  ]
+                }
+              ]
+            }
+            """, TestContext.Current.CancellationToken);
+        var client = await AdminInAsync(await TenantAsync(), _factory.WithSetting("Blueprints:Path", dir));
+
+        var applied = await ApplyAsync(client, "orders");
+
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, await applied.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var lines = (await TypeAsync(client, "sales-order")).GetProperty("lines");
+        lines.GetProperty("contentType").GetString().Should().Be("sales-order-line");
+        lines.GetProperty("parentField").GetString().Should().Be("Order");
+        lines.GetProperty("totalField").GetString().Should().Be("Total");
+        lines.GetProperty("lineAmountField").GetString().Should().Be("LineTotal");
+    }
+
+    [Fact]
     public async Task An_invalid_custom_file_is_reported_by_the_list_and_refused_by_the_apply()
     {
         var dir = TempDirectory();

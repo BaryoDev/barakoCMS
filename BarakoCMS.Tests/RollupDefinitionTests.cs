@@ -984,6 +984,187 @@ public class RollupDefinitionTests
         await AssertStoredLinesAsync(header, line);
     }
 
+    // Lines are checked as they will be stored, on every path.
+
+    private static object HeaderDoc(string header, string? lineType, bool total = true, string lineName = "Teacher") => new
+    {
+        name = header, displayName = header,
+        lines = lineType is null ? null : new { contentType = lineType, parentField = lineName, totalField = LinesTotal, lineAmountField = "Hours" },
+        fields = total
+            ? new object[] { new { name = "Name", type = "string" }, new { name = LinesTotal, type = "decimal" } }
+            : [new { name = "Name", type = "string" }],
+    };
+
+    private async Task AssertStillStoredWithLinesAsync(string header, string line)
+    {
+        var stored = await Probe.StoredTypeAsync(_fixture, header);
+        stored.Fields.Should().Contain(f => f.Name == LinesTotal, "a refused save changes nothing");
+        stored.Lines.Should().NotBeNull();
+        stored.Lines!.ContentType.Should().Be(line);
+    }
+
+    [Fact]
+    public async Task A_config_apply_resolves_a_line_type_named_in_any_spelling_the_route_accepts()
+    {
+        var header = Names().Header;
+        var line = "ord-line-" + Guid.NewGuid().ToString("n")[..8];
+        await StoreAsync(Type(line, R.Reference("Teacher", header), R.Plain("Hours", "decimal")));
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((header, HeaderDoc(header, " " + line.Replace('-', ' ').ToUpperInvariant() + " "))), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_bundle_import_resolves_a_line_type_named_in_any_spelling_the_route_accepts()
+    {
+        var header = Names().Header;
+        var line = "ord-line-" + Guid.NewGuid().ToString("n")[..8];
+        await StoreAsync(Type(line, R.Reference("Teacher", header), R.Plain("Hours", "decimal")));
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/portability/import",
+            new { contentTypes = new[] { HeaderDoc(header, line.Replace('-', ' ').ToUpperInvariant()) }, contents = Array.Empty<object>() }, Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        await AssertStoredLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_config_apply_that_omits_lines_and_drops_the_stored_lines_total_is_refused()
+    {
+        var (header, line) = await StoredWithLinesAsync();
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((header, HeaderDoc(header, null, total: false))), Ct);
+
+        await AssertRefusedAsync(res, $"'{LinesTotal}' on '{header}' and 'Hours' on '{line}' must both be number fields.");
+        await AssertStillStoredWithLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_bundle_import_that_omits_lines_and_drops_the_stored_lines_total_is_refused()
+    {
+        var (header, line) = await StoredWithLinesAsync();
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/portability/import",
+            new { contentTypes = new[] { HeaderDoc(header, null, total: false) }, contents = Array.Empty<object>() }, Ct);
+
+        await AssertRefusedAsync(res, $"'{LinesTotal}' on '{header}' and 'Hours' on '{line}' must both be number fields.");
+        await AssertStillStoredWithLinesAsync(header, line);
+    }
+
+    [Fact]
+    public async Task A_config_apply_that_redeclares_a_line_type_without_its_parent_field_is_refused_while_a_header_names_it()
+    {
+        var (header, line) = await StoredWithLinesAsync();
+        var redeclared = new { name = line, displayName = line, fields = new object[] { new { name = "Hours", type = "decimal" } } };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync("/api/config/apply", ConfigOfTypes((line, redeclared)), Ct);
+
+        await AssertRefusedAsync(res, $"This would break the lines of '{header}'. Line type '{line}' has no field 'Teacher'.");
+        (await Probe.StoredTypeAsync(_fixture, line)).Fields.Should().Contain(f => f.Name == "Teacher");
+    }
+
+    [Fact]
+    public async Task A_config_apply_that_gives_a_stored_line_type_that_keeps_its_lines_a_header_is_refused()
+    {
+        var (header, line) = Names();
+        var deeper = "rd" + Guid.NewGuid().ToString("n")[..10];
+        await StoreAsync(Type(deeper, R.Reference("Parent", line)));
+        var child = Type(line, R.Reference("Teacher", header), R.Plain("Hours", "decimal"));
+        child.Lines = new LinesDefinition { ContentType = deeper, ParentField = "Parent" };
+        await StoreAsync(child);
+        var childWithoutLines = new
+        {
+            name = line, displayName = line,
+            fields = new object[] { new { name = "Teacher", type = "reference", referenceType = header }, new { name = "Hours", type = "decimal" } },
+        };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((header, HeaderDoc(header, line)), (line, childWithoutLines)), Ct);
+
+        await AssertRefusedAsync(res, $"Line type '{line}' has lines of its own. Lines are one level deep.");
+        await AssertNotStoredAsync(header);
+    }
+
+    [Fact]
+    public async Task The_lines_route_refuses_lines_on_a_type_that_is_already_a_line_type()
+    {
+        var (header, line) = await StoredWithLinesAsync();
+        var deeper = "rd" + Guid.NewGuid().ToString("n")[..10];
+        await StoreAsync(Type(deeper, R.Reference("Parent", line)));
+
+        var res = await (await AdminAsync()).PutAsJsonAsync(
+            $"/api/content-types/{line}/lines", new { lines = new { contentType = deeper, parentField = "Parent" } }, Ct);
+
+        await AssertRefusedAsync(res, $"'{line}' is the line type of '{header}', so it cannot have lines of its own.");
+        (await Probe.StoredTypeAsync(_fixture, line)).Lines.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_config_apply_that_gives_a_type_that_is_a_line_type_lines_of_its_own_is_refused()
+    {
+        var (header, line) = await StoredWithLinesAsync();
+        var deeper = "rd" + Guid.NewGuid().ToString("n")[..10];
+        await StoreAsync(Type(deeper, R.Reference("Parent", line)));
+        var withLines = new
+        {
+            name = line, displayName = line,
+            lines = new { contentType = deeper, parentField = "Parent" },
+            fields = new object[] { new { name = "Teacher", type = "reference", referenceType = header }, new { name = "Hours", type = "decimal" } },
+        };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync("/api/config/apply", ConfigOfTypes((line, withLines)), Ct);
+
+        await AssertRefusedAsync(res, $"'{line}' is the line type of '{header}', so it cannot have lines of its own.");
+    }
+
+    [Fact]
+    public async Task The_lines_route_refuses_a_header_that_is_its_own_line_type()
+    {
+        var (header, _) = Names();
+        await StoreAsync(Type(header, R.Plain("Name", "string")));
+
+        var res = await (await AdminAsync()).PutAsJsonAsync(
+            $"/api/content-types/{header}/lines", new { lines = new { contentType = header, parentField = "Name" } }, Ct);
+
+        await AssertRefusedAsync(res, "A type cannot be its own line type.");
+    }
+
+    [Fact]
+    public async Task A_config_apply_of_a_header_that_is_its_own_line_type_is_refused()
+    {
+        var (header, _) = Names();
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((header, HeaderDoc(header, header, lineName: "Name"))), Ct);
+
+        await AssertRefusedAsync(res, "A type cannot be its own line type.");
+        await AssertNotStoredAsync(header);
+    }
+
+    [Fact]
+    public async Task A_config_apply_of_an_unrelated_type_leaves_a_stored_header_whose_lines_do_not_hold_alone()
+    {
+        var (header, line) = await LineAsync();
+        var broken = Type(header, R.Plain("Name", "string"), R.Plain(LinesTotal, "string"));
+        broken.Lines = new LinesDefinition { ContentType = line, ParentField = "teacher", TotalField = "total", LineAmountField = "hours" };
+        await StoreAsync(broken);
+        var unrelated = Names().Header;
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((unrelated, new { name = unrelated, displayName = unrelated, fields = new object[] { new { name = "Name", type = "string" } } })), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        var lines = (await Probe.StoredTypeAsync(_fixture, header)).Lines!;
+        (lines.ParentField, lines.TotalField, lines.LineAmountField).Should().Be(("teacher", "total", "hours"),
+            "lines that do not hold are not respelled, and an unrelated apply does not refuse them");
+    }
+
     [Fact]
     public async Task A_config_apply_that_lowers_a_rollup_is_refused_and_leaves_the_type_alone()
     {

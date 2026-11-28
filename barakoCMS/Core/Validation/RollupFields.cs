@@ -211,7 +211,8 @@ internal static class RollupFields
         CancellationToken ct)
     {
         var rollups = definition.Fields.Where(f => f is not null && IsRollup(f) && !Blank(f.Name) && !Blank(f.Rollup!.From)).ToList();
-        if (rollups.Count == 0 && definition.Lines is null)
+        // A saved set is checked even when a type states no lines, since it may keep stored ones.
+        if (rollups.Count == 0 && definition.Lines is null && pendingTypes is null)
             return [];
 
         await FieldChanges.LockTypesAsync(session, definition.Name, rollups.Select(r => r.Rollup!.From.Trim()), ct);
@@ -223,8 +224,7 @@ internal static class RollupFields
             ?? stored.FirstOrDefault(t => ContentTypeName.Same(t.Name, name));
 
         var errors = new List<string>();
-        if (definition.Lines is { } lines)
-            errors.AddRange(LinesRules.Errors(definition, Resolve(lines.ContentType), lines));
+        errors.AddRange(StoredLinesErrors(definition, stored, pendingTypes));
         errors.AddRange(HeadersNamingLineAmount(definition, stored, pendingTypes));
 
         var owned = rollups.Count > 0 && await AccountContentTypes.FindAsync(session, definition.Name, ct) is not null;
@@ -234,6 +234,49 @@ internal static class RollupFields
                 errors.Add($"Field '{field.Name}' is a rollup on '{definition.Name}', which the account owns. A rollup is not supported on an account-owned type.");
             else
                 errors.AddRange(await CrossErrorsAsync(session, definition, field, Resolve, caller, ct));
+        }
+
+        return errors;
+    }
+
+    /// <summary>
+    /// What is wrong with the lines of <paramref name="definition"/> as they will be stored, and with
+    /// the lines of each stored header outside the set whose line type <paramref name="definition"/> is.
+    /// A type that states no lines keeps the stored ones, and a type written over a stored one keeps
+    /// the stored lines of the type it names, so each is read as <see cref="ContentTypeUpsert.MergeInto"/> leaves it.
+    /// </summary>
+    private static List<string> StoredLinesErrors(
+        ContentTypeDefinition definition, IReadOnlyCollection<ContentTypeDefinition> stored,
+        IReadOnlyCollection<ContentTypeDefinition>? pending)
+    {
+        var written = (pending ?? []).ToList();
+        if (!written.Any(t => ContentTypeName.Same(t.Name, definition.Name)))
+            written.Add(definition);
+
+        var asStored = stored
+            .Select(s => written.FirstOrDefault(w => ContentTypeName.Same(w.Name, s.Name)) is { } w ? ContentTypeUpsert.Effective(s, w) : s)
+            .ToList();
+        asStored.AddRange(written
+            .Where(w => !stored.Any(s => ContentTypeName.Same(s.Name, w.Name)))
+            .Select(w => ContentTypeUpsert.Effective(null, w)));
+
+        ContentTypeDefinition? Named(string? name) =>
+            string.IsNullOrWhiteSpace(name) ? null : asStored.FirstOrDefault(t => ContentTypeName.Normalize(t.Name) == ContentTypeName.Normalize(name));
+
+        var errors = new List<string>();
+        var header = Named(definition.Name);
+        if (header?.Lines is { } lines)
+            errors.AddRange(LinesRules.Errors(header, Named(lines.ContentType), lines, asStored));
+
+        if (pending is not null && header is not null)
+        {
+            foreach (var other in asStored.Where(t => t.Lines is { } l && !ContentTypeName.Same(t.Name, header.Name)
+                         && ContentTypeName.Normalize(l.ContentType) == ContentTypeName.Normalize(header.Name)
+                         && !written.Any(w => ContentTypeName.Same(w.Name, t.Name))))
+            {
+                errors.AddRange(LinesRules.Errors(other, header, other.Lines!, asStored)
+                    .Select(e => $"This would break the lines of '{other.Name}'. {e}"));
+            }
         }
 
         return errors;

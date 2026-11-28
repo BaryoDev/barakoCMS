@@ -11,9 +11,12 @@ internal static class LinesRules
     /// <summary>
     /// The first thing wrong with <paramref name="asked"/> as the lines of <paramref name="header"/>,
     /// or none. <paramref name="child"/> is the line type as it is or will be stored, null when no
-    /// such type exists.
+    /// such type exists. <paramref name="all"/> is every type as it is or will be stored, when the
+    /// caller can say, so a type that is already another's line type is refused lines of its own.
     /// </summary>
-    public static List<string> Errors(ContentTypeDefinition header, ContentTypeDefinition? child, LinesDefinition asked)
+    public static List<string> Errors(
+        ContentTypeDefinition header, ContentTypeDefinition? child, LinesDefinition asked,
+        IEnumerable<ContentTypeDefinition>? all = null)
     {
         if (child is null)
         {
@@ -23,6 +26,12 @@ internal static class LinesRules
         if (string.Equals(child.Name, header.Name, StringComparison.OrdinalIgnoreCase))
         {
             return ["A type cannot be its own line type."];
+        }
+
+        if (all?.FirstOrDefault(t => t.Lines is { } l && !ContentTypeName.Same(t.Name, header.Name)
+                && ContentTypeName.Normalize(l.ContentType) == ContentTypeName.Normalize(header.Name)) is { } owner)
+        {
+            return [$"'{header.Name}' is the line type of '{owner.Name}', so it cannot have lines of its own. Lines are one level deep."];
         }
 
         if (child.Lines is not null)
