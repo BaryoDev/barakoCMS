@@ -132,6 +132,12 @@ internal sealed class ContentsConfigProvider(
         }
 
         var records = Read(plan.Changes.ToDictionary(c => c.Key, c => c.Desired!.Value, StringComparer.Ordinal), errors);
+
+        // Locked before the types are read, so a type edit that commits while this waits is the
+        // definition the entries are checked against. The types section of the same apply may already
+        // hold these locks exclusively, which this session takes again without waiting.
+        await barakoCMS.Infrastructure.Jobs.ContentTypeLocks.LockSharedAsync(
+            session, records.Select(r => r.Record.ContentType).Where(n => !string.IsNullOrWhiteSpace(n)), ct);
         var existing = (await session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
 
         // No singleton cap: a bundle is a restore and lands what it holds.
