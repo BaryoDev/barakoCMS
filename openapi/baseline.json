@@ -11696,136 +11696,6 @@
           "Scheduled"
         ]
       },
-      "BarakoCMSModelsContentTypeDefinition": {
-        "additionalProperties": false,
-        "properties": {
-          "branchScoped": {
-            "description": "Whether every entry of this type belongs to one branch. A write then needs a branch\n(X-Branch-Id), and access rules can narrow rows with $branch.",
-            "type": "boolean"
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "displayName": {
-            "type": "string"
-          },
-          "fields": {
-            "items": {
-              "$ref": "#/components/schemas/BarakoCMSModelsFieldDefinition"
-            },
-            "type": "array"
-          },
-          "icon": {
-            "description": "The icon the console and a renderer draw this type with, or null for none.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BarakoCMSModelsContentTypeIcon"
-              }
-            ]
-          },
-          "id": {
-            "format": "guid",
-            "type": "string"
-          },
-          "isPubliclyDeliverable": {
-            "description": "Whether this type is served by the anonymous public delivery API (/api/public/{type},\nits search and slug routes, and the RSS feed).",
-            "type": "boolean"
-          },
-          "isSingleton": {
-            "description": "Whether this type holds exactly one entry, so it can model a site's own values: address,\nphone, opening hours, footer text.",
-            "type": "boolean"
-          },
-          "lifecycle": {
-            "description": "This type's own states, or null to use Draft, Published and Archived.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BarakoCMSModelsLifecycleDefinition"
-              }
-            ]
-          },
-          "lines": {
-            "description": "The child type whose entries are this type's lines, or null for a type with none.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BarakoCMSModelsLinesDefinition"
-              }
-            ]
-          },
-          "lookup": {
-            "description": "An anonymous lookup of one entry by a reference plus an identifier, or null for none.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BarakoCMSModelsLookupDefinition"
-              }
-            ]
-          },
-          "mergeClass": {
-            "description": "How edits made on two stations are merged when they sync. Null means the host decides.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BarakoCMSModelsMergeClass"
-              }
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "numbering": {
-            "description": "The field a new entry's number is written to, and how numbers are made, or null for none.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BarakoCMSModelsNumberingRule"
-              }
-            ]
-          },
-          "realtimeTopic": {
-            "description": "Realtime topic for this type. Null means none. Lower case words joined by dots or dashes.",
-            "nullable": true,
-            "type": "string"
-          },
-          "routeTemplate": {
-            "description": "Where an entry of this type lives on the site, as a path holding {slug}, for example\n/blog/{slug}.",
-            "nullable": true,
-            "type": "string"
-          },
-          "rules": {
-            "description": "Server checks run on save and on transitions, or null for none. See RuleDefinition.",
-            "items": {
-              "$ref": "#/components/schemas/BarakoCMSModelsRuleDefinition"
-            },
-            "nullable": true,
-            "type": "array"
-          },
-          "structuredDataType": {
-            "description": "The schema.org type a delivered entry of this type is described as, for example\nArticle, or null for none.",
-            "nullable": true,
-            "type": "string"
-          },
-          "uniqueness": {
-            "description": "Values only one entry of this type may hold at a time, or null for none.",
-            "items": {
-              "$ref": "#/components/schemas/BarakoCMSModelsUniquenessRule"
-            },
-            "nullable": true,
-            "type": "array"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
       "BarakoCMSModelsContentTypeIcon": {
         "additionalProperties": false,
         "description": "The icon a content type is drawn with: a glyph from the client's sprite, named, or a custom\nSVG, never both.",
@@ -15215,144 +15085,6 @@
           }
         },
         "type": "object"
-      },
-      "BarakoCMSPortabilityContentRecord": {
-        "additionalProperties": false,
-        "deprecated": true,
-        "description": "One content item, recreated under a new id wherever it is imported.",
-        "properties": {
-          "contentType": {
-            "type": "string"
-          },
-          "data": {
-            "additionalProperties": {},
-            "type": "object"
-          },
-          "id": {
-            "description": "The entry's id where it was exported. Import never reuses it: the entry gets a new id, and a\nreference field in the same bundle holding this value is pointed at the new one. Absent in\nolder bundles, whose references then have to exist where they are imported.",
-            "format": "guid",
-            "nullable": true,
-            "type": "string"
-          },
-          "maskedFields": {
-            "description": "Keys in Data whose value was masked for the exporting caller. Import leaves\nthem out, so a mask such as *** is never stored as if it were the value.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "sensitivity": {
-            "description": "The entry's document-level sensitivity. Import creates the entry at this level, so a restore\ndoes not make a Hidden or Sensitive entry Public. Absent in older bundles, which import as\nPublic, as they always have.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BarakoCMSModelsSensitivityLevel"
-              }
-            ]
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "type": "object",
-        "x-deprecatedMessage": "Use the config engine instead: GET /api/config/export, and POST /api/config/plan and /api/config/apply, which accept a Portability bundle as a document. Removal planned for barakoCMS 6.0."
-      },
-      "BarakoCMSPortabilityExportEndpoint_Req": {
-        "additionalProperties": false,
-        "type": "object"
-      },
-      "BarakoCMSPortabilityImportReport": {
-        "additionalProperties": false,
-        "deprecated": true,
-        "properties": {
-          "contentTypesCreated": {
-            "format": "int32",
-            "type": "integer"
-          },
-          "contentTypesUpdated": {
-            "format": "int32",
-            "type": "integer"
-          },
-          "contentsCreated": {
-            "format": "int32",
-            "type": "integer"
-          },
-          "contentsWithoutContentType": {
-            "description": "Records whose content type is in neither the store nor this bundle. They are still created,\nbut with no schema behind them nothing is treated as a public field, so their search text is\nempty and they never appear in public search.",
-            "format": "int32",
-            "type": "integer"
-          },
-          "dryRun": {
-            "type": "boolean"
-          },
-          "unknownContentTypes": {
-            "description": "The distinct type names behind ContentsWithoutContentType.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "type": "object",
-        "x-deprecatedMessage": "Use the config engine instead: GET /api/config/export, and POST /api/config/plan and /api/config/apply, which accept a Portability bundle as a document. Removal planned for barakoCMS 6.0."
-      },
-      "BarakoCMSPortabilityImportRequest": {
-        "additionalProperties": false,
-        "deprecated": true,
-        "properties": {
-          "contentTypes": {
-            "items": {
-              "$ref": "#/components/schemas/BarakoCMSModelsContentTypeDefinition"
-            },
-            "type": "array"
-          },
-          "contents": {
-            "items": {
-              "$ref": "#/components/schemas/BarakoCMSPortabilityContentRecord"
-            },
-            "type": "array"
-          },
-          "dryRun": {
-            "description": "When true, report what would happen without writing anything.",
-            "type": "boolean"
-          }
-        },
-        "type": "object",
-        "x-deprecatedMessage": "Use the config engine instead: GET /api/config/export, and POST /api/config/plan and /api/config/apply, which accept a Portability bundle as a document. Removal planned for barakoCMS 6.0."
-      },
-      "BarakoCMSPortabilityPortabilityBundle": {
-        "additionalProperties": false,
-        "deprecated": true,
-        "description": "A portable snapshot of content-type definitions and their content data.",
-        "properties": {
-          "contentTypes": {
-            "items": {
-              "$ref": "#/components/schemas/BarakoCMSModelsContentTypeDefinition"
-            },
-            "type": "array"
-          },
-          "contents": {
-            "items": {
-              "$ref": "#/components/schemas/BarakoCMSPortabilityContentRecord"
-            },
-            "type": "array"
-          },
-          "contentsWithheld": {
-            "description": "Entries left out because the exporting caller may not read them at all, the same entries the\ncontent read endpoints hide from that caller. Zero means the bundle holds every entry.",
-            "format": "int32",
-            "type": "integer"
-          },
-          "exportedAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "version": {
-            "format": "int32",
-            "type": "integer"
-          }
-        },
-        "type": "object",
-        "x-deprecatedMessage": "Use the config engine instead: GET /api/config/export, and POST /api/config/plan and /api/config/apply, which accept a Portability bundle as a document. Removal planned for barakoCMS 6.0."
       },
       "FastEndpointsEmptyRequest": {
         "additionalProperties": false,
@@ -18784,6 +18516,15 @@
               "nullable": true,
               "type": "string"
             }
+          },
+          {
+            "description": "The content types to narrow contentTypes and contents to, comma separated, matched without regard to case. Left out, every type. When given it names at least one. A name that matches none is ignored.",
+            "in": "query",
+            "name": "types",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -19368,7 +19109,7 @@
     },
     "/api/content-types/blueprints/{name}": {
       "post": {
-        "description": "Additive, and all or nothing. A type that already exists is a refusal for the whole blueprint\nrather than a skip, because a partial apply leaves references pointing at a type whose fields\nare not the ones the blueprint assumed, and nothing afterwards says which half arrived.\n            \nThe types are created the way POST /api/content-types creates one: normalized name,\ndocument sourced, sourcing policy recorded against the name. It does not go through the\nPortability import, which upserts by name and would overwrite the clash this refuses.",
+        "description": "Additive, and all or nothing. A type that already exists is a refusal for the whole blueprint\nrather than a skip, because a partial apply leaves references pointing at a type whose fields\nare not the ones the blueprint assumed, and nothing afterwards says which half arrived.\n            \nThe types are created the way POST /api/content-types creates one: normalized name,\ndocument sourced, sourcing policy recorded against the name. It does not go through a\nconfig apply, which upserts by name and would overwrite the clash this refuses.",
         "operationId": "barakoCMSFeaturesContentTypeBlueprintsApplyEndpoint",
         "parameters": [
           {
@@ -20080,7 +19821,7 @@
     },
     "/api/content-types/{name}/lifecycle": {
       "put": {
-        "description": "Its own endpoint because content types have no general update, and a config apply or a bundle\nimport refuses a changed lifecycle. No entry is read into memory or rewritten, so every reader\nfollows the new lifecycle at once, and an edit that would leave something pointing at a state or\na transition that is gone is refused instead: 409, with every blocker listed, each with its kind,\nthe state or transition it is about, what blocks it and a count where it has one. There is no\nforce and no mapping of entries to another state. Move the entries with a transition\nfirst.\n            \nThe type's lock is taken exclusive before anything is read. A move in flight holds it shared, so\nthe edit waits for it and a move that starts after it sees the new lifecycle, and two edits\ncannot interleave. The counts are a reading taken before the save, so the type is read again\nafter them and the edit is refused if its lifecycle is no longer the one counted against. A dry\nrun runs the same checks and answers 200 with the blockers, stored nothing.\n            \nA save sends the version it started from as If-Match, the way an entry update does: the\ntype's stored document version as a quoted ETag, 428 when it is missing, 400 when it is not a\nversion, 412 when it is stale. The version is read under the lock, so two edits that started\nfrom the same version cannot both be saved. A dry run needs none, and when it sends one it is\nchecked the same way.",
+        "description": "Its own endpoint because content types have no general update, and a config apply refuses a changed\nlifecycle. No entry is read into memory or rewritten, so every reader\nfollows the new lifecycle at once, and an edit that would leave something pointing at a state or\na transition that is gone is refused instead: 409, with every blocker listed, each with its kind,\nthe state or transition it is about, what blocks it and a count where it has one. There is no\nforce and no mapping of entries to another state. Move the entries with a transition\nfirst.\n            \nThe type's lock is taken exclusive before anything is read. A move in flight holds it shared, so\nthe edit waits for it and a move that starts after it sees the new lifecycle, and two edits\ncannot interleave. The counts are a reading taken before the save, so the type is read again\nafter them and the edit is refused if its lifecycle is no longer the one counted against. A dry\nrun runs the same checks and answers 200 with the blockers, stored nothing.\n            \nA save sends the version it started from as If-Match, the way an entry update does: the\ntype's stored document version as a quoted ETag, 428 when it is missing, 400 when it is not a\nversion, 412 when it is stale. The version is read under the lock, so two edits that started\nfrom the same version cannot both be saved. A dry run needs none, and when it sends one it is\nchecked the same way.",
         "operationId": "barakoCMSFeaturesContentTypeSetLifecycleEndpoint",
         "parameters": [
           {
@@ -23597,93 +23338,6 @@
         "summary": "GET /api/pages/tree: every page the caller may read, drafts included, nested and ordered, for the\nconsole.",
         "tags": [
           "Pages"
-        ]
-      }
-    },
-    "/api/portability/export": {
-      "get": {
-        "deprecated": true,
-        "operationId": "BarakoCMSPortabilityExportEndpoint",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "types",
-            "schema": {
-              "nullable": true,
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BarakoCMSPortabilityPortabilityBundle"
-                }
-              }
-            },
-            "description": "Success"
-          },
-          "401": {
-            "description": "Unauthorized"
-          }
-        },
-        "security": [
-          {
-            "JWTBearerAuth": []
-          }
-        ],
-        "summary": "GET /api/portability/export?types=member,event \u2014 download a content bundle (all types if omitted).",
-        "tags": [
-          "Portability"
-        ]
-      }
-    },
-    "/api/portability/import": {
-      "post": {
-        "deprecated": true,
-        "description": "Every type goes through the checks POST /api/content-types and add field run, and every\nrecord through the same write path as POST /api/contents: write-side sensitivity keyed on\nthe caller, schema validation, lifecycle hooks and the type's initial state.\n            \nAll or nothing. Any refused type or record answers 400 naming each one, as\ncontentTypes[i] or contents[i], and nothing is written. Partial success was the\nother choice and it is the worse one here: import always creates new entries, so rerunning a\nhalf-applied bundle after fixing it would duplicate everything that landed the first time. A dry\nrun refuses exactly what the real run would.",
-        "operationId": "BarakoCMSPortabilityImportEndpoint",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BarakoCMSPortabilityImportRequest"
-              }
-            }
-          },
-          "description": "",
-          "required": true,
-          "x-name": "ImportRequest",
-          "x-position": 1
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BarakoCMSPortabilityImportReport"
-                }
-              }
-            },
-            "description": "Success"
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        },
-        "security": [
-          {
-            "JWTBearerAuth": []
-          }
-        ],
-        "summary": "POST /api/portability/import. Upserts content types (by name) then recreates content via events.\nPass dryRun: true to preview the counts without writing.",
-        "tags": [
-          "Portability"
         ]
       }
     },

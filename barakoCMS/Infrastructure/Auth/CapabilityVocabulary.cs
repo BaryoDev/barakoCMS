@@ -19,7 +19,8 @@ internal sealed record KnownCapability(string Name, string Source, string? Note 
 /// <summary>
 /// Every capability this instance understands: core's <see cref="SystemCapabilities.Known"/> plus
 /// the name every registered endpoint asks for through <c>CapabilityGate.RequireCapability</c> or
-/// names with <see cref="CapabilityGate.ChecksCapability"/>.
+/// names with <see cref="CapabilityGate.ChecksCapability"/>, plus the read and write capability of
+/// every registered config section.
 /// </summary>
 /// <remarks>
 /// Read off the routing table rather than off a list a module has to maintain. A module already
@@ -106,6 +107,22 @@ internal sealed class CapabilityVocabulary
             if (byName.ContainsKey(name)) continue;
 
             byName[name] = new KnownCapability(name, assembly == core ? CoreSource : SourceOf(assembly!, modules));
+        }
+
+        // A config section is gated on its own read and write capabilities, and no route names them,
+        // so a module that adds a section with no endpoint of its own is known only from here.
+        using (var scope = _services.CreateScope())
+        {
+            foreach (var provider in scope.ServiceProvider.GetServices<barakoCMS.Core.Interfaces.IConfigProvider>())
+            {
+                var assembly = provider.GetType().Assembly;
+                foreach (var name in new[] { provider.ReadCapability, provider.WriteCapability })
+                {
+                    if (string.IsNullOrWhiteSpace(name) || byName.ContainsKey(name)) continue;
+
+                    byName[name] = new KnownCapability(name, assembly == core ? CoreSource : SourceOf(assembly, modules));
+                }
+            }
         }
 
         // A topic's capability is granted through roles like any other, so the role endpoints must

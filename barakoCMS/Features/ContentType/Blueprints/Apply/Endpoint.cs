@@ -35,8 +35,8 @@ internal sealed class CreatedType
 /// are not the ones the blueprint assumed, and nothing afterwards says which half arrived.
 ///
 /// The types are created the way <c>POST /api/content-types</c> creates one: normalized name,
-/// document sourced, sourcing policy recorded against the name. It does not go through the
-/// Portability import, which upserts by name and would overwrite the clash this refuses.
+/// document sourced, sourcing policy recorded against the name. It does not go through a
+/// config apply, which upserts by name and would overwrite the clash this refuses.
 /// </remarks>
 internal sealed class Endpoint(
     IDocumentSession session,

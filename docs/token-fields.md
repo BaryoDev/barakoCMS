@@ -23,7 +23,7 @@ link, a one-time lookup code.
   never Public.
 - A token field cannot be named `Slug`.
 - A token field cannot be added under a name entries of the type already hold a value under
-  (`POST /api/content-types`, `POST /api/content-types/{name}/fields` and a bundle import answer
+  (`POST /api/content-types`, `POST /api/content-types/{name}/fields` and a config apply answer
   with the count of such entries). Entry data can hold keys no field declares, and such a value
   would otherwise become the entry's token.
 
@@ -59,7 +59,7 @@ cannot set it.
 | `POST /api/contents` | discarded | generated |
 | `PUT /api/contents/{id}` | discarded, sent or left out | the stored one |
 | `POST /api/import/content` | discarded, for every row | generated per row |
-| `POST /api/portability/import` | discarded (and an export carries none) | generated per entry |
+| `POST /api/config/apply` with `contents` | discarded (and an export carries none) | generated per entry |
 | `POST /api/collections/{type}/push` | discarded | generated on create, stored one on update |
 | `POST /api/public/forms/{slug}` | 400, a token is not a field a form accepts | generated |
 | Collection sync | a sync cannot map onto a field that is not Public | generated on create, stored one on update |
@@ -91,7 +91,7 @@ every entry one, save each once: a `PUT /api/contents/{id}` with the entry's own
 | `GET /api/contents?filter[Field][eq]=` | A caller who may read the field. For anyone else the filter is refused, in the words used for a field that does not exist. |
 | Everything under `/api/public/`, feeds, the sitemap, the delivery OpenAPI document | Nobody. The slug those serve comes from a field of type `slug`, or from a Public text field named `Slug`, never from a token or another field that is not Public. |
 | Webhook bodies, connector requests, public forms, semantic search | Nobody. Each takes only Public fields. |
-| `GET /api/portability/export` | Nobody. The field is left out of every exported entry. |
+| `GET /api/config/export` with `contents` | Nobody. The field is left out of every exported entry. |
 
 The search matches substrings, so matching a token would give it away a character at a time. That
 is why it is left out even for a caller who may read the field, a Read rule whose `readableFields`
@@ -112,8 +112,8 @@ same value each time. `GET /api/contents/{id}/history` masks it by the rule in t
 audit log holds no field values, so no token. A database backup holds both the entry and its
 stream, token included.
 
-A bundle export carries no token and an import generates new ones, so moving a site through a
-bundle changes every token. To keep tokens that are already printed, move the database.
+A config export carries no token and an apply generates new ones, so moving a site through a
+config document changes every token. To keep tokens that are already printed, move the database.
 
 ## Sensitivity mode
 

@@ -14,8 +14,7 @@ namespace barakoCMS.Features.ContentType;
 /// <c>eventSourced</c> beside its definition.
 /// </summary>
 /// <remarks>
-/// A type is written the way a Portability import writes one (<see cref="ContentTypeUpsert"/>), so
-/// the two refuse the same things. A type the document leaves out is kept: the API has no route
+/// A type is written through <see cref="ContentTypeUpsert"/>. A type the document leaves out is kept: the API has no route
 /// that removes a content type, and an apply is not a way around that. Removing a field, changing a
 /// field's type or what a reference points at loses the values entries hold, so each is destructive.
 ///
@@ -44,12 +43,16 @@ internal sealed class ContentTypeConfigProvider(
 
     private static readonly string[] NotCarried = ["id", "name", "createdAt", "updatedAt"];
 
-    /// <summary>The cap the Portability import puts on a bundle's types, so a bundle sent here is held to it too.</summary>
+    /// <summary>The most types one apply writes.</summary>
     public const int MaxPerApply = 500;
 
     public async Task<ConfigSectionExport?> ExportAsync(ConfigCaller caller, CancellationToken ct)
     {
         var types = (await session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
+        if (caller.ExportTypes is { } wanted)
+        {
+            types = types.Where(t => wanted.Contains(t.Name.ToLowerInvariant())).ToList();
+        }
 
         // A stored field lists roles by id, and an id means nothing on the deployment a document is
         // applied to. The document carries names, which the apply matches against its own roles.
@@ -106,11 +109,7 @@ internal sealed class ContentTypeConfigProvider(
 
             if (match is null)
             {
-                changes.Add(new ConfigChange
-                {
-                    Key = key, Kind = ConfigChangeKind.Create, Desired = document,
-                    Summary = $"create content type '{barakoCMS.Core.ContentTypeName.Normalize(key)}' with {type.Fields.Count} fields",
-                });
+                if (await CreateChangeAsync(key, document, type, errors, ct) is { } create) changes.Add(create);
                 continue;
             }
 
@@ -133,6 +132,28 @@ internal sealed class ContentTypeConfigProvider(
         errors.AddRange(await RollupErrorsAsync(resolvedTypes, caller, ct));
         var refusals = await DisclosureRulesAsync(disclosures, caller, errors, ct);
         return new ConfigSectionPlan { Section = Section, Changes = changes, Errors = errors, Refusals = refusals, Conflicts = conflicts };
+    }
+
+    /// <summary>
+    /// The change that creates a type, or null with an error when the tenant's account owns a type of
+    /// that name. The create endpoint and the blueprint apply refuse that name too, so a document is
+    /// held to the same rule.
+    /// </summary>
+    private async Task<ConfigChange?> CreateChangeAsync(
+        string key, JsonElement document, ContentTypeDefinition type, List<string> errors, CancellationToken ct)
+    {
+        var name = barakoCMS.Core.ContentTypeName.Normalize(key);
+        if (await barakoCMS.Infrastructure.Services.AccountContentTypes.ClashMessageAsync(session, name, ct) is { } owned)
+        {
+            errors.Add($"Content type '{name}': {owned}");
+            return null;
+        }
+
+        return new ConfigChange
+        {
+            Key = key, Kind = ConfigChangeKind.Create, Desired = document,
+            Summary = $"create content type '{name}' with {type.Fields.Count} fields",
+        };
     }
 
     private static IEnumerable<string> DuplicateNames(IEnumerable<string> keys) =>

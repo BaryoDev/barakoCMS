@@ -556,7 +556,7 @@ public class SiteShareLinkTests
             auditText.Should().NotContain(hash).And.NotContain(key);
         }
 
-        var export = await admin.GetAsync("/api/portability/export", Ct);
+        var export = await admin.GetAsync("/api/config/export?sections=contentTypes,contents", Ct);
         export.StatusCode.Should().Be(HttpStatusCode.OK);
         var exportText = await export.Content.ReadAsStringAsync(Ct);
         exportText.Should().NotBeNullOrWhiteSpace();

@@ -411,10 +411,10 @@ An entry write refuses, with 400, a value that is not a list (send a list even o
 id twice, and any id that is not an entry of the declared type in the tenant. The error names the
 ids at fault, and does not name the type a wrong one is of. An empty list holds nothing, and a
 required field refuses it. The list is stored in the order sent. The same check runs on every write
-that validates an entry: create, update, collection push, bulk and bundle import, a transition that
-carries data and a rollback. A bundle import points listed ids of records in the
-bundle at the records as imported, as it does a single reference, and takes records that list each
-other: a list may name a record of the same bundle that is written after it. A single reference
+that validates an entry: create, update, collection push, bulk import, a config apply of `contents`, a transition that
+carries data and a rollback. A config apply points listed ids of records in the
+document at the records as applied, as it does a single reference, and takes records that list each
+other: a list may name a record of the same document that is written after it. A single reference
 still needs its target written first.
 
 Two writers do not run that check, and refuse a list reference instead: the `UpdateField` workflow
@@ -424,7 +424,7 @@ a list after the sync was saved). A form cannot submit a reference at all, so a 
 required list reference cannot be submitted.
 
 A stored field cannot change between one id and a list: there is no endpoint that changes a field's
-type or `multiple`. A bundle import that writes a type over a stored one can, and entries stored
+type or `multiple`. A config apply that writes a type over a stored one can, and entries stored
 before then keep their value until their next save, which then has to send the new shape. `include`
 reads what an entry holds rather than what the field declares, so either shape still resolves, and
 `eq` and `has` on a list field do not match an entry still holding a single id (and `ne` does).

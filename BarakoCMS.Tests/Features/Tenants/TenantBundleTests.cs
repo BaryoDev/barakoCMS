@@ -3,15 +3,12 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
-using BarakoCMS.Portability;
+using BarakoCMS.Tests.Features.Config;
 using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
-
-// The Portability routes and their bundle types are obsolete, and they are how these tests seed a tenant.
-#pragma warning disable CS0618
 
 namespace BarakoCMS.Tests.Features.Tenants;
 
@@ -33,29 +30,27 @@ public class TenantBundleTests
 
     private static string NewHandle() => $"tb-{Guid.NewGuid():N}"[..16];
 
-    /// <summary>A tenant holding one content type and the given entries, made through the import route.</summary>
+    /// <summary>A tenant holding one content type and the given entries, made through config apply.</summary>
     private async Task<(string Slug, string Type, HttpClient Admin)> SeedAsync(IEnumerable<string> titles)
     {
         var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct);
         var admin = await TenantProfileSeed.AdminInAsync(_fixture, slug, Ct);
         var type = $"bt{Guid.NewGuid():n}"[..12];
 
-        var seeded = await admin.PostAsJsonAsync("/api/portability/import", new
-        {
-            contentTypes = new[]
-            {
+        var (status, body) = await BundleCalls.ApplyAsync(
+            admin,
+            [
                 new
                 {
                     name = type, displayName = "Bundle", isPubliclyDeliverable = true,
                     fields = new[] { new { name = "Title", displayName = "Title", type = "string" } },
                 },
-            },
-            contents = titles.Select(t => new
+            ],
+            titles.Select(t => (object)new
             {
                 contentType = type, status = "Published", data = new Dictionary<string, object> { ["Title"] = t },
-            }).ToArray(),
-        }, Ct);
-        seeded.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", seeded.StatusCode, await seeded.Content.ReadAsStringAsync(Ct));
+            }));
+        status.Should().Be(HttpStatusCode.OK, body);
         return (slug, type, admin);
     }
 
@@ -67,10 +62,11 @@ public class TenantBundleTests
 
     private async Task<List<string>> TitlesInAsync(HttpClient admin, string type)
     {
-        var exported = await admin.GetAsync($"/api/portability/export?types={type}", Ct);
-        exported.StatusCode.Should().Be(HttpStatusCode.OK);
-        var bundle = await exported.Content.ReadFromJsonAsync<PortabilityBundle>(ApiJson.Options, Ct);
-        return bundle!.Contents.Select(c => c.Data["Title"].ToString()!).ToList();
+        var (exported, body) = await ConfigCallers.ExportAsync(admin, "contents");
+        exported.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        return body.GetProperty("contents").EnumerateObject()
+            .Where(e => e.Value.GetProperty("contentType").GetString() == type)
+            .Select(e => e.Value.GetProperty("data").GetProperty("Title").GetString()!).ToList();
     }
 
     [Fact]

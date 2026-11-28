@@ -19,7 +19,7 @@ namespace barakoCMS.Core;
 ///
 /// Anything that sends a definition out goes through <see cref="ToNamesAsync"/>. The API answered
 /// with names before and a client sends back what it was given, and an id means nothing to the
-/// instance a bundle is imported into.
+/// instance a config document is applied to.
 ///
 /// Names are matched exactly, case included, the way the role claim was. A name is unique only
 /// within one owner, so it is looked up among the roles the session's tenant reaches, and the

@@ -1129,7 +1129,7 @@ public class ReferenceConditionAccessTests
         // database can answer both, and they are different questions, so a class can satisfy the
         // comparison and still be one the caller may not read.
         var (client, userId) = await CallerHoldingAsync(
-            ["export_content"],
+            ["export_content", "manage_config"],
             new ContentTypePermission { ContentTypeSlug = BoundClasses, Read = Where("Title", "_ne", "closed") },
             Enrollments(BoundEnrollments),
             new ContentTypePermission { ContentTypeSlug = BoundPages, Read = Where("Owner.InstructorUser", "_eq", "$CURRENT_USER") });
@@ -1235,11 +1235,11 @@ public class ReferenceConditionAccessTests
 
             // Every pass that walks more rows than that is refused, with the reason. The caller
             // holds two conditions into classes, on enrollments and on pages, and the list of every
-            // type names whichever it met first.
+            // type and the export of every type name whichever they met first.
             await ShouldBeRefusedAsync(client.GetAsync("/api/contents?pageSize=10"), "the list of every type", ".InstructorUser");
 
             await ShouldBeRefusedAsync(
-                client.GetAsync($"/api/portability/export?types={BoundEnrollments}"), "the export", Follows);
+                client.GetAsync("/api/config/export?sections=contents"), "the export", ".InstructorUser");
 
             await ShouldBeRefusedAsync(
                 client.PostAsJsonAsync($"/api/collections/{BoundEnrollments}/push", new

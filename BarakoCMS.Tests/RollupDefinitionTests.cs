@@ -683,45 +683,14 @@ public class RollupDefinitionTests
     }
 
     [Fact]
-    public async Task A_bundle_import_that_breaks_a_rollup_is_refused_and_stores_nothing()
-    {
-        var (header, line) = await StoredPairAsync();
-        var bundle = new
-        {
-            contentTypes = new[]
-            {
-                new
-                {
-                    name = line, displayName = line, branchScoped = true,
-                    fields = new object[]
-                    {
-                        new { name = "Teacher", type = "reference", referenceType = header },
-                        new { name = "Hours", type = "decimal" },
-                    },
-                },
-            },
-            contents = Array.Empty<object>(),
-        };
-
-        var res = await (await AdminAsync()).PostAsJsonAsync("/api/portability/import", bundle, Ct);
-
-        await AssertRefusedAsync(res, "is branch scoped");
-        (await Probe.StoredTypeAsync(_fixture, line)).BranchScoped.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task A_bundle_import_whose_header_has_a_text_line_amount_is_refused_on_that_entry_and_stores_nothing()
+    public async Task A_config_apply_whose_header_has_a_text_line_amount_is_refused_on_that_type_and_stores_nothing()
     {
         var (header, line) = await LineAsync(SensitivityLevel.Public, SensitivityLevel.Public, R.Plain("Memo", "string"));
-        var bundle = new
-        {
-            contentTypes = new[] { HeaderWithLines(header, line, "decimal", "Memo") },
-            contents = Array.Empty<object>(),
-        };
 
-        var res = await (await AdminAsync()).PostAsJsonAsync("/api/portability/import", bundle, Ct);
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((header, HeaderWithLines(header, line, "decimal", "Memo"))), Ct);
 
-        await AssertRefusedAsync(res, $"Content type '{header}': '{LinesTotal}' on '{header}' and 'Memo' on '{line}' must both be number fields.");
+        await AssertRefusedAsync(res, $"'{LinesTotal}' on '{header}' and 'Memo' on '{line}' must both be number fields.");
         await AssertNotStoredAsync(header);
     }
 
@@ -877,19 +846,6 @@ public class RollupDefinitionTests
     }
 
     [Fact]
-    public async Task A_bundle_import_stores_the_lines_it_passed_in_the_stored_spelling()
-    {
-        var (header, line) = Names();
-        var (headerType, lineType) = MiscasedPair(header, line);
-
-        var res = await (await AdminAsync()).PostAsJsonAsync(
-            "/api/portability/import", new { contentTypes = new[] { headerType, lineType }.Cast<object>().ToArray(), contents = Array.Empty<object>() }, Ct);
-
-        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
-        await AssertStoredLinesAsync(header, line);
-    }
-
-    [Fact]
     public async Task A_second_config_apply_without_lines_keeps_the_stored_lines()
     {
         var (header, line) = Names();
@@ -956,34 +912,6 @@ public class RollupDefinitionTests
         await AssertStoredLinesAsync(header, line);
     }
 
-    [Fact]
-    public async Task A_bundle_import_adds_lines_to_a_stored_header_that_has_none_in_the_stored_spelling()
-    {
-        var (header, line) = await LineAsync();
-        await StoreAsync(Type(header, R.Plain("Name", "string"), R.Plain(LinesTotal, "decimal")));
-        var (headerType, _) = MiscasedPair(header, line);
-
-        var res = await (await AdminAsync()).PostAsJsonAsync(
-            "/api/portability/import", new { contentTypes = new[] { headerType }, contents = Array.Empty<object>() }, Ct);
-
-        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
-        await AssertStoredLinesAsync(header, line);
-    }
-
-    [Fact]
-    public async Task A_bundle_export_then_import_into_an_empty_tenant_keeps_the_lines()
-    {
-        var (header, line) = await StoredWithLinesAsync();
-        var admin = await AdminAsync();
-        var bundle = await (await admin.GetAsync($"/api/portability/export?types={header},{line}", Ct)).Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(Ct);
-        await DeleteTypesAsync(header, line);
-
-        var res = await admin.PostAsJsonAsync("/api/portability/import", bundle, Ct);
-
-        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
-        await AssertStoredLinesAsync(header, line);
-    }
-
     // Lines are checked as they will be stored, on every path.
 
     private static object HeaderDoc(string header, string? lineType, bool total = true, string lineName = "Teacher") => new
@@ -1018,40 +946,12 @@ public class RollupDefinitionTests
     }
 
     [Fact]
-    public async Task A_bundle_import_resolves_a_line_type_named_in_any_spelling_the_route_accepts()
-    {
-        var header = Names().Header;
-        var line = "ord-line-" + Guid.NewGuid().ToString("n")[..8];
-        await StoreAsync(Type(line, R.Reference("Teacher", header), R.Plain("Hours", "decimal")));
-
-        var res = await (await AdminAsync()).PostAsJsonAsync(
-            "/api/portability/import",
-            new { contentTypes = new[] { HeaderDoc(header, line.Replace('-', ' ').ToUpperInvariant()) }, contents = Array.Empty<object>() }, Ct);
-
-        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
-        await AssertStoredLinesAsync(header, line);
-    }
-
-    [Fact]
     public async Task A_config_apply_that_omits_lines_and_drops_the_stored_lines_total_is_refused()
     {
         var (header, line) = await StoredWithLinesAsync();
 
         var res = await (await AdminAsync()).PostAsJsonAsync(
             "/api/config/apply", ConfigOfTypes((header, HeaderDoc(header, null, total: false))), Ct);
-
-        await AssertRefusedAsync(res, $"'{LinesTotal}' on '{header}' and 'Hours' on '{line}' must both be number fields.");
-        await AssertStillStoredWithLinesAsync(header, line);
-    }
-
-    [Fact]
-    public async Task A_bundle_import_that_omits_lines_and_drops_the_stored_lines_total_is_refused()
-    {
-        var (header, line) = await StoredWithLinesAsync();
-
-        var res = await (await AdminAsync()).PostAsJsonAsync(
-            "/api/portability/import",
-            new { contentTypes = new[] { HeaderDoc(header, null, total: false) }, contents = Array.Empty<object>() }, Ct);
 
         await AssertRefusedAsync(res, $"'{LinesTotal}' on '{header}' and 'Hours' on '{line}' must both be number fields.");
         await AssertStillStoredWithLinesAsync(header, line);
@@ -1192,19 +1092,6 @@ public class RollupDefinitionTests
     }
 
     [Fact]
-    public async Task A_bundle_import_naming_a_stored_header_with_spaces_checks_its_lines_and_refuses_a_text_total()
-    {
-        var (header, line, spelled) = await StoredHyphenatedAsync();
-
-        var res = await (await AdminAsync()).PostAsJsonAsync(
-            "/api/portability/import",
-            new { contentTypes = new[] { HeaderWithLines(spelled, line, "string", "Hours") }, contents = Array.Empty<object>() }, Ct);
-
-        await AssertRefusedAsync(res, $"'{LinesTotal}' on '{header}' and 'Hours' on '{line}' must both be number fields.");
-        (await StoredFieldAsync(header, LinesTotal))!.Type.Should().Be("decimal", "a refused import stores nothing");
-    }
-
-    [Fact]
     public async Task A_config_apply_creating_a_header_keyed_with_spaces_accepts_a_line_type_that_references_its_normalized_name()
     {
         var id = Guid.NewGuid().ToString("n")[..8];
@@ -1219,18 +1106,17 @@ public class RollupDefinitionTests
     }
 
     [Fact]
-    public async Task A_bundle_naming_one_type_twice_is_refused_at_the_second_entry_and_stores_nothing()
+    public async Task A_config_apply_keying_one_type_twice_is_refused_and_stores_nothing()
     {
         var id = Guid.NewGuid().ToString("n")[..8];
         object Entry(string name) => new { name, displayName = name, fields = new object[] { new { name = "Name", type = "string" } } };
 
         var res = await (await AdminAsync()).PostAsJsonAsync(
-            "/api/portability/import",
-            new { contentTypes = new[] { Entry($"dup-x-{id}"), Entry($"Dup-X-{id}") }, contents = Array.Empty<object>() }, Ct);
+            "/api/config/apply", ConfigOfTypes(($"dup-x-{id}", Entry($"dup-x-{id}")), ($"Dup-X-{id}", Entry($"Dup-X-{id}"))), Ct);
 
         var body = await BodyAsync(res);
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
-        body.Should().Contain("contentTypes[1]").And.Contain($"dup-x-{id}, Dup-X-{id} name the same content type 'dup-x-{id}'.");
+        body.Should().Contain($"name the same content type 'dup-x-{id}'.");
         await AssertNotStoredAsync($"dup-x-{id}");
         await AssertNotStoredAsync($"Dup-X-{id}");
     }
@@ -1307,7 +1193,7 @@ public class RollupDefinitionTests
     }
 
     [Fact]
-    public async Task An_import_takes_the_type_locks_in_name_order_so_it_does_not_hold_a_later_type_while_it_waits_on_an_earlier_one()
+    public async Task An_apply_takes_the_type_locks_in_name_order_so_it_does_not_hold_a_later_type_while_it_waits_on_an_earlier_one()
     {
         var id = Guid.NewGuid().ToString("n")[..8];
         var (first, later) = ($"lk-a-{id}", $"lk-b-{id}");
@@ -1318,12 +1204,12 @@ public class RollupDefinitionTests
         {
             await barakoCMS.Infrastructure.Jobs.FieldChanges.LockTypeAsync(holder, first, Ct);
             import = (await AdminAsync()).PostAsJsonAsync(
-                "/api/portability/import", new { contentTypes = new[] { Entry(later), Entry(first) }, contents = Array.Empty<object>() }, Ct);
+                "/api/config/apply", ConfigOfTypes((later, Entry(later)), (first, Entry(first))), Ct);
 
             await WaitForQueuedLockAsync(first);
 
             (await TryLockFromAnotherSessionAsync(later)).Should().BeTrue(
-                "the import waits on the first type before it takes the later one, as a config apply does");
+                "the apply waits on the first type before it takes the later one");
         }
         finally
         {

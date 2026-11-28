@@ -3,8 +3,8 @@ using Marten;
 namespace barakoCMS.Infrastructure.Jobs;
 
 /// <summary>
-/// The type lock for writers outside the core assembly, such as a bundle import that writes
-/// entries of several types.
+/// The type lock for writers outside the core assembly, such as the <c>contents</c> section of a
+/// config apply, which writes entries of several types.
 /// </summary>
 public static class ContentTypeLocks
 {

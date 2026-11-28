@@ -22,9 +22,9 @@ internal sealed record ParsedConfig(
 /// </para>
 /// <para>
 /// A section may also be an array whose items carry their key as <c>name</c>, <c>slug</c> or
-/// <c>id</c>. That is how a Portability bundle holds <c>contentTypes</c> and <c>contents</c>, and
-/// it is what lets a bundle be applied as a document of this format: version 1 of both formats is
-/// the same number on purpose.
+/// <c>id</c>. That is how the export file of the removed Portability routes held <c>contentTypes</c> and
+/// <c>contents</c>, and it is what lets such a file be applied as a document of this format: version
+/// 1 of both formats is the same number on purpose.
 /// </para>
 /// </remarks>
 internal static class ConfigDocument
@@ -36,7 +36,7 @@ internal static class ConfigDocument
     /// <summary>The section only the seeder applies, from <c>Seed:File</c>.</summary>
     public const string TenantsSection = "tenants";
 
-    /// <summary>Keys an export writes about itself, and a Portability bundle's own. Read and ignored.</summary>
+    /// <summary>Keys an export writes about itself, and an older Portability export file's own. Read and ignored.</summary>
     public static readonly IReadOnlySet<string> MetadataKeys =
         new HashSet<string>(StringComparer.Ordinal) { "version", "exportedAt", "gaps", "withheld", "contentsWithheld" };
 

@@ -6,13 +6,13 @@ namespace barakoCMS.Infrastructure.Services;
 
 /// <summary>
 /// Counts the entries of a type that already hold a value under a name a new token field would
-/// take, for the routes that add a field to a type: create, add field and a bundle import.
+/// take, for the routes that add a field to a type: create, add field and a config apply.
 /// </summary>
 /// <remarks>
 /// Entry data can hold keys no field declares, so a caller could write a value under a name before
 /// a token field of that name exists. The writer keeps a stored token, so such a value would become
 /// the token: chosen by a caller and possibly shared by two entries. A route adding a token field
-/// refuses while any entry holds one. Public because the Portability module adds fields too.
+/// refuses while any entry holds one.
 /// </remarks>
 public static class TokenFieldEntries
 {

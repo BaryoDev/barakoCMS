@@ -1,46 +1,53 @@
 using System.Net;
-using System.Net.Http.Headers;
-using barakoCMS.Models;
+using System.Text.Json;
+using BarakoCMS.Tests.Features.Config;
 using FluentAssertions;
-using Marten;
+using barakoCMS.Models;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
-
-// The Portability routes are obsolete, and they are what these tests are about.
-#pragma warning disable CS0618
 
 namespace BarakoCMS.Tests.Features.Portability;
 
-/// <summary>An export holds no more records than an import accepts.</summary>
+/// <summary>
+/// An export of the <c>contents</c> section holds no more entries than an apply accepts, and says so
+/// when it left some out.
+/// </summary>
+/// <remarks>A tenant per test, since the section exports every entry the tenant holds.</remarks>
 [Collection("Integration1")]
 public class ExportLimitTests
 {
-    private readonly IntegrationTestFixture _fixture;
+    private readonly ConfigCallers _callers;
     private WebApplicationFactory<Program>? _host;
+    private readonly IntegrationTestFixture _fixture;
 
-    public ExportLimitTests(IntegrationTestFixture fixture) => _fixture = fixture;
+    public ExportLimitTests(IntegrationTestFixture fixture)
+    {
+        _fixture = fixture;
+        _callers = new ConfigCallers(fixture);
+    }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private WebApplicationFactory<Program> Host() =>
         _host ??= _fixture.WithSetting("Portability:MaxImportRecords", "2");
 
-    private async Task<string> StoreEntriesAsync(int count)
+    private async Task<HttpClient> ExporterWithEntriesAsync(int count)
     {
+        var tenant = await _callers.TenantAsync();
         var type = ("explimit" + Guid.NewGuid().ToString("n"))[..14];
-        using var scope = _fixture.Services.CreateScope();
-        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        session.Store(new ContentTypeDefinition
+        var documents = new List<object>
         {
-            Id = Guid.NewGuid(),
-            Name = type,
-            DisplayName = type,
-            Fields = [new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" }],
-        });
+            new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = type,
+                Fields = [new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" }],
+            },
+        };
         for (var i = 0; i < count; i++)
         {
-            session.Store(new Content
+            documents.Add(new Content
             {
                 Id = Guid.NewGuid(),
                 ContentType = type,
@@ -49,37 +56,80 @@ public class ExportLimitTests
             });
         }
 
-        await session.SaveChangesAsync(Ct);
-        return type;
-    }
-
-    private async Task<HttpResponseMessage> ExportAsync(string type)
-    {
-        var client = Host().CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin", "Admin"));
-        return await client.GetAsync($"/api/portability/export?types={type}", Ct);
+        await _callers.StoreInTenantAsync(tenant, [.. documents]);
+        return await _callers.SuperAdminAsync(tenant, Host());
     }
 
     [Fact]
-    public async Task An_export_over_the_record_limit_is_refused_and_names_the_limit()
+    public async Task A_tenant_over_the_limit_exports_one_type_under_it()
     {
-        var type = await StoreEntriesAsync(3);
+        var tenant = await _callers.TenantAsync();
+        var big = ("expbig" + Guid.NewGuid().ToString("n"))[..14];
+        var small = ("expsmall" + Guid.NewGuid().ToString("n"))[..14];
+        var documents = new List<object>();
+        foreach (var (type, count) in new[] { (big, 3), (small, 1) })
+        {
+            documents.Add(new ContentTypeDefinition
+            {
+                Id = Guid.NewGuid(),
+                Name = type,
+                DisplayName = type,
+                Fields = [new FieldDefinition { Name = "Title", DisplayName = "Title", Type = "string" }],
+            });
+            for (var i = 0; i < count; i++)
+            {
+                documents.Add(new Content
+                {
+                    Id = Guid.NewGuid(),
+                    ContentType = type,
+                    Status = ContentStatus.Published,
+                    Data = new() { ["Title"] = $"t{i}" },
+                });
+            }
+        }
 
-        var response = await ExportAsync(type);
+        await _callers.StoreInTenantAsync(tenant, [.. documents]);
+        var client = await _callers.SuperAdminAsync(tenant, Host());
 
-        var body = await response.Content.ReadAsStringAsync(Ct);
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
-        body.Should().Contain("at most 2");
+        var (whole, wholeBody) = await ConfigCallers.ExportAsync(client, "contents");
+        whole.StatusCode.Should().Be(HttpStatusCode.OK, wholeBody.ToString());
+        wholeBody.GetProperty("gaps").GetProperty("contents").EnumerateArray()
+            .Select(g => g.GetString()).Should().ContainSingle(g => g!.Contains("?types="),
+                "the control: all four entries are over the limit of two, and the message names the way out");
+
+        var (response, body) = await ConfigCallers.ExportAsync(client, "contents", types: small);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        var exported = body.GetProperty("contents").EnumerateObject()
+            .Select(e => e.Value.GetProperty("contentType").GetString()).ToList();
+        exported.Should().HaveCount(1).And.OnlyContain(t => t == small);
+        body.TryGetProperty("gaps", out var gaps).Should().BeTrue();
+        gaps.TryGetProperty("contents", out _).Should().BeFalse("one type is under the limit, so nothing was left out");
     }
 
     [Fact]
-    public async Task An_export_at_the_record_limit_is_served()
+    public async Task An_export_over_the_record_limit_holds_the_limit_and_names_it()
     {
-        var type = await StoreEntriesAsync(2);
+        var client = await ExporterWithEntriesAsync(3);
 
-        var response = await ExportAsync(type);
+        var (response, body) = await ConfigCallers.ExportAsync(client, "contents");
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        body.GetProperty("contents").EnumerateObject().Should().HaveCount(2, "an apply takes no more than that");
+        body.GetProperty("gaps").GetProperty("contents").EnumerateArray()
+            .Select(g => g.GetString()).Should().ContainSingle(g => g!.Contains("2") && g.Contains("Portability:MaxImportRecords"));
+    }
+
+    [Fact]
+    public async Task An_export_at_the_record_limit_is_served_whole()
+    {
+        var client = await ExporterWithEntriesAsync(2);
+
+        var (response, body) = await ConfigCallers.ExportAsync(client, "contents");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        body.GetProperty("contents").EnumerateObject().Should().HaveCount(2);
+        body.TryGetProperty("gaps", out var gaps).Should().BeTrue();
+        gaps.TryGetProperty("contents", out _).Should().BeFalse("nothing was left out");
     }
 }

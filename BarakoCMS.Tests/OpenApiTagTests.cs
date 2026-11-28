@@ -131,7 +131,6 @@ public class OpenApiTagTests
             "Monitoring",
             "Numbering",
             "Pages",
-            "Portability",
             "Preview",
             "Public",
             "Queries",

@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using BarakoCMS.Diagnostics;
+using BarakoCMS.Tests.Features.Config;
 using BarakoCMS.Tests.Jobs;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Jobs;
@@ -623,24 +624,19 @@ public class AccountContentTypeTests
     }
 
     [Fact]
-    public async Task An_import_cannot_create_a_tenant_type_with_the_name_of_the_account_type()
+    public async Task An_apply_cannot_create_a_tenant_type_with_the_name_of_the_account_type()
     {
         var account = await AccountAsync();
         var inA = await TenantAsync(account.Id);
         var name = await CreateSharedTypeAsync(await ManagerAsync(account.Id), account);
         var tenantAdmin = await TenantAdminAsync(inA);
 
-        var response = await tenantAdmin.PostAsJsonAsync("/api/portability/import", new
-        {
-            contentTypes = new[]
-            {
-                new { name, displayName = "Mine", fields = new[] { new { name = "Title", displayName = "Title", type = "string" } } },
-            },
-            contents = Array.Empty<object>(),
-        }, Ct);
+        var (status, body) = await BundleCalls.ApplyAsync(
+            tenantAdmin,
+            [new { name, displayName = "Mine", fields = new[] { new { name = "Title", displayName = "Title", type = "string" } } }],
+            []);
 
-        var body = await response.Content.ReadAsStringAsync(Ct);
-        response.StatusCode.Should().BeOneOf(HttpStatusCode.BadRequest, HttpStatusCode.Conflict, HttpStatusCode.UnprocessableEntity);
+        status.Should().BeOneOf(HttpStatusCode.BadRequest, HttpStatusCode.Conflict, HttpStatusCode.UnprocessableEntity);
         body.Should().Contain("account owns");
     }
 

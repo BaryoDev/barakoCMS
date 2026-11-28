@@ -54,7 +54,7 @@ an `int` field rounds to a whole number. A `date` result is stored as `yyyy-MM-d
 ## When the value is worked out
 
 Every path that writes an entry works the value out again from the entry's own fields:
-create, update, rollback, bulk import, bundle import and collection sync, scheduled
+create, update, rollback, bulk import, config apply and collection sync, scheduled
 publish, the field-change job, the workflow actions that create or update an entry, and the
 sample data the server seeds. The tenant comes from the session, so two tenants with the same type
 name use their own formulas.
@@ -80,7 +80,7 @@ keep their old value until their next write. An entry the job cannot rewrite is 
 value, and the job goes on with the rest, see
 [Entries a recompute skips](field-changes.md#entries-a-recompute-skips).
 
-A bundle import treats a changed `expression` as a change of computation, in the same way.
+A config apply treats a changed `expression` as a change of computation, in the same way.
 
 A type saved before formulas existed loads unchanged.
 

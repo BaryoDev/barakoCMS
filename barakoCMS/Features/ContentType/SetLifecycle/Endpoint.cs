@@ -17,8 +17,8 @@ namespace barakoCMS.Features.ContentType.SetLifecycle;
 /// transitions of a type that already exists.
 /// </summary>
 /// <remarks>
-/// Its own endpoint because content types have no general update, and a config apply or a bundle
-/// import refuses a changed lifecycle. No entry is read into memory or rewritten, so every reader
+/// Its own endpoint because content types have no general update, and a config apply refuses a changed
+/// lifecycle. No entry is read into memory or rewritten, so every reader
 /// follows the new lifecycle at once, and an edit that would leave something pointing at a state or
 /// a transition that is gone is refused instead: 409, with every blocker listed, each with its kind,
 /// the state or transition it is about, what blocks it and a count where it has one. There is no

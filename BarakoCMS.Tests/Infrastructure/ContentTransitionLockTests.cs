@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using BarakoCMS.Tests.Features.Config;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Events;
 using barakoCMS.Infrastructure.Jobs;
@@ -615,7 +616,7 @@ public class ContentTransitionLockTests(IntegrationTestFixture factory)
     }
 
     [Fact]
-    public async Task An_import_over_two_types_locks_them_in_name_order_whatever_order_it_writes_them()
+    public async Task An_apply_over_two_types_locks_them_in_name_order_whatever_order_it_writes_them()
     {
         var low = await TypeAsync(Review(), prefix: "impaa");
         var high = await TypeAsync(Review(), prefix: "impzz");
@@ -627,23 +628,18 @@ public class ContentTransitionLockTests(IntegrationTestFixture factory)
             data = new Dictionary<string, object> { ["Title"] = "a claim" },
         };
 
-        Task<HttpResponseMessage> import;
+        Task<(HttpStatusCode Status, string Body)> apply;
         long highHeldWhileQueued;
         using (await HoldExclusiveAsync(low))
         {
-            import = client.PostAsJsonAsync("/api/portability/import", new
-            {
-                dryRun = false,
-                contentTypes = Array.Empty<object>(),
-                contents = new[] { Record(high), Record(low) },
-            }, Ct);
+            apply = BundleCalls.ApplyAsync(client, [], [Record(high), Record(low)]);
             await WaitForQueuedAsync(low);
             highHeldWhileQueued = await LocksAsync(high, granted: true);
         }
 
-        highHeldWhileQueued.Should().Be(0, "the import holds no later type while it waits for the earlier one");
-        var response = await import.WaitAsync(Limit, Ct);
-        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        highHeldWhileQueued.Should().Be(0, "the apply holds no later type while it waits for the earlier one");
+        var (status, body) = await apply.WaitAsync(Limit, Ct);
+        status.Should().Be(HttpStatusCode.OK, body);
     }
 
     private async Task RunBatchAsync(Func<IServiceProvider, CancellationToken, Task> work)

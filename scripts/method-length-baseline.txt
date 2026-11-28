@@ -10,7 +10,6 @@
 92 BarakoCMS.ExternalAuth/SocialSignIn.cs::SocialSignIn.IssueForUserAsync
 91 BarakoCMS.Files/Features/Upload/Endpoint.cs::Endpoint.HandleAsync
 124 BarakoCMS.Files/SkiaImageResizer.cs::SkiaImageResizer.ResizeAsync
-74 BarakoCMS.Portability/ImportEndpoint.cs::ImportEndpoint.HandleAsync
 96 barakoCMS/Core/Validation/FieldRules.cs::FieldRules.DefinitionErrors
 90 barakoCMS/Core/Validation/FieldRules.cs::FieldRules.ValueErrors
 82 barakoCMS/Core/Validation/UniquenessRules.cs::UniquenessRules.Problems

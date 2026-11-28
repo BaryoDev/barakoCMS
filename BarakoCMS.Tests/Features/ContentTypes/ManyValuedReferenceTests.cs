@@ -4,6 +4,7 @@ using System.Text.Json;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
+using BarakoCMS.Tests.Features.Config;
 using barakoCMS.Core.Validation;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
@@ -239,22 +240,20 @@ public class ManyValuedReferenceTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// A bundle import gives every record a new id, so a list naming records of the same bundle has
-    /// to be pointed at them as imported, and written after them.
+    /// A document apply gives every record a new id, so a list naming records of the same document has
+    /// to be pointed at them as applied, and written after them.
     /// </summary>
     [Fact]
-    public async Task A_bundle_import_points_listed_ids_at_the_records_as_imported()
+    public async Task A_document_apply_points_listed_ids_at_the_records_as_applied()
     {
         var (speaker, evt) = await StoreTypesAsync();
         var adaSource = Guid.NewGuid();
         var graceSource = Guid.NewGuid();
 
         // The panel comes first, so it can only be written once both speakers are.
-        var res = await _client.PostAsJsonAsync("/api/portability/import", new
-        {
-            dryRun = false,
-            contentTypes = Array.Empty<object>(),
-            contents = new object[]
+        var (status, body) = await BundleCalls.ApplyAsync(
+            _client, [],
+            new object[]
             {
                 new
                 {
@@ -275,9 +274,8 @@ public class ManyValuedReferenceTests : IAsyncLifetime
                     id = graceSource, contentType = speaker, status = "Published",
                     data = new Dictionary<string, object> { ["Name"] = "Grace" },
                 },
-            },
-        });
-        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+            });
+        status.Should().Be(HttpStatusCode.OK, body);
 
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
@@ -297,10 +295,10 @@ public class ManyValuedReferenceTests : IAsyncLifetime
 
     /// <summary>
     /// Two entries that list each other, which the API can create (create A, create B listing A,
-    /// update A to list B), import back in one bundle. No order writes either one first.
+    /// update A to list B), apply back in one document. No order writes either one first.
     /// </summary>
     [Fact]
-    public async Task A_bundle_import_takes_two_records_that_list_each_other()
+    public async Task A_document_apply_takes_two_records_that_list_each_other()
     {
         var article = NewName("mvarticle");
         using (var scope = _fixture.Services.CreateScope())
@@ -325,11 +323,9 @@ public class ManyValuedReferenceTests : IAsyncLifetime
         var first = Guid.NewGuid();
         var second = Guid.NewGuid();
 
-        var res = await _client.PostAsJsonAsync("/api/portability/import", new
-        {
-            dryRun = false,
-            contentTypes = Array.Empty<object>(),
-            contents = new object[]
+        var (status, body) = await BundleCalls.ApplyAsync(
+            _client, [],
+            new object[]
             {
                 new
                 {
@@ -347,9 +343,8 @@ public class ManyValuedReferenceTests : IAsyncLifetime
                         ["Title"] = "second", ["RelatedArticles"] = new[] { first.ToString() },
                     },
                 },
-            },
-        });
-        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+            });
+        status.Should().Be(HttpStatusCode.OK, body);
 
         using var read = _fixture.Services.CreateScope();
         var session = read.ServiceProvider.GetRequiredService<IQuerySession>();

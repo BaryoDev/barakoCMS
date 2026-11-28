@@ -462,6 +462,9 @@ public class PublicSurfaceTests
             "IConfigProvider.String WriteCapability { get; }",
             "IConfigProvider.Boolean ExportsByDefault { get; }",
             "IConfigProvider.Boolean AppliesAsHost { get; }",
+            // Added so an import-only role keeps working: a section whose plan shows nothing stored
+            // is planned and applied on its write capability alone. Default true, so no provider changes.
+            "IConfigProvider.Boolean PlanShowsStoredValues { get; }",
             "IConfigProvider.ExportAsync(ConfigCaller caller, CancellationToken cancellationToken): Task<ConfigSectionExport>",
             "IConfigProvider.PlanAsync(IReadOnlyDictionary<String, JsonElement> desired, ConfigCaller caller, CancellationToken cancellationToken): Task<ConfigSectionPlan>",
             "IConfigProvider.ApplyAsync(ConfigSectionPlan plan, ConfigCaller caller, CancellationToken cancellationToken): Task<IReadOnlyList<String>>",
@@ -469,7 +472,11 @@ public class PublicSurfaceTests
             "ConfigCaller.ConfigCaller System { get; }",
             "ConfigCaller.ClaimsPrincipal Principal { get; }",
             "ConfigCaller.Boolean IsSystem { get; }",
+            // Added with the types filter of config export: a caller carries the narrowing, so the
+            // provider interface stays as it shipped.
+            "ConfigCaller.IReadOnlySet<String> ExportTypes { get; }",
             "ConfigCaller.static ForUser(ClaimsPrincipal principal): ConfigCaller",
+            "ConfigCaller.WithExportTypes(IEnumerable<String> names): ConfigCaller",
             "sealed class ConfigSectionExport",
             "ConfigSectionExport..ctor()",
             "ConfigSectionExport.required IReadOnlyDictionary<String, JsonElement> Documents { get; init; }",

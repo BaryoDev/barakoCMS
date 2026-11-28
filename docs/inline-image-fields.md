@@ -37,7 +37,7 @@ renderer reads `url` and `alt` and puts them on an `<img>`.
 ## What a write accepts
 
 Every entry write that runs the entry validator applies this: create, update, rollback, a
-transition carrying the field, a batch or spreadsheet import, a bundle import, a collection push and
+transition carrying the field, a batch or spreadsheet import, a config apply of `contents`, a collection push and
 a form submission. The checks run in this order, and the first that fails is a 400 that names the
 field and the limits and does not repeat the value:
 
@@ -104,7 +104,7 @@ always present, since delivery can leave it out.
   the value; a projection that leaves it out of a list is not built yet.
 - **History.** Content is event sourced and every saved version stores the whole entry, so an image
   saved ten times is stored ten times.
-- **Everything else that carries the entry:** export bundles, the event stream, webhook payloads and
+- **Everything else that carries the entry:** config exports, the event stream, webhook payloads and
   any cache in front of the API.
 - **No image variants, no CDN, no usage tracking and no reuse** across entries. Those come with the
   Files module.

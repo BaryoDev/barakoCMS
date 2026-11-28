@@ -694,7 +694,7 @@ internal sealed class DeliveryQuery
     /// <remarks>
     /// A choice is compared exactly with <c>@&gt;</c>, as it always was. A reference compares ids
     /// without regard to case, because an id is the same id in either case and a list can hold one
-    /// written by a path that does not check its form, such as a bundle that turned an array into a
+    /// written by a path that does not check its form, such as a config apply that turned an array into a
     /// reference. An array compares each element that is text, a number or true/false by its text,
     /// so <c>has=5</c> finds the number 5. The value comes first among the parameters because it
     /// comes first in the text.

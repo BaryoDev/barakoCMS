@@ -10,7 +10,11 @@ namespace barakoCMS.Core.Interfaces;
 /// </remarks>
 public sealed class ConfigCaller
 {
-    private ConfigCaller(ClaimsPrincipal? principal) => Principal = principal;
+    private ConfigCaller(ClaimsPrincipal? principal, IReadOnlySet<string>? exportTypes = null)
+    {
+        Principal = principal;
+        ExportTypes = exportTypes;
+    }
 
     /// <summary>The host applying a file it was configured with, with no request behind it.</summary>
     public static ConfigCaller System { get; } = new(null);
@@ -24,6 +28,29 @@ public sealed class ConfigCaller
 
     /// <summary>Whether this is <see cref="System"/>.</summary>
     public bool IsSystem => Principal is null;
+
+    /// <summary>
+    /// The content type names an export is narrowed to, lowercased. Null means every type, and an
+    /// empty set means none. A section that holds content types or their entries reads it. Any
+    /// other section ignores it.
+    /// </summary>
+    public IReadOnlySet<string>? ExportTypes { get; }
+
+    /// <summary>
+    /// This caller with an export narrowed to the content types in <paramref name="names"/>, matched
+    /// without regard to case. Null means every type. A list with no names in it, once blanks are
+    /// dropped, means none, so a caller that skips the endpoint's validation never widens to every
+    /// type by passing an empty list.
+    /// </summary>
+    public ConfigCaller WithExportTypes(IEnumerable<string>? names)
+    {
+        var wanted = names?
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(n => n.Trim().ToLowerInvariant())
+            .ToHashSet(StringComparer.Ordinal);
+
+        return new ConfigCaller(Principal, wanted);
+    }
 }
 
 /// <summary>One section as exported.</summary>

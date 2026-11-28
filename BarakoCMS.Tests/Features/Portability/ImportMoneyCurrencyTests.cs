@@ -1,78 +1,35 @@
 using System.Net;
-using System.Net.Http.Json;
-using BarakoCMS.Portability;
+using System.Text.Json.Nodes;
+using BarakoCMS.Tests.Features.Config;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using barakoCMS.Models;
 
-// The Portability routes and their bundle types are obsolete, and they are what these tests are about.
-#pragma warning disable CS0618
-
 namespace BarakoCMS.Tests.Features.Portability;
 
 /// <summary>
-/// A money field's currency travels in a bundle, and an import does not change the one a stored
-/// field declares: that goes through the currency endpoint, which counts the entries affected.
+/// A money field's currency travels in a config document, and an apply does not change the one a
+/// stored field declares: that goes through the currency endpoint, which counts the entries affected.
 /// </summary>
 [Collection("Integration1")]
 public class ImportMoneyCurrencyTests
 {
-    private static int _ipCounter;
-
     private readonly IntegrationTestFixture _fixture;
+    private readonly ConfigCallers _callers;
 
-    public ImportMoneyCurrencyTests(IntegrationTestFixture fixture) => _fixture = fixture;
+    public ImportMoneyCurrencyTests(IntegrationTestFixture fixture)
+    {
+        _fixture = fixture;
+        _callers = new ConfigCallers(fixture);
+    }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private async Task<string> TenantAsync()
-    {
-        using var scope = _fixture.Services.CreateScope();
-        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        var slug = $"cur-{Guid.NewGuid():N}"[..14].ToLowerInvariant();
-        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
-        await session.SaveChangesAsync(Ct);
-        return slug;
-    }
+    private Task<string> TenantAsync() => _callers.TenantAsync();
 
-    private async Task<HttpClient> AdminOfAsync(string tenantSlug)
-    {
-        var userId = Guid.NewGuid();
-
-        using (var scope = _fixture.Services.CreateScope())
-        {
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(new User
-            {
-                Id = userId,
-                Username = $"cur-{Guid.NewGuid():n}"[..14],
-                Email = $"cur-{Guid.NewGuid():n}@example.com",
-                RoleIds = [SystemRoles.SuperAdminRoleId],
-            });
-            session.Store(new Membership
-            {
-                Id = Guid.NewGuid(),
-                UserId = userId,
-                TenantSlug = tenantSlug,
-                Status = MembershipStatus.Active,
-                RoleIds = [SystemRoles.SuperAdminRoleId],
-            });
-            await session.SaveChangesAsync(Ct);
-        }
-
-        var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-            "Bearer", _fixture.CreateToken(
-                roles: ["SuperAdmin", "Admin"],
-                userId: userId.ToString(),
-                additionalClaims: new Dictionary<string, string> { ["tenant"] = tenantSlug }));
-        client.DefaultRequestHeaders.Add("X-Tenant", tenantSlug);
-        client.DefaultRequestHeaders.Add(
-            TestRemoteIpFilter.Header, $"198.51.102.{Interlocked.Increment(ref _ipCounter) % 200 + 20}");
-        return client;
-    }
+    private Task<HttpClient> AdminOfAsync(string tenantSlug) => _callers.SuperAdminAsync(tenantSlug);
 
     private async Task<string> StoredTypeInDollarsAsync(string tenantSlug)
     {
@@ -103,101 +60,102 @@ public class ImportMoneyCurrencyTests
         return def.Fields.Single(f => f.Name == "Total");
     }
 
-    private static async Task<PortabilityBundle> ExportAsync(HttpClient client, string type)
+    /// <summary>The type as <c>GET /api/config/export</c> writes it, with no other type.</summary>
+    private static async Task<JsonObject> ExportAsync(HttpClient client, string type)
     {
-        var exported = await client.GetAsync($"/api/portability/export?types={type}", Ct);
-        exported.StatusCode.Should().Be(HttpStatusCode.OK);
+        var (exported, body) = await ConfigCallers.ExportAsync(client, "contentTypes", types: type);
+        exported.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
 
-        var bundle = await exported.Content.ReadFromJsonAsync<PortabilityBundle>(ApiJson.Options, Ct);
+        var document = JsonNode.Parse(body.GetRawText())!.AsObject();
 
-        // The currency has to be in the bundle, or the imports below prove nothing about it.
-        bundle!.ContentTypes.Should().HaveCount(1);
-        bundle.ContentTypes[0].Fields.Should().HaveCount(1);
-        bundle.ContentTypes[0].Fields[0].Currency.Should().Be("USD");
+        // The currency has to be in the document, or the applies below prove nothing about it.
+        document["contentTypes"]!.AsObject().Count.Should().Be(1);
+        var fields = document["contentTypes"]![type]!["fields"]!.AsArray();
+        fields.Count.Should().Be(1);
+        fields[0]!["currency"]!.GetValue<string>().Should().Be("USD");
 
-        return bundle;
+        return document;
     }
 
-    private static Task<HttpResponseMessage> ImportAsync(HttpClient client, PortabilityBundle bundle) =>
-        client.PostAsJsonAsync(
-            "/api/portability/import",
-            new { contentTypes = bundle.ContentTypes, contents = bundle.Contents },
-            ApiJson.Options,
-            Ct);
+    private static JsonNode Total(JsonObject document, string type) => document["contentTypes"]![type]!["fields"]![0]!;
 
-    [Fact]
-    public async Task A_type_declaring_a_currency_exports_and_imports_back_with_it()
+    private static async Task<(HttpStatusCode Status, string Body)> ImportAsync(HttpClient client, JsonObject document)
     {
-        var tenant = await TenantAsync();
-        var type = await StoredTypeInDollarsAsync(tenant);
-        var admin = await AdminOfAsync(tenant);
-
-        var bundle = await ExportAsync(admin, type);
-        var imported = await ImportAsync(admin, bundle);
-
-        imported.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", imported.StatusCode,
-            await imported.Content.ReadAsStringAsync(Ct));
-        (await StoredTotalAsync(tenant, type)).Currency.Should().Be("USD");
+        var (response, body) = await ConfigCallers.ApplyAsync(client, document);
+        return (response.StatusCode, body.ToString());
     }
 
     [Fact]
-    public async Task A_bundle_that_changes_a_stored_fields_currency_is_refused()
+    public async Task A_type_declaring_a_currency_exports_and_applies_back_with_it()
     {
         var tenant = await TenantAsync();
         var type = await StoredTypeInDollarsAsync(tenant);
         var admin = await AdminOfAsync(tenant);
 
-        var bundle = await ExportAsync(admin, type);
-        bundle.ContentTypes[0].Fields[0].Currency = "EUR";
+        var document = await ExportAsync(admin, type);
+        var (status, body) = await ImportAsync(admin, document);
 
-        var imported = await ImportAsync(admin, bundle);
-
-        imported.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await imported.Content.ReadAsStringAsync(Ct)).Should()
-            .Contain("Total").And.Contain($"/api/content-types/{type}/fields/Total/currency");
+        status.Should().Be(HttpStatusCode.OK, body);
         (await StoredTotalAsync(tenant, type)).Currency.Should().Be("USD");
     }
 
     [Fact]
-    public async Task A_bundle_that_leaves_out_a_stored_fields_currency_is_refused_and_does_not_switch_it_off()
+    public async Task A_document_that_changes_a_stored_fields_currency_is_refused()
     {
         var tenant = await TenantAsync();
         var type = await StoredTypeInDollarsAsync(tenant);
         var admin = await AdminOfAsync(tenant);
 
-        var bundle = await ExportAsync(admin, type);
-        bundle.ContentTypes[0].Fields[0].Currency = null;
+        var document = await ExportAsync(admin, type);
+        Total(document, type)["currency"] = "EUR";
 
-        var imported = await ImportAsync(admin, bundle);
+        var (status, body) = await ImportAsync(admin, document);
 
-        imported.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("Total").And.Contain($"/api/content-types/{type}/fields/Total/currency");
         (await StoredTotalAsync(tenant, type)).Currency.Should().Be("USD");
     }
 
     [Fact]
-    public async Task A_tenant_without_the_type_takes_the_bundles_currency_and_holds_its_entries_to_it()
+    public async Task A_document_that_leaves_out_a_stored_fields_currency_is_refused_and_does_not_switch_it_off()
+    {
+        var tenant = await TenantAsync();
+        var type = await StoredTypeInDollarsAsync(tenant);
+        var admin = await AdminOfAsync(tenant);
+
+        var document = await ExportAsync(admin, type);
+        Total(document, type)["currency"] = null;
+
+        var (status, body) = await ImportAsync(admin, document);
+
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        (await StoredTotalAsync(tenant, type)).Currency.Should().Be("USD");
+    }
+
+    [Fact]
+    public async Task A_tenant_without_the_type_takes_the_documents_currency_and_holds_its_entries_to_it()
     {
         var source = await TenantAsync();
         var destination = await TenantAsync();
         var type = await StoredTypeInDollarsAsync(source);
 
-        var bundle = await ExportAsync(await AdminOfAsync(source), type);
-        bundle.Contents.Add(new ContentRecord
+        var document = await ExportAsync(await AdminOfAsync(source), type);
+        document["contents"] = new JsonArray(new JsonObject
         {
-            ContentType = type,
-            Data = new Dictionary<string, object> { ["Total"] = 10.005m },
+            ["contentType"] = type,
+            ["data"] = new JsonObject { ["Total"] = 10.005m },
         });
 
-        var refused = await ImportAsync(await AdminOfAsync(destination), bundle);
+        var destinationAdmin = await AdminOfAsync(destination);
+        var (refusedStatus, refused) = await ImportAsync(destinationAdmin, document);
 
-        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("Total").And.Contain("USD").And.Contain("2 decimal places");
+        refusedStatus.Should().Be(HttpStatusCode.BadRequest, refused);
+        refused.Should().Contain("Total").And.Contain("USD").And.Contain("2 decimal places");
 
-        bundle.Contents[^1].Data["Total"] = 10.01m;
-        var imported = await ImportAsync(await AdminOfAsync(destination), bundle);
+        document["contents"]![0]!["data"]!["Total"] = 10.01m;
+        var (status, body) = await ImportAsync(destinationAdmin, document);
 
-        imported.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", imported.StatusCode,
-            await imported.Content.ReadAsStringAsync(Ct));
+        status.Should().Be(HttpStatusCode.OK, body);
         (await StoredTotalAsync(destination, type)).Currency.Should().Be("USD");
     }
 }

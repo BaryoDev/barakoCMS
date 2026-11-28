@@ -1339,7 +1339,7 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
     }
 
     [Fact]
-    public async Task Config_apply_and_bundle_import_still_refuse_a_changed_lifecycle_and_the_text_names_the_new_route()
+    public async Task Config_apply_still_refuses_a_changed_lifecycle_and_the_text_names_the_new_route()
     {
         var slug = await TenantProfileSeed.TenantAsync(factory, Ct);
         var admin = await TenantProfileSeed.AdminInAsync(factory, slug, Ct);
@@ -1351,16 +1351,9 @@ public class SetLifecycleTests(IntegrationTestFixture factory)
         AddState(document["contentTypes"]![type]!);
         var apply = await admin.PostAsJsonAsync("/api/config/apply", new { document, allowDestructive = true }, Ct);
 
-        var exported = await admin.GetAsync($"/api/portability/export?types={type}", Ct);
-        var bundle = (await exported.Content.ReadFromJsonAsync<PortabilityBundle>(ApiJson.Options, Ct))!;
-        bundle.ContentTypes[0].Lifecycle!.States.Add("Extra");
-        var import = await admin.PostAsJsonAsync(
-            "/api/portability/import", new { contentTypes = bundle.ContentTypes, contents = bundle.Contents }, ApiJson.Options, Ct);
 
         apply.IsSuccessStatusCode.Should().BeFalse();
         (await apply.Content.ReadAsStringAsync(Ct)).Should().Contain(route);
-        import.IsSuccessStatusCode.Should().BeFalse();
-        (await import.Content.ReadAsStringAsync(Ct)).Should().Contain(route);
         (await StoredAsync(type, slug)).Lifecycle!.States.Should().Equal("Draft", "Review", "Approved");
     }
 

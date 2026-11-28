@@ -24,5 +24,5 @@ internal sealed class Endpoint(ConfigEngine engine) : Endpoint<Request, ConfigEx
     }
 
     public override async Task HandleAsync(Request req, CancellationToken ct) =>
-        await Send.OkAsync(await engine.ExportAsync(ConfigCaller.ForUser(User), req.Named(), ct), ct);
+        await Send.OkAsync(await engine.ExportAsync(ConfigCaller.ForUser(User).WithExportTypes(req.TypeNames()), req.Named(), ct), ct);
 }

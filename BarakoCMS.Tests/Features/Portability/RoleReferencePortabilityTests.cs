@@ -1,41 +1,40 @@
 using System.Net;
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using barakoCMS.Models;
-using BarakoCMS.Portability;
+using BarakoCMS.Tests.Features.Config;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
-// The Portability routes and their bundle types are obsolete, and they are what these tests are about.
-#pragma warning disable CS0618
-
 namespace BarakoCMS.Tests.Features.Portability;
 
 /// <summary>
-/// A bundle names the roles a field lists, and a stored definition lists them by id.
+/// A config document names the roles a field lists, and a stored definition lists them by id.
 /// </summary>
 /// <remarks>
-/// A role id means nothing to the instance a bundle is imported into, so an export writes names and
-/// an import turns the names it can match back into ids. Without the first half a bundle carried
-/// ids that matched nobody where it landed. Without the second, an imported field went on listing
-/// names, and a bundle naming the roles a stored field lists by id was refused as a change to who
+/// A role id means nothing to the instance a document is applied to, so an export writes names and
+/// an apply turns the names it can match back into ids. Without the first half a document carried
+/// ids that matched nobody where it landed. Without the second, an applied field went on listing
+/// names, and a document naming the roles a stored field lists by id was refused as a change to who
 /// may read it.
 /// </remarks>
 [Collection("Integration1")]
 public class RoleReferencePortabilityTests
 {
     private readonly IntegrationTestFixture _fixture;
+    private readonly ConfigCallers _callers;
 
-    public RoleReferencePortabilityTests(IntegrationTestFixture fixture) => _fixture = fixture;
+    public RoleReferencePortabilityTests(IntegrationTestFixture fixture)
+    {
+        _fixture = fixture;
+        _callers = new ConfigCallers(fixture);
+    }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static string NewType() => ("rolref" + Guid.NewGuid().ToString("n"))[..14];
 
-    private Task<HttpClient> AdminAsync() =>
-        _fixture.CreateClientAsync("SuperAdmin", "Admin");
+    private Task<HttpClient> AdminAsync() => _callers.SuperAdminAsync(null);
 
     private async Task<Role> StoreRoleAsync()
     {
@@ -84,17 +83,8 @@ public class RoleReferencePortabilityTests
         return definition!.Fields.Single(f => f.Name == "Salary").VisibleToRoles;
     }
 
-    private static async Task<(HttpStatusCode Status, string Body)> ImportAsync(
-        HttpClient client, ContentTypeDefinition type)
-    {
-        var response = await client.PostAsJsonAsync("/api/portability/import", new
-        {
-            dryRun = false,
-            contentTypes = new[] { type },
-            contents = Array.Empty<object>(),
-        }, Ct);
-        return (response.StatusCode, await response.Content.ReadAsStringAsync(Ct));
-    }
+    private static Task<(HttpStatusCode Status, string Body)> ImportAsync(HttpClient client, ContentTypeDefinition type) =>
+        BundleCalls.ApplyAsync(client, [type], []);
 
     [Fact]
     public async Task An_export_names_the_role_a_stored_field_lists_by_id()
@@ -104,13 +94,13 @@ public class RoleReferencePortabilityTests
         var type = NewType();
         await StoreTypeAsync(Staff(type, role.Id.ToString(), gone));
 
-        var response = await (await AdminAsync()).GetAsync($"/api/portability/export?types={type}", Ct);
-        var raw = await response.Content.ReadAsStringAsync(Ct);
-        response.StatusCode.Should().Be(HttpStatusCode.OK, raw);
-        var bundle = await response.Content.ReadFromJsonAsync<PortabilityBundle>(ApiJson.Options, Ct);
+        var (response, document) = await ConfigCallers.ExportAsync(await AdminAsync(), "contentTypes");
 
-        var exported = bundle!.ContentTypes.Should().ContainSingle().Subject;
-        var listed = exported.Fields.Single(f => f.Name == "Salary").VisibleToRoles;
+        response.StatusCode.Should().Be(HttpStatusCode.OK, document.ToString());
+        var exported = document.GetProperty("contentTypes").GetProperty(type);
+        var listed = exported.GetProperty("fields").EnumerateArray()
+            .Single(f => f.GetProperty("name").GetString() == "Salary")
+            .GetProperty("visibleToRoles").EnumerateArray().Select(r => r.GetString()).ToList();
         var expected = new[] { role.Name, gone };
         listed.Should().HaveCount(2);
         listed.Should().Equal(expected, "an id that names a role goes out as its name, and one that names none is kept");
@@ -120,7 +110,7 @@ public class RoleReferencePortabilityTests
     }
 
     [Fact]
-    public async Task Importing_a_type_that_names_a_role_stores_that_roles_id()
+    public async Task Applying_a_type_that_names_a_role_stores_that_roles_id()
     {
         var role = await StoreRoleAsync();
         var nobody = $"Nobody {Guid.NewGuid():N}";
@@ -136,7 +126,7 @@ public class RoleReferencePortabilityTests
     }
 
     [Fact]
-    public async Task A_bundle_naming_the_role_a_stored_field_lists_by_id_is_not_refused_as_a_change()
+    public async Task A_document_naming_the_role_a_stored_field_lists_by_id_is_not_refused_as_a_change()
     {
         var role = await StoreRoleAsync();
         var type = NewType();
@@ -151,7 +141,7 @@ public class RoleReferencePortabilityTests
     }
 
     [Fact]
-    public async Task A_bundle_listing_a_different_role_from_the_stored_field_is_still_refused()
+    public async Task A_document_listing_a_different_role_from_the_stored_field_is_still_refused()
     {
         var role = await StoreRoleAsync();
         var other = await StoreRoleAsync();
@@ -161,7 +151,7 @@ public class RoleReferencePortabilityTests
         var (status, body) = await ImportAsync(await AdminAsync(), Staff(type, other.Name));
 
         status.Should().Be(HttpStatusCode.BadRequest, body);
-        body.Should().Contain("/sensitivity", "an import does not change who may read a field");
+        body.Should().Contain("/sensitivity", "an apply does not change who may read a field");
         var stored = await StoredSalaryRolesAsync(type);
         stored.Should().HaveCount(1);
         stored.Should().Equal(role.Id.ToString());

@@ -209,6 +209,29 @@ refuses an entry whose content type has no definition
 `TemplateScanException` for a template over the scan cap or when the scan times out. A module that
 calls them catches it.
 
+## Exporting and importing content
+
+`GET /api/portability/export` and `POST /api/portability/import` are removed, as
+[#1384](https://github.com/BaryoDev/barakoCMS/issues/1384) promised. Both now answer 404. Use
+`GET /api/config/export`, `POST /api/config/plan` and `POST /api/config/apply`. Content types and
+entries are the `contentTypes` and `contents` sections of one document, and `BarakoCMS.Portability`
+goes to 5.0.0.
+
+- **Export.** `GET /api/config/export?sections=contentTypes,contents` replaces the old export. Add
+  `&types=article,author` to export only those types and their entries (at most 100 names of 200
+  characters each, and a blank `types` answers 400). A document the old route
+  wrote (`version` 1, with `contentTypes` and `contents` as arrays) is still accepted by plan and
+  apply.
+- **Roles.** A role that imported needs `manage_config` as well as `import_content`. It needs no
+  `export_content`, and it can still plan. Check the roles of every user or script that called the
+  old routes before you upgrade, since without `manage_config` the new routes answer 403.
+- **Error keys.** A refused record was named `contents[i]` or `contentTypes[i]`. It is now named by
+  its key in the document, in single quotes: the type name for a type, and `'#2'` for the third
+  record of the `contents` array. A script that matched on the old keys needs the new ones.
+- **A plan answers 200.** The old import answered 400 with its errors. `POST /api/config/plan`
+  answers 200 and lists the errors in its body, so read `errors` and not the status. An apply that
+  would refuse the same record is refused and writes nothing.
+
 ## The upgrade
 
 Check `PROXY_ADDRESS` in your `.env` first. Caddy's default address on the `proxy` network moves
@@ -349,8 +372,9 @@ This section lands with #1384 and is not in the code yet.
   without a `FileStorageResolver` is replaced by the one that takes it.
 - Portability: `GET /api/portability/export` and `POST /api/portability/import`, with
   `PortabilityBundle`, `ContentRecord`, `ImportRequest` and `ImportReport`, are removed. Use
-  `GET /api/config/export` and `POST /api/config/plan` and `/api/config/apply`, which take a
-  Portability bundle as a document.
+  `GET /api/config/export` and `POST /api/config/plan` and `/api/config/apply`, which carry the
+  `contentTypes` and `contents` sections in one document. See
+  [Exporting and importing content](#exporting-and-importing-content).
 - `PerformanceMiddleware`: remove it from a pipeline you built by hand. Nothing in the host uses it.
 - `DeliveryCache.PurgeTags`: remove the call. Purge on publish computes its tags with
   `DeliveryTagSet.ForCommitAsync`.

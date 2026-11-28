@@ -445,7 +445,7 @@ Settings live under Modules:Pages.
 
 ## Module: Portability
 
-Limit for importing a portable bundle. This key sits at the root.
+Limit for the entries a config apply takes and a config export reads. This key sits at the root.
 
 | Key | Environment variable | Default | Allowed | Blank or malformed |
 |---|---|---|---|---|

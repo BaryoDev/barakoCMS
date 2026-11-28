@@ -162,16 +162,16 @@ sensitivity, rules or defaults. `routeTemplate` is `null` when the type declares
 value fails the rule above. A type that is not publicly deliverable is a 404, the same as an unknown
 one. The answer is cached for one minute and varies by `X-Tenant`, like the other delivery reads.
 
-## Blueprints and bundles
+## Blueprints and config documents
 
-A blueprint file and a Portability bundle carry all four, and both are held to the rules above.
+A blueprint file and a config document carry all four, and both are held to the rules above.
 
-A bundle imported over a stored type sets what it carries and keeps what it does not. A bundle
-exported before these members existed carries none, so importing it leaves every hint, section,
-role and route template as stored. A value in the bundle replaces the stored one. A bundle cannot
-clear one, because a member left out and a member set to `null` read the same: clear it with the
-two endpoints above. Two details: a stored hint is kept only on a field whose type the bundle
-leaves as it is, and a stored role is not kept on a field when the bundle gives that role to
-another one, so a bundle can move a role.
+A config document applied over a stored type sets what it carries and keeps what it does not. A
+document exported before these members existed carries none, so applying it leaves every hint,
+section, role and route template as stored. A value in the document replaces the stored one. A
+document cannot clear one, because a member left out and a member set to `null` read the same:
+clear it with the two endpoints above. Two details: a stored hint is kept only on a field whose type
+the document leaves as it is, and a stored role is not kept on a field when the document gives that
+role to another one, so a document can move a role.
 
 The built-in blueprints declare none of them.

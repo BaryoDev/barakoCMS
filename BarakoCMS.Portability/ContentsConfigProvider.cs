@@ -3,30 +3,27 @@ using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using Marten;
+using Marten.Linq.MatchesSql;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using barakoCMS.Modules;
 
-// The bundle types are obsolete for callers outside the module, and this is the module.
-#pragma warning disable CS0618
-
 namespace BarakoCMS.Portability;
 
 /// <summary>
-/// The <c>contents</c> section: a Portability bundle's entries, so a bundle applies as a config
-/// document and the engine covers everything the bundle routes did.
+/// The <c>contents</c> section: a document's entries, so entries move with the types through
+/// <c>/api/config/export</c>, <c>plan</c> and <c>apply</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Entries are content, not configuration, so this section is exported only when it is named
-/// (<c>?sections=contentTypes,contents</c>), and as the bundle export reads them: each entry as the
-/// caller may read it, tokens left out, and an entry the caller may read nothing of withheld.
+/// (<c>?sections=contentTypes,contents</c>), and as the content read endpoints show them: each entry
+/// as the caller may read it, tokens left out, and an entry the caller may read nothing of withheld.
 /// </para>
 /// <para>
-/// Applied the way the import route applies a bundle: every record is created under a new id, with
-/// references inside the document pointed at the new ids, through the same write path as
-/// <c>POST /api/contents</c>. So it is not idempotent, as the import never was: applying the same
-/// entries twice creates them twice, and a plan names every record as a create. It needs a signed-in
+/// Every record is created under a new id, with references inside the document pointed at the
+/// new ids, through the same write path as <c>POST /api/contents</c>. So it is not idempotent:
+/// applying the same entries twice creates them twice, and a plan names every record as a create. It needs a signed-in
 /// caller, since what a caller may write is decided for that caller.
 /// </para>
 /// </remarks>
@@ -38,15 +35,21 @@ internal sealed class ContentsConfigProvider(
     IHttpContextAccessor http,
     IConfiguration configuration) : IConfigProvider
 {
-    // Enums as names, which is how the bundle route writes them, and numbers still read.
+    // Enums as names, which is how an export writes them, and numbers still read.
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
     };
 
+    // Lowered on both sides by Postgres, since .NET and Postgres disagree on some code points, and a
+    // type name may be any text.
+    private const string ContentTypeInSql = "lower(d.data ->> 'ContentType') = ANY(SELECT lower(n) FROM unnest(?) AS n)";
+
     public string Section => "contents";
 
     public int Order => 900;
+
+    public bool PlanShowsStoredValues => false;
 
     public string ReadCapability => PortabilityCapabilities.ExportContent;
 
@@ -68,13 +71,26 @@ internal sealed class ContentsConfigProvider(
         // No more than an apply takes, so what this exports can always be applied back, and read no
         // more than that either: one over the limit is enough to know there are more.
         var max = PortabilityLimits.MaxImportRecords(configuration);
-        var contents = await session.Query<Content>().OrderBy(c => c.Id).Take(max + 1).ToListAsync(ct);
+        IQueryable<Content> query = session.Query<Content>();
+        if (caller.ExportTypes is { } wanted)
+        {
+            types = types.Where(t => wanted.Contains(t.Name.ToLowerInvariant())).ToList();
+
+            // In the database, before the limit, so a narrowed export reads only those types' entries.
+            // The stored names go as they are written, so a name .NET and Postgres lower differently
+            // still matches. The requested names go too, because an entry can name a type this tenant
+            // holds no definition for, and it is exported when its type is asked for.
+            var names = types.Select(t => t.Name).Concat(wanted).Distinct(StringComparer.Ordinal).ToArray();
+            query = query.Where(c => c.MatchesSql(ContentTypeInSql, new object[] { names }));
+        }
+
+        var contents = await query.OrderBy(c => c.Id).Take(max + 1).ToListAsync(ct);
         var more = contents.Count > max;
         var (records, withheld) = await BundleEntries.ExportAsync(contents.Take(max).ToList(), types, user, context, permissions, sensitivity, ct);
         var gaps = withheld == 0 ? new List<string>() : [$"{withheld} entries are left out because this caller may read none of them."];
         if (more)
         {
-            gaps.Add($"Only the first {max} entries are read, the most an apply takes, and more are stored. Raise Portability:MaxImportRecords, or move them in parts.");
+            gaps.Add($"Only the first {max} entries are read, the most an apply takes, and more are stored. Export fewer types with ?types=, or raise Portability:MaxImportRecords.");
         }
 
         return new ConfigSectionExport
@@ -122,9 +138,15 @@ internal sealed class ContentsConfigProvider(
         }
 
         var records = Read(plan.Changes.ToDictionary(c => c.Key, c => c.Desired!.Value, StringComparer.Ordinal), errors);
+
+        // Locked before the types are read, so a type edit that commits while this waits is the
+        // definition the entries are checked against. The types section of the same apply may already
+        // hold these locks exclusively, which this session takes again without waiting.
+        await barakoCMS.Infrastructure.Jobs.ContentTypeLocks.LockSharedAsync(
+            session, records.Select(r => r.Record.ContentType).Where(n => !string.IsNullOrWhiteSpace(n)), ct);
         var existing = (await session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
 
-        // No singleton cap: a bundle is a restore and lands what it holds, as the import does.
+        // No singleton cap: a bundle is a restore and lands what it holds.
         var batch = new ContentCreateBatch { CapSingletons = false };
         foreach (var definition in existing)
         {

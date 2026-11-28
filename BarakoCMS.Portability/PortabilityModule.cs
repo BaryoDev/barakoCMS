@@ -8,16 +8,16 @@ namespace BarakoCMS.Portability;
 /// Content import/export for barakoCMS. Enable it with:
 /// <code>services.AddBarakoCMS(config, m =&gt; m.Add(new PortabilityModule()));</code>
 ///
-/// <c>GET /api/portability/export</c> downloads a JSON bundle of content-type definitions plus
-/// their content data (optionally filtered to specific types). <c>POST /api/portability/import</c>
-/// takes a bundle and upserts the types (by name) then recreates the content via events, with a
-/// dry-run mode. Operates within the current club (tenant-scoped content).
+/// It adds the <c>contents</c> section to the config engine, so entries move with the types:
+/// <c>GET /api/config/export?sections=contentTypes,contents</c> downloads them, and
+/// <c>POST /api/config/plan</c> and <c>/api/config/apply</c> take them back, with a dry run.
+/// Operates within the current club (tenant-scoped content). The module has no routes of its own.
 /// </summary>
 public sealed class PortabilityModule : IBarakoModule
 {
     public string Name => "Portability";
 
-    public int HttpContractVersion => 3;
+    public int HttpContractVersion => 4;
 
     public string? PackageId => "BarakoCMS.Portability";
 
@@ -29,18 +29,18 @@ public sealed class PortabilityModule : IBarakoModule
 
     public string? Glyph => "package";
 
-    /// <summary>Adds the <c>contents</c> section, which is what lets a bundle apply as a config document.</summary>
+    /// <summary>Adds the <c>contents</c> section, which is what lets entries move through config export and apply.</summary>
     public void ConfigureServices(IServiceCollection services, IConfiguration configuration) =>
         services.AddScoped<barakoCMS.Core.Interfaces.IConfigProvider, ContentsConfigProvider>();
 
     /// <summary>
-    /// Gives this module's capabilities to the roles that already reached its endpoints.
+    /// Gives this module's capabilities to the Admin role, which the <c>contents</c> section checks.
     /// </summary>
     /// <remarks>
     /// Core cannot do this: <c>SystemCapabilities.DefaultsFor</c> does not know this module exists.
-    /// Without it the endpoints would be reachable only through the legacy role-name fallback, and
-    /// turning that off, which is the point of issue #443, would take the module away from every
-    /// Admin. Additive and idempotent, and it skips a role the host never seeded.
+    /// Without it the section would be open to the legacy role-name fallback only, and turning that
+    /// off, which is the point of issue #443, would take it away from every Admin. Additive and
+    /// idempotent, and it skips a role the host never seeded.
     /// </remarks>
     public Task SeedAsync(IModuleSeedContext context, CancellationToken ct) =>
         PortabilityCapabilities.Defaults.GrantAsync(context, ct);

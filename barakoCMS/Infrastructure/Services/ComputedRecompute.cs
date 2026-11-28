@@ -6,7 +6,7 @@ namespace barakoCMS.Infrastructure.Services;
 
 /// <summary>
 /// Works out the computed values of a type's entries again when a definition write changes a
-/// formula. Public because the Portability import is a module and starts it for a bundle.
+/// formula.
 /// </summary>
 public static class ComputedRecompute
 {

@@ -9,6 +9,7 @@ using barakoCMS.Core.Validation;
 using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
+using BarakoCMS.Tests.Features.Config;
 using BarakoCMS.Tests.Features.Tenants;
 using BarakoCMS.Tests.Jobs;
 
@@ -585,20 +586,19 @@ public class ComputedExpressionSchemaTests
     }
 
     [Fact]
-    public async Task A_bundle_import_treats_a_changed_formula_as_a_computation_change()
+    public async Task A_document_apply_treats_a_changed_formula_as_a_computation_change()
     {
         var (slug, admin) = await TenantAsync();
         var type = NewName();
         (await CreateTypeAsync(admin, type, ApiFields("Qty + Cost"))).StatusCode.Should().Be(HttpStatusCode.OK);
         await CreateEntryAsync(admin, type, 3m, 4m);
 
-        var imported = await admin.PostAsJsonAsync("/api/portability/import", new
-        {
-            dryRun = false,
-            contentTypes = new[] { new { name = type, displayName = type, isPubliclyDeliverable = true, fields = ApiFields("Qty * Cost") } },
-            contents = Array.Empty<object>(),
-        }, Ct);
-        imported.StatusCode.Should().Be(HttpStatusCode.OK, await imported.Content.ReadAsStringAsync(Ct));
+        var (status, body) = await BundleCalls.ApplyAsync(
+            admin,
+            [new { name = type, displayName = type, isPubliclyDeliverable = true, fields = ApiFields("Qty * Cost") }],
+            [],
+            allowDestructive: true);
+        status.Should().Be(HttpStatusCode.OK, body);
 
         await RunRecomputeAsync(slug, type);
 
@@ -606,20 +606,19 @@ public class ComputedExpressionSchemaTests
     }
 
     [Fact]
-    public async Task A_bundle_import_that_changes_a_formula_commits_the_recompute_job_with_the_change()
+    public async Task A_document_apply_that_changes_a_formula_commits_the_recompute_job_with_the_change()
     {
         var (slug, admin) = await TenantAsync();
         var type = NewName();
         (await CreateTypeAsync(admin, type, ApiFields("Qty + Cost"))).StatusCode.Should().Be(HttpStatusCode.OK);
         await CreateEntryAsync(admin, type, 3m, 4m);
 
-        var imported = await admin.PostAsJsonAsync("/api/portability/import", new
-        {
-            dryRun = false,
-            contentTypes = new[] { new { name = type, displayName = type, isPubliclyDeliverable = true, fields = ApiFields("Qty * Cost") } },
-            contents = Array.Empty<object>(),
-        }, Ct);
-        imported.StatusCode.Should().Be(HttpStatusCode.OK, await imported.Content.ReadAsStringAsync(Ct));
+        var (status, body) = await BundleCalls.ApplyAsync(
+            admin,
+            [new { name = type, displayName = type, isPubliclyDeliverable = true, fields = ApiFields("Qty * Cost") }],
+            [],
+            allowDestructive: true);
+        status.Should().Be(HttpStatusCode.OK, body);
 
         await AssertJobCommittedAsync(slug, type);
     }
@@ -654,20 +653,19 @@ public class ComputedExpressionSchemaTests
     }
 
     [Fact]
-    public async Task A_bundle_import_that_changes_a_formula_has_the_queue_work_it_out_with_no_hand_run()
+    public async Task A_document_apply_that_changes_a_formula_has_the_queue_work_it_out_with_no_hand_run()
     {
         var (slug, admin) = await TenantAsync();
         var type = NewName();
         (await CreateTypeAsync(admin, type, ApiFields("Qty + Cost"))).StatusCode.Should().Be(HttpStatusCode.OK);
         await CreateEntryAsync(admin, type, 3m, 4m);
 
-        var imported = await admin.PostAsJsonAsync("/api/portability/import", new
-        {
-            dryRun = false,
-            contentTypes = new[] { new { name = type, displayName = type, isPubliclyDeliverable = true, fields = ApiFields("Qty * Cost") } },
-            contents = Array.Empty<object>(),
-        }, Ct);
-        imported.StatusCode.Should().Be(HttpStatusCode.OK, await imported.Content.ReadAsStringAsync(Ct));
+        var (status, body) = await BundleCalls.ApplyAsync(
+            admin,
+            [new { name = type, displayName = type, isPubliclyDeliverable = true, fields = ApiFields("Qty * Cost") }],
+            [],
+            allowDestructive: true);
+        status.Should().Be(HttpStatusCode.OK, body);
 
         await CompletedWithinProbeAsync(slug, type);
         (await EntriesAsync(slug, type)).Single().Data["Total"].ToString().Should().Be("12");
