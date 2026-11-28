@@ -293,9 +293,11 @@ in its deploy guide. Its `client-domain` CI job brings up those shipped files an
 tenants on their own domains each get their own pages over TLS, and that a name no tenant holds
 gets no certificate. The shipped `Caddyfile` here serves only `{$DOMAIN_API}` and stays as it is.
 
-For a proxy of your own beside this compose file, these are the lines that matter, as barakoPress's
-`Caddyfile` has them. The permission URL uses the service name, so `app` must be in `AllowedHosts`
-(the shipped `docker-compose.prod.yml` default lists it beside `DOMAIN_API`). `strict_sni_host`
+For a proxy of your own beside this compose file, these are the lines that matter, taken from
+barakoPress's `Caddyfile` with this file's service names: the API is `app` here (`api` in
+barakoPress), and `press:3000` stands for your site's service. The permission URL uses the service
+name, so `app` must be in `AllowedHosts` (the shipped `docker-compose.prod.yml` default lists it
+beside `DOMAIN_API`). `strict_sni_host`
 answers 421 when a request's `Host` is not the name its TLS session was opened for, so a session
 opened for one client's domain cannot be routed as another's.
 
