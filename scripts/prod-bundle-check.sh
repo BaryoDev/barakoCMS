@@ -178,8 +178,8 @@ YML
 dcc config >/dev/null 2>&1 || fail "compose could not read the caddy ports override (it needs compose 2.24 or later)"
 # The app is already up, so leave it alone.
 dcc up -d --no-deps --wait --wait-timeout 120 caddy || fail "caddy did not become healthy"
-http_port="$(dcc port caddy 80 | sed 's/.*://')"
-https_port="$(dcc port caddy 443 | sed 's/.*://')"
+http_port="$(dcc port caddy 80 | sed 's/.*://' || true)"
+https_port="$(dcc port caddy 443 | sed 's/.*://' || true)"
 case "$http_port$https_port" in
   ''|*[!0-9]*) fail "could not read caddy's host ports (http '$http_port', https '$https_port')" ;;
 esac
@@ -203,6 +203,8 @@ tls_curl() {
 step "a request over HTTPS reaches the app"
 expected_sha="$(docker image inspect "$BUNDLED_IMAGE" --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^BARAKO_BUILD_SHA=//p')"
 [ -n "$expected_sha" ] || expected_sha="unknown"
+# In CI the image is built with its commit, so "unknown" there would let any image pass.
+[ "$expected_sha" != "unknown" ] || [ -z "${CI:-}" ] || fail "the image $BUNDLED_IMAGE has no BARAKO_BUILD_SHA, so the check cannot tell it from another image"
 code=""
 for _ in $(seq 1 20); do
   if code="$(tls_curl -D "$WORK/tls-headers.txt" -o "$WORK/tls-body.json" -w '%{http_code}' "https://$CADDY_HOST:$https_port/health/build")"; then
@@ -232,7 +234,7 @@ step "the API's Strict-Transport-Security header comes through"
 # Production sends it only for a request the app sees as HTTPS, which here depends on Caddy's
 # X-Forwarded-Proto from the one proxy address the app trusts. api.localhost is not on the
 # framework's excluded host list (localhost itself is), which is why this name is used.
-grep -qi '^strict-transport-security: max-age=7776000' "$WORK/tls-headers.clean" \
+grep -qiE '^strict-transport-security: max-age=7776000([;[:space:]]|$)' "$WORK/tls-headers.clean" \
   || fail "the HTTPS response has no Strict-Transport-Security header with the 90 day policy"
 grep -i '^strict-transport-security:' "$WORK/tls-headers.clean"
 
