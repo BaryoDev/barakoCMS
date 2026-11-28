@@ -60,9 +60,12 @@ directory named for its version, so keep that line in `.env`. The bundle's compo
 it in a top-level `name:` line, so an `.env` without it stops compose with a message that names
 the variable, before anything starts.
 
-The archive is built by `scripts/build-prod-bundle.sh`, and CI starts `postgres`, `app` and
-`db-backup` from an unpacked copy in an empty directory (`scripts/prod-bundle-check.sh`), so a file
-the compose file mounts and the bundle lacks fails the pull request that caused it.
+The archive is built by `scripts/build-prod-bundle.sh`, and CI starts `postgres`, `app`, `db-backup`
+and `caddy` from an unpacked copy in an empty directory (`scripts/prod-bundle-check.sh`), so a file
+the compose file mounts and the bundle lacks fails the pull request that caused it. The check uses
+`api.localhost` as the domain, so Caddy signs its certificate with its own local CA and proves that
+HTTPS reaches the API, strips the `Server` and `Via` headers and redirects plain HTTP. A real
+Let's Encrypt issue for your domain is not covered.
 
 The helper scripts this page names beyond the bundle (`check-compose-hardening.sh`,
 `verify-image-signature.sh`, `check-image-platforms.sh`, `restore-db.sh`) are not in it. They check
@@ -239,6 +242,21 @@ A tenant's domains are data (`PUT /api/tenants/{handle}` with `domains`, see
 [delivering-a-client-project.md](delivering-a-client-project.md#custom-domains)). Two opt-in pieces
 let a domain added there work in a browser without touching `FRONTEND_ORIGINS` or a `Caddyfile`.
 
+A deployment that serves more than one client sets `Tenancy__Mode=Multi` on the `app` service. A
+request or sign in that resolves to no registered tenant is then refused instead of served from
+`default`, and every client, the first one included, is a registered tenant. See
+[multi-tenancy.md](multi-tenancy.md#multi).
+
+A new domain is pending, and a pending domain routes nowhere: CORS, TLS and sign in all treat it as an
+unknown host. Point the domain's DNS at the deployment, then call
+`POST /api/tenants/{handle}/domains/{domain}/verify` until it answers `Verified`. The records it checks
+are in [multi-tenancy.md](multi-tenancy.md#verifying-a-domain). Until it passes, nothing below applies
+to the domain.
+
+The domain must also be in `ALLOWED_HOSTS` (the compose file sets
+`AllowedHosts=${ALLOWED_HOSTS:-${DOMAIN_API};app}`), or a request on it is refused with 400 before
+tenant resolution runs. See [multi-tenancy.md](multi-tenancy.md#verifying-a-domain) on host filtering.
+
 **CORS.** Set `CORS__AllowTenantDomains=true` on the `app` service. The API then also allows an
 origin that is exactly `https://` plus a domain an active tenant holds, or its `www.` form. These
 are refused: `http`, any port, a path, user info, a wildcard, an IP literal, `null`, and any other
@@ -290,7 +308,10 @@ https:// {
 ```
 
 `TenantDomainCorsTests`, `TenantDomainCorsPolicyProviderTests`, `TenantDomainLookupTests` and
-`TlsAskTests` cover both.
+`TlsAskTests` cover both. `SecondTenantOwnDomainTests` covers sign in, isolation and the TLS ask for a
+second tenant's own domain in Multi mode: the verify step, a sign in on that domain with no
+`X-Tenant`, and only that tenant's entries. It fakes the DNS check and runs with `AllowedHosts` open,
+so host filtering and CORS are not part of it.
 
 ## Putting a shared cache or CDN in front of it
 
@@ -370,12 +391,16 @@ fixed subnet, Caddy has a fixed address on it, and the app trusts that one addre
 | Variable | Default | What it sets |
 | --- | --- | --- |
 | `PROXY_SUBNET` | `10.87.51.0/28` | the `proxy` network's subnet |
-| `PROXY_ADDRESS` | `10.87.51.2` | Caddy's address on it, and the one address the app trusts |
+| `PROXY_ADDRESS` | `10.87.51.14` | Caddy's address on it, and the one address the app trusts |
 | `TRUSTED_PROXY_NETWORK` | empty | an extra trusted range in CIDR notation, if you need one |
 
 If `10.87.51.0/28` is already used on your host, by another Docker network or by a LAN or VPN route,
-set `PROXY_SUBNET` to a free range and `PROXY_ADDRESS` to an address inside it. An overlap with
-another Docker network fails `up` with `Pool overlaps with other one on this address space`. An
+set `PROXY_SUBNET` to a free range and `PROXY_ADDRESS` to the last usable address inside it, one
+below the broadcast address (`.14` in a `/28`). Set both: with `PROXY_SUBNET` alone Caddy keeps
+`10.87.51.14`, outside the new range, and does not start. The app starts before Caddy and Docker
+gives it the lowest free address, so a `PROXY_ADDRESS` at the low end of the subnet is already taken
+when Caddy starts, and Caddy fails with `Address already in use`. An overlap
+with another Docker network fails `up` with `Pool overlaps with other one on this address space`. An
 overlap with a host route does not fail anything, it just stops the containers reaching that range,
 so check `ip route` before you pick.
 

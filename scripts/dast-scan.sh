@@ -163,7 +163,7 @@ JWT_KEY=$JWT_KEY
 ADMIN_USER=dast-admin
 ADMIN_PASSWORD=$ADMIN_PASSWORD
 PROXY_SUBNET=10.87.53.0/28
-PROXY_ADDRESS=10.87.53.2
+PROXY_ADDRESS=10.87.53.14
 ENV
 # Registration asks for an emailed link by default, and there is no mailbox here. The scan stack
 # turns that off, with the acknowledgement the API demands, so the low-privilege user can exist.

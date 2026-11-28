@@ -1,7 +1,10 @@
 using System.Text.Json;
+using barakoCMS.Core.Interfaces;
 using barakoCMS.Core.Validation;
 using barakoCMS.Events;
 using barakoCMS.Features.Blocks.Bindings;
+using barakoCMS.Infrastructure.Audit;
+using barakoCMS.Infrastructure.Multitenancy;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
@@ -37,6 +40,16 @@ internal sealed class FieldChangeCommandHandler(IDocumentStore store, IConfigura
             throw;
         }
     }
+}
+
+/// <summary>
+/// A recompute could not rewrite one entry. Thrown out of a batch so its session is dropped
+/// unsaved: the writer stages an entry before it checks it, and a refused write ejects the whole
+/// session, so nothing in that session can be trusted to commit.
+/// </summary>
+internal sealed class EntryFailure(Guid entryId, Exception inner) : Exception("An entry could not be rewritten.", inner)
+{
+    public Guid EntryId { get; } = entryId;
 }
 
 /// <summary>The steps of a field change and how each one rewrites a batch of entries.</summary>
@@ -112,7 +125,9 @@ internal static class FieldChanges
         change.Id = Guid.NewGuid();
         change.State = FieldChangeState.Running;
         change.StartedAt = change.UpdatedAt = DateTimeOffset.UtcNow;
-        change.Total = await session.Query<Content>().CountAsync(c => c.ContentType.ToLower() == lowered, ct);
+        change.Total = change.EntryIds is { } ids
+            ? await session.Query<Content>().CountAsync(c => c.ContentType.ToLower() == lowered && ids.Contains(c.Id), ct)
+            : await session.Query<Content>().CountAsync(c => c.ContentType.ToLower() == lowered, ct);
         session.Store(change);
 
         DateTime? executeAfter = inlineWhenSmall && RunsInline(change) ? DateTime.UtcNow.Add(InlineGrace) : null;
@@ -254,21 +269,33 @@ internal static class FieldChanges
     /// Runs a change until it completes, or for at most <paramref name="maxBatches"/> batches, and
     /// returns it as it stands.
     /// </summary>
+    /// <remarks>
+    /// A recompute entry that cannot be rewritten ends its batch's session unsaved. The next pass
+    /// writes the entries before it, records it as skipped and moves the cursor onto it, in one
+    /// commit, and the run carries on. A pass that fails does not count as a batch. Each pass
+    /// either commits progress or fails on an entry before the last one that failed, so it ends.
+    /// </remarks>
     public static async Task<FieldChange?> RunAsync(
         IDocumentStore store, IConfiguration configuration, string tenant, Guid id, int? maxBatches, CancellationToken ct,
         int batchSize = BatchSize)
     {
-        for (var batches = 0; maxBatches is null || batches < maxBatches; batches++)
+        EntryFailure? failure = null;
+        for (var batches = 0; maxBatches is null || batches < maxBatches;)
         {
-            await using var session = store.LightweightSession(tenant);
-            var change = await LoadForBatchAsync(session, id, ct);
-            if (change is null || change.State != FieldChangeState.Running)
+            FieldChange? change;
+            try
             {
-                return change;
+                change = await RunPassAsync(store, configuration, tenant, id, failure, batchSize, ct);
+            }
+            catch (EntryFailure next)
+            {
+                failure = next;
+                continue;
             }
 
-            await StepAsync(session, configuration, change, batchSize, ct);
-            if (change.State == FieldChangeState.Completed)
+            failure = null;
+            batches++;
+            if (change is not { State: FieldChangeState.Running })
             {
                 return change;
             }
@@ -276,6 +303,67 @@ internal static class FieldChanges
 
         await using var read = store.QuerySession(tenant);
         return await read.LoadAsync<FieldChange>(id, ct);
+    }
+
+    /// <summary>One batch, or the pass that skips <paramref name="failure"/>, in a session of its own.</summary>
+    private static async Task<FieldChange?> RunPassAsync(
+        IDocumentStore store, IConfiguration configuration, string tenant, Guid id, EntryFailure? failure, int batchSize,
+        CancellationToken ct)
+    {
+        await using var session = store.LightweightSession(tenant);
+        var change = await LoadForBatchAsync(session, id, ct);
+        if (change is not { State: FieldChangeState.Running })
+        {
+            return change;
+        }
+
+        if (failure is null)
+        {
+            await StepAsync(session, configuration, change, batchSize, ct);
+        }
+        else
+        {
+            await SkipAsync(session, configuration, change, failure, ct);
+        }
+
+        return change;
+    }
+
+    /// <summary>
+    /// Whether an exception from rewriting one entry is that entry's own failure, so a recompute
+    /// skips it. A stopped or timed out run, a database or Marten command error, a lost concurrency
+    /// check (anywhere in the chain) and a uniqueness check that could not finish are not: the
+    /// queue retries them, as it does every failure of another kind of change.
+    /// </summary>
+    internal static bool IsEntryFailure(Exception error)
+    {
+        for (var e = error; e is not null; e = e.InnerException)
+        {
+            var transient = e is OperationCanceledException or TimeoutException
+                or System.Data.Common.DbException
+                or Marten.Exceptions.MartenCommandException
+                or Marten.Exceptions.ExistingStreamIdCollisionException
+                or ContentUniquenessException { IsInProgress: true };
+            if (transient || ConcurrencyConflict.Is(e))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Why an entry was skipped: the exception type, and the rule's name for a uniqueness failure.
+    /// Never the message or a value, which an admin who manages types may not be allowed to read.
+    /// </summary>
+    internal static string SkipReason(Exception error)
+    {
+        var cause = error is EntryFailure { InnerException: { } inner } ? inner : error;
+        var reason = cause is ContentUniquenessException u
+            ? $"{nameof(ContentUniquenessException)} (rule '{u.Rule}')"
+            : cause.GetType().Name;
+        return reason.Length > 200 ? reason[..200] : reason;
     }
 
     /// <summary>
@@ -338,10 +426,7 @@ internal static class FieldChanges
             : await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name.ToLower() == lowered, ct);
         if (change.Step >= plan.Count || definition is null)
         {
-            change.State = FieldChangeState.Completed;
-            change.CompletedAt = now;
-            session.Store(change);
-            await session.SaveChangesAsync(ct);
+            await CompleteAsync(session, change, now, ct);
             return;
         }
 
@@ -352,13 +437,7 @@ internal static class FieldChanges
             return;
         }
 
-        var query = session.Query<Content>().Where(c => c.ContentType.ToLower() == lowered);
-        if (change.Cursor is { } cursor)
-        {
-            query = query.Where(c => c.Id > cursor);
-        }
-
-        var batch = await query.OrderBy(c => c.Id).Take(batchSize).ToListAsync(ct);
+        var batch = await EntriesOf(session, change).OrderBy(c => c.Id).Take(batchSize).ToListAsync(ct);
         if (batch.Count == 0)
         {
             NextStep(change);
@@ -367,24 +446,146 @@ internal static class FieldChanges
             return;
         }
 
+        await WriteEntriesAsync(session, configuration, change, work, definition, batch, ct);
+        change.Cursor = batch[^1].Id;
+        session.Store(change);
+        await session.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// The entries of the change's type the current step still has to visit: the ones the change
+    /// names when it is a retry, past the cursor when it has one.
+    /// </summary>
+    private static IQueryable<Content> EntriesOf(IQuerySession session, FieldChange change)
+    {
+        var lowered = change.ContentType.ToLower();
+        IQueryable<Content> query = session.Query<Content>().Where(c => c.ContentType.ToLower() == lowered);
+        if (change.EntryIds is { } ids)
+        {
+            query = query.Where(c => ids.Contains(c.Id));
+        }
+
+        if (change.Cursor is { } cursor)
+        {
+            query = query.Where(c => c.Id > cursor);
+        }
+
+        return query;
+    }
+
+    /// <summary>Finishes the change: completed, or completed with skips and the audit event that says so.</summary>
+    private static async Task CompleteAsync(IDocumentSession session, FieldChange change, DateTimeOffset now, CancellationToken ct)
+    {
+        change.CompletedAt = now;
+        change.State = change.SkippedCount > 0 ? FieldChangeState.CompletedWithSkips : FieldChangeState.Completed;
+        if (change.State == FieldChangeState.CompletedWithSkips)
+        {
+            // Ids and counts only: no entry's value or failure message is read or written here.
+            await AuditLog.RecordAsync(session, TenantScopes.SlugFor(session.TenantId), "contenttype.field_change.completed_with_skips",
+                change.RequestedBy == Guid.Empty ? null : change.RequestedBy, null,
+                targetType: nameof(FieldChange), targetId: change.Id.ToString(),
+                metadata: new Dictionary<string, object>
+                {
+                    ["contentType"] = change.ContentType,
+                    ["field"] = change.Field,
+                    ["kind"] = change.Kind.ToString(),
+                    ["processed"] = change.Processed,
+                    ["total"] = change.Total,
+                    ["skippedCount"] = change.SkippedCount,
+                    ["skippedIds"] = (change.Skipped ?? []).Select(k => k.EntryId.ToString()).ToList(),
+                }, ct: ct);
+        }
+
+        session.Store(change);
+        await session.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Runs before each entry of a batch is rewritten, inside the guard that turns a recompute
+    /// entry's failure into a skip. A test throws from it to make one entry fail, since no
+    /// stored value makes the formulas or the writer throw.
+    /// </summary>
+    internal static Func<Content, CancellationToken, Task>? BeforeEntryForTests { get; set; }
+
+    /// <summary>
+    /// Rewrites the batch's entries in order. A recompute entry that fails comes out as an
+    /// <see cref="EntryFailure"/>, with the batch's session to be dropped; any other failure, and
+    /// any other kind of change, throws as it always did.
+    /// </summary>
+    private static async Task WriteEntriesAsync(
+        IDocumentSession session, IConfiguration configuration, FieldChange change, Work work, ContentTypeDefinition definition,
+        IReadOnlyList<Content> batch, CancellationToken ct)
+    {
         var rollups = await RollupValuesAsync(session, work, change, definition, batch, ct);
         var writer = new ContentWriter(session, new ContentSourcingPolicyService(session), configuration) { WritesForFieldChange = true };
         foreach (var content in batch)
         {
-            if (Rewrite(work, change, definition, content, rollups?.GetValueOrDefault(content.Id)) is { } @event)
+            try
             {
-                await writer.AppendAsync(content, @event, ct);
-
-                // A rename touches an entry twice; it is counted once, when its old name goes. A
-                // rollup's recount is counted with the search text step.
-                if (work != Work.CopyToNewName && !(work == Work.Recompute && change.Kind == FieldChangeKind.Sensitivity))
+                if (BeforeEntryForTests is { } hook)
                 {
-                    change.Processed++;
+                    await hook(content, ct);
+                }
+
+                if (Rewrite(work, change, definition, content, rollups?.GetValueOrDefault(content.Id)) is { } @event)
+                {
+                    await writer.AppendAsync(content, @event, ct);
+
+                    // A rename touches an entry twice; it is counted once, when its old name goes. A
+                    // rollup's recount is counted with the search text step.
+                    if (work != Work.CopyToNewName && !(work == Work.Recompute && change.Kind == FieldChangeKind.Sensitivity))
+                    {
+                        change.Processed++;
+                    }
                 }
             }
+            catch (Exception e) when (change.Kind == FieldChangeKind.Recompute && IsEntryFailure(e))
+            {
+                throw new EntryFailure(content.Id, e);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Writes the entries of the dropped batch that come before the failed one, records the failed
+    /// one as skipped and moves the cursor onto it, in one commit. The change was read under the
+    /// type's lock, so nothing wrote to the type between the batch and this pass.
+    /// </summary>
+    /// <remarks>
+    /// Another run may have passed the entry in the meantime, and then there is nothing to do. An
+    /// entry before the failed one that fails now comes out as its own <see cref="EntryFailure"/>,
+    /// and the run skips that one first.
+    /// </remarks>
+    private static async Task SkipAsync(
+        IDocumentSession session, IConfiguration configuration, FieldChange change, EntryFailure failure, CancellationToken ct)
+    {
+        var failed = failure.EntryId;
+        var definition = await AccountContentTypes.ResolveAsync(session, change.ContentType, ct);
+        var ahead = change.Cursor is { } at
+            ? await session.Query<Content>().AnyAsync(c => c.Id == failed && c.Id > at, ct)
+            : await session.Query<Content>().AnyAsync(c => c.Id == failed, ct);
+        if (definition is null || !ahead)
+        {
+            return;
         }
 
-        change.Cursor = batch[^1].Id;
+        var before = await EntriesOf(session, change).Where(c => c.Id < failed).OrderBy(c => c.Id).ToListAsync(ct);
+        if (before.Count > 0)
+        {
+            await WriteEntriesAsync(session, configuration, change, Work.Recompute, definition, before, ct);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        change.SkippedCount++;
+        change.Skipped ??= [];
+        if (change.Skipped.Count < FieldChange.MaxSkipped)
+        {
+            change.Skipped.Add(new FieldChangeSkip { EntryId = failed, Reason = SkipReason(failure), At = now });
+        }
+
+        change.Cursor = failed;
+        change.UpdatedAt = now;
+        change.Error = null;
         session.Store(change);
         await session.SaveChangesAsync(ct);
     }

@@ -233,6 +233,15 @@ goes to 5.0.0.
 
 ## The upgrade
 
+Check `PROXY_ADDRESS` in your `.env` first. Caddy's default address on the `proxy` network moves
+from `10.87.51.2` to `10.87.51.14`, the last usable address of the subnet. The app starts before
+Caddy and Docker gives it the lowest free address, so Caddy at `10.87.51.2` fails with `Address
+already in use` whenever the app starts first. With no `PROXY_ADDRESS` in `.env` there is nothing to
+do: the last `up -d` below recreates `caddy` and `app`, and the network itself does not change. If
+your `.env` sets `PROXY_ADDRESS`, set it to the last usable address of your `PROXY_SUBNET` (one below
+the broadcast address, `.14` in a `/28`), or remove the line to take the default
+([deploy-in-production.md](deploy-in-production.md#client-ips-behind-caddy)).
+
 With 5.9 stopped, run the app role job, then `db-migrate`, then `db-assert`, then start 6.0. With
 compose, from the directory holding your compose file and `.env`, after setting `BARAKO_TAG` and
 `DB_APP_PASSWORD`:

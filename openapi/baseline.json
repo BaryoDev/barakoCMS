@@ -4223,6 +4223,32 @@
             "format": "int32",
             "type": "integer"
           },
+          "retriedBy": {
+            "description": "For a change that completed with skips, the retry started for it.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
+          "retryOf": {
+            "description": "For a retry, the change whose skipped entries it recomputes.",
+            "format": "guid",
+            "nullable": true,
+            "type": "string"
+          },
+          "skipped": {
+            "description": "The first skipped entries, with why. Absent when none were.",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeChangeFieldFieldChangeSkipResponse"
+            },
+            "nullable": true,
+            "type": "array"
+          },
+          "skippedCount": {
+            "description": "Entries a recompute skipped because they could not be rewritten. Absent when none were.",
+            "format": "int32",
+            "nullable": true,
+            "type": "integer"
+          },
           "startedAt": {
             "format": "date-time",
             "type": "string"
@@ -4248,6 +4274,25 @@
             "description": "Entries whose value the change drops, counted when it was asked for.",
             "format": "int32",
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeChangeFieldFieldChangeSkipResponse": {
+        "additionalProperties": false,
+        "description": "An entry a recompute skipped.",
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "entryId": {
+            "format": "guid",
+            "type": "string"
+          },
+          "reason": {
+            "description": "The exception type that stopped the entry. Never its message or a value.",
+            "type": "string"
           }
         },
         "type": "object"
@@ -4595,6 +4640,17 @@
         "additionalProperties": false,
         "type": "object"
       },
+      "BarakoCMSFeaturesContentTypeListFieldChangesRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BarakoCMSModelsPaginatedRequest"
+          },
+          {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        ]
+      },
       "BarakoCMSFeaturesContentTypeRebuildRequest": {
         "additionalProperties": false,
         "description": "POST /api/content-types/{name}/rebuild, which discards the read model for an event-sourced type\nand produces it again from the streams.",
@@ -4620,6 +4676,10 @@
         "type": "object"
       },
       "BarakoCMSFeaturesContentTypeResumeFieldChangeRequest": {
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "BarakoCMSFeaturesContentTypeRetryFieldChangeRequest": {
         "additionalProperties": false,
         "type": "object"
       },
@@ -12737,6 +12797,48 @@
         },
         "type": "object"
       },
+      "BarakoCMSModelsPaginatedResponseOfFieldChangeResponse": {
+        "additionalProperties": false,
+        "description": "Generic paginated response with metadata.",
+        "properties": {
+          "hasNextPage": {
+            "description": "Whether there is a next page",
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "description": "Whether there is a previous page",
+            "type": "boolean"
+          },
+          "items": {
+            "description": "Items for the current page",
+            "items": {
+              "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeChangeFieldFieldChangeResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "pageSize": {
+            "description": "Number of items per page",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalItems": {
+            "description": "Total number of items across all pages",
+            "format": "int32",
+            "type": "integer"
+          },
+          "totalPages": {
+            "description": "Total number of pages",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "BarakoCMSModelsPaginatedResponseOfFileMetadata": {
         "additionalProperties": false,
         "description": "Generic paginated response with metadata.",
@@ -19218,7 +19320,7 @@
     },
     "/api/content-types/field-changes/{id}/abandon": {
       "post": {
-        "description": "For a recompute whose job keeps failing, so the type is never write-locked for good by one entry\nthat will not save. Only a recompute is abandoned: stopping it part way is safe, because an\nentry not yet rewritten keeps its old computed value and the next write to it works the value\nout again from the current formula. The other kinds leave state a stop cannot undo (a rename's\nvalues under two names, a convert's mixed types, a removed field's values that come back when the\nname is added again), so they answer 409 and are resumed instead. A completed or already\nabandoned change is a 409, and so is one whose job is still queued or running, which abandoning\nwould race. Another tenant's change, like one that does not exist, is a 404.\nThe check and the store sit under the type's lock, the one a change starts under and a batch\ntakes, so an abandon never lands between a batch's read and its commit.",
+        "description": "For a recompute whose job keeps failing, so the type is never write-locked for good by one entry\nthat will not save. Only a recompute is abandoned: stopping it part way is safe, because an\nentry not yet rewritten keeps its old computed value and the next write to it works the value\nout again from the current formula. The other kinds leave state a stop cannot undo (a rename's\nvalues under two names, a convert's mixed types, a removed field's values that come back when the\nname is added again), so they answer 409 and are resumed instead. A completed or already\nabandoned change is a 409, and so is one whose job is still queued or running, which abandoning\nwould race. Abandoning a retry frees the change it was started for to be retried again.\nAnother tenant's change, like one that does not exist, is a 404.\nThe check and the store sit under the type's lock, the one a change starts under and a batch\ntakes, so an abandon never lands between a batch's read and its commit.",
         "operationId": "barakoCMSFeaturesContentTypeAbandonFieldChangeEndpoint",
         "parameters": [
           {
@@ -19259,7 +19361,7 @@
     },
     "/api/content-types/field-changes/{id}/resume": {
       "post": {
-        "description": "For a change whose job stopped, for example after the queue gave up on it. The job starts from\nthe step and entry the change last recorded, so nothing done is done twice. A completed or an\nabandoned change is a 409: there is nothing left to run. So is a change whose job is still queued\nor running, which would otherwise run beside the new one.",
+        "description": "For a change whose job stopped, for example after the queue gave up on it. The job starts from\nthe step and entry the change last recorded, so nothing done is done twice. A completed or an\nabandoned change is a 409: there is nothing left to run. So is one that completed with skips,\nwhich is retried instead. So is a change whose job is still queued\nor running, which would otherwise run beside the new one.",
         "operationId": "barakoCMSFeaturesContentTypeResumeFieldChangeEndpoint",
         "parameters": [
           {
@@ -19293,6 +19395,113 @@
           }
         ],
         "summary": "POST /api/content-types/field-changes/{id}/resume: queues a running change's job again.",
+        "tags": [
+          "ContentType"
+        ]
+      }
+    },
+    "/api/content-types/field-changes/{id}/retry": {
+      "post": {
+        "description": "Starts a new recompute on the same type and field, through the start path every recompute\nuses, and links the two. When the skipped ids were all recorded it visits only those entries;\nwhen more were skipped than a change records, it makes a full pass, where an entry that comes\nout the same writes nothing. Only a change that completed with skips is retried, and once: a\nsecond retry is a 409 that names the first. So is a retry while a change runs on the type.\nAnother tenant's change, like one that does not exist, is a 404. The check and the store sit\nunder the type's lock, so two retries cannot both start.",
+        "operationId": "barakoCMSFeaturesContentTypeRetryFieldChangeEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "guid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSFeaturesContentTypeChangeFieldFieldChangeResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "POST /api/content-types/field-changes/{id}/retry: recomputes the entries a recompute skipped.",
+        "tags": [
+          "ContentType"
+        ]
+      }
+    },
+    "/api/content-types/{name}/field-changes": {
+      "get": {
+        "description": "How an operator finds a change that completed with skips, or one that is stuck, without its id.\nOrdered by when the change started, whatever sort order the request names. Paged like the\nuniqueness duplicates route. A type is the tenant's own or one its account owns, since an account\ntype is recomputed in each tenant too. An unknown type, or another tenant's or account's, is a\n404; a type that has had no change is an empty page.",
+        "operationId": "barakoCMSFeaturesContentTypeListFieldChangesEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sortOrder",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BarakoCMSModelsPaginatedResponseOfFieldChangeResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "JWTBearerAuth": []
+          }
+        ],
+        "summary": "GET /api/content-types/{name}/field-changes: the type's field changes, newest first.",
         "tags": [
           "ContentType"
         ]

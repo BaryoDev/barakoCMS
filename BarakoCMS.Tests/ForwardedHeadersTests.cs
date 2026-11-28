@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Net;
 using System.Text.RegularExpressions;
 using FluentAssertions;
@@ -234,7 +235,7 @@ public class ForwardedHeadersTests
     [Theory]
     [InlineData("172.18.0.5")]
     [InlineData("172.17.0.9")]
-    [InlineData("10.87.51.3")]
+    [InlineData("10.87.51.2")]
     public async Task The_production_compose_ignores_a_forwarded_header_from_another_container(string neighbour)
     {
         var observed = await ObservedClientIp(ProductionComposeDefaults(), peer: neighbour, forwardedFor: Client);
@@ -242,6 +243,27 @@ public class ForwardedHeadersTests
         observed.Should().Be(neighbour,
             "{0} is another container on a Docker network, not Caddy. Honouring its X-Forwarded-For "
           + "would let it pick the IP the audit log records and the rate limiter keys on", neighbour);
+    }
+
+    [Fact]
+    public void Caddys_default_address_is_the_last_address_of_the_proxy_subnet()
+    {
+        var subnetLine = ProductionComposeLines()
+            .SingleOrDefault(l => l.StartsWith("- subnet:", StringComparison.Ordinal));
+        var caddy = CaddyAddressInProductionCompose();
+
+        subnetLine.Should().NotBeNull("the proxy network has a fixed subnet");
+        caddy.Should().NotBeNull("Caddy needs a fixed address for the app to trust that address alone");
+
+        var subnet = IPNetwork.Parse(ResolveDefaults(subnetLine!["- subnet:".Length..].Trim()));
+        var first = BinaryPrimitives.ReadUInt32BigEndian(subnet.BaseAddress.GetAddressBytes());
+        var lastHost = new byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(lastHost, first + (1u << (32 - subnet.PrefixLength)) - 2);
+
+        IPAddress.Parse(caddy!).Should().Be(new IPAddress(lastHost),
+            "the app starts before Caddy and Docker gives it the lowest free address on the proxy "
+          + "network. Caddy at the low end of the subnet would find its address taken and fail with "
+          + "'Address already in use'");
     }
 
     [Fact]

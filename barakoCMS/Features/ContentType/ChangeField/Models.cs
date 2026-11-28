@@ -91,13 +91,29 @@ internal sealed class FieldChangeResponse
     /// <summary>The user or principal id of the operator who abandoned it.</summary>
     public Guid? AbandonedBy { get; init; }
 
+    /// <summary>Entries a recompute skipped because they could not be rewritten. Absent when none were.</summary>
+    public int? SkippedCount { get; init; }
+
+    /// <summary>The first skipped entries, with why. Absent when none were.</summary>
+    public List<FieldChangeSkipResponse>? Skipped { get; init; }
+
+    /// <summary>For a retry, the change whose skipped entries it recomputes.</summary>
+    public Guid? RetryOf { get; init; }
+
+    /// <summary>For a change that completed with skips, the retry started for it.</summary>
+    public Guid? RetriedBy { get; init; }
+
+    /// <summary>The wire value of a state. A name lowercased would run the words of a long one together.</summary>
+    internal static string StateName(FieldChangeState state) =>
+        state == FieldChangeState.CompletedWithSkips ? "completed_with_skips" : state.ToString().ToLowerInvariant();
+
     public static FieldChangeResponse From(FieldChange c) => new()
     {
         Id = c.Id,
         ContentType = c.ContentType,
         Field = c.Field,
         Kind = c.Kind.ToString().ToLowerInvariant(),
-        State = c.State.ToString().ToLowerInvariant(),
+        State = StateName(c.State),
         Step = c.Step,
         Steps = barakoCMS.Infrastructure.Jobs.FieldChanges.Plan(c).Count,
         Processed = c.Processed,
@@ -108,7 +124,24 @@ internal sealed class FieldChangeResponse
         CompletedAt = c.CompletedAt,
         AbandonedAt = c.AbandonedAt,
         AbandonedBy = c.AbandonedBy,
+        SkippedCount = c.SkippedCount > 0 ? c.SkippedCount : null,
+        Skipped = c.Skipped is { Count: > 0 } skipped
+            ? skipped.Select(k => new FieldChangeSkipResponse { EntryId = k.EntryId, Reason = k.Reason, At = k.At }).ToList()
+            : null,
+        RetryOf = c.RetryOf,
+        RetriedBy = c.RetriedBy,
     };
+}
+
+/// <summary>An entry a recompute skipped.</summary>
+internal sealed class FieldChangeSkipResponse
+{
+    public Guid EntryId { get; init; }
+
+    /// <summary>The exception type that stopped the entry. Never its message or a value.</summary>
+    public string Reason { get; init; } = string.Empty;
+
+    public DateTimeOffset At { get; init; }
 }
 
 internal sealed class Validator : Validator<Request>
