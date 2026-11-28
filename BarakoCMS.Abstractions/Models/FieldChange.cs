@@ -33,6 +33,27 @@ public enum FieldChangeState
     /// and the job does nothing if it runs.
     /// </summary>
     Abandoned = 2,
+
+    /// <summary>
+    /// A recompute finished every step, but skipped entries it could not rewrite. Their stored
+    /// values were kept and their ids are on the change. The type's writes are accepted again, and
+    /// the skipped entries are retried as a new change.
+    /// </summary>
+    CompletedWithSkips = 3,
+}
+
+/// <summary>One entry a recompute skipped because it could not be rewritten.</summary>
+public sealed class FieldChangeSkip
+{
+    public Guid EntryId { get; set; }
+
+    /// <summary>
+    /// The exception type that stopped the entry, with the rule or field it named when it named one.
+    /// Never the exception's message and never an entry value.
+    /// </summary>
+    public string Reason { get; set; } = string.Empty;
+
+    public DateTimeOffset At { get; set; }
 }
 
 /// <summary>
@@ -127,4 +148,25 @@ public sealed class FieldChange
 
     /// <summary>The user or principal id of the operator who abandoned the change.</summary>
     public Guid? AbandonedBy { get; set; }
+
+    /// <summary>The first <see cref="MaxSkipped"/> entries a recompute skipped. Null when it skipped none.</summary>
+    public List<FieldChangeSkip>? Skipped { get; set; }
+
+    /// <summary>Every entry a recompute skipped, including those past <see cref="MaxSkipped"/>.</summary>
+    public int SkippedCount { get; set; }
+
+    /// <summary>The most skips a change records by id.</summary>
+    public const int MaxSkipped = 100;
+
+    /// <summary>For a retry, the change whose skipped entries it recomputes.</summary>
+    public Guid? RetryOf { get; set; }
+
+    /// <summary>For a change that completed with skips, the retry that was started for it.</summary>
+    public Guid? RetriedBy { get; set; }
+
+    /// <summary>
+    /// For a retry, the only entries it visits. Null visits every entry of the type, which is a
+    /// retry of more skips than were recorded: an entry that comes out the same writes nothing.
+    /// </summary>
+    public List<Guid>? EntryIds { get; set; }
 }

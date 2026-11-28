@@ -122,6 +122,12 @@ if the field has one.
 | `GET /api/content-types/field-changes/{id}` | The change as it stands: its step, the entries it has rewritten, and the last error |
 | `POST /api/content-types/field-changes/{id}/resume` | Queues a running change's job again, 202. A completed or abandoned one is a 409, and so is one whose job is still queued or running |
 | `POST /api/content-types/field-changes/{id}/abandon` | Stops a running recompute and frees the type, 200. Any other kind, a completed or abandoned change, and one whose job is still queued or running are a 409 |
+| `POST /api/content-types/field-changes/{id}/retry` | Recomputes the entries a recompute skipped, as a new change, 202. Any other state, a change already retried, and a type with a change running are a 409 |
+| `GET /api/content-types/{name}/field-changes` | The type's changes, newest first by start, 20 to a page. An unknown type is a 404 and a type with no change is an empty page |
+
+A change is in one of four states: `running`, `completed`, `abandoned` and `completed_with_skips`.
+The last is a recompute that finished but skipped entries (see below). A change that is not
+`running` leaves the type free for writes and edits.
 
 A job that fails is retried by the queue, and the error it hit is on the change until a batch
 commits again. A job the queue gave up on stays `running`, and resuming it starts from the step
@@ -134,8 +140,10 @@ the type's writes refused.
 
 ## Abandoning a recompute
 
-A change whose job keeps failing on one entry fails every resume, and while it is `running` the
-type refuses writes and edits. Abandoning a recompute is the way out. The change takes the state
+A change whose job keeps failing fails every resume, and while it is `running` the type refuses
+writes and edits. A recompute skips an entry it cannot rewrite (see below), so this is a recompute
+that keeps hitting a transient error, or a change of another kind that fails on one entry. For a
+recompute, abandoning it is the way out. The change takes the state
 `abandoned`, with `abandonedAt` and `abandonedBy` (the caller's user id, or the principal id for a
 service principal key), the type is free again, and the job does nothing if it runs later. It needs `manage_content_types`, and it is recorded in
 the audit log as `contenttype.field_change.abandoned` with the change's id, type, field and
@@ -153,5 +161,39 @@ running, since abandoning under a live job would race it. Abandon it once the qu
 on the job. Another tenant's change is a 404. An abandoned change is not resumed.
 
 Entries the job did not reach keep their old computed value until their next write. To work the
-value out again for all of them, change the formula, which starts a new recompute. Fix the entry
-that failed first, or the new recompute stops on it too.
+value out again for all of them, change the formula, which starts a new recompute. That recompute
+skips an entry it cannot rewrite and goes on, and the skipped entries can be retried.
+
+Abandoning a retry frees the change it was started for, so that change can be retried again.
+
+## Entries a recompute skips
+
+A recompute does not stop on one entry it cannot rewrite. It leaves that entry as it is, with its
+stored value and no new event, writes every other entry, and ends in the state
+`completed_with_skips`. The type is free for writes again, and the audit log gets
+`contenttype.field_change.completed_with_skips` with the type, field, kind, `processed`, `total`,
+`skippedCount` and the skipped ids.
+
+Only a recompute skips. A rename, a convert, a remove and a sensitivity change fail as before: the
+error is on the change and the queue retries it. A recompute also does not skip a failure that is
+not about the entry: a cancellation, a timeout, a database or concurrency error, or a uniqueness
+check that could not finish. Those are retried by the queue like any other job failure.
+
+The change reports `skippedCount` (every skip) and `skipped`, the first 100 as `entryId`, `reason`
+and `at`. The reason is the exception's type, with the rule's name for a uniqueness failure. The
+message and the entry's values are never stored, returned, audited or logged, since a field can be
+masked or restricted from the caller. A resume or an abandon of a change in this state is a 409.
+
+### Retrying the skipped entries
+
+Fix the entry, then `POST /api/content-types/field-changes/{id}/retry`. It starts a new recompute
+on the same type and field and answers 202 with the new change. When every skip was recorded, the
+new change visits only those entries. When more were skipped than a change records, it makes a full
+pass, where an entry that comes out the same writes nothing. The new change has `retryOf`, the old
+one `retriedBy`, and a change is retried once: a second retry is a 409 that names the first. A retry
+can itself end in `completed_with_skips`. It needs `manage_content_types` and is audited as
+`contenttype.field_change.retried`, with both ids and the counts.
+
+`GET /api/content-types/{name}/field-changes` lists a type's changes, newest first by `startedAt`,
+with `page` and `pageSize` as the other paged admin routes take them, so a change that completed
+with skips can be found without its id.
