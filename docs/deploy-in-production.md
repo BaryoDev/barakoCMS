@@ -285,17 +285,30 @@ bucket nearly empty, and the limiter never holds more than 4096 partitions. What
 about one real name more than 60 times a minute, or about names found by probing to share its
 bucket, holds that name's answers at 429 (which Caddy reads as no) while it lasts.
 
-A site proxy that issues certificates on demand, for barakoPress serving the client domains (the
-shipped `Caddyfile` here serves only `{$DOMAIN_API}` and stays as it is):
+barakoPress ships the site proxy for client domains. Its `compose.yml` and `Caddyfile` serve any
+verified client domain with no edit, and its `compose.seed.yml` loads a seed file for an apex or
+`www.` domain that cannot verify through DNS. See
+[Serving a second client on its own domain](https://github.com/BaryoDev/barakoPress/blob/master/docs/deploying.md#serving-a-second-client-on-its-own-domain)
+in its deploy guide. Its `client-domain` CI job brings up those shipped files and checks that two
+tenants on their own domains each get their own pages over TLS, and that a name no tenant holds
+gets no certificate. The shipped `Caddyfile` here serves only `{$DOMAIN_API}` and stays as it is.
 
-The ask URL uses the service name, so `app` must be in `AllowedHosts` (the shipped
-`docker-compose.prod.yml` default lists it beside `DOMAIN_API`).
+For a proxy of your own beside this compose file, these are the lines that matter, taken from
+barakoPress's `Caddyfile` with this file's service names: the API is `app` here (`api` in
+barakoPress), and `press:3000` stands for your site's service. The permission URL uses the service
+name, so `app` must be in `AllowedHosts` (the shipped `docker-compose.prod.yml` default lists it
+beside `DOMAIN_API`). `strict_sni_host`
+answers 421 when a request's `Host` is not the name its TLS session was opened for, so a session
+opened for one client's domain cannot be routed as another's.
 
 ```caddyfile
 {
     email {$ACME_EMAIL}
     on_demand_tls {
-        ask http://app:8080/api/tenants/tls-ask
+        permission http http://app:8080/api/tenants/tls-ask
+    }
+    servers {
+        strict_sni_host
     }
 }
 
@@ -308,7 +321,7 @@ https:// {
 ```
 
 `TenantDomainCorsTests`, `TenantDomainCorsPolicyProviderTests`, `TenantDomainLookupTests` and
-`TlsAskTests` cover both. `SecondTenantOwnDomainTests` covers sign in, isolation and the TLS ask for a
+`TlsAskTests` cover both. `SecondTenantOwnDomainTests` covers sign in, isolation and the TLS check for a
 second tenant's own domain in Multi mode: the verify step, a sign in on that domain with no
 `X-Tenant`, and only that tenant's entries. It fakes the DNS check and runs with `AllowedHosts` open,
 so host filtering and CORS are not part of it.
