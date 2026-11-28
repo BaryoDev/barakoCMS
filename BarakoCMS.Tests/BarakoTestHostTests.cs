@@ -327,8 +327,13 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
         var client = await bare.CreateAdminClientAsync(TestContext.Current.CancellationToken);
         var response = await client.GetAsync(ModuleExport, Ct);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var document = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        // An unknown section is refused, so naming it is a 400 and not an empty answer.
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(Ct)).Should().Contain("'contents' is not a section this server knows");
+
+        var plain = await client.GetAsync("/api/config/export", Ct);
+        plain.StatusCode.Should().Be(HttpStatusCode.OK);
+        var document = await plain.Content.ReadFromJsonAsync<JsonElement>(Ct);
         document.TryGetProperty("contents", out _).Should().BeFalse("no module registered the section");
     }
 }
