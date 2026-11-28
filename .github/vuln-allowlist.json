@@ -366,5 +366,23 @@
     "images": [
       "pgvector/pgvector"
     ]
+  },
+  {
+    "id": "CVE-2026-124851",
+    "package": "libzstd1",
+    "reason": "zstd in the newest pgvector/pgvector:pg16 image (Debian 12, built 2026-11-12); Debian ships the fix but the image is not rebuilt yet. The pg16-trixie variant would change the Debian release and glibc under existing data. Move the pin when it is.",
+    "expires": "2026-12-20",
+    "images": [
+      "pgvector/pgvector"
+    ]
+  },
+  {
+    "id": "CVE-2026-124851",
+    "package": "zstd",
+    "reason": "zstd in the newest pgvector/pgvector:pg16 image (Debian 12, built 2026-11-12); Debian ships the fix but the image is not rebuilt yet. The pg16-trixie variant would change the Debian release and glibc under existing data. Move the pin when it is.",
+    "expires": "2026-12-20",
+    "images": [
+      "pgvector/pgvector"
+    ]
   }
 ]
