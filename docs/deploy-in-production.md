@@ -250,6 +250,10 @@ unknown host. Point the domain's DNS at the deployment, then call
 are in [multi-tenancy.md](multi-tenancy.md#verifying-a-domain). Until it passes, nothing below applies
 to the domain.
 
+The domain must also be in `ALLOWED_HOSTS` (the compose file sets
+`AllowedHosts=${ALLOWED_HOSTS:-${DOMAIN_API};app}`), or a request on it is refused with 400 before
+tenant resolution runs. See [multi-tenancy.md](multi-tenancy.md#verifying-a-domain) on host filtering.
+
 **CORS.** Set `CORS__AllowTenantDomains=true` on the `app` service. The API then also allows an
 origin that is exactly `https://` plus a domain an active tenant holds, or its `www.` form. These
 are refused: `http`, any port, a path, user info, a wildcard, an IP literal, `null`, and any other
@@ -301,9 +305,10 @@ https:// {
 ```
 
 `TenantDomainCorsTests`, `TenantDomainCorsPolicyProviderTests`, `TenantDomainLookupTests` and
-`TlsAskTests` cover both. `SecondTenantOwnDomainTests` walks the whole path in Multi mode: a second
-tenant with its own domain, the verify step, a sign in on that domain with no `X-Tenant`, and only
-that tenant's entries.
+`TlsAskTests` cover both. `SecondTenantOwnDomainTests` covers sign in, isolation and the TLS ask for a
+second tenant's own domain in Multi mode: the verify step, a sign in on that domain with no
+`X-Tenant`, and only that tenant's entries. It fakes the DNS check and runs with `AllowedHosts` open,
+so host filtering and CORS are not part of it.
 
 ## Putting a shared cache or CDN in front of it
 

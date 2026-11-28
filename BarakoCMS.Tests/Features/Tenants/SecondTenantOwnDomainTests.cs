@@ -283,7 +283,7 @@ public class SecondTenantOwnDomainTests
 
         onEdge.StatusCode.Should().NotBe(HttpStatusCode.TooManyRequests, "a rate limited answer proves nothing");
         onEdge.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
-            "the deployment host names no tenant, so the sign in runs on the default partition, which gets no token in Multi");
+            "the deployment host resolves to no registered tenant, so the sign in runs on the default partition, which gets no token in Multi");
         (await onEdge.Content.ReadAsStringAsync(Ct)).Should().NotContain("\"token\"");
 
         TenantClaimOf(await TokenAsync(await SignInAsync(s.UserB, Edge, s.B))).Should().Be(s.B,
@@ -314,6 +314,15 @@ public class SecondTenantOwnDomainTests
         var entryB = await EntryInAsync(s.B, type, titleB);
         var token = await TokenAsync(await SignInAsync(s.UserB, s.Domain));
 
+        var inA = new HttpRequestMessage(HttpMethod.Get, $"/api/contents/{entryA}");
+        inA.Headers.Authorization = new AuthenticationHeaderValue("Bearer", s.AdminToken);
+        inA.Headers.Add(TestRemoteIpFilter.Header, _clientIp);
+        inA.Headers.Add(TenantResolutionMiddleware.TenantHeader, s.A);
+        var readInA = await _client.SendAsync(inA, Ct);
+        readInA.StatusCode.Should().Be(HttpStatusCode.OK,
+            "the control: A's entry exists in A, so the not found below is isolation and not an entry that was never stored");
+        (await readInA.Content.ReadAsStringAsync(Ct)).Should().Contain(titleA);
+
         var list = await GetAsync(s.Domain, $"/api/contents?contentType={type}", token);
 
         list.StatusCode.Should().Be(HttpStatusCode.OK, await list.Content.ReadAsStringAsync(Ct));
@@ -334,7 +343,9 @@ public class SecondTenantOwnDomainTests
         await VerifyAsync(s);
 
         (await TokenAsync(await SignInAsync(s.UserA, null, s.A))).Should().NotBeNullOrEmpty(
-            "the control: the same credentials sign in on A's own route, so the refusal below is about the domain");
+            "the control: the same credentials sign in on A's own route");
+        TenantClaimOf(await TokenAsync(await SignInAsync(s.UserB, s.Domain))).Should().Be(s.B,
+            "the control on the same path: B's user signs in on B's domain, so the domain routes to B and the refusal below is about membership");
 
         var onB = await SignInAsync(s.UserA, s.Domain);
 
