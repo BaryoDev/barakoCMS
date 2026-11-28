@@ -54,18 +54,19 @@ internal sealed class Endpoint(
         Definition.RequireCapability(SystemCapabilities.ManageContentTypes, "SuperAdmin", "Admin");
     }
 
-    /// <summary>The blueprint's types, with every type lock the apply needs already held.</summary>
+    /// <summary>Takes every type lock the apply needs, then refuses a blueprint whose types cannot be stored.</summary>
     /// <remarks>
-    /// One sorted pass before anything is read or checked: a blueprint type exclusive, a rollup
+    /// One sorted pass before the first check that locks: a blueprint type exclusive, a rollup
     /// source outside the blueprint shared. Taken type by type while the rollups are checked, two
     /// saves whose types roll up over each other wait on each other and the database aborts one.
+    /// It comes after the clash and account-owned checks, which take no lock, so a repeat apply
+    /// answers 409 without waiting behind a writer.
     /// </remarks>
-    private async Task<List<ContentTypeDefinition>> MaterializeAndLockAsync(Blueprint blueprint, CancellationToken ct)
+    private async Task LockAndRefuseUnstorableAsync(string blueprint, List<ContentTypeDefinition> types, CancellationToken ct)
     {
-        var types = BlueprintCatalog.Materialize(blueprint);
         await barakoCMS.Infrastructure.Jobs.FieldChanges.LockPlanAsync(
             session, barakoCMS.Infrastructure.Jobs.TypeLockPlan.ForTypes(types), ct);
-        return types;
+        await RefuseUnstorableAsync(blueprint, types, ct);
     }
 
     private async Task RefuseUnstorableAsync(string blueprint, List<ContentTypeDefinition> types, CancellationToken ct)
@@ -140,7 +141,7 @@ internal sealed class Endpoint(
             return;
         }
 
-        var types = await MaterializeAndLockAsync(entry.Definition, ct);
+        var types = BlueprintCatalog.Materialize(entry.Definition);
 
         var clashes = new List<string>();
         foreach (var type in types)
@@ -163,7 +164,7 @@ internal sealed class Endpoint(
                 409);
         }
 
-        await RefuseUnstorableAsync(entry.Name, types, ct);
+        await LockAndRefuseUnstorableAsync(entry.Name, types, ct);
 
         // A blueprint file names roles, and a definition is stored with their ids, as on create.
         await barakoCMS.Core.RoleReferences.ToIdsAsync(session, types.SelectMany(t => t.Fields ?? []), ct);

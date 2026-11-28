@@ -21,12 +21,6 @@ internal readonly record struct TypeLock(string Name, bool Exclusive);
 /// </remarks>
 internal static class TypeLockPlan
 {
-    /// <summary>
-    /// A name longer than this is left out of the plan. No type name is near it, and it keeps a
-    /// document that puts a huge string where a name goes from being normalized and hashed.
-    /// </summary>
-    private const int MaxNameLength = 256;
-
     /// <summary>The plan for the named types and the names their rollups read.</summary>
     /// <param name="written">The names of the types the save writes.</param>
     /// <param name="sources">The names the rollups of those types read, whether or not the save writes them.</param>
@@ -103,7 +97,7 @@ internal static class TypeLockPlan
 
     private static string? Clean(string? name)
     {
-        if (string.IsNullOrWhiteSpace(name) || name.Length > MaxNameLength)
+        if (string.IsNullOrWhiteSpace(name))
         {
             return null;
         }

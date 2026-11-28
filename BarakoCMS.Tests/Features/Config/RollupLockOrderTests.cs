@@ -92,7 +92,7 @@ public class RollupLockOrderTests(IntegrationTestFixture fixture)
         while (await QueuedAsync(tenant, type) < 1)
         {
             limit.Token.ThrowIfCancellationRequested();
-            await Task.Yield();
+            await Task.Delay(25, Ct);
         }
     }
 
@@ -142,34 +142,34 @@ public class RollupLockOrderTests(IntegrationTestFixture fixture)
     }
 
     [Fact]
-    public async Task Blueprint_apply_asks_for_a_rollup_source_before_it_holds_the_type_that_rolls_up_over_it()
+    public async Task Blueprint_apply_asks_for_a_rollup_source_before_it_holds_any_type_of_the_blueprint()
     {
         var tenant = await _callers.TenantAsync();
-        var header = "x" + Tag();
-        var line = await StoreLineAsync(tenant, header);
-        var blueprint = "locks-" + Tag();
+        var tag = Tag();
+        var first = "x1" + tag;
+        var second = "x2" + tag;
+        var line = await StoreLineAsync(tenant, second);
+        var blueprint = "locks-" + tag;
 
-        var dir = Path.Combine(Path.GetTempPath(), $"barako-blueprints-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(dir);
-        await File.WriteAllTextAsync(Path.Combine(dir, $"{blueprint}.json"), $$"""
-            {
-              "name": "{{blueprint}}",
-              "contentTypes": [
-                {
-                  "name": "{{header}}",
-                  "displayName": "Header",
-                  "fields": [
-                    { "name": "Name", "displayName": "Name", "type": "string" },
-                    { "name": "Visits", "displayName": "Visits", "type": "int", "rollup": { "from": "{{line}}", "via": "Owner", "fn": "count" } }
-                  ]
-                }
-              ]
-            }
-            """, Ct);
-
-        // Not disposed, as IntegrationTestFixture.WithSetting says.
-        WebApplicationFactory<Program> host = fixture.WithSetting("Blueprints:Path", dir);
-        var client = await HostClientAsync(host, tenant);
+        // The first type has no rollup. Checked in blueprint order, it kept its exclusive lock while the
+        // second type waited on the line it rolls up over.
+        var client = await BlueprintClientAsync(tenant, blueprint, $$"""
+            [
+              {
+                "name": "{{first}}",
+                "displayName": "First",
+                "fields": [ { "name": "Name", "displayName": "Name", "type": "string" } ]
+              },
+              {
+                "name": "{{second}}",
+                "displayName": "Second",
+                "fields": [
+                  { "name": "Name", "displayName": "Name", "type": "string" },
+                  { "name": "Visits", "displayName": "Visits", "type": "int", "rollup": { "from": "{{line}}", "via": "Owner", "fn": "count" } }
+                ]
+              }
+            ]
+            """);
 
         Task<HttpResponseMessage> apply;
         using (await HoldExclusiveAsync(tenant, line))
@@ -177,12 +177,42 @@ public class RollupLockOrderTests(IntegrationTestFixture fixture)
             apply = Task.Run(() => client.PostAsync($"/api/content-types/blueprints/{blueprint}", null, Ct), Ct);
             await WaitForQueuedAsync(tenant, line);
 
-            (await CanTakeExclusiveAsync(tenant, header)).Should().BeTrue(
-                "the apply asked for the source first, so it holds nothing the other save would wait on");
+            (await CanTakeExclusiveAsync(tenant, first)).Should().BeTrue(
+                "the apply asked for the source first, so it holds no type of the blueprint while it waits");
+            (await CanTakeExclusiveAsync(tenant, second)).Should().BeTrue();
         }
 
         var response = await apply.WaitAsync(Limit, Ct);
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_repeat_blueprint_apply_answers_409_without_waiting_for_a_writer_of_its_types()
+    {
+        var tenant = await _callers.TenantAsync();
+        var tag = Tag();
+        var type = "x1" + tag;
+        var blueprint = "locks-" + tag;
+        var client = await BlueprintClientAsync(tenant, blueprint, $$"""
+            [
+              {
+                "name": "{{type}}",
+                "displayName": "Only",
+                "fields": [ { "name": "Name", "displayName": "Name", "type": "string" } ]
+              }
+            ]
+            """);
+
+        var first = await client.PostAsync($"/api/content-types/blueprints/{blueprint}", null, Ct);
+        first.StatusCode.Should().Be(HttpStatusCode.OK, await first.Content.ReadAsStringAsync(Ct));
+
+        using (await HoldExclusiveAsync(tenant, type))
+        {
+            var repeat = await client.PostAsync($"/api/content-types/blueprints/{blueprint}", null, Ct)
+                .WaitAsync(TimeSpan.FromSeconds(10), Ct);
+
+            repeat.StatusCode.Should().Be(HttpStatusCode.Conflict, "the type exists, and saying so needs no lock");
+        }
     }
 
     [Fact]
@@ -199,6 +229,36 @@ public class RollupLockOrderTests(IntegrationTestFixture fixture)
         {
             change = Task.Run(() => client.PutAsJsonAsync(
                 $"/api/content-types/{header}/fields/Visits/sensitivity", new { sensitivity = "Sensitive" }, Ct), Ct);
+            await WaitForQueuedAsync(tenant, line);
+
+            (await CanTakeExclusiveAsync(tenant, header)).Should().BeTrue(
+                "the change asked for the source first, so it holds nothing the other save would wait on");
+        }
+
+        var response = await change.WaitAsync(Limit, Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
+    public async Task Changing_the_currency_of_a_money_rollup_asks_for_its_source_before_it_holds_the_type()
+    {
+        var tenant = await _callers.TenantAsync();
+        var header = "x" + Tag();
+        var line = "a" + Tag();
+        await _callers.StoreInTenantAsync(tenant, TypeOf(line,
+            R.Reference("Owner", header),
+            new FieldDefinition { Name = "Amount", DisplayName = "Amount", Type = "money", Currency = "USD" }));
+        var total = R.Rollup("Total", "money", line, "Owner", "sum", "Amount");
+        total.Currency = "USD";
+        await _callers.StoreInTenantAsync(tenant, TypeOf(header, total));
+        var client = await _callers.SuperAdminAsync(tenant);
+
+        Task<HttpResponseMessage> change;
+        using (await HoldExclusiveAsync(tenant, line))
+        {
+            // Same currency and a new scale, which is a change the endpoint does not answer early.
+            change = Task.Run(() => client.PutAsJsonAsync(
+                $"/api/content-types/{header}/fields/Total/currency", new { currency = "USD", scale = 3 }, Ct), Ct);
             await WaitForQueuedAsync(tenant, line);
 
             (await CanTakeExclusiveAsync(tenant, header)).Should().BeTrue(
@@ -228,8 +288,8 @@ public class RollupLockOrderTests(IntegrationTestFixture fixture)
             var clientX = await _callers.SuperAdminAsync(tenant);
 
             using var barrier = new Barrier(2);
-            var first = Task.Run(() => { barrier.SignalAndWait(Limit, Ct); return ApplyAsync(clientA, documentA); }, Ct);
-            var second = Task.Run(() => { barrier.SignalAndWait(Limit, Ct); return ApplyAsync(clientX, documentX); }, Ct);
+            var first = Task.Run(() => { barrier.SignalAndWait(Limit, Ct).Should().BeTrue(); return ApplyAsync(clientA, documentA); }, Ct);
+            var second = Task.Run(() => { barrier.SignalAndWait(Limit, Ct).Should().BeTrue(); return ApplyAsync(clientX, documentX); }, Ct);
             var results = await Task.WhenAll(first, second).WaitAsync(Limit, Ct);
 
             foreach (var (response, body) in results)
@@ -241,6 +301,19 @@ public class RollupLockOrderTests(IntegrationTestFixture fixture)
             results.Should().Contain(r => r.Response.StatusCode == HttpStatusCode.OK,
                 "two saves that do not break each other both go through, or at least one does");
         }
+    }
+
+    /// <summary>A SuperAdmin client of a host that serves one blueprint file holding the content types given.</summary>
+    private async Task<HttpClient> BlueprintClientAsync(string tenant, string blueprint, string contentTypesJson)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"barako-blueprints-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        await File.WriteAllTextAsync(Path.Combine(dir, $"{blueprint}.json"),
+            $$"""{ "name": "{{blueprint}}", "contentTypes": {{contentTypesJson}} }""", Ct);
+
+        // Not disposed, as IntegrationTestFixture.WithSetting says.
+        WebApplicationFactory<Program> host = fixture.WithSetting("Blueprints:Path", dir);
+        return await HostClientAsync(host, tenant);
     }
 
     /// <summary>A SuperAdmin of the tenant talking to the host given.</summary>

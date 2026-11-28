@@ -50,13 +50,24 @@ public class TypeLockPlanTests
     }
 
     [Fact]
-    public void Blank_duplicate_and_overlong_names_are_left_out_or_taken_once()
+    public void Blank_and_duplicate_names_are_left_out_or_taken_once()
     {
         var plan = TypeLockPlan.For(
-            ["A", "a", " ", "", null, new string('x', 300)],
-            ["B", "b", "", null, "   ", new string('y', 300), "A"]);
+            ["A", "a", " ", "", null],
+            ["B", "b", "", null, "   ", "A"]);
 
         plan.Should().Equal(new TypeLock("a", true), new TypeLock("b", false));
+    }
+
+    [Fact]
+    public void A_long_name_is_locked_like_any_other()
+    {
+        var written = new string('x', 300);
+        var source = new string('y', 300);
+
+        var plan = TypeLockPlan.For([written], [source]);
+
+        plan.Should().Equal(new TypeLock(written, true), new TypeLock(source, false));
     }
 
     [Fact]
