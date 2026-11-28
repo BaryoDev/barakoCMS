@@ -54,6 +54,9 @@ internal static class EntryResponse
             ScheduledSensitivityAt = content.ScheduledSensitivityAt is { } s
                 ? new DateTimeOffset(DateTime.SpecifyKind(s, DateTimeKind.Utc))
                 : null,
+            RollupsAt = content.RollupsAt is { } r
+                ? new DateTimeOffset(DateTime.SpecifyKind(r, DateTimeKind.Utc))
+                : null,
             Version = streamState?.Version ?? 0
         };
 

@@ -233,4 +233,12 @@ public record ContentFieldChanged(
     Dictionary<string, object> Data,
     string? SearchText,
     Guid ChangedBy,
-    DateTime OccurredAt) : IContentEvent;
+    DateTime OccurredAt) : IContentEvent
+{
+    /// <summary>
+    /// When the rollup drain recounted the entry's rollup fields, or null for a change that is not
+    /// a recount. Set only by the drain. An init property rather than a constructor parameter, so
+    /// code compiled against an earlier package keeps working and old stored events read as null.
+    /// </summary>
+    public DateTime? RollupsAt { get; init; }
+}

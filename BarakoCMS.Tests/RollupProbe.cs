@@ -36,13 +36,17 @@ internal static class RollupProbe
 
     public static FieldDefinition Rollup(
         string name, string type, string from, string via, string fn, string? field = null,
-        SensitivityLevel level = SensitivityLevel.Public, int? round = null) => new()
+        SensitivityLevel level = SensitivityLevel.Public, int? round = null, string? windowKey = null, string? window = null) => new()
     {
         Name = name,
         DisplayName = name,
         Type = type,
         Sensitivity = level,
-        Rollup = new RollupDefinition { From = from, Via = via, Fn = fn, Field = field, Round = round },
+        Rollup = new RollupDefinition
+        {
+            From = from, Via = via, Fn = fn, Field = field, Round = round,
+            Where = windowKey is null ? null : new Dictionary<string, string> { [windowKey] = window ?? "today" },
+        },
     };
 
     /// <summary>
@@ -89,14 +93,29 @@ internal static class RollupProbe
     public static async Task<Guid> SeedAsync(
         IntegrationTestFixture fixture, string type, Dictionary<string, object> data,
         ContentStatus status = ContentStatus.Published, SensitivityLevel level = SensitivityLevel.Public,
-        string tenant = Tenant)
+        string tenant = Tenant, DateTime? createdAt = null)
     {
         using var scope = ScopeOf(fixture, tenant);
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
         var writer = scope.ServiceProvider.GetRequiredService<barakoCMS.Core.Interfaces.IContentWriter>();
         var id = Guid.NewGuid();
         await writer.CreateAsync(
-            new barakoCMS.Events.ContentCreated(id, type, data, status, Guid.NewGuid(), null, level, DateTime.UtcNow), Ct);
+            new barakoCMS.Events.ContentCreated(id, type, data, status, Guid.NewGuid(), null, level, createdAt ?? DateTime.UtcNow), Ct);
+        await session.SaveChangesAsync(Ct);
+        return id;
+    }
+
+    /// <summary>
+    /// A header stored straight to the database, around the writer, so it has no mark and no drain
+    /// job is queued for it. A header created through the API queues a drain a second later, and
+    /// that drain can run before a test reads the header.
+    /// </summary>
+    public static async Task<Guid> StoreUncountedHeaderAsync(IntegrationTestFixture fixture, Pair pair, string tenant = Tenant)
+    {
+        using var scope = ScopeOf(fixture, tenant);
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        var id = Guid.NewGuid();
+        session.Store(new Content { Id = id, ContentType = pair.Header, Data = new() { ["Name"] = "h" }, Status = ContentStatus.Published });
         await session.SaveChangesAsync(Ct);
         return id;
     }

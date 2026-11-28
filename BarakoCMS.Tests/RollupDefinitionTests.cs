@@ -6,6 +6,7 @@ using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Core.Validation;
+using barakoCMS.Infrastructure.Rollups;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using Probe = BarakoCMS.Tests.TokenFieldProbe;
@@ -92,6 +93,66 @@ public class RollupDefinitionTests
         };
 
         RollupFields.DefinitionErrors([field]).Should().Contain(e => e.Contains(expected));
+    }
+
+    // Unit: the window of a rollup.
+
+    private static FieldDefinition Windowed(string key = "createdAt", string word = "thisMonth") =>
+        R.Rollup("Recent", "int", "line", "Teacher", "count", windowKey: key, window: word);
+
+    [Fact]
+    public void A_window_on_createdat_or_a_field_with_a_known_word_is_accepted_in_any_case()
+    {
+        RollupFields.DefinitionErrors([Windowed(), Windowed("CREATEDAT", "LAST7DAYS"), Windowed("Day", "lastMonth"), Windowed("Day", " today ")])
+            .Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("twokeys", "has a where with 2 keys")]
+    [InlineData("nokeys", "has a where with 0 keys")]
+    [InlineData("badword", "which is not a window")]
+    [InlineData("blankword", "which is not a window")]
+    [InlineData("blankkey", "has a where with no field")]
+    public void A_window_that_is_not_one_key_and_one_word_is_refused(string kind, string expected)
+    {
+        var field = kind switch
+        {
+            "twokeys" => Windowed(),
+            "nokeys" => Windowed(),
+            "badword" => Windowed("Day", "yesterday"),
+            "blankword" => Windowed("Day", ""),
+            _ => Windowed(" ", "today"),
+        };
+        if (kind == "twokeys")
+            field.Rollup!.Where!["Day"] = "today";
+        if (kind == "nokeys")
+            field.Rollup!.Where!.Clear();
+
+        RollupFields.DefinitionErrors([field]).Should().Contain(e => e.Contains(expected));
+    }
+
+    [Fact]
+    public void A_refused_word_names_the_words_that_are_accepted()
+    {
+        var errors = RollupFields.DefinitionErrors([Windowed("Day", "yesterday")]);
+
+        errors.Should().Contain(e => RelativeWords.All(w => e.Contains(w)));
+    }
+
+    private static readonly string[] RelativeWords = ["today", "last7Days", "last30Days", "thisMonth", "lastMonth", "thisYear"];
+
+    [Fact]
+    public void A_where_change_starts_a_recount_and_a_change_of_casing_does_not()
+    {
+        var plain = new[] { R.Rollup("Recent", "int", "line", "Teacher", "count") };
+        var windowed = new[] { Windowed("Day", "last7Days") };
+        var recased = new[] { Windowed("day", "LAST7DAYS") };
+        var other = new[] { Windowed("Day", "last30Days") };
+
+        RollupRecompute.Changed(plain, windowed).Should().Equal("Recent");
+        RollupRecompute.Changed(windowed, plain).Should().Equal("Recent");
+        RollupRecompute.Changed(windowed, recased).Should().BeEmpty();
+        RollupRecompute.Changed(windowed, other).Should().Equal("Recent");
     }
 
     [Fact]
@@ -333,6 +394,132 @@ public class RollupDefinitionTests
         var res = await CreateAsync(R.Client(_fixture, token), header, RollupField("Count", "int", line, "Teacher", "count", sensitivity: "Sensitive"));
 
         res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+    }
+
+    // Integration: the window field a rollup counts by.
+
+    private static object WindowedRollup(string line, string key, string word, string sensitivity = "Public") =>
+        new
+        {
+            name = "Recent", type = "int", sensitivity,
+            rollup = new { from = line, via = "Teacher", fn = "count", where = new Dictionary<string, string> { [key] = word } },
+        };
+
+    [Fact]
+    public async Task Create_saves_a_window_on_createdat_and_on_a_date_field_of_the_line_type()
+    {
+        var (header, line) = await LineAsync(extra: R.Plain("Day", "date"));
+        var (other, otherLine) = await LineAsync(extra: R.Plain("Day", "datetime"));
+        var admin = await AdminAsync();
+
+        var made = await CreateAsync(admin, header, WindowedRollup(line, "createdAt", "thisMonth"));
+        var dated = await CreateAsync(admin, other, WindowedRollup(otherLine, "Day", "last7Days"));
+
+        made.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(made));
+        dated.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(dated));
+        (await StoredFieldAsync(header, "Recent"))!.Rollup!.Where.Should().Equal(new Dictionary<string, string> { ["createdAt"] = "thisMonth" });
+        (await StoredFieldAsync(other, "Recent"))!.Rollup!.Where.Should().ContainKey("Day");
+    }
+
+    [Fact]
+    public async Task Create_refuses_a_window_on_a_field_the_line_type_does_not_declare()
+    {
+        var (header, line) = await LineAsync();
+
+        var res = await CreateAsync(await AdminAsync(), header, WindowedRollup(line, "Day", "today"));
+
+        await AssertRefusedAsync(res, "windows on 'Day', which");
+        await AssertNotStoredAsync(header);
+    }
+
+    [Fact]
+    public async Task Create_refuses_a_window_on_a_field_that_is_not_a_date()
+    {
+        var (header, line) = await LineAsync();
+
+        var res = await CreateAsync(await AdminAsync(), header, WindowedRollup(line, "Hours", "today"));
+
+        await AssertRefusedAsync(res, "A window takes a date or datetime field");
+    }
+
+    [Fact]
+    public async Task Create_refuses_a_rollup_more_widely_readable_than_its_window_field()
+    {
+        var (header, line) = await LineAsync(extra: R.Plain("Day", "date", SensitivityLevel.Sensitive));
+
+        var res = await CreateAsync(await AdminAsync(), header, WindowedRollup(line, "Day", "today"));
+
+        await AssertRefusedAsync(res, "may not be more widely readable than the field that decides");
+    }
+
+    [Fact]
+    public async Task Create_refuses_a_saver_who_may_not_read_the_window_field()
+    {
+        var (header, line) = await LineAsync(extra: R.Plain("Day", "date"));
+        var saver = R.Client(_fixture, await R.ReaderAsync(_fixture, SystemCapabilities.ManageContentTypes, (line, ["Teacher"])));
+
+        var res = await CreateAsync(saver, header, WindowedRollup(line, "Day", "today"));
+
+        await AssertRefusedAsync(res, $"You may not read '{line}.Day'");
+        await AssertNotStoredAsync(header);
+    }
+
+    [Fact]
+    public async Task Create_accepts_a_window_on_createdat_from_a_saver_who_reads_only_the_via_field()
+    {
+        var (header, line) = await LineAsync();
+        var saver = R.Client(_fixture, await R.ReaderAsync(_fixture, SystemCapabilities.ManageContentTypes, (line, ["Teacher"])));
+
+        var res = await CreateAsync(saver, header, WindowedRollup(line, "createdAt", "today"));
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+    }
+
+    private async Task<(string Header, string Line)> WindowedPairAsync()
+    {
+        var (header, line) = await LineAsync(extra: R.Plain("Day", "date"));
+        await StoreAsync(Type(header, R.Plain("Name", "string"), R.Rollup("Recent", "int", line, "Teacher", "count", windowKey: "Day", window: "last7Days")));
+        return (header, line);
+    }
+
+    [Fact]
+    public async Task Removing_renaming_or_retyping_the_window_field_is_a_409_naming_the_rollup()
+    {
+        var (header, line) = await WindowedPairAsync();
+        var admin = await AdminAsync();
+
+        var remove = await admin.PostAsJsonAsync($"/api/content-types/{line}/fields/Day/change", new { remove = true, allowDestructive = true }, Ct);
+        await AssertRefusedAsync(remove, $"This would break the rollup {header}.", HttpStatusCode.Conflict);
+
+        var rename = await admin.PostAsJsonAsync($"/api/content-types/{line}/fields/Day/change", new { newName = "Day2" }, Ct);
+        await AssertRefusedAsync(rename, $"This would break the rollup {header}.", HttpStatusCode.Conflict);
+
+        var retype = await admin.PostAsJsonAsync($"/api/content-types/{line}/fields/Day/change", new { toType = "string", allowDestructive = true }, Ct);
+        await AssertRefusedAsync(retype, $"This would break the rollup {header}.", HttpStatusCode.Conflict);
+
+        (await StoredFieldAsync(line, "Day"))!.Type.Should().Be("date");
+    }
+
+    [Fact]
+    public async Task Raising_the_window_field_above_the_rollups_level_is_a_409()
+    {
+        var (header, line) = await WindowedPairAsync();
+
+        var raised = await (await AdminAsync()).PutAsJsonAsync($"/api/content-types/{line}/fields/Day/sensitivity", new { sensitivity = "Sensitive" }, Ct);
+
+        await AssertRefusedAsync(raised, header, HttpStatusCode.Conflict);
+        (await StoredFieldAsync(line, "Day"))!.Sensitivity.Should().Be(SensitivityLevel.Public);
+    }
+
+    [Fact]
+    public async Task A_window_on_createdat_does_not_hold_back_a_change_to_any_field_of_the_line_type()
+    {
+        var (header, line) = await LineAsync(extra: R.Plain("Day", "date"));
+        await StoreAsync(Type(header, R.Plain("Name", "string"), R.Rollup("Recent", "int", line, "Teacher", "count", windowKey: "createdAt", window: "today")));
+
+        var res = await (await AdminAsync()).PostAsJsonAsync($"/api/content-types/{line}/fields/Day/change", new { remove = true, allowDestructive = true }, Ct);
+
+        res.IsSuccessStatusCode.Should().BeTrue(await BodyAsync(res));
     }
 
     // Integration: a field added to a header that exists.

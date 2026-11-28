@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using barakoCMS.Features.Queries.Run;
 using barakoCMS.Models;
 
 namespace barakoCMS.Infrastructure.Connectors;
@@ -52,7 +53,6 @@ internal static class QueryText
 
     private static readonly string[] Functions = ["sum", "count", "avg", "min", "max"];
     private static readonly string[] Buckets = ["day", "week", "month", "year"];
-    private static readonly string[] Relatives = ["today", "last7Days", "last30Days", "thisMonth", "lastMonth", "thisYear"];
 
     /// <summary>The names every entry has, matched in exactly this spelling.</summary>
     public static readonly string[] SystemFields = ["id", "status", "createdAt", "updatedAt"];
@@ -451,7 +451,7 @@ internal static class QueryText
             var field = Field("a date field", allowDot: false);
             var range = new QueryRange { Field = field };
 
-            if (Peek is { Kind: Kind.Word, Quoted: false } w && Relatives.FirstOrDefault(r => string.Equals(r, w.Text, StringComparison.OrdinalIgnoreCase)) is { } relative)
+            if (Peek is { Kind: Kind.Word, Quoted: false } w && RelativeDateWindow.Words.FirstOrDefault(r => string.Equals(r, w.Text, StringComparison.OrdinalIgnoreCase)) is { } relative)
             {
                 _i++;
                 range.Relative = relative;
@@ -478,7 +478,7 @@ internal static class QueryText
                 }
             }
 
-            if (!any) throw new QueryTextException($"A range is one of {string.Join(", ", Relatives)}, or yyyy-MM-dd to yyyy-MM-dd.");
+            if (!any) throw new QueryTextException($"A range is one of {string.Join(", ", RelativeDateWindow.Words)}, or yyyy-MM-dd to yyyy-MM-dd.");
             definition.Range = range;
         }
 

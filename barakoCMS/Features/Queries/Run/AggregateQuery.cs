@@ -64,7 +64,7 @@ internal sealed partial class AggregateQuery(
 
     private static readonly string[] Functions = ["sum", "count", "avg", "min", "max"];
     private static readonly string[] Buckets = ["day", "week", "month", "year"];
-    private static readonly string[] Relatives = ["today", "last7Days", "last30Days", "thisMonth", "lastMonth", "thisYear"];
+
 
     [GeneratedRegex(@"\A[A-Za-z][A-Za-z0-9_]{0,63}\z")]
     private static partial Regex NamePattern();
@@ -333,8 +333,8 @@ internal sealed partial class AggregateQuery(
         var hasBounds = !string.IsNullOrWhiteSpace(range.From) || !string.IsNullOrWhiteSpace(range.To);
         if (hasRelative && hasBounds)
             return "A range is either relative or has from and to, not both.";
-        if (hasRelative && !Relatives.Contains(relative!, StringComparer.OrdinalIgnoreCase))
-            return $"Unknown range '{range.Relative}'. Supported: {string.Join(", ", Relatives)}.";
+        if (hasRelative && !RelativeDateWindow.IsWord(relative))
+            return $"Unknown range '{range.Relative}'. Supported: {string.Join(", ", RelativeDateWindow.Words)}.";
 
         DateOnly? start = null;
         DateOnly? end = null;
@@ -349,25 +349,14 @@ internal sealed partial class AggregateQuery(
         DateOnly? windowStart = runFrom ?? start;
         DateOnly? windowEnd = runTo ?? end;
 
-        if (hasRelative && runFrom is null && runTo is null)
-        {
-            var monthStart = new DateOnly(today.Year, today.Month, 1);
-            (windowStart, windowEnd) = relative!.ToLowerInvariant() switch
-            {
-                "today" => (today, today),
-                "last7days" => (today.AddDays(-6), today),
-                "last30days" => (today.AddDays(-29), today),
-                "thismonth" => (monthStart, monthStart.AddMonths(1).AddDays(-1)),
-                "lastmonth" => (monthStart.AddMonths(-1), monthStart.AddDays(-1)),
-                _ => (new DateOnly(today.Year, 1, 1), new DateOnly(today.Year, 12, 31)),
-            };
-        }
+        if (hasRelative && runFrom is null && runTo is null && RelativeDateWindow.IsWord(relative))
+            (windowStart, windowEnd) = RelativeDateWindow.Resolve(relative!, today);
 
         if (windowStart is { } a && windowEnd is { } b && a > b)
             return "The range starts after it ends.";
 
-        plan.RangeFrom = windowStart is { } s ? ToUtc(s.ToDateTime(TimeOnly.MinValue), zone) : null;
-        plan.RangeTo = windowEnd is { } e ? ToUtc(e.AddDays(1).ToDateTime(TimeOnly.MinValue), zone) : null;
+        plan.RangeFrom = windowStart is { } s ? RelativeDateWindow.ToUtc(s.ToDateTime(TimeOnly.MinValue), zone) : null;
+        plan.RangeTo = windowEnd is { } e ? RelativeDateWindow.ToUtc(e.AddDays(1).ToDateTime(TimeOnly.MinValue), zone) : null;
         return null;
     }
 
@@ -381,11 +370,6 @@ internal sealed partial class AggregateQuery(
         return true;
     }
 
-    private static DateTime ToUtc(DateTime local, TimeZoneInfo zone)
-    {
-        if (zone.IsInvalidTime(local)) local = local.AddHours(1);
-        return TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), zone);
-    }
 
     private async Task<(TimeZoneInfo? Zone, string? Refusal)> ZoneAsync(CancellationToken ct)
     {

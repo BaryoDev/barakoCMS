@@ -158,6 +158,7 @@ internal static class RollupMarks
         var def = rollup.Field.Rollup!;
         return !Same(ViaText(before.Data, def), ViaText(after.Data, def))
             || (RollupFields.FnOf(def) != "count" && !Same(Raw(before.Data, def.Field), Raw(after.Data, def.Field)))
+            || (RollupFields.WindowFieldOf(def) is { } window && !Same(Raw(before.Data, window), Raw(after.Data, window)))
             || (before.Status == ContentStatus.Archived) != (after.Status == ContentStatus.Archived)
             || (before.Status == ContentStatus.Published) != (after.Status == ContentStatus.Published)
             || before.Sensitivity != after.Sensitivity;
@@ -182,7 +183,7 @@ internal static class RollupMarks
         Guid.TryParse(Raw(data, rollup.Field.Rollup!.Via)?.ToString(), out var id) ? id : null;
 
     /// <summary>Queues one drain for the session's next commit, and no second until that commit has happened.</summary>
-    private static async Task WakeAsync(IDocumentSession session, CancellationToken ct)
+    internal static async Task WakeAsync(IDocumentSession session, CancellationToken ct)
     {
         var wake = Wakes.GetValue(session, s =>
         {

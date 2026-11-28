@@ -374,8 +374,8 @@ jobs:
       # content type with entries, a workflow, a role, a group, a redirect, a connector, a station, an
       # API key and a second tenant with its CDN purge settings. It then upgrades to the working
       # tree's build, reads every record back, runs the stored workflow, rolls back and reads them
-      # back from 5.9.0 again. No migration follows 5.9.0 yet, so db-assert must pass as the database
-      # stands; the first file under a later migrations/ folder joins this plan with no edit here.
+      # back from 5.9.0 again. The files under migrations/6.0.0 are the plan, applied and rolled back
+      # in the order --list prints them; a file under a later folder joins it with no edit here.
       # When 5.9.1 is published, move the digest, the version and the tag together.
       - name: Prove a 5.9.0 database with data can be upgraded and rolled back
         run: bash scripts/upgrade-check.sh

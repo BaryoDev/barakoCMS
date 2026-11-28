@@ -159,7 +159,8 @@ internal sealed record ReadableTypeResponse(
                 sources[rollup.From] = from;
             }
 
-            var named = new[] { rollup.Via, rollup.Field }.Where(n => !string.IsNullOrEmpty(n));
+            var named = new[] { rollup.Via, rollup.Field, barakoCMS.Core.Validation.RollupFields.WindowFieldOf(rollup) }
+                .Where(n => !string.IsNullOrEmpty(n));
             if (from is not null && await ReadsAllAsync(from, named!, sensitivity, user, ct))
             {
                 shown[field.Name] = rollup;

@@ -1,4 +1,5 @@
 using barakoCMS.Core.Interfaces;
+using barakoCMS.Features.Queries.Run;
 using barakoCMS.Infrastructure.Auth;
 using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Infrastructure.Services;
@@ -28,6 +29,30 @@ internal static class RollupFields
     public static readonly IReadOnlyList<string> Functions = ["count", "sum", "min", "max", "avg"];
 
     public const int MaxRound = 10;
+
+    /// <summary>The window key that means the entry's created time, whatever a field of the type is called.</summary>
+    public const string CreatedAt = "createdAt";
+
+    public static bool IsCreatedAt(string? key) => string.Equals(key?.Trim(), CreatedAt, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The window of a rollup: its key and its word in the casing of the word list. Null when the
+    /// rollup has no window, or has one the validator refuses, which never reaches a query.
+    /// </summary>
+    public static (string Key, string Word)? WindowOf(RollupDefinition rollup)
+    {
+        if (rollup.Where is not { Count: 1 } where)
+            return null;
+
+        var entry = where.First();
+        return !Blank(entry.Key) && RelativeDateWindow.Canonical(entry.Value) is { } word
+            ? (entry.Key.Trim(), word)
+            : null;
+    }
+
+    /// <summary>The window field of a rollup, when it is a field of the summarised type and not createdAt.</summary>
+    public static string? WindowFieldOf(RollupDefinition rollup) =>
+        WindowOf(rollup) is { } window && !IsCreatedAt(window.Key) ? window.Key : null;
 
     public static bool IsRollup(FieldDefinition field) => field.Rollup is not null;
 
@@ -110,6 +135,30 @@ internal static class RollupFields
             yield return $"Field '{name}' rolls up with {fn}, so it takes no round.";
         else if (def.Round is { } places && (places < 0 || places > MaxRound))
             yield return $"Field '{name}' rounds to {places} places, and rounding is 0 to {MaxRound}.";
+
+        foreach (var error in WhereErrors(field, def))
+            yield return error;
+    }
+
+    private static IEnumerable<string> WhereErrors(FieldDefinition field, RollupDefinition def)
+    {
+        if (def.Where is null)
+            yield break;
+
+        var name = field.Name;
+        if (def.Where.Count != 1)
+        {
+            yield return $"Field '{name}' has a where with {def.Where.Count} keys, and a rollup window has exactly one: "
+                + $"{CreatedAt}, or a date or datetime field of '{def.From}'.";
+            yield break;
+        }
+
+        var (key, value) = def.Where.First();
+        if (Blank(key))
+            yield return $"Field '{name}' has a where with no field. Name {CreatedAt}, or a date or datetime field of '{def.From}'.";
+
+        if (!RelativeDateWindow.IsWord(value))
+            yield return $"Field '{name}' windows on '{key}' with '{value}', which is not a window. Use {string.Join(", ", RelativeDateWindow.Words)}.";
     }
 
     private static IEnumerable<string> ServerSetErrors(FieldDefinition field)
@@ -268,6 +317,9 @@ internal static class RollupFields
         if (errors.Count == 0 && FnOf(rollup.Rollup!) != "count")
             errors.AddRange(SourceErrors(rollup, from, FnOf(rollup.Rollup!)));
 
+        if (errors.Count == 0)
+            errors.AddRange(WindowErrors(rollup, from));
+
         return errors;
     }
 
@@ -291,6 +343,8 @@ internal static class RollupFields
         var fn = FnOf(def);
         if (fn != "count")
             errors.AddRange(SourceErrors(field, from, fn));
+
+        errors.AddRange(WindowErrors(field, from));
 
         if (errors.Count == 0 && caller is not null)
             errors.AddRange(await CallerErrorsAsync(session, field, from, caller, ct));
@@ -351,6 +405,36 @@ internal static class RollupFields
         return errors;
     }
 
+    /// <summary>
+    /// What is wrong with the date field a rollup windows on. createdAt is the entry's own created
+    /// time and needs none of this. The field's level matters even for a count, because a windowed
+    /// count tells which entries fall in the window.
+    /// </summary>
+    private static List<string> WindowErrors(FieldDefinition field, ContentTypeDefinition from)
+    {
+        if (WindowFieldOf(field.Rollup!) is not { } key)
+            return [];
+
+        if (from.Fields.FieldNamed(key) is not { } window)
+            return [$"Field '{field.Name}' windows on '{key}', which '{from.Name}' does not declare."];
+
+        var errors = new List<string>();
+        if (window.Multiple || Canon(window.Type) is not ("date" or "datetime"))
+            errors.Add($"Field '{field.Name}' windows on '{window.Name}', which is a {window.Type}. A window takes a date or datetime field.");
+
+        if (PublicFields.IsOwnerHidden(window))
+            errors.Add($"Field '{field.Name}' windows on '{window.Name}', which its owner can hide, and a rollup would show which entries fall in the window.");
+
+        if (SensitivityRank.Exposure(field.Sensitivity) > SensitivityRank.Exposure(window.Sensitivity))
+        {
+            errors.Add($"Field '{field.Name}' is {field.Sensitivity} and windows on '{window.Name}', which is {window.Sensitivity}. "
+                + "A rollup may not be more widely readable than the field that decides which entries it counts.");
+        }
+
+        errors.AddRange(ComputedFields.ReadAudienceErrors(field, window).Select(e => e.Replace(" computes from ", " windows on ", StringComparison.Ordinal)));
+        return errors;
+    }
+
     private static IEnumerable<string> TypeMatchErrors(FieldDefinition field, FieldDefinition source, string fn)
     {
         var declared = Canon(field.Type);
@@ -397,6 +481,8 @@ internal static class RollupFields
             read.Add(via.Name);
         if (from.Fields.FieldNamed(field.Rollup.Field) is { } source)
             read.Add(source.Name);
+        if (WindowFieldOf(field.Rollup) is { } windowKey && from.Fields.FieldNamed(windowKey) is { } window)
+            read.Add(window.Name);
 
         foreach (var name in read)
         {

@@ -24,14 +24,14 @@ internal sealed class RollupDrainCommand : ICommand
 /// commits between the drain's read of a header and its own commit makes the drain lose on the
 /// header's version: that is no failure, so it is queued again a second later and nothing is logged.
 /// </remarks>
-internal sealed class RollupDrainCommandHandler(IDocumentStore store, IConfiguration configuration)
+internal sealed class RollupDrainCommandHandler(IDocumentStore store, IConfiguration configuration, TimeProvider time)
     : ICommandHandler<RollupDrainCommand>
 {
     public async Task ExecuteAsync(RollupDrainCommand command, CancellationToken ct)
     {
         try
         {
-            await RollupDrain.RunAsync(store, configuration, command.TenantId, ct);
+            await RollupDrain.RunAsync(store, configuration, command.TenantId, ct, clock: time);
         }
         catch (Exception e) when (ConcurrencyConflict.Is(e))
         {
@@ -65,14 +65,17 @@ internal static class RollupDrain
     /// <param name="tenant">The tenant whose marks are drained. A run takes every mark in it.</param>
     /// <param name="ct">Stops the run between batches.</param>
     /// <param name="listener">Added to each batch's session. Only a test passes one, to act between the drain's read and its commit.</param>
+    /// <param name="clock">What windows count by and what the events are stamped with. Null is the system clock. A test passes a fake one.</param>
     public static async Task RunAsync(
         IDocumentStore store, IConfiguration configuration, string tenant, CancellationToken ct,
-        IDocumentSessionListener? listener = null)
+        IDocumentSessionListener? listener = null, TimeProvider? clock = null)
     {
+        // One clock for the whole job, so a job that crosses midnight counts every header by one day.
+        var rollupClock = new RollupClock(clock);
         var last = new Outcome(0, false, false);
         for (var batch = 0; batch < MaxBatches; batch++)
         {
-            last = await BatchAsync(store, configuration, tenant, listener, ct);
+            last = await BatchAsync(store, configuration, tenant, listener, rollupClock, ct);
             if (last.Done == 0)
             {
                 break;
@@ -99,7 +102,8 @@ internal static class RollupDrain
     }
 
     private static async Task<Outcome> BatchAsync(
-        IDocumentStore store, IConfiguration configuration, string tenant, IDocumentSessionListener? listener, CancellationToken ct)
+        IDocumentStore store, IConfiguration configuration, string tenant, IDocumentSessionListener? listener, RollupClock clock,
+        CancellationToken ct)
     {
         await using var session = store.LightweightSession(tenant);
         if (listener is not null)
@@ -135,7 +139,7 @@ internal static class RollupDrain
         };
         foreach (var group in taken.GroupBy(m => m.HeaderType.ToLowerInvariant()).OrderBy(g => g.Min(m => m.Id)))
         {
-            await DrainTypeAsync(session, writer, definitions, group.ToList(), ct);
+            await DrainTypeAsync(session, writer, definitions, group.ToList(), clock, ct);
         }
 
         foreach (var mark in taken.OrderBy(m => m.Id))
@@ -159,7 +163,7 @@ internal static class RollupDrain
 
     private static async Task DrainTypeAsync(
         IDocumentSession session, ContentWriter writer, IReadOnlyList<ContentTypeDefinition> definitions,
-        List<RollupMark> marks, CancellationToken ct)
+        List<RollupMark> marks, RollupClock clock, CancellationToken ct)
     {
         var ids = marks.Select(m => m.Id).OrderBy(i => i).ToList();
         var header = definitions.FirstOrDefault(d => ContentTypeName.Same(d.Name, marks[0].HeaderType));
@@ -179,7 +183,7 @@ internal static class RollupDrain
             var source = SourceOf(definitions, rollup);
             if (source.Ok)
             {
-                values[rollup] = await RollupAggregate.ValuesAsync(session, header.Name, rollup, source.Field, ids, ct);
+                values[rollup] = await RollupAggregate.ValuesAsync(session, header.Name, rollup, source.Field, ids, ct, clock: clock);
             }
         }
 
@@ -192,7 +196,7 @@ internal static class RollupDrain
                 continue;
             }
 
-            foreach (var @event in Events(content, header, rollups, values))
+            foreach (var @event in Events(content, header, rollups, values, clock.Now.UtcDateTime))
             {
                 await writer.AppendAsync(content, @event, ct);
             }
@@ -224,7 +228,7 @@ internal static class RollupDrain
     /// </summary>
     private static IEnumerable<ContentFieldChanged> Events(
         Content content, ContentTypeDefinition header, List<FieldDefinition> rollups,
-        Dictionary<FieldDefinition, Dictionary<Guid, object?>> values)
+        Dictionary<FieldDefinition, Dictionary<Guid, object?>> values, DateTime at)
     {
         var moved = rollups
             .Where(r => values.TryGetValue(r, out var v) && v.TryGetValue(content.Id, out var value) && Differs(content.Data, r.Name, value))
@@ -252,7 +256,10 @@ internal static class RollupDrain
 
             var text = FieldChanges.SearchText(preview, header, data);
             yield return new ContentFieldChanged(
-                content.Id, moved[i].Name, new Dictionary<string, object>(data), text, Guid.Empty, DateTime.UtcNow);
+                content.Id, moved[i].Name, new Dictionary<string, object>(data), text, Guid.Empty, at)
+            {
+                RollupsAt = at,
+            };
         }
     }
 

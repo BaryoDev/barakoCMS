@@ -15,7 +15,20 @@ internal static class RollupRecompute
     /// <summary>The rollup fields of <paramref name="after"/> that are new or count differently from the stored one.</summary>
     internal static List<string> Changed(IEnumerable<FieldDefinition>? before, IEnumerable<FieldDefinition> after)
     {
-        string Key(FieldDefinition f) => JsonSerializer.Serialize(new { f.Rollup, f.Sensitivity });
+        // The window word and key are matched without case, so a change of casing counts nothing differently.
+        string Key(FieldDefinition f) => JsonSerializer.Serialize(new
+        {
+            Rollup = f.Rollup is null ? null : new
+            {
+                f.Rollup.From,
+                f.Rollup.Via,
+                f.Rollup.Fn,
+                f.Rollup.Field,
+                f.Rollup.Round,
+                Where = f.Rollup.Where?.Select(w => $"{w.Key.Trim().ToLowerInvariant()}={w.Value.Trim().ToLowerInvariant()}").Order().ToList(),
+            },
+            f.Sensitivity,
+        });
 
         var held = (before ?? []).Where(f => f is not null).ToList();
         return after
@@ -33,7 +46,7 @@ internal static class RollupRecompute
     /// </summary>
     internal static async Task<Dictionary<Guid, Dictionary<string, object?>>> ValuesAsync(
         IDocumentSession session, ContentTypeDefinition header, IReadOnlyCollection<Guid> ids, CancellationToken ct,
-        string? only = null, SensitivityLevel? level = null)
+        string? only = null, SensitivityLevel? level = null, RollupClock? clock = null)
     {
         var values = ids.ToDictionary(id => id, _ => new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase));
         var rollups = header.Fields
@@ -53,7 +66,7 @@ internal static class RollupRecompute
                 continue;
             }
 
-            foreach (var (id, value) in await RollupAggregate.ValuesAsync(session, header.Name, rollup, source.Field, ids, ct, level))
+            foreach (var (id, value) in await RollupAggregate.ValuesAsync(session, header.Name, rollup, source.Field, ids, ct, level, clock: clock))
             {
                 values[id][rollup.Name] = value;
             }

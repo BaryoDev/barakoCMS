@@ -634,4 +634,7 @@ public class RollupDefinition
 
     /// <summary>Decimal places a sum or an average is rounded to, 0 to 10. Null keeps a sum exact and rounds an average to 2.</summary>
     public int? Round { get; set; }
+
+    /// <summary>Counts only the entries whose date falls in a window: one key, createdAt or a date or datetime field of From, and one word, today, last7Days, last30Days, thisMonth, lastMonth or thisYear, in the site's time zone. Null counts every entry.</summary>
+    public Dictionary<string, string>? Where { get; set; }
 }
