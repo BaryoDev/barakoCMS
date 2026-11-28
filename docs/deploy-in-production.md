@@ -929,8 +929,10 @@ Postgres and its volume are not touched.
   trusted, and Caddy's new address is trusted on top. To close the gap this release is about, remove
   it from `.env` unless it names something other than Caddy that you do need.
 
-The first `up -d` after `PROXY_IP_RANGE` was added recreates the `proxy` network once to add the
-range. That is a short restart of `caddy` and `app`, and no data is touched.
+The first `up -d` after upgrading to the release that adds `PROXY_IP_RANGE` recreates the `proxy`
+network once to add the range. That is a short restart of `caddy` and `app`, and no data is touched.
+A container you attached to `proxy` by hand stops the old network being removed, so disconnect it
+first with `docker network disconnect`.
 
 ## Backups
 
