@@ -162,6 +162,96 @@ public class ConfigModuleSectionsTests
         body.GetProperty("contents").EnumerateObject().Should().BeEmpty();
     }
 
+    /// <summary>
+    /// A target tenant holding the type, and a document of the source's two entries alone, so what a
+    /// caller needs for the <c>contents</c> section is not mixed up with what the types need.
+    /// </summary>
+    private async Task<(string Target, string Type, object Document)> EntriesOnlyDocumentAsync()
+    {
+        var (source, target, type) = await TwoTenantsWithTwoEntriesAsync();
+        var (_, exported) = await ExportAsync(await _callers.SuperAdminAsync(source), "contents");
+        await _callers.StoreInTenantAsync(target, Type(type, ("Title", "string")));
+        return (target, type, new { version = 1, contents = exported.GetProperty("contents") });
+    }
+
+    private async Task<HttpClient> CallerWithAsync(string tenant, params string[] capabilities) =>
+        await _callers.ClientAsync(tenant, [await _callers.RoleAsync(capabilities)]);
+
+    [Fact]
+    public async Task A_role_with_import_content_and_no_export_content_plans_and_applies_entries()
+    {
+        var (target, type, document) = await EntriesOnlyDocumentAsync();
+        var importer = await CallerWithAsync(target, SystemCapabilities.ManageConfig, BarakoCMS.Portability.PortabilityCapabilities.ImportContent);
+
+        var (planned, plan) = await PlanAsync(importer, document);
+
+        planned.StatusCode.Should().Be(HttpStatusCode.OK, plan.ToString());
+        plan.TryGetProperty("refusals", out var refusals).Should().BeTrue();
+        refusals.GetArrayLength().Should().Be(0, plan.ToString());
+        Changes(plan).Count(c => c.StartsWith("contents/", StringComparison.Ordinal)).Should().Be(2, plan.ToString());
+
+        var (applied, result) = await ApplyAsync(importer, document);
+
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, result.ToString());
+        var titles = await _callers.InTenantAsync(target, s => s.Query<Content>().Where(c => c.ContentType == type).ToListAsync(Ct));
+        titles!.Select(c => c.Data["Title"]?.ToString()).Should().BeEquivalentTo("Ana", "Ben");
+    }
+
+    [Fact]
+    public async Task A_role_with_import_content_and_no_export_content_cannot_export_entries()
+    {
+        var (target, _, _) = await EntriesOnlyDocumentAsync();
+        var importer = await CallerWithAsync(target, SystemCapabilities.ManageConfig, BarakoCMS.Portability.PortabilityCapabilities.ImportContent);
+
+        var (response, body) = await ExportAsync(importer, "contents");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        body.GetProperty("withheld").EnumerateArray().Select(e => e.GetString()).Should().Contain("contents");
+        body.TryGetProperty("contents", out _).Should().BeFalse("a section the caller may not read is withheld, not exported");
+    }
+
+    [Fact]
+    public async Task A_role_with_export_content_and_no_import_content_plans_entries_and_is_refused_the_apply()
+    {
+        var (target, type, document) = await EntriesOnlyDocumentAsync();
+        var reader = await CallerWithAsync(target, SystemCapabilities.ManageConfig, BarakoCMS.Portability.PortabilityCapabilities.ExportContent);
+
+        var (planned, plan) = await PlanAsync(reader, document);
+        planned.StatusCode.Should().Be(HttpStatusCode.OK, plan.ToString());
+
+        var (applied, result) = await ApplyAsync(reader, document);
+
+        applied.StatusCode.Should().Be(HttpStatusCode.Forbidden, result.ToString());
+        result.ToString().Should().Contain(BarakoCMS.Portability.PortabilityCapabilities.ImportContent);
+        (await _callers.InTenantAsync(target, s => s.Query<Content>().Where(c => c.ContentType == type).CountAsync(Ct))).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_role_with_manage_config_only_is_refused_a_plan_of_entries_and_the_message_names_both_capabilities()
+    {
+        var (target, _, document) = await EntriesOnlyDocumentAsync();
+        var bare = await CallerWithAsync(target, SystemCapabilities.ManageConfig);
+
+        var (planned, plan) = await PlanAsync(bare, document);
+
+        planned.StatusCode.Should().Be(HttpStatusCode.Forbidden, plan.ToString());
+        plan.ToString().Should().Contain(
+            "The 'contents' section needs the 'export_content' or 'import_content' capability, which this caller is missing.");
+    }
+
+    [Fact]
+    public async Task A_section_that_shows_stored_values_still_takes_its_read_capability_to_apply()
+    {
+        var tenant = await _callers.TenantAsync();
+        var writer = await CallerWithAsync(tenant, SystemCapabilities.ManageConfig, SystemCapabilities.ManageConnectors);
+
+        var (applied, result) = await ApplyAsync(writer, new { version = 1, connectors = new Dictionary<string, object>() });
+
+        applied.StatusCode.Should().Be(HttpStatusCode.Forbidden, result.ToString());
+        result.ToString().Should().Contain(SystemCapabilities.ViewConnectors,
+            "a connectors plan shows what is stored, so the section keeps both capabilities");
+    }
+
     [Fact]
     public async Task Entries_are_exported_only_when_the_contents_section_is_named()
     {

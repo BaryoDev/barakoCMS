@@ -462,6 +462,9 @@ public class PublicSurfaceTests
             "IConfigProvider.String WriteCapability { get; }",
             "IConfigProvider.Boolean ExportsByDefault { get; }",
             "IConfigProvider.Boolean AppliesAsHost { get; }",
+            // Added so an import-only role keeps working: a section whose plan shows nothing stored
+            // is planned and applied on its write capability alone. Default true, so no provider changes.
+            "IConfigProvider.Boolean PlanShowsStoredValues { get; }",
             "IConfigProvider.ExportAsync(ConfigCaller caller, CancellationToken cancellationToken): Task<ConfigSectionExport>",
             "IConfigProvider.PlanAsync(IReadOnlyDictionary<String, JsonElement> desired, ConfigCaller caller, CancellationToken cancellationToken): Task<ConfigSectionPlan>",
             "IConfigProvider.ApplyAsync(ConfigSectionPlan plan, ConfigCaller caller, CancellationToken cancellationToken): Task<IReadOnlyList<String>>",
