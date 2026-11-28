@@ -709,7 +709,39 @@ public class RollupDefinitionTests
         (await Probe.StoredTypeAsync(_fixture, line)).BranchScoped.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task A_bundle_import_whose_header_has_a_text_line_amount_is_refused_on_that_entry_and_stores_nothing()
+    {
+        var (header, line) = await LineAsync(SensitivityLevel.Public, SensitivityLevel.Public, R.Plain("Memo", "string"));
+        var bundle = new
+        {
+            contentTypes = new[] { HeaderWithLines(header, line, "decimal", "Memo") },
+            contents = Array.Empty<object>(),
+        };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync("/api/portability/import", bundle, Ct);
+
+        await AssertRefusedAsync(res, $"Content type '{header}': '{LinesTotal}' on '{header}' and 'Memo' on '{line}' must both be number fields.");
+        await AssertNotStoredAsync(header);
+    }
+
     // Integration: config as code.
+
+    private const string LinesTotal = "Total";
+
+    /// <summary>A header whose lines are <paramref name="line"/>, summed into Total, with the line amount in <paramref name="amount"/>.</summary>
+    private static object HeaderWithLines(string header, string line, string totalType, string amount) => new
+    {
+        name = header, displayName = header,
+        lines = new { contentType = line, parentField = "Teacher", totalField = LinesTotal, lineAmountField = amount },
+        fields = new object[] { new { name = "Name", type = "string" }, new { name = LinesTotal, type = totalType } },
+    };
+
+    private static object ConfigOfTypes(params (string Key, object Type)[] types) => new
+    {
+        document = new { version = 1, contentTypes = types.ToDictionary(t => t.Key, t => t.Type) },
+        allowDestructive = true,
+    };
 
     private static object ConfigOf(string header, params object[] fields) => new
     {
@@ -748,6 +780,40 @@ public class RollupDefinitionTests
 
         res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
         (await StoredFieldAsync(header, "Count"))!.Rollup!.Fn.Should().Be("count");
+    }
+
+    [Fact]
+    public async Task A_config_apply_whose_header_has_a_text_lines_total_is_refused_and_stores_nothing()
+    {
+        var (header, line) = await LineAsync();
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((header, HeaderWithLines(header, line, "string", "Hours"))), Ct);
+
+        await AssertRefusedAsync(res, $"'{LinesTotal}' on '{header}' and 'Hours' on '{line}' must both be number fields.");
+        await AssertNotStoredAsync(header);
+    }
+
+    [Fact]
+    public async Task A_config_apply_that_brings_a_header_and_its_line_type_together_is_not_refused_for_the_lines()
+    {
+        var (header, line) = Names();
+        var lineType = new
+        {
+            name = line, displayName = line,
+            fields = new object[]
+            {
+                new { name = "Teacher", type = "reference", referenceType = header },
+                new { name = "Hours", type = "decimal" },
+            },
+        };
+
+        var res = await (await AdminAsync()).PostAsJsonAsync(
+            "/api/config/apply", ConfigOfTypes((header, HeaderWithLines(header, line, "decimal", "Hours")), (line, lineType)), Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(res));
+        (await Probe.StoredTypeAsync(_fixture, header)).Name.Should().Be(header);
+        (await Probe.StoredTypeAsync(_fixture, line)).Name.Should().Be(line);
     }
 
     [Fact]
