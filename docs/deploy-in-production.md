@@ -239,6 +239,12 @@ A tenant's domains are data (`PUT /api/tenants/{handle}` with `domains`, see
 [delivering-a-client-project.md](delivering-a-client-project.md#custom-domains)). Two opt-in pieces
 let a domain added there work in a browser without touching `FRONTEND_ORIGINS` or a `Caddyfile`.
 
+A new domain is pending, and a pending domain routes nowhere: CORS, TLS and sign in all treat it as an
+unknown host. Point the domain's DNS at the deployment, then call
+`POST /api/tenants/{handle}/domains/{domain}/verify` until it answers `Verified`. The records it checks
+are in [multi-tenancy.md](multi-tenancy.md#verifying-a-domain). Until it passes, nothing below applies
+to the domain.
+
 **CORS.** Set `CORS__AllowTenantDomains=true` on the `app` service. The API then also allows an
 origin that is exactly `https://` plus a domain an active tenant holds, or its `www.` form. These
 are refused: `http`, any port, a path, user info, a wildcard, an IP literal, `null`, and any other
@@ -290,7 +296,9 @@ https:// {
 ```
 
 `TenantDomainCorsTests`, `TenantDomainCorsPolicyProviderTests`, `TenantDomainLookupTests` and
-`TlsAskTests` cover both.
+`TlsAskTests` cover both. `SecondTenantOwnDomainTests` walks the whole path: a second tenant with its
+own domain, the verify step, a sign in on that domain with no `X-Tenant`, and only that tenant's
+entries.
 
 ## Putting a shared cache or CDN in front of it
 
