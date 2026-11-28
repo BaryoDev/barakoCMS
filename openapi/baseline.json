@@ -18648,7 +18648,7 @@
             }
           },
           {
-            "description": "The content types to narrow contentTypes and contents to, comma separated, matched without regard to case. Left out, every type. A name that matches none is ignored.",
+            "description": "The content types to narrow contentTypes and contents to, comma separated, matched without regard to case. Left out, every type. When given it names at least one. A name that matches none is ignored.",
             "in": "query",
             "name": "types",
             "schema": {

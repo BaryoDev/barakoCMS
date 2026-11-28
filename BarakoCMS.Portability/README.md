@@ -20,7 +20,10 @@ is still accepted by plan and apply.
 `GET /api/config/export?sections=contentTypes,contents&types=article,author`. It is a comma list,
 matched without regard to case. It narrows `contentTypes` and `contents` only, so another section
 in the same request is exported whole. A name that matches no type is ignored, and with no `types`
-every type is exported. For entries the filter runs in the database, before the limit below.
+every type is exported. A `types` that is given must name at least one type: `?types=,` and
+`?types=%20` answer 400 rather than export every type. It also takes at most 100 names, each at most
+200 characters long, and answers 400 past either. For entries the filter runs in the database,
+before the limit below.
 
 ## Enable it
 

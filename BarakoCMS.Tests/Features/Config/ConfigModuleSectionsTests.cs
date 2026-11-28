@@ -190,6 +190,59 @@ public class ConfigModuleSectionsTests
         body.GetProperty("contents").EnumerateObject().Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData(",")]
+    [InlineData("%20")]
+    [InlineData(",%20,")]
+    public async Task A_types_filter_that_names_no_type_is_refused_not_read_as_every_type(string types)
+    {
+        var tenant = await _callers.TenantAsync();
+        await _callers.StoreInTenantAsync(tenant, Type(TestNames.Compact("some"), ("Title", "string")));
+        var client = await _callers.SuperAdminAsync(tenant);
+
+        var (response, body) = await ExportAsync(client, "contentTypes,contents", types);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body.ToString());
+        body.ToString().Should().Contain("types must name at least one content type");
+    }
+
+    [Fact]
+    public async Task A_types_filter_past_100_names_or_with_a_name_past_200_characters_is_refused()
+    {
+        var tenant = await _callers.TenantAsync();
+        var kept = TestNames.Compact("kept");
+        await _callers.StoreInTenantAsync(tenant, Type(kept, ("Title", "string")));
+        var client = await _callers.SuperAdminAsync(tenant);
+        string Names(int count) => string.Join(',', Enumerable.Range(1, count).Select(i => $"t{i}").Append(kept));
+
+        (await ExportAsync(client, "contentTypes", Names(99))).Response.StatusCode.Should().Be(
+            HttpStatusCode.OK, "the control: 100 names is the most one export takes");
+        var (many, manyBody) = await ExportAsync(client, "contentTypes", Names(100));
+        many.StatusCode.Should().Be(HttpStatusCode.BadRequest, manyBody.ToString());
+        manyBody.ToString().Should().Contain("at most 100");
+
+        (await ExportAsync(client, "contentTypes", new string('a', 200))).Response.StatusCode.Should().Be(
+            HttpStatusCode.OK, "the control: 200 characters is the longest name one export takes");
+        var (long201, longBody) = await ExportAsync(client, "contentTypes", new string('a', 201));
+        long201.StatusCode.Should().Be(HttpStatusCode.BadRequest, longBody.ToString());
+        longBody.ToString().Should().Contain("longer than 200 characters");
+    }
+
+    [Fact]
+    public async Task An_export_without_types_still_names_every_type()
+    {
+        var tenant = await _callers.TenantAsync();
+        var one = TestNames.Compact("one");
+        var two = TestNames.Compact("two");
+        await _callers.StoreInTenantAsync(tenant, Type(one, ("Title", "string")), Type(two, ("Title", "string")));
+        var client = await _callers.SuperAdminAsync(tenant);
+
+        var (response, body) = await ExportAsync(client, "contentTypes");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        body.GetProperty("contentTypes").EnumerateObject().Select(p => p.Name).Should().Contain([one, two]);
+    }
+
     /// <summary>
     /// A target tenant holding the type, and a document of the source's two entries alone, so what a
     /// caller needs for the <c>contents</c> section is not mixed up with what the types need.
