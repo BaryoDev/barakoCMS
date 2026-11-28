@@ -157,7 +157,8 @@ public class ContentTypeBlueprintTests
         var list = await ListAsync(client);
 
         var builtIn = list.Items.Where(i => i.BuiltIn).ToList();
-        builtIn.Select(i => i.Name).Should().BeEquivalentTo(["blog", "devsite", "docs", "email", "events", "portfolio", "site"]);
+        builtIn.Select(i => i.Name).Should().BeEquivalentTo(
+            ["attendance", "blog", "devsite", "docs", "email", "events", "inventory", "portfolio", "site"]);
         builtIn.Should().OnlyContain(i => i.Errors.Count == 0,
             "a shipped blueprint that fails its own validation is a bug, and this is where it shows");
         builtIn.Should().OnlyContain(i => i.Description.Length > 0);
@@ -169,6 +170,9 @@ public class ContentTypeBlueprintTests
         builtIn.Single(i => i.Name == "portfolio").ContentTypes.Should().Equal("project", "client");
         builtIn.Single(i => i.Name == "docs").ContentTypes.Should().Equal("article", "section");
         builtIn.Single(i => i.Name == "site").ContentTypes.Should().Equal("site");
+        builtIn.Single(i => i.Name == "inventory").ContentTypes.Should().Equal(
+            "product", "stock-move", "sales-order", "sales-order-line");
+        builtIn.Single(i => i.Name == "attendance").ContentTypes.Should().Equal("employee", "time-entry");
         builtIn.Single(i => i.Name == "email").ContentTypes.Should().Equal("email-template", "email-layout");
         builtIn.Single(i => i.Name == "devsite").ContentTypes.Should().Equal(
             "page", "post", "category", "author", "doc", "package", "release", "contributor", "up-for-grabs", "milestone");
