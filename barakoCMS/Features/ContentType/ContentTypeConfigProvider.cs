@@ -109,20 +109,7 @@ internal sealed class ContentTypeConfigProvider(
 
             if (match is null)
             {
-                // The create endpoint, the blueprint apply and the removed import all refused a tenant
-                // type named like one its account owns. A document is held to the same rule.
-                var name = barakoCMS.Core.ContentTypeName.Normalize(key);
-                if (await barakoCMS.Infrastructure.Services.AccountContentTypes.ClashMessageAsync(session, name, ct) is { } owned)
-                {
-                    errors.Add($"Content type '{name}': {owned}");
-                    continue;
-                }
-
-                changes.Add(new ConfigChange
-                {
-                    Key = key, Kind = ConfigChangeKind.Create, Desired = document,
-                    Summary = $"create content type '{barakoCMS.Core.ContentTypeName.Normalize(key)}' with {type.Fields.Count} fields",
-                });
+                if (await CreateChangeAsync(key, document, type, errors, ct) is { } create) changes.Add(create);
                 continue;
             }
 
@@ -145,6 +132,28 @@ internal sealed class ContentTypeConfigProvider(
         errors.AddRange(await RollupErrorsAsync(resolvedTypes, caller, ct));
         var refusals = await DisclosureRulesAsync(disclosures, caller, errors, ct);
         return new ConfigSectionPlan { Section = Section, Changes = changes, Errors = errors, Refusals = refusals, Conflicts = conflicts };
+    }
+
+    /// <summary>
+    /// The change that creates a type, or null with an error when the tenant's account owns a type of
+    /// that name. The create endpoint and the blueprint apply refuse that name too, so a document is
+    /// held to the same rule.
+    /// </summary>
+    private async Task<ConfigChange?> CreateChangeAsync(
+        string key, JsonElement document, ContentTypeDefinition type, List<string> errors, CancellationToken ct)
+    {
+        var name = barakoCMS.Core.ContentTypeName.Normalize(key);
+        if (await barakoCMS.Infrastructure.Services.AccountContentTypes.ClashMessageAsync(session, name, ct) is { } owned)
+        {
+            errors.Add($"Content type '{name}': {owned}");
+            return null;
+        }
+
+        return new ConfigChange
+        {
+            Key = key, Kind = ConfigChangeKind.Create, Desired = document,
+            Summary = $"create content type '{name}' with {type.Fields.Count} fields",
+        };
     }
 
     private static IEnumerable<string> DuplicateNames(IEnumerable<string> keys) =>
