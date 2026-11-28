@@ -16,7 +16,8 @@ internal sealed class Request
 /// <remarks>
 /// For a change whose job stopped, for example after the queue gave up on it. The job starts from
 /// the step and entry the change last recorded, so nothing done is done twice. A completed or an
-/// abandoned change is a 409: there is nothing left to run. So is a change whose job is still queued
+/// abandoned change is a 409: there is nothing left to run. So is one that completed with skips,
+/// which is retried instead. So is a change whose job is still queued
 /// or running, which would otherwise run beside the new one.
 /// </remarks>
 internal sealed class Endpoint(IDocumentSession session) : Endpoint<Request, FieldChangeResponse>
@@ -38,6 +39,12 @@ internal sealed class Endpoint(IDocumentSession session) : Endpoint<Request, Fie
         if (change.State == FieldChangeState.Completed)
         {
             AddError("This change has completed. There is nothing left to run.");
+            ThrowIfAnyErrors(StatusCodes.Status409Conflict);
+        }
+
+        if (change.State == FieldChangeState.CompletedWithSkips)
+        {
+            AddError("This change completed with skips. Retry the skipped entries instead.");
             ThrowIfAnyErrors(StatusCodes.Status409Conflict);
         }
 

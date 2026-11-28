@@ -72,6 +72,7 @@ internal sealed class Endpoint(
     /// <summary>Why the change cannot be abandoned as it stands, or null when it can.</summary>
     private static string? Refusal(FieldChange change) =>
         change.State == FieldChangeState.Completed ? "This change has completed. There is nothing left to abandon."
+        : change.State == FieldChangeState.CompletedWithSkips ? "This change completed with skips. There is nothing left to abandon."
         : change.State == FieldChangeState.Abandoned ? "This change was already abandoned."
         : change.Kind != FieldChangeKind.Recompute ? "Only a recompute can be abandoned. Resume this change instead."
         : null;
