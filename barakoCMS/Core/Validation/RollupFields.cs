@@ -223,8 +223,8 @@ internal static class RollupFields
             ?? stored.FirstOrDefault(t => ContentTypeName.Same(t.Name, name));
 
         var errors = new List<string>();
-        var child = definition.Lines is { } lines ? Resolve(lines.ContentType) : null;
-        errors.AddRange(LinesErrors(definition, child, definition.Lines));
+        if (definition.Lines is { } lines)
+            errors.AddRange(LinesRules.Errors(definition, Resolve(lines.ContentType), lines));
         errors.AddRange(HeadersNamingLineAmount(definition, stored, pendingTypes));
 
         var owned = rollups.Count > 0 && await AccountContentTypes.FindAsync(session, definition.Name, ct) is not null;
