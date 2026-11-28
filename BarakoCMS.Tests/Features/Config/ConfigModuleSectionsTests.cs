@@ -197,6 +197,34 @@ public class ConfigModuleSectionsTests
     }
 
     [Fact]
+    public async Task A_contents_export_narrowed_to_a_type_with_no_definition_in_the_tenant_includes_its_entries_and_only_those()
+    {
+        var tenant = await _callers.TenantAsync();
+
+        // Entries whose type has no ContentTypeDefinition in this tenant, as with an account-owned
+        // type or an entry imported for a type the tenant does not hold. The mixed case checks that
+        // the name asked for is lowered in the database too.
+        var orphan = "Orphan" + TestNames.Compact("x");
+        var other = "Other" + TestNames.Compact("y");
+        await _callers.StoreInTenantAsync(tenant,
+            new Content { Id = Guid.NewGuid(), ContentType = orphan, Status = ContentStatus.Published, Data = new() { ["Title"] = "kept" } },
+            new Content { Id = Guid.NewGuid(), ContentType = other, Status = ContentStatus.Published, Data = new() { ["Title"] = "left out" } });
+        var client = await _callers.SuperAdminAsync(tenant);
+
+        var (response, body) = await ExportAsync(client, "contents", Uri.EscapeDataString(orphan));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
+        body.GetProperty("contents").EnumerateObject().Select(p => p.Value.GetProperty("contentType").GetString())
+            .Should().Equal([orphan], "the entry is exported though no definition of its type is stored");
+
+        var (otherResponse, otherBody) = await ExportAsync(client, "contents", Uri.EscapeDataString(other));
+
+        otherResponse.StatusCode.Should().Be(HttpStatusCode.OK, otherBody.ToString());
+        otherBody.GetProperty("contents").EnumerateObject().Select(p => p.Value.GetProperty("contentType").GetString())
+            .Should().Equal([other], "an export narrowed to another type holds only that type's entry");
+    }
+
+    [Fact]
     public async Task Types_that_match_nothing_export_no_types_and_no_entries()
     {
         var tenant = await _callers.TenantAsync();

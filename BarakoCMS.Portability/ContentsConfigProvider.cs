@@ -77,8 +77,10 @@ internal sealed class ContentsConfigProvider(
             types = types.Where(t => wanted.Contains(t.Name.ToLowerInvariant())).ToList();
 
             // In the database, before the limit, so a narrowed export reads only those types' entries.
-            // The stored names go as they are written, so the entries match the types kept above.
-            var names = types.Select(t => t.Name).ToArray();
+            // The stored names go as they are written, so a name .NET and Postgres lower differently
+            // still matches. The requested names go too, because an entry can name a type this tenant
+            // holds no definition for, and it is exported when its type is asked for.
+            var names = types.Select(t => t.Name).Concat(wanted).Distinct(StringComparer.Ordinal).ToArray();
             query = query.Where(c => c.MatchesSql(ContentTypeInSql, new object[] { names }));
         }
 
