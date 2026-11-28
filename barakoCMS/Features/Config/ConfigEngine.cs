@@ -175,13 +175,15 @@ internal sealed class ConfigEngine(
 
     /// <summary>
     /// A write the commit found changed underneath it: an entry appended to since it was read, a
-    /// document saved since it was loaded, or a name taken in the meantime.
+    /// document saved since it was loaded, a name taken in the meantime, or a wait on another apply's
+    /// type locks that Postgres ended as a deadlock.
     /// </summary>
-    private static bool IsCommitConflict(Exception ex) =>
+    internal static bool IsCommitConflict(Exception ex) =>
         ex is StaleContentException
         || ConcurrencyConflict.Is(ex)
         || ex.GetType().Name.Contains("UnexpectedMaxEventId", StringComparison.Ordinal)
-        || IsUniqueViolation(ex);
+        || HasSqlState(ex, UniqueViolation)
+        || HasSqlState(ex, DeadlockDetected);
 
     /// <summary>An apply that wrote nothing is recorded too, with why, the way a refused route call shows in the log.</summary>
     private async Task RecordRefusalAsync(ConfigCaller caller, ConfigRunResult result, CancellationToken ct)
@@ -453,11 +455,17 @@ internal sealed class ConfigEngine(
     private static string? Username(ConfigCaller caller) =>
         caller.IsSystem ? "system" : caller.Principal!.FindFirst("Username")?.Value;
 
-    private static bool IsUniqueViolation(Exception? ex)
+    private const string UniqueViolation = "23505";
+
+    private const string DeadlockDetected = "40P01";
+
+    private static bool IsUniqueViolation(Exception? ex) => HasSqlState(ex, UniqueViolation);
+
+    private static bool HasSqlState(Exception? ex, string sqlState)
     {
         for (var current = ex; current is not null; current = current.InnerException)
         {
-            if (current is Npgsql.PostgresException { SqlState: "23505" })
+            if (current is Npgsql.PostgresException postgres && postgres.SqlState == sqlState)
             {
                 return true;
             }
