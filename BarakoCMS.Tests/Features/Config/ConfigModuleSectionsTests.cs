@@ -99,6 +99,28 @@ public class ConfigModuleSectionsTests
     }
 
     [Fact]
+    public async Task A_content_types_export_with_types_names_only_those_types()
+    {
+        var tenant = await _callers.TenantAsync();
+        var kept = TestNames.Compact("kept");
+        var left = TestNames.Compact("left");
+        await _callers.StoreInTenantAsync(tenant, Type(kept, ("Title", "string")), Type(left, ("Title", "string")));
+        var client = await _callers.SuperAdminAsync(tenant);
+
+        var (both, all) = await ExportAsync(client, "contentTypes", $"{kept},{left}");
+        both.StatusCode.Should().Be(HttpStatusCode.OK, all.ToString());
+        all.GetProperty("contentTypes").EnumerateObject().Select(t => t.Name.ToLowerInvariant())
+            .Should().BeEquivalentTo(kept.ToLowerInvariant(), left.ToLowerInvariant(),
+                "the control: naming both types returns both, so a one-type answer below is the narrowing and not a tenant that holds one");
+
+        var (one, narrowed) = await ExportAsync(client, "contentTypes", kept);
+        one.StatusCode.Should().Be(HttpStatusCode.OK, narrowed.ToString());
+        narrowed.GetProperty("contentTypes").EnumerateObject().Select(t => t.Name.ToLowerInvariant())
+            .Should().Equal([kept.ToLowerInvariant()],
+                "types= names the types to export, so the other type the tenant holds must be left out");
+    }
+
+    [Fact]
     public async Task A_document_without_a_version_is_refused_with_the_documented_400()
     {
         var target = await _callers.TenantAsync();
