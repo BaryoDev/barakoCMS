@@ -8,6 +8,7 @@ using barakoCMS.Models;
 using FluentAssertions;
 using Marten;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -19,10 +20,14 @@ namespace BarakoCMS.Tests.Features.Tenants;
 /// data. The pieces are tested apart; this walks them through the full HTTP pipeline.
 /// </summary>
 /// <remarks>
-/// The host runs in Single mode, the fixture's default, with the DNS check faked. Each request
-/// carries the domain as its <c>Host</c> (the absolute request URI sets it) and no <c>X-Tenant</c>,
-/// the way a browser on the client's domain sends it. A token for tenant A on B's domain is covered
-/// by <see cref="HostTenantRoutingTests.A_token_for_A_is_refused_on_Bs_domain_with_and_without_X_Tenant_A"/>
+/// The host runs in Multi mode, as a deployment that serves a second client must: a request or sign
+/// in that resolves to no registered tenant is refused instead of served from the default partition.
+/// The DNS check is faked. Each request carries the domain as its <c>Host</c> (the absolute request
+/// URI sets it) and no <c>X-Tenant</c>, the way a browser on the client's domain sends it.
+///
+/// Platform administration is reached from inside a registered tenant, so tenant A is stored first
+/// and the admin calls name it with <c>X-Tenant</c>. A token for tenant A on B's domain is covered by
+/// <see cref="HostTenantRoutingTests.A_token_for_A_is_refused_on_Bs_domain_with_and_without_X_Tenant_A"/>
 /// and is not repeated here.
 /// </remarks>
 [Collection("Integration1")]
@@ -34,23 +39,27 @@ public class SecondTenantOwnDomainTests
     private static int _ip;
 
     private readonly IntegrationTestFixture _fixture;
+    private readonly Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> _host;
     private readonly HttpClient _client;
     private readonly string _clientIp = $"198.19.{Interlocked.Increment(ref _ip) % 250}.{Random.Shared.Next(1, 250)}";
 
     public SecondTenantOwnDomainTests(IntegrationTestFixture fixture)
     {
         _fixture = fixture;
-        _client = fixture
-            .WithWebHostBuilder(b =>
+        _host = fixture.WithWebHostBuilder(b =>
+        {
+            b.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                b.UseSetting(TenantDomains.DeploymentHostKey, Edge);
-                b.ConfigureServices(s =>
-                {
-                    s.AddSingleton<IStartupFilter, TestRemoteIpFilter>();
-                    s.AddSingleton<IDomainDnsChecker>(new PassingDns());
-                });
-            })
-            .CreateClient();
+                [TenancyOptions.ModeKey] = "Multi",
+                [TenantDomains.DeploymentHostKey] = Edge,
+            }));
+            b.ConfigureServices(s =>
+            {
+                s.AddSingleton<IStartupFilter, TestRemoteIpFilter>();
+                s.AddSingleton<IDomainDnsChecker>(new PassingDns());
+            });
+        });
+        _client = _host.CreateClient();
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -61,8 +70,8 @@ public class SecondTenantOwnDomainTests
             Task.FromResult(new DomainDnsResult(true, true));
     }
 
-    /// <summary>Two tenants, the second with a pending domain, and a user in each.</summary>
-    private sealed record Setup(string A, string B, string Domain, string UserA, string UserB);
+    /// <summary>Two tenants, the second with a pending domain, a user in each, and an admin inside A.</summary>
+    private sealed record Setup(string A, string B, string Domain, string UserA, string UserB, string AdminToken);
 
     private static string Handle(string prefix) => $"{prefix}-{Guid.NewGuid():n}"[..16];
 
@@ -70,20 +79,65 @@ public class SecondTenantOwnDomainTests
 
     private async Task<Setup> SetUpAsync()
     {
-        var token = await _fixture.StoredUserTokenAsync("SuperAdmin");
         var a = Handle("harbor");
         var b = Handle("orchard");
         var domain = NewDomain();
 
-        (await AdminAsync(HttpMethod.Post, "/api/tenants", new { handle = a, name = a, isActive = true, domains = Array.Empty<string>() }, token))
-            .StatusCode.Should().Be(HttpStatusCode.OK, "tenant A is created by a platform admin");
-        (await AdminAsync(HttpMethod.Post, "/api/tenants", new { handle = b, name = b, isActive = true, domains = new[] { domain } }, token))
-            .StatusCode.Should().Be(HttpStatusCode.OK, "tenant B is created with its own domain, which starts pending");
+        // Tenant A is stored directly, since in Multi a tenant is reached from inside another one.
+        // The host caches the active tenants, and a write on the fixture's own host does not clear it.
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+            session.Store(new Tenant { Id = Guid.NewGuid(), Slug = a, Name = a });
+            await session.SaveChangesAsync(Ct);
+        }
 
-        return new Setup(a, b, domain, await UserAsync(a), await UserAsync(b));
+        _host.Services.GetRequiredService<ITenantDomainSource>().Invalidate();
+
+        var admin = await AdminUserAsync(a);
+        string token;
+        using (var scope = _host.Services.CreateScope())
+        {
+            var issued = await scope.ServiceProvider.GetRequiredService<barakoCMS.Infrastructure.Auth.ITokenIssuer>()
+                .IssueAccessTokenAsync(admin, a, ct: Ct);
+            issued.Allowed.Should().BeTrue("a member of a registered, active tenant signs in to it in Multi");
+            token = issued.Token;
+        }
+
+        var created = await AdminAsync(HttpMethod.Post, "/api/tenants", new { handle = b, name = b, isActive = true, domains = new[] { domain } }, token, a);
+        created.StatusCode.Should().Be(HttpStatusCode.OK, await created.Content.ReadAsStringAsync(Ct));
+
+        return new Setup(a, b, domain, await UserAsync(a), await UserAsync(b), token);
     }
 
-    private async Task<HttpResponseMessage> AdminAsync(HttpMethod method, string path, object? body, string token)
+    /// <summary>A platform administrator who belongs to tenant A.</summary>
+    private async Task<User> AdminUserAsync(string tenant)
+    {
+        var id = Guid.NewGuid();
+        var user = new User
+        {
+            Id = id,
+            Username = $"own-admin-{id:N}",
+            Email = $"own-admin-{id:N}@test.com",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(Password),
+            RoleIds = [SystemRoles.SuperAdminRoleId],
+        };
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+        session.Store(user);
+        session.Store(new Membership
+        {
+            Id = Guid.NewGuid(),
+            UserId = id,
+            TenantSlug = tenant,
+            Status = MembershipStatus.Active,
+            RoleIds = [],
+        });
+        await session.SaveChangesAsync(Ct);
+        return user;
+    }
+
+    private async Task<HttpResponseMessage> AdminAsync(HttpMethod method, string path, object? body, string token, string tenant)
     {
         var request = new HttpRequestMessage(method, path);
         if (body is not null)
@@ -92,13 +146,13 @@ public class SecondTenantOwnDomainTests
         }
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         request.Headers.Add(TestRemoteIpFilter.Header, _clientIp);
+        request.Headers.Add(TenantResolutionMiddleware.TenantHeader, tenant);
         return await _client.SendAsync(request, Ct);
     }
 
     private async Task VerifyAsync(Setup s)
     {
-        var token = await _fixture.StoredUserTokenAsync("SuperAdmin");
-        var response = await AdminAsync(HttpMethod.Post, $"/api/tenants/{s.B}/domains/{s.Domain}/verify", null, token);
+        var response = await AdminAsync(HttpMethod.Post, $"/api/tenants/{s.B}/domains/{s.Domain}/verify", null, s.AdminToken, s.A);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
         (await response.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("status").GetString()
@@ -200,23 +254,40 @@ public class SecondTenantOwnDomainTests
     }
 
     [Fact]
-    public async Task Before_it_is_verified_the_domain_routes_nowhere_and_a_sign_in_on_it_is_not_tenant_B()
+    public async Task Before_it_is_verified_a_sign_in_on_the_domain_is_refused_and_after_it_the_token_is_B()
     {
         var s = await SetUpAsync();
 
         var onPending = await SignInAsync(s.UserB, s.Domain);
 
-        // A pending domain is nobody's, so the host resolves to no tenant and Single mode serves the
-        // default one. The user is a member of B only, and the default tenant needs no membership.
-        var pendingToken = await TokenAsync(onPending);
-        TenantClaimOf(pendingToken).Should().Be(Tenant.DefaultSlug,
-            "a pending domain does not route to B, so the sign in lands on the default tenant");
-        TenantClaimOf(pendingToken).Should().NotBe(s.B, "an unverified claim must not act as tenant B");
+        // Sign in is a tenantless route, so resolution does not answer 404 here. A pending domain is
+        // nobody's, the request runs on the default partition, and the issuer refuses it in Multi.
+        onPending.StatusCode.Should().NotBe(HttpStatusCode.TooManyRequests, "a rate limited answer proves nothing");
+        onPending.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "a pending domain does not route to B, and in Multi the default partition gets no token");
+        (await onPending.Content.ReadAsStringAsync(Ct)).Should().NotContain("\"token\"", "an unverified claim must not act as tenant B");
 
         await VerifyAsync(s);
 
         TenantClaimOf(await TokenAsync(await SignInAsync(s.UserB, s.Domain))).Should().Be(s.B,
             "the same sign in lands on B once the domain is verified");
+    }
+
+    [Fact]
+    public async Task A_user_of_B_signing_in_on_the_deployment_host_with_no_X_Tenant_is_refused()
+    {
+        var s = await SetUpAsync();
+        await VerifyAsync(s);
+
+        var onEdge = await SignInAsync(s.UserB, Edge);
+
+        onEdge.StatusCode.Should().NotBe(HttpStatusCode.TooManyRequests, "a rate limited answer proves nothing");
+        onEdge.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "the deployment host names no tenant, so the sign in runs on the default partition, which gets no token in Multi");
+        (await onEdge.Content.ReadAsStringAsync(Ct)).Should().NotContain("\"token\"");
+
+        TenantClaimOf(await TokenAsync(await SignInAsync(s.UserB, Edge, s.B))).Should().Be(s.B,
+            "the control: naming B with X-Tenant on the same host signs in, so the refusal is about naming no tenant");
     }
 
     [Fact]
