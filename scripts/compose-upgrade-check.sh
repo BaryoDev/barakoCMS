@@ -5,11 +5,14 @@
 #
 #   scripts/compose-upgrade-check.sh [image]      # default ghcr.io/baryodev/barako-cms:ci
 #
-# The image (the one CI built, tag :ci) has to exist already. Caddy and db-backup are never started
-# on 5.9.0, because their mounts and ACME do not resolve in CI.
+# The image (the one CI built, tag :ci) has to exist already. db-backup is never started on 5.9.0.
+# Caddy is, before the API, so it holds 5.9.0's fixed address 10.87.51.2 and the API takes another
+# one, as on a 5.9.0 host where Caddy runs. On both versions Caddy runs with DOMAIN_API=api.localhost
+# and host ports Docker picks (scripts/lib-caddy-check.sh says why).
 #
-#   1. docker-compose.prod.yml from tag v5.9.0 and the image ghcr.io/baryodev/barako-cms:5.9.0
-#      (pulled by tag, never a fallback) start postgres and the API, which connects as the owner
+#   1. docker-compose.prod.yml and the Caddyfile from tag v5.9.0 and the image
+#      ghcr.io/baryodev/barako-cms:5.9.0 (pulled by tag, never a fallback) start Caddy, then postgres
+#      and the API, which connects as the owner
 #   2. one sign-in, a content type and an item go in through the API, and the 5.9.0 job
 #      (postgres-extensions, which only installs pg_stat_statements) runs
 #   3. this checkout's docker-compose.prod.yml replaces the file, as an operator would copy it, and
@@ -17,19 +20,26 @@
 #   4. the volume is the same one, the job exited 0, the migrate branch that ran is the one this
 #      checkout's migrations imply, the API is healthy as the app role, owns everything in
 #      public, the old item reads back, and a new one is written
+#   5. Caddy came back on the one address the API trusts, the API is on another, and a request
+#      over HTTPS through Caddy reaches this checkout's image with the API's
+#      Strict-Transport-Security header, which the API sends only when it believes Caddy's
+#      X-Forwarded-Proto
 #
 # The two substitutions, and nothing else, differ from the docs:
 #   a. `docker compose pull` is skipped, because the image is the locally built :ci tag
-#   b. the last `up -d` is `up -d app db-backup`, because Caddy needs a domain and ACME
+#   b. the last `up -d` also reads the override that changes only Caddy's host ports
 # The docs' commands take no -p, so the project is set with COMPOSE_PROJECT_NAME. The stack's .env
 # gets BARAKO_TAG=ci and DB_APP_PASSWORD before step 3, which is the operator's own edit and not a
-# docs step. Generated values are never printed.
+# docs step, and DOMAIN_API=api.localhost on both versions in place of the operator's domain.
+# Generated values are never printed.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 REPO="$PWD"
 # shellcheck source=scripts/lib-db-role-check.sh
 . scripts/lib-db-role-check.sh
+# shellcheck source=scripts/lib-caddy-check.sh
+. scripts/lib-caddy-check.sh
 
 IMAGE="${1:-ghcr.io/baryodev/barako-cms:ci}"
 TAG="${IMAGE##*:}"
@@ -40,7 +50,9 @@ PROJECT="compose-upgrade-$$"
 WORK="$(mktemp -d)"
 STACK="$WORK/stack"
 LOGS="$(mktemp)"
+OVERRIDE="$WORK/caddy-ports.yml"
 mkdir "$STACK"
+write_caddy_ports_override "$OVERRIDE"
 
 DB_PASSWORD_VALUE="up-db-$(openssl rand -hex 16)"
 APP_PASSWORD="up-app-$(openssl rand -hex 16)"
@@ -49,7 +61,7 @@ ADMIN_PASSWORD_VALUE="Ci-$(openssl rand -hex 8)-Aa1!"
 SECRET_VALUES=("$DB_PASSWORD_VALUE" "$APP_PASSWORD" "$JWT_VALUE" "$ADMIN_PASSWORD_VALUE")
 
 export COMPOSE_PROJECT_NAME="$PROJECT"
-DC=(docker compose -p "$PROJECT" --project-directory "$STACK" -f "$STACK/docker-compose.prod.yml")
+DC=(docker compose -p "$PROJECT" --project-directory "$STACK" -f "$STACK/docker-compose.prod.yml" -f "$OVERRIDE")
 dc() { "${DC[@]}" "$@"; }
 CHECK_DB=barako_cms
 CHECK_API=app
@@ -64,7 +76,7 @@ trap cleanup EXIT
 step() { printf '\n=== %s\n' "$1"; }
 fail() {
   printf '\nFAILED: %s\n' "$1" >&2
-  dc logs --no-color --tail 60 app db-backup postgres postgres-extensions 2>&1 | redact >&2 || true
+  dc logs --no-color --tail 60 app db-backup postgres postgres-extensions caddy 2>&1 | redact >&2 || true
   exit 1
 }
 
@@ -73,8 +85,9 @@ limit=""
 ! command -v timeout > /dev/null || limit="timeout 600"
 
 write_env() { # <tag> <with the app role password: yes|no>
-  cat "$REPO/.env.prod.example" > "$STACK/.env"
+  grep -v '^DOMAIN_API=' "$REPO/.env.prod.example" > "$STACK/.env"
   cat >> "$STACK/.env" <<ENV
+DOMAIN_API=$CADDY_HOST
 BARAKO_TAG=$1
 DB_PASSWORD=$DB_PASSWORD_VALUE
 JWT_KEY=$JWT_VALUE
@@ -108,6 +121,13 @@ wait_healthy() { # <seconds> <service>...
   done
 }
 
+proxy_ip() { # <service>: its address on the proxy network, empty when it is not running there
+  local id
+  id="$(dc ps -q "$1")"
+  [ -n "$id" ] || return 0
+  docker inspect -f "{{with index .NetworkSettings.Networks \"${PROJECT}_proxy\"}}{{.IPAddress}}{{end}}" "$id"
+}
+
 login() { # prints the access token
   local resp
   resp="$(printf '{"username":"admin","password":"%s"}' "$ADMIN_PASSWORD_VALUE" | api_call POST /api/auth/login)" \
@@ -135,6 +155,7 @@ if ! git rev-parse -q --verify "refs/tags/$OLD_REF" > /dev/null; then
 fi
 git show "$OLD_REF:docker-compose.prod.yml" > "$STACK/docker-compose.prod.yml" \
   || fail "tag $OLD_REF is missing docker-compose.prod.yml"
+git show "$OLD_REF:Caddyfile" > "$STACK/Caddyfile" || fail "tag $OLD_REF is missing the Caddyfile"
 docker pull "$OLD_IMAGE" > /dev/null 2>&1 || fail "the image $OLD_IMAGE could not be pulled, so the tag is missing from the registry"
 printf 'using %s and %s\n' "$OLD_REF" "$OLD_IMAGE"
 
@@ -162,10 +183,17 @@ while IFS= read -r f; do
 done < <(git ls-files migrations)
 printf 'expected db-migrate --status exit code: %s\n' "$EXPECT_STATUS"
 
-step "starting the 5.9.0 stack: postgres and the API, which connects as the owner"
+step "starting the 5.9.0 stack: Caddy, then postgres and the API, which connects as the owner"
 write_env "$OLD_TAG" no
+# Caddy first, so it holds its fixed address before the API takes the lowest free one.
+$limit "${DC[@]}" up -d --no-deps caddy > /dev/null 2>&1 || fail "the 5.9.0 caddy did not start"
 $limit "${DC[@]}" up -d postgres app > /dev/null 2>&1 || fail "the 5.9.0 stack did not start"
 wait_ready 240 || fail "the 5.9.0 API did not answer /health/ready within 240 seconds"
+old_caddy_ip="$(proxy_ip caddy)"
+old_app_ip="$(proxy_ip app)"
+printf 'proxy network: caddy %s, app %s\n' "${old_caddy_ip:-none}" "${old_app_ip:-none}"
+[ "$old_caddy_ip" = "10.87.51.2" ] || fail "the 5.9.0 caddy is at '${old_caddy_ip:-none}', not its fixed 10.87.51.2"
+[ -n "$old_app_ip" ] && [ "$old_app_ip" != "$old_caddy_ip" ] || fail "the 5.9.0 API has no address of its own on the proxy network"
 
 step "5.9.0 content goes in through the API"
 login
@@ -192,9 +220,9 @@ printf 'rewrote .env with BARAKO_TAG=%s and DB_APP_PASSWORD (an operator edit, n
 printf 'COMPOSE_PROJECT_NAME=%s (the docs commands take no -p)\n' "$PROJECT"
 
 step "the Upgrading blocks, from docs/deploy-in-production.md"
-python3 -I - "$REPO/docs/deploy-in-production.md" "$WORK" <<'PY' || fail "the Upgrading section does not have the shape this check expects"
-import re, sys
-doc, out = sys.argv[1], sys.argv[2]
+python3 -I - "$REPO/docs/deploy-in-production.md" "$WORK" "$OVERRIDE" <<'PY' || fail "the Upgrading section does not have the shape this check expects"
+import re, shlex, sys
+doc, out, override = sys.argv[1], sys.argv[2], sys.argv[3]
 text = open(doc, encoding="utf-8").read()
 start = text.index("\n## Upgrading\n")
 end = text.index("\n### Upgrading past 4.0.2", start)
@@ -210,12 +238,12 @@ up = "docker compose -f docker-compose.prod.yml up -d\n"
 for i in (2, 3):
     if blocks[i].count(up) != 1:
         sys.exit("expected one up -d line in block %d" % (i + 1))
-    blocks[i] = blocks[i].replace(up, "docker compose -f docker-compose.prod.yml up -d app db-backup\n")
+    blocks[i] = blocks[i].replace(up, "docker compose -f docker-compose.prod.yml -f %s up -d\n" % shlex.quote(override))
 for i, b in enumerate(blocks, 1):
     open("%s/doc-block-%d.sh" % (out, i), "w").write(b)
 PY
 printf 'substitution a: "docker compose pull" is skipped, the image is the locally built :%s tag\n' "$TAG"
-printf 'substitution b: the last "up -d" runs as "up -d app db-backup", Caddy needs a domain and ACME\n'
+printf 'substitution b: the last "up -d" also reads an override that changes only Caddy'"'"'s host ports\n'
 
 run_block() { # <n>: runs doc-block-<n>.sh in the stack folder, prints its output without secrets
   local rc=0
@@ -267,5 +295,42 @@ api_body "$resp" | grep -qF "written on 5.9.0" || fail "the old item does not ho
 NEW_ITEM="$(create_item "written after the upgrade")"
 resp="$(api_call GET "/api/contents/$NEW_ITEM" "$TOKEN")" || fail "could not reach the API to read the new item"
 api_body "$resp" | grep -qF "written after the upgrade" || fail "the new item does not read back"
+
+step "Caddy is back on the one address the API trusts, and the API is on another"
+caddy_id="$(dc ps -q caddy)"
+[ -n "$caddy_id" ] || fail "caddy is not running after the upgrade"
+trusted="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$(dc ps -q app)" | sed -n 's/^ForwardedHeaders__KnownProxies__0=//p')"
+caddy_ip="$(proxy_ip caddy)"
+app_ip="$(proxy_ip app)"
+printf 'proxy network: caddy %s, app %s, the API trusts %s\n' "${caddy_ip:-none}" "${app_ip:-none}" "${trusted:-none}"
+[ -n "$caddy_ip" ] && [ "$caddy_ip" = "$trusted" ] || fail "caddy is at '${caddy_ip:-none}' but the API trusts '${trusted:-none}'"
+[ -n "$app_ip" ] && [ "$app_ip" != "$caddy_ip" ] || fail "the API has no address of its own on the proxy network"
+
+step "a request over HTTPS through Caddy reaches this checkout's image"
+https_port="$(dc port caddy 443 | sed 's/.*://' || true)"
+case "$https_port" in ''|*[!0-9]*) fail "could not read caddy's https host port ('$https_port')" ;; esac
+caddy_root_cert "$caddy_id" "$WORK/caddy-root.crt" \
+  || fail "caddy has no local root certificate under /data/caddy/pki/authorities/local"
+expected_sha="$(image_build_sha "$IMAGE")"
+# In CI the image is built with its commit, so "unknown" there would let any image pass.
+[ "$expected_sha" != "unknown" ] || [ -z "${CI:-}" ] || fail "the image $IMAGE has no BARAKO_BUILD_SHA, so the check cannot tell it from 5.9.0"
+code=""
+for _ in $(seq 1 20); do
+  if code="$(caddy_tls_curl "$WORK/caddy-root.crt" "$https_port" -D "$WORK/tls-headers.txt" -o "$WORK/tls-body.json" \
+      -w '%{http_code}' "https://$CADDY_HOST:$https_port/health/build")"; then
+    break
+  fi
+  code=""
+  sleep 2
+done
+[ -n "$code" ] || fail "no HTTPS answer from caddy that verifies against its own root certificate"
+[ "$code" = "200" ] || fail "https://$CADDY_HOST/health/build answered $code, not 200"
+body_is_build_sha "$WORK/tls-body.json" "$expected_sha" \
+  || fail "the body from https://$CADDY_HOST/health/build is not the sha $expected_sha, so the request did not reach this image"
+printf 'https://%s/health/build: 200, sha %s\n' "$CADDY_HOST" "$expected_sha"
+# The API sends it only for a request it sees as HTTPS, which here means it believed Caddy's
+# X-Forwarded-Proto, so it trusts the address Caddy came back on.
+tr -d '\r' < "$WORK/tls-headers.txt" | grep -iE '^strict-transport-security: max-age=[1-9]' \
+  || fail "the HTTPS response has no Strict-Transport-Security header, so the API did not trust Caddy's address"
 
 printf '\nall checks passed\n'

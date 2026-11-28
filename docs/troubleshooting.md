@@ -389,6 +389,18 @@ This is Docker's and the OS's text, not the API's. Something else holds the port
 - Production: Caddy binds 80 and 443 on the host. Stop the web server that holds them, or put your
   own proxy in front and use the quickstart file instead.
 
+## Caddy fails with Address already in use
+
+`docker compose -f docker-compose.prod.yml up -d` stops at `caddy` with `Address already in use`
+while the app runs. This is Docker's text about an address on the `proxy` network, not a host port.
+The app starts before Caddy and Docker gives it the lowest free address on that network, so a
+`PROXY_ADDRESS` at the low end of `PROXY_SUBNET`, such as `10.87.51.2` from an older example, is
+already the app's.
+
+Fix: set `PROXY_ADDRESS` in `.env` to the last usable address of `PROXY_SUBNET` (`10.87.51.14` for
+the default `10.87.51.0/28`), or remove the line to take that default, and run `up -d` again.
+[deploy-in-production.md](deploy-in-production.md#client-ips-behind-caddy) explains the network.
+
 ## The certificate is requested before the domain resolves
 
 In `docker-compose.prod.yml` Caddy asks Let's Encrypt for a certificate on first boot, and Let's

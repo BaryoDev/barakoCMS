@@ -60,9 +60,12 @@ directory named for its version, so keep that line in `.env`. The bundle's compo
 it in a top-level `name:` line, so an `.env` without it stops compose with a message that names
 the variable, before anything starts.
 
-The archive is built by `scripts/build-prod-bundle.sh`, and CI starts `postgres`, `app` and
-`db-backup` from an unpacked copy in an empty directory (`scripts/prod-bundle-check.sh`), so a file
-the compose file mounts and the bundle lacks fails the pull request that caused it.
+The archive is built by `scripts/build-prod-bundle.sh`, and CI starts `postgres`, `app`, `db-backup`
+and `caddy` from an unpacked copy in an empty directory (`scripts/prod-bundle-check.sh`), so a file
+the compose file mounts and the bundle lacks fails the pull request that caused it. The check uses
+`api.localhost` as the domain, so Caddy signs its certificate with its own local CA and proves that
+HTTPS reaches the API, strips the `Server` and `Via` headers and redirects plain HTTP. A real
+Let's Encrypt issue for your domain is not covered.
 
 The helper scripts this page names beyond the bundle (`check-compose-hardening.sh`,
 `verify-image-signature.sh`, `check-image-platforms.sh`, `restore-db.sh`) are not in it. They check
@@ -388,12 +391,16 @@ fixed subnet, Caddy has a fixed address on it, and the app trusts that one addre
 | Variable | Default | What it sets |
 | --- | --- | --- |
 | `PROXY_SUBNET` | `10.87.51.0/28` | the `proxy` network's subnet |
-| `PROXY_ADDRESS` | `10.87.51.2` | Caddy's address on it, and the one address the app trusts |
+| `PROXY_ADDRESS` | `10.87.51.14` | Caddy's address on it, and the one address the app trusts |
 | `TRUSTED_PROXY_NETWORK` | empty | an extra trusted range in CIDR notation, if you need one |
 
 If `10.87.51.0/28` is already used on your host, by another Docker network or by a LAN or VPN route,
-set `PROXY_SUBNET` to a free range and `PROXY_ADDRESS` to an address inside it. An overlap with
-another Docker network fails `up` with `Pool overlaps with other one on this address space`. An
+set `PROXY_SUBNET` to a free range and `PROXY_ADDRESS` to the last usable address inside it, one
+below the broadcast address (`.14` in a `/28`). Set both: with `PROXY_SUBNET` alone Caddy keeps
+`10.87.51.14`, outside the new range, and does not start. The app starts before Caddy and Docker
+gives it the lowest free address, so a `PROXY_ADDRESS` at the low end of the subnet is already taken
+when Caddy starts, and Caddy fails with `Address already in use`. An overlap
+with another Docker network fails `up` with `Pool overlaps with other one on this address space`. An
 overlap with a host route does not fail anything, it just stops the containers reaching that range,
 so check `ip route` before you pick.
 

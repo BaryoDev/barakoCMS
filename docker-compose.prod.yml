@@ -44,10 +44,12 @@ services:
     depends_on:
       - app
     # Caddy sits alone with the app on the proxy network, at an address that does not move, so the
-    # app can trust that one address for X-Forwarded-For instead of a whole bridge range.
+    # app can trust that one address for X-Forwarded-For instead of a whole bridge range. It is the
+    # last address of the subnet: the app starts first and Docker gives it the lowest free address,
+    # so Caddy at the low end would find its address taken and fail with "Address already in use".
     networks:
       proxy:
-        ipv4_address: ${PROXY_ADDRESS:-10.87.51.2}
+        ipv4_address: ${PROXY_ADDRESS:-10.87.51.14}
     read_only: true
     tmpfs:
       - /tmp:mode=1777,size=16m
@@ -189,7 +191,7 @@ services:
       # it cannot choose the client IP. TRUSTED_PROXY_NETWORK is still read, so a deployment that set
       # it keeps trusting what it named; it is empty unless you set it.
       - ForwardedHeaders__Enabled=true
-      - ForwardedHeaders__KnownProxies__0=${PROXY_ADDRESS:-10.87.51.2}
+      - ForwardedHeaders__KnownProxies__0=${PROXY_ADDRESS:-10.87.51.14}
       - ForwardedHeaders__KnownNetworks__0=${TRUSTED_PROXY_NETWORK:-}
       # The origin the API puts in the links it hands out, and the host names it will answer to. The
       # Host header is written by whoever sent the request, so without these a caller chooses both.

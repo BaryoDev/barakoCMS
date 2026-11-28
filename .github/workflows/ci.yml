@@ -595,7 +595,8 @@ jobs:
 
       # The bundle a release attaches (#1436), built from this branch with the script the release
       # job runs, unpacked in an empty directory outside the checkout, and started from there with
-      # the image built above. A file the compose file mounts and the bundle misses fails here.
+      # the image built above, with its Caddy on api.localhost to prove HTTPS. A file the compose
+      # file mounts and the bundle misses fails here.
       - name: The production bundle starts from an empty directory
         run: bash scripts/prod-bundle-check.sh ghcr.io/baryodev/barako-cms:ci
 
