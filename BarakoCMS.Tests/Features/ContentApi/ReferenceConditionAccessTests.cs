@@ -1235,11 +1235,11 @@ public class ReferenceConditionAccessTests
 
             // Every pass that walks more rows than that is refused, with the reason. The caller
             // holds two conditions into classes, on enrollments and on pages, and the list of every
-            // type names whichever it met first.
+            // type and the export of every type name whichever they met first.
             await ShouldBeRefusedAsync(client.GetAsync("/api/contents?pageSize=10"), "the list of every type", ".InstructorUser");
 
             await ShouldBeRefusedAsync(
-                client.GetAsync("/api/config/export?sections=contents"), "the export", Follows);
+                client.GetAsync("/api/config/export?sections=contents"), "the export", ".InstructorUser");
 
             await ShouldBeRefusedAsync(
                 client.PostAsJsonAsync($"/api/collections/{BoundEnrollments}/push", new
