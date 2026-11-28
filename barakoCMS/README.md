@@ -47,7 +47,7 @@ Optional packages, each installable on its own:
 | `BarakoCMS.Files` + `.S3` | Uploads stored in Postgres, or in S3-compatible storage with `.S3` |
 | `BarakoCMS.Import` | Bulk import |
 | `BarakoCMS.Pages` | Page tree, navigation and path resolution over a content type |
-| `BarakoCMS.Portability` | Export / import bundles |
+| `BarakoCMS.Portability` | Content entries in config export and apply |
 
 Every one is published under the `barakocms-module` tag, so one search on nuget.org returns them all.
 

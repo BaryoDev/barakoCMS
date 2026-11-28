@@ -375,7 +375,7 @@ too, since the list names who shared the site with whom.
 100 characters. `expiresAt` is optional: unset means 30 days from now, and more than the maximum
 (90 days) away is a 400. The key is 32 random bytes, base64url encoded, and appears in this response
 and nowhere else. Only its SHA-256 is stored, on a tenant scoped document that is not part of site
-settings, public delivery or a portability export. Creating is audited as `site.share_link.created`
+settings, public delivery or a config export. Creating is audited as `site.share_link.created`
 with the label and expiry, never the key. A tenant holds at most 100 active links; revoke one to
 make another.
 

@@ -54,7 +54,7 @@ is refused: only one of them would be checked, and a read answers both.
 
 | Writer | Caller asked about | What it may attach |
 | --- | --- | --- |
-| `POST /api/contents`, `PUT /api/contents/{id}`, a batch, a rollback, a collection push, a spreadsheet import, a bundle import | the signed-in user of the request | a public file, or a private one that user may download |
+| `POST /api/contents`, `PUT /api/contents/{id}`, a batch, a rollback, a collection push, a spreadsheet import, a config apply of `contents` | the signed-in user of the request | a public file, or a private one that user may download |
 | A transition carrying the field (`IContentTransitioner`) | the actor the move is made for, not the user whose request is running | for a user actor, a public file or one that user uploaded; for a system actor, a public file only |
 | A module calling `IContentValidatorService` itself | the `caller` it passes; none passed means no user | with no caller, a public file only |
 
@@ -65,10 +65,10 @@ caller, so its writes take public files only.
 | The `UpdateField` workflow action | nobody: a workflow runs for no user | a public file only; anything else fails the action for good |
 | A collection sync | nobody | nothing: a sync that maps a source value onto a file field is refused when it is saved |
 
-A bundle carries entries and not files. Importing one where the files it names are missing (into
+A config document carries entries and not files. Applying one where the files it names are missing (into
 another deployment, or a tenant rebuilt from nothing) refuses every entry naming a missing file,
-and an import commits all of its entries or none, so the whole import is refused. Restore the files
-first, with their ids, then import the bundle.
+and an apply commits all of its entries or none, so the whole apply is refused. Restore the files
+first, with their ids, then apply the document.
 
 ## What a read answers
 
@@ -165,7 +165,7 @@ module was enabled can still be edited, and delivery leaves its file fields out.
 
 A `string` or `url` field is not converted. One that holds a `/api/public/files/{id}` URL keeps it,
 the `image` editor hint on it keeps working, and the Files module still counts it as a use of the
-file. A field whose type is changed to `file` by a bundle import keeps what its entries hold; such
+file. A field whose type is changed to `file` by a config apply keeps what its entries hold; such
 text does not resolve, and a save that sends it back unchanged is accepted.
 
 Image width and height are not part of the answer: the Files module does not record them yet.

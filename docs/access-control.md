@@ -582,7 +582,7 @@ same rule, reading the sets once for the entry. The write rule has one home too,
 | `GET /api/contents/{id}/history` | per entry, the current entry's rules | |
 | `GET /api/contents/types`, `GET /api/contents/types/{name}` | signed in, and the type's read permission: 404 for a type that is missing or not readable. A field the caller cannot read is left out, and its name is kept out of uniqueness rules, transition field lists and computed args. A reference to a type the caller cannot read, or that does not exist, is shown as null | |
 | `PUT /api/contents/{id}` | unreadable fields put back | 403 on a change |
-| `POST /api/contents`, bulk create, Portability import | | 403 on a value outside the Create set |
+| `POST /api/contents`, bulk create, a config apply of `contents` | | 403 on a value outside the Create set |
 | `POST /api/collections/{type}/push` | unreadable fields put back on an existing entry | 403 on a change, or on create |
 | `POST /api/contents/{id}/rollback/{versionId}` | unreadable fields put back; the response carries the read rules' fields when a Read rule grants the entry, and no data when none does | 403 on a change |
 | A transition carrying data | per entry: unreadable fields put back; on an entry the caller may not read, the declared fields are written | none: its declared fields are its set |
@@ -1137,12 +1137,13 @@ it on the routing table, which is where `GET /api/capabilities` and the role wri
 | Files | `upload_files` | `POST /api/files`, `GET /api/files`, `GET /api/files/{id}/meta`, `PATCH /api/files/{id}`, `GET /api/files/{id}/usage`, `DELETE /api/files/{id}` |
 | Files | `manage_all_files` | no route of its own: `GET /api/files/{id}` and `DELETE /api/files/{id}` for a private file somebody else uploaded |
 | Import | `analyze_spreadsheets` | `POST /api/import/analyze` |
-| Portability | `export_content` | `GET /api/portability/export` |
-| Portability | `import_content` | `POST /api/portability/import` |
+| Portability | `export_content` | no route of its own: the `contents` section of `GET /api/config/export`, `POST /api/config/plan` and `POST /api/config/apply` |
+| Portability | `import_content` | no route of its own: the same section, written by `POST /api/config/apply` |
 
 One of those is a split of a gate that used to be one role list. Portability
 splits export from import because the risks are opposite: export reads a whole tenant out in one
-request, import writes a whole tenant in.
+request, import writes a whole tenant in. Both are checked on top of `manage_config`, for the
+`contents` section of a config document.
 
 Several of these, and `/api/settings` in core, read tables stored once for the whole deployment,
 so the tenant filter every other route gets from the session does not apply and the endpoint
@@ -1365,8 +1366,8 @@ as it did before these rows existed.
 - Self-registration giving a new account the `User` role.
 - A content type created with Sensitive or Hidden fields, by `POST /api/content-types` or by applying
   a blueprint. The blueprint row names the types only.
-- A portability import adding a new Sensitive or Hidden field to an existing type. Its row holds
-  counts only. An import cannot change the level, role list or mask of a field that already exists.
+- A config apply adding a new Sensitive or Hidden field to an existing type. Its row holds
+  counts only. An apply cannot change the level, role list or mask of a field that already exists.
 - An entry's own sensitivity level changing. That is on the entry's event stream.
 
 ## What the audit log records about reads

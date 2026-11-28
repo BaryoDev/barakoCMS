@@ -184,8 +184,8 @@ A file is one object:
 A field may carry `editor`, `section` and `role`, and a type `routeTemplate`; see
 [field-hints-and-roles.md](field-hints-and-roles.md).
 
-The entries under `contentTypes` are the same shape the Portability import accepts, so a file can be
-assembled from `GET /api/portability/export` by keeping the types and dropping the contents.
+The entries under `contentTypes` are the same shape a config apply accepts, so a file can be
+assembled from `GET /api/config/export?sections=contentTypes` by keeping the types.
 
 A file is validated when it is listed, with the validator the create endpoint runs, plus three rules
 of its own:

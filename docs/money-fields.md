@@ -59,7 +59,7 @@ The refusal never repeats the amount. On an update the stored value of a field t
 see is put back before validation, so repeating it would show that value to the caller.
 
 Every path that writes an entry through the entry validator applies this: create, update, a status
-change that carries fields, a version restore, bulk import, a bundle import, a collection push and a
+change that carries fields, a version restore, bulk import, a config apply of `contents`, a collection push and a
 form submission. A collection sync applies it too and skips an item that does not fit.
 
 ## Writers that only have text
@@ -103,5 +103,5 @@ while the counts run is not counted.
 
 Needs `manage_content_types`. Recorded in the audit log as `contenttype.field.currency.changed`.
 
-A bundle import does not change the currency or scale a stored field declares. A bundle that
+A config apply does not change the currency or scale a stored field declares. A document that
 carries a different one, or none, is refused and points here.

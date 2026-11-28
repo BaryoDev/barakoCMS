@@ -340,8 +340,8 @@ This section lands with #1384 and is not in the code yet.
   without a `FileStorageResolver` is replaced by the one that takes it.
 - Portability: `GET /api/portability/export` and `POST /api/portability/import`, with
   `PortabilityBundle`, `ContentRecord`, `ImportRequest` and `ImportReport`, are removed. Use
-  `GET /api/config/export` and `POST /api/config/plan` and `/api/config/apply`, which take a
-  Portability bundle as a document.
+  `GET /api/config/export` and `POST /api/config/plan` and `/api/config/apply`, which carry the
+  `contentTypes` and `contents` sections in one document.
 - `PerformanceMiddleware`: remove it from a pipeline you built by hand. Nothing in the host uses it.
 - `DeliveryCache.PurgeTags`: remove the call. Purge on publish computes its tags with
   `DeliveryTagSet.ForCommitAsync`.

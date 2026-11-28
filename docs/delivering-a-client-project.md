@@ -351,9 +351,9 @@ edit screen instead of a list; there is no endpoint to change it afterwards.
 
 Two things the cap does not do. It counts entries of every status, so archiving the one entry does
 not free the slot; that takes `DELETE /api/contents/{id}/erase`, which needs SuperAdmin and the
-`erase_content` capability. And a Portability bundle import is not capped: an import validates
-nothing by design and it runs during a restore, where dropping rows the bundle holds would lose
-content. A bundle with two entries of a singleton type lands both.
+`erase_content` capability. And a config apply of `contents` is not capped: it runs during a restore, where
+dropping rows the document holds would lose content. A document with two entries of a singleton
+type lands both.
 
 **A slug field is what makes `/api/public/{type}/{slug}` exist.** A field of type `slug`, or failing
 that a Public text field named `slug`. Without one that route is 404.
@@ -388,27 +388,27 @@ says so in a note; an unmarked rule for a missing role is still an error. The sa
 tenant moved with the tenant export: create its platform roles on the target first, then apply the
 config again to bring those rules in.
 
-The Portability module's routes did this before the config engine and are obsolete, with removal
-planned for 6.0. `POST /api/config/apply` accepts their bundle unchanged. Until the removal:
+The Portability module adds a `contents` section to the config engine, so entries move with the
+types. `GET /api/config/export?sections=contentTypes,contents` downloads content types and their
+content as one JSON document, and `POST /api/config/apply` applies it **into the calling tenant**.
+The module's own routes under `/api/portability` were removed in 6.0, and a document they wrote is
+still accepted unchanged.
 
-- `GET /api/portability/export` downloads content types and their content as one JSON bundle.
-- `POST /api/portability/import` applies a bundle **into the calling tenant**.
+Content types are upserted by name, so applying an evolved document updates rather than duplicates
+them. Entries in the same document do not: every record in the apply gets a fresh id, so applying
+into a tenant that already has them adds a second copy of each. Apply a document's entries once,
+into a new tenant, and evolve the type from then on.
+Content is recreated through events, so applied entries have real history.
 
-Content types are upserted by name, so re-importing an evolved bundle updates rather than duplicates
-them. Entries in the same bundle do not: every record in the import gets a fresh id, so re-importing
-into a tenant that already has them adds a second copy of each. Import a bundle's entries once, into
-a new tenant, and evolve the type from then on.
-Content is recreated through events, so imported entries have real history.
-
-An import checks what the create endpoints check. Each type is validated as `POST /api/content-types`
+An apply checks what the create endpoints check. Each type is validated as `POST /api/content-types`
 validates it, and each entry goes through the same write path as `POST /api/contents`, lifecycle
 hooks included, in one transaction where each entry is written before the next is checked. One
-refused type or entry refuses the whole bundle with a 400 naming it, and nothing is written. A
-reference to another record in the bundle follows that record to its new id; a reference to content
-left behind in the source tenant is refused. An entry whose unique slug is already taken is refused, which is what re-importing into
-a tenant that already has the entries now does for any type with a slug.
+refused type or entry refuses the whole document with a 400 naming it, and nothing is written. A
+reference to another record in the document follows that record to its new id; a reference to content
+left behind in the source tenant is refused. An entry whose unique slug is already taken is refused, which is what applying into
+a tenant that already has the entries does for any type with a slug.
 
-Treat a bundle as sensitive. It contains whatever the content contains, and it leaves the system's
+Treat the document as sensitive. It contains whatever the content contains, and it leaves the system's
 access control behind the moment it is downloaded.
 
 ## 5. Add the client's people, and pick their roles
@@ -509,7 +509,7 @@ Then assign that role through the membership, not through the user:
 Know what a custom role can reach. Since #443 closed, no core or module endpoint gates on a role
 name: every one takes a capability. So a role called `Acme Editor` granted `manage_content_types`
 creates content types, granted `manage_public_delivery` toggles public delivery and changes field
-sensitivity, and granted `export_content` exports a Portability bundle. Decide those grants
+sensitivity, and granted `export_content` exports the entries of a tenant through config export. Decide those grants
 deliberately rather than assuming a name keeps them out.
 
 What keeps the deployment yours is `manage_roles`, which only SuperAdmin holds by default and is
@@ -697,11 +697,12 @@ Delivery-specific things to get right at this point:
 - **A role that is theirs.** Content permissions for their content types, no system capabilities.
 - **The delivery API base URL and their content type names.** That is the whole contract their site
   depends on.
-- **A content export.** `GET /api/portability/export` is one JSON bundle of their content types and
-  content. Handing it over on day one is what makes "you own your content" checkable rather than a
-  claim, and it is the same bundle that would seed the model somewhere else. The endpoint needs the
-  `export_content` capability, which the seeded `Admin` role holds and `SuperAdmin` satisfies. A
-  client-facing role reaches it only if you grant it that capability, so decide whether they export
+- **A content export.** `GET /api/config/export?sections=contentTypes,contents` is one JSON document
+  of their content types and content. Handing it over on day one is what makes "you own your
+  content" checkable rather than a claim, and it is the same document that would seed a copy
+  somewhere else. The entries need the `export_content` capability, which the seeded `Admin` role
+  holds and `SuperAdmin` satisfies, on top of `manage_config`. A
+  client-facing role reaches it only if you grant it both, so decide whether they export
   on demand or you run it for them.
 - **Where their data lives and what the backup story is.** Nightly Postgres dumps, no point-in-time
   recovery, and no measured RPO or RTO. Say the numbers you do not have.

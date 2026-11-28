@@ -461,9 +461,9 @@ Scheduled publishing, `UpdateField`, collection pushes and syncs change `status`
 lifecycle state. A workflow can still blank the field afterwards: this is a check on the move, not
 a rule the entry keeps.
 
-An import replaces a type's fields and keeps its lifecycle, so it refuses a bundle that leaves out
-a field a stored transition names, one that changes what a stored transition requires, and one
-whose new lifecycle names a field the bundle's type does not declare. A stored transition that
+A config apply replaces a type's fields and keeps its lifecycle, so it refuses a document that leaves
+out a field a stored transition names, one that changes what a stored transition requires, and one
+whose new lifecycle names a field the document's type does not declare. A stored transition that
 names a field the type does not have anyway is skipped for that name and logged at warning level,
 and the rest of what it requires still applies.
 
@@ -551,7 +551,7 @@ With `"dryRun": true` the same checks run and the answer is 200 with `dryRun: tr
 audit row, no cache invalidation, and the `Idempotency-Key` is released. A stored edit writes the
 audit row `contenttype.lifecycle.changed` with the lifecycle before and after.
 
-A config apply and a bundle import still refuse a changed lifecycle, and the refusal names this
+A config apply still refuses a changed lifecycle, and the refusal names this
 route. The comparison is order sensitive, so a reorder in the git document reads as a change. A
 type edited here exports a lifecycle that differs from an older git document, so that document is
 refused until it matches what `GET /api/config/export` returns.

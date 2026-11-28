@@ -200,7 +200,7 @@ a 400, and the message goes back to the caller.
 
 Hooks run on the content create, update and rollback endpoints, and on a workflow's `UpdateField`
 action when it sets a data field. A workflow's `CreateTask` action, the Import module's bulk create
-and the Portability import do not run them. A refusal of that workflow write fails the action
+and a config apply of `contents` do not run them. A refusal of that workflow write fails the action
 permanently, with the hook's message recorded on the run. A workflow `UpdateField` that only changes
 `Status` does not run them, since the data they check is unchanged.
 

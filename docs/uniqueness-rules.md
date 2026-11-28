@@ -93,7 +93,7 @@ because the caller may have no right to read that entry. Nothing of the refused 
 | `PUT /api/contents/{id}/status` with `transition`, and `IContentTransitioner` from code | A move into `whenState` is checked. The endpoint answers `409`; from code the outcome is `Conflict` with the message. |
 | `POST /api/contents/{id}/rollback/{versionId}` | Checked on the restored values. `409`. |
 | `POST /api/import/content` | A row holding values a stored entry or an earlier row holds is a row error, so `continueOnError` still writes the others. |
-| `POST /api/portability/import` | A record holding values a stored entry or an earlier record holds is refused by its index, `400`, and nothing is imported. |
+| `POST /api/config/apply` with `contents` | A record holding values a stored entry or an earlier record holds is refused by its index, `400`, and nothing is applied. |
 | Collection push | Checked on each entry. `409`, and nothing of the push is written. |
 | Collection sync | Checked on each entry. The run stops at that item and is logged at error level; the items written before it stay. |
 | `POST /api/public/forms/{slug}` | Checked like a create, `409`. A submission has no creator, so a `$createdBy` rule does not count it. |
@@ -133,7 +133,7 @@ A second write of the same values keeps trying for the lock until the first comm
 then reads what the first left. Writes of other values do not wait. The lock is released by the
 commit or the rollback, so a crash leaves nothing behind and a rerun starts clean.
 
-The lock is tried, not waited on, for up to five seconds. Inside a spreadsheet or bundle import the
+The lock is tried, not waited on, for up to five seconds. Inside a spreadsheet import or a config apply of `contents` the
 holder's transaction lasts until the whole import commits, so a write of a value an import row took
 gives up after five seconds with a `409` that says to try again, rather than waiting for the import.
 For the same reason two imports taking the same values in opposite orders cannot deadlock: each
@@ -184,10 +184,10 @@ A rule a save would refuse today and that is stored anyway (a field since remove
 state the lifecycle no longer has) is skipped on every write and logged at warning level with the
 type and the rule's name.
 
-## Blueprints, bundles and config
+## Blueprints and config
 
-A blueprint file, a bundle and the `contentTypes` section of a config document carry `uniqueness` on a type and are checked the way
-`POST /api/content-types` checks it. A bundle or config document applied over a stored type keeps the stored rules
+A blueprint file and the `contentTypes` section of a config document carry `uniqueness` on a type and are checked the way
+`POST /api/content-types` checks it. A config document applied over a stored type keeps the stored rules
 when it carries none, and is refused when it carries different ones or leaves out a field a stored
 rule compares; `PUT /api/content-types/{name}/uniqueness` is how a stored type's rules change. Config export
 writes the rules, so an export applied to an empty tenant creates the type with them.
