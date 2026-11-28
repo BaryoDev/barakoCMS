@@ -239,6 +239,11 @@ A tenant's domains are data (`PUT /api/tenants/{handle}` with `domains`, see
 [delivering-a-client-project.md](delivering-a-client-project.md#custom-domains)). Two opt-in pieces
 let a domain added there work in a browser without touching `FRONTEND_ORIGINS` or a `Caddyfile`.
 
+A deployment that serves more than one client sets `Tenancy__Mode=Multi` on the `app` service. A
+request or sign in that resolves to no registered tenant is then refused instead of served from
+`default`, and every client, the first one included, is a registered tenant. See
+[multi-tenancy.md](multi-tenancy.md#multi).
+
 A new domain is pending, and a pending domain routes nowhere: CORS, TLS and sign in all treat it as an
 unknown host. Point the domain's DNS at the deployment, then call
 `POST /api/tenants/{handle}/domains/{domain}/verify` until it answers `Verified`. The records it checks
@@ -296,9 +301,9 @@ https:// {
 ```
 
 `TenantDomainCorsTests`, `TenantDomainCorsPolicyProviderTests`, `TenantDomainLookupTests` and
-`TlsAskTests` cover both. `SecondTenantOwnDomainTests` walks the whole path: a second tenant with its
-own domain, the verify step, a sign in on that domain with no `X-Tenant`, and only that tenant's
-entries.
+`TlsAskTests` cover both. `SecondTenantOwnDomainTests` walks the whole path in Multi mode: a second
+tenant with its own domain, the verify step, a sign in on that domain with no `X-Tenant`, and only
+that tenant's entries.
 
 ## Putting a shared cache or CDN in front of it
 
