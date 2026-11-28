@@ -49,6 +49,10 @@ internal sealed class ContentTypeConfigProvider(
     public async Task<ConfigSectionExport?> ExportAsync(ConfigCaller caller, CancellationToken ct)
     {
         var types = (await session.Query<ContentTypeDefinition>().ToListAsync(ct)).ToList();
+        if (caller.ExportTypes is { } wanted)
+        {
+            types = types.Where(t => wanted.Contains(t.Name.ToLowerInvariant())).ToList();
+        }
 
         // A stored field lists roles by id, and an id means nothing on the deployment a document is
         // applied to. The document carries names, which the apply matches against its own roles.

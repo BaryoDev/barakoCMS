@@ -3,6 +3,7 @@ using barakoCMS.Core.Interfaces;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using Marten;
+using Marten.Linq.MatchesSql;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using barakoCMS.Modules;
@@ -40,6 +41,8 @@ internal sealed class ContentsConfigProvider(
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
     };
 
+    private const string ContentTypeInSql = "lower(d.data ->> 'ContentType') = ANY(?)";
+
     public string Section => "contents";
 
     public int Order => 900;
@@ -64,13 +67,22 @@ internal sealed class ContentsConfigProvider(
         // No more than an apply takes, so what this exports can always be applied back, and read no
         // more than that either: one over the limit is enough to know there are more.
         var max = PortabilityLimits.MaxImportRecords(configuration);
-        var contents = await session.Query<Content>().OrderBy(c => c.Id).Take(max + 1).ToListAsync(ct);
+        IQueryable<Content> query = session.Query<Content>();
+        if (caller.ExportTypes is { } wanted)
+        {
+            // In the database, before the limit, so a narrowed export reads only those types' entries.
+            var names = wanted.ToArray();
+            query = query.Where(c => c.MatchesSql(ContentTypeInSql, new object[] { names }));
+            types = types.Where(t => wanted.Contains(t.Name.ToLowerInvariant())).ToList();
+        }
+
+        var contents = await query.OrderBy(c => c.Id).Take(max + 1).ToListAsync(ct);
         var more = contents.Count > max;
         var (records, withheld) = await BundleEntries.ExportAsync(contents.Take(max).ToList(), types, user, context, permissions, sensitivity, ct);
         var gaps = withheld == 0 ? new List<string>() : [$"{withheld} entries are left out because this caller may read none of them."];
         if (more)
         {
-            gaps.Add($"Only the first {max} entries are read, the most an apply takes, and more are stored. Raise Portability:MaxImportRecords, or move them in parts.");
+            gaps.Add($"Only the first {max} entries are read, the most an apply takes, and more are stored. Export fewer types with ?types=, or raise Portability:MaxImportRecords.");
         }
 
         return new ConfigSectionExport

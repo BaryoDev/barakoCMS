@@ -8,6 +8,15 @@ internal sealed class Request
     /// <summary>The sections to export, comma separated. Left out, every section exported by default is.</summary>
     public string? Sections { get; set; }
 
+    /// <summary>The content types to narrow contentTypes and contents to, comma separated, matched without regard to case. Left out, every type. A name that matches none is ignored.</summary>
+    public string? Types { get; set; }
+
+    /// <summary>The type names listed, or null when none are.</summary>
+    public IReadOnlyList<string>? TypeNames() =>
+        string.IsNullOrWhiteSpace(Types)
+            ? null
+            : Types.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
     /// <summary>The sections named, or null when none are.</summary>
     public IReadOnlySet<string>? Named() =>
         string.IsNullOrWhiteSpace(Sections)

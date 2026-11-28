@@ -18544,6 +18544,15 @@
               "nullable": true,
               "type": "string"
             }
+          },
+          {
+            "description": "The content types to narrow contentTypes and contents to, comma separated, matched without regard to case. Left out, every type. A name that matches none is ignored.",
+            "in": "query",
+            "name": "types",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
           }
         ],
         "responses": {
