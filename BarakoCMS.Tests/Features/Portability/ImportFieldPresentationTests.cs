@@ -65,9 +65,10 @@ public class ImportFieldPresentationTests
     private static JsonNode FieldJson(FieldDefinition field) =>
         JsonNode.Parse(barakoCMS.Features.Config.ConfigJson.ToElement(field).GetRawText())!;
 
-    private static async Task<(HttpStatusCode Status, string Body)> ImportAsync(HttpClient client, JsonObject document)
+    private static async Task<(HttpStatusCode Status, string Body)> ImportAsync(
+        HttpClient client, JsonObject document, bool allowDestructive = false)
     {
-        var (response, body) = await ConfigCallers.ApplyAsync(client, document);
+        var (response, body) = await ConfigCallers.ApplyAsync(client, document, allowDestructive);
         return (response.StatusCode, body.ToString());
     }
 
@@ -195,7 +196,12 @@ public class ImportFieldPresentationTests
         blocks["type"] = "text";
         blocks.Remove("editor");
 
-        var (status, body) = await ImportAsync(admin, document);
+        // A field changing type is a destructive change, which an apply holds until it is confirmed.
+        var (held, heldBody) = await ImportAsync(admin, document);
+        held.Should().Be(HttpStatusCode.Conflict, heldBody);
+        (await StoredAsync(tenant, type))!.Fields.Single(f => f.Name == "Sections").Type.Should().Be("json");
+
+        var (status, body) = await ImportAsync(admin, document, allowDestructive: true);
 
         status.Should().Be(HttpStatusCode.OK, body);
 
