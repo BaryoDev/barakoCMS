@@ -24,24 +24,23 @@
 #      answers with this image's commit, the response has no Server or Via header, the API's
 #      Strict-Transport-Security header comes through, and plain HTTP redirects to https://
 #
-# Caddy runs with DOMAIN_API=api.localhost. A *.localhost name gets a certificate from Caddy's own
-# local CA, so no ACME request leaves the machine. What this does not prove is a real ACME issue
-# from Let's Encrypt for a public name. Only the host ports differ from the bundle: a compose
-# override written outside the bundle lets Docker pick free ones, because 80 and 443 may be taken
-# on the machine running this. The shipped Caddyfile and compose file are not edited.
+# Caddy runs with DOMAIN_API=api.localhost and host ports Docker picks, from an override written
+# outside the bundle (scripts/lib-caddy-check.sh says why). It proves no real ACME issue from Let's
+# Encrypt. The shipped Caddyfile and compose file are not edited.
 #
 # The image is tagged with the bundle's version for the run, because that is what the bundle asks
 # for. The extra tag is removed afterwards.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=scripts/lib-caddy-check.sh
+. "$REPO/scripts/lib-caddy-check.sh"
 IMAGE="${1:-ghcr.io/baryodev/barako-cms:ci}"
 VERSION="${BUNDLE_CHECK_VERSION:-0.0.0-ci}"
 BUNDLED_IMAGE="ghcr.io/baryodev/barako-cms:$VERSION"
 PROJECT="bundle-check-$$"
 WORK="$(mktemp -d)"
 DIR=""
-CADDY_HOST="api.localhost"
 
 step() { printf '\n=== %s\n' "$1"; }
 dc() { (cd "$DIR" && docker compose -p "$PROJECT" --env-file "$DIR/.env" -f docker-compose.prod.yml "$@"); }
@@ -166,15 +165,7 @@ done
 [ "$ok" = 1 ] || fail "db-backup never logged a successful backup"
 
 step "caddy starts from the bundle's Caddyfile"
-# ports is a list that compose appends to, so the override has to replace it (!override, compose
-# 2.24 or later). Only the host side changes: both ports stay bound to loopback, chosen by Docker.
-cat > "$WORK/caddy-ports.yml" <<'YML'
-services:
-  caddy:
-    ports: !override
-      - "127.0.0.1::80"
-      - "127.0.0.1::443"
-YML
+write_caddy_ports_override "$WORK/caddy-ports.yml"
 dcc config >/dev/null 2>&1 || fail "compose could not read the caddy ports override (it needs compose 2.24 or later)"
 # The app is already up, so leave it alone.
 dcc up -d --no-deps --wait --wait-timeout 120 caddy || fail "caddy did not become healthy"
@@ -186,23 +177,12 @@ esac
 echo "http $http_port, https $https_port"
 
 step "caddy's local root certificate"
-caddy_id="$(dc ps -q caddy)"
-for _ in $(seq 1 30); do
-  docker cp "$caddy_id:/data/caddy/pki/authorities/local/root.crt" "$WORK/caddy-root.crt" >/dev/null 2>&1 && break
-  sleep 2
-done
-[ -s "$WORK/caddy-root.crt" ] || fail "caddy wrote no local root certificate under /data/caddy/pki/authorities/local"
-
-# Verifies the server certificate against Caddy's root and never skips verification. --resolve keeps
-# the name api.localhost whatever the machine's resolver does, so the name on the certificate is
-# the one curl checks.
-tls_curl() {
-  curl -sS --max-time 10 --cacert "$WORK/caddy-root.crt" --resolve "$CADDY_HOST:$https_port:127.0.0.1" "$@"
-}
+caddy_root_cert "$(dc ps -q caddy)" "$WORK/caddy-root.crt" \
+  || fail "caddy wrote no local root certificate under /data/caddy/pki/authorities/local"
+tls_curl() { caddy_tls_curl "$WORK/caddy-root.crt" "$https_port" "$@"; }
 
 step "a request over HTTPS reaches the app"
-expected_sha="$(docker image inspect "$BUNDLED_IMAGE" --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^BARAKO_BUILD_SHA=//p')"
-[ -n "$expected_sha" ] || expected_sha="unknown"
+expected_sha="$(image_build_sha "$BUNDLED_IMAGE")"
 # In CI the image is built with its commit, so "unknown" there would let any image pass.
 [ "$expected_sha" != "unknown" ] || [ -z "${CI:-}" ] || fail "the image $BUNDLED_IMAGE has no BARAKO_BUILD_SHA, so the check cannot tell it from another image"
 code=""
@@ -218,11 +198,7 @@ done
 tr -d '\r' < "$WORK/tls-headers.txt" > "$WORK/tls-headers.clean"
 head -1 "$WORK/tls-headers.clean"
 cat "$WORK/tls-body.json"; echo
-python3 -c '
-import json, sys
-body = json.load(open(sys.argv[1]))
-sys.exit(0 if body == {"sha": sys.argv[2]} else 1)
-' "$WORK/tls-body.json" "$expected_sha" \
+body_is_build_sha "$WORK/tls-body.json" "$expected_sha" \
   || fail "the body from https://$CADDY_HOST/health/build is not the app's sha $expected_sha, so the request did not reach this image"
 
 step "the response carries no Server or Via header"

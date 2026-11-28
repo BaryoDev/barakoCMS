@@ -377,9 +377,11 @@ fixed subnet, Caddy has a fixed address on it, and the app trusts that one addre
 | `TRUSTED_PROXY_NETWORK` | empty | an extra trusted range in CIDR notation, if you need one |
 
 If `10.87.51.0/28` is already used on your host, by another Docker network or by a LAN or VPN route,
-set `PROXY_SUBNET` to a free range and `PROXY_ADDRESS` to the last address inside it. The app starts
-before Caddy and Docker gives it the lowest free address, so a `PROXY_ADDRESS` at the low end of the
-subnet is already taken when Caddy starts, and Caddy fails with `Address already in use`. An overlap
+set `PROXY_SUBNET` to a free range and `PROXY_ADDRESS` to the last usable address inside it, one
+below the broadcast address (`.14` in a `/28`). Set both: with `PROXY_SUBNET` alone Caddy keeps
+`10.87.51.14`, outside the new range, and does not start. The app starts before Caddy and Docker
+gives it the lowest free address, so a `PROXY_ADDRESS` at the low end of the subnet is already taken
+when Caddy starts, and Caddy fails with `Address already in use`. An overlap
 with another Docker network fails `up` with `Pool overlaps with other one on this address space`. An
 overlap with a host route does not fail anything, it just stops the containers reaching that range,
 so check `ip route` before you pick.

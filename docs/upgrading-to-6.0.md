@@ -211,6 +211,15 @@ calls them catches it.
 
 ## The upgrade
 
+Check `PROXY_ADDRESS` in your `.env` first. Caddy's default address on the `proxy` network moves
+from `10.87.51.2` to `10.87.51.14`, the last usable address of the subnet. The app starts before
+Caddy and Docker gives it the lowest free address, so Caddy at `10.87.51.2` fails with `Address
+already in use` whenever the app starts first. With no `PROXY_ADDRESS` in `.env` there is nothing to
+do: the last `up -d` below recreates `caddy` and `app`, and the network itself does not change. If
+your `.env` sets `PROXY_ADDRESS`, set it to the last usable address of your `PROXY_SUBNET` (one below
+the broadcast address, `.14` in a `/28`), or remove the line to take the default
+([deploy-in-production.md](deploy-in-production.md#client-ips-behind-caddy)).
+
 With 5.9 stopped, run the app role job, then `db-migrate`, then `db-assert`, then start 6.0. With
 compose, from the directory holding your compose file and `.env`, after setting `BARAKO_TAG` and
 `DB_APP_PASSWORD`:
@@ -240,12 +249,6 @@ none. A build that is interrupted leaves an invalid index and `db-migrate` exits
 [migrations.md](migrations.md#an-index-build-that-was-interrupted) has the fix. `db-assert` exits 0
 when the schema is what 6.0 declares. [deploy-in-production.md](deploy-in-production.md#upgrading) has the
 same steps with the reasons, and [migrations.md](migrations.md) explains the ledger.
-
-Caddy's default address on the `proxy` network moves from `10.87.51.2` to `10.87.51.14`, the last
-address of the subnet, so a fresh start no longer fails at Caddy with `Address already in use`. That
-last `up -d` recreates `caddy` and `app` with the new address, and the network itself does not
-change. If your `.env` sets `PROXY_ADDRESS`, move it to the last address of your `PROXY_SUBNET`
-([deploy-in-production.md](deploy-in-production.md#client-ips-behind-caddy)).
 
 A new migration does not need a superuser from 6.0. Run ad hoc SQL as the app role, never as the
 owner ([#1449](https://github.com/BaryoDev/barakoCMS/pull/1449)). The hand-run migrations that
