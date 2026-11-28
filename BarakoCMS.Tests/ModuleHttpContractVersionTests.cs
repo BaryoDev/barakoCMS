@@ -77,14 +77,14 @@ public class ModuleHttpContractVersionTests
     /// The modules whose routes a renderer, a site or a console calls today. Zero would leave a reader
     /// unable to tell "serves nothing" from "not versioned". Files is at 2 since a private file
     /// another user uploaded opens to a capability rather than to a role name (#886). Portability is
-    /// at 3 since an import is refused for lines that do not hold.
+    /// at 4 since its two routes were removed, and its contents go through the config routes.
     /// </summary>
     [Fact]
-    public void Portability_states_a_version_since_import_refuses_what_it_used_to_accept()
+    public void Portability_states_a_version_since_its_routes_were_removed()
     {
         IBarakoModule portability = new BarakoCMS.Portability.PortabilityModule();
 
-        portability.HttpContractVersion.Should().Be(3);
+        portability.HttpContractVersion.Should().Be(4);
     }
 
     [Fact]

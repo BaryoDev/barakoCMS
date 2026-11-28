@@ -1,23 +1,20 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using BarakoCMS.Portability;
+using BarakoCMS.Tests.Features.Config;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using barakoCMS.Models;
 
-// The Portability routes and their bundle types are obsolete, and they are what these tests are about.
-#pragma warning disable CS0618
-
 namespace BarakoCMS.Tests.Features.Portability;
 
 /// <summary>
-/// A type's uniqueness rules travel in a bundle, an import holds its records to them, and neither an
-/// import nor a spreadsheet import writes two entries holding one value.
+/// A type's uniqueness rules travel in a config document, an apply holds its entries to them, and
+/// neither an apply nor a spreadsheet import writes two entries holding one value.
 /// </summary>
-/// <remarks>A tenant per test for the bundle imports, and a type per test for the spreadsheet one.</remarks>
+/// <remarks>A tenant per test for the config applies, and a type per test for the spreadsheet import.</remarks>
 [Collection("Integration1")]
 public class UniquenessImportTests
 {
@@ -113,7 +110,15 @@ public class UniquenessImportTests
         return await session.Query<ContentTypeDefinition>().FirstOrDefaultAsync(d => d.Name == type, Ct);
     }
 
-    private static ContentRecord Record(string type, string badge) => new()
+    /// <summary>One entry of the document's <c>contents</c> section.</summary>
+    private sealed class Entry
+    {
+        public string ContentType { get; set; } = string.Empty;
+        public Dictionary<string, object> Data { get; set; } = new();
+        public string? Status { get; set; }
+    }
+
+    private static Entry Record(string type, string badge) => new()
     {
         ContentType = type,
         Data = new Dictionary<string, object> { ["Badge"] = badge },
@@ -121,14 +126,17 @@ public class UniquenessImportTests
     };
 
     private static Task<HttpResponseMessage> ImportAsync(
-        HttpClient client, List<ContentTypeDefinition> types, List<ContentRecord> contents) =>
-        client.PostAsJsonAsync("/api/portability/import", new { contentTypes = types, contents }, ApiJson.Options, Ct);
+        HttpClient client, List<ContentTypeDefinition> types, List<Entry> contents) =>
+        client.PostAsJsonAsync(
+            "/api/config/apply",
+            new { document = new { version = 1, contentTypes = types, contents }, allowDestructive = false },
+            ApiJson.Options, Ct);
 
     private static async Task<string> BodyAsync(HttpResponseMessage response) =>
         (await response.Content.ReadAsStringAsync(Ct)).Replace("\\u0027", "'");
 
     [Fact]
-    public async Task A_bundle_with_two_records_holding_one_value_is_refused_naming_the_second()
+    public async Task An_apply_with_two_records_holding_one_value_is_refused_naming_the_second()
     {
         var tenant = await TenantAsync();
         var client = await AdminOfAsync(tenant);
@@ -139,9 +147,9 @@ public class UniquenessImportTests
         var body = await BodyAsync(response);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
-        body.Should().Contain("contents[1]").And.Contain(Rule);
-        body.Should().NotContain("contents[0]").And.NotContain("contents[2]");
-        (await StoredAsync(tenant, type)).Should().BeNull("the import is all or nothing");
+        body.Should().Contain("'#1'").And.Contain(Rule);
+        body.Should().NotContain("'#0'").And.NotContain("'#2'");
+        (await StoredAsync(tenant, type)).Should().BeNull("an apply is all or nothing");
     }
 
     [Fact]
@@ -160,9 +168,9 @@ public class UniquenessImportTests
         var body = await BodyAsync(response);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
-        body.Should().Contain("contents[1]").And.Contain("contents[2]");
-        body.Should().NotContain("contents[0]");
-        (await StoredAsync(tenant, type)).Should().BeNull("the import is all or nothing");
+        body.Should().Contain("'#1'").And.Contain("'#2'");
+        body.Should().NotContain("'#0'");
+        (await StoredAsync(tenant, type)).Should().BeNull("an apply is all or nothing");
     }
 
     [Fact]
@@ -172,7 +180,7 @@ public class UniquenessImportTests
         var client = await AdminOfAsync(tenant);
         var type = NewType();
         var blank = Record(type, "S-1");
-        blank.Status = null!;
+        blank.Status = null;
         var lower = Record(type, "S-2");
         lower.Status = "draft";
 
@@ -188,21 +196,20 @@ public class UniquenessImportTests
     }
 
     [Fact]
-    public async Task A_type_exports_its_rules_and_another_tenant_imports_them()
+    public async Task A_type_exports_its_rules_and_another_tenant_applies_them()
     {
         var source = await TenantAsync();
         var destination = await TenantAsync();
         var type = NewType();
         await StoreTypeAsync(source, Register(type, BadgeRule()));
 
-        var exported = await (await AdminOfAsync(source)).GetAsync($"/api/portability/export?types={type}", Ct);
-        exported.StatusCode.Should().Be(HttpStatusCode.OK);
-        var bundle = await exported.Content.ReadFromJsonAsync<PortabilityBundle>(ApiJson.Options, Ct);
-        bundle!.ContentTypes.Should().HaveCount(1);
-        bundle.ContentTypes[0].Uniqueness.Should().HaveCount(1);
+        var (exported, document) = await ConfigCallers.ExportAsync(await AdminOfAsync(source), "contentTypes");
+        exported.StatusCode.Should().Be(HttpStatusCode.OK, document.ToString());
+        document.GetProperty("contentTypes").GetProperty(type).GetProperty("uniqueness").GetArrayLength().Should().Be(1);
 
-        var imported = await ImportAsync(await AdminOfAsync(destination), bundle.ContentTypes, []);
-        imported.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(imported));
+        var applied = await (await AdminOfAsync(destination)).PostAsJsonAsync(
+            "/api/config/apply", new { document, allowDestructive = false }, Ct);
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, await BodyAsync(applied));
 
         var stored = await StoredAsync(destination, type);
         stored!.Uniqueness.Should().HaveCount(1);
@@ -211,7 +218,7 @@ public class UniquenessImportTests
     }
 
     [Fact]
-    public async Task A_bundle_creating_a_type_whose_rule_names_an_undeclared_field_is_refused()
+    public async Task An_apply_creating_a_type_whose_rule_names_an_undeclared_field_is_refused()
     {
         var tenant = await TenantAsync();
         var type = NewType();
@@ -226,7 +233,7 @@ public class UniquenessImportTests
     }
 
     [Fact]
-    public async Task A_bundle_that_changes_a_stored_types_rules_is_refused()
+    public async Task An_apply_that_changes_a_stored_types_rules_is_refused()
     {
         var tenant = await TenantAsync();
         var type = NewType();
@@ -242,7 +249,7 @@ public class UniquenessImportTests
     }
 
     [Fact]
-    public async Task A_bundle_with_no_rules_keeps_the_stored_ones()
+    public async Task An_apply_with_no_rules_keeps_the_stored_ones()
     {
         var tenant = await TenantAsync();
         var type = NewType();
@@ -256,7 +263,7 @@ public class UniquenessImportTests
     }
 
     [Fact]
-    public async Task A_bundle_leaving_out_a_field_a_stored_rule_compares_is_refused()
+    public async Task An_apply_leaving_out_a_field_a_stored_rule_compares_is_refused()
     {
         var tenant = await TenantAsync();
         var type = NewType();

@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 using barakoCMS.Core.Interfaces;
+using BarakoCMS.Tests.Features.Config;
 using barakoCMS.Features.Workflows;
 using barakoCMS.Features.Workflows.Actions;
 using barakoCMS.Infrastructure.Services;
@@ -167,38 +168,30 @@ public class RequireContentTypeTests(IntegrationTestFixture host)
     }
 
     [Fact]
-    public async Task On_the_portability_import_refuses_a_record_of_an_undefined_type()
+    public async Task On_a_config_apply_refuses_a_record_of_an_undefined_type()
     {
         var type = Undefined();
 
-        var response = await (await ClientAsync(On())).PostAsJsonAsync("/api/portability/import", new
-        {
-            contentTypes = Array.Empty<object>(),
-            contents = new[] { new { contentType = type, data = Data(), status = "Draft" } },
-        }, Ct);
+        var (status, body) = await BundleCalls.ApplyAsync(
+            await ClientAsync(On()), [], [new { contentType = type, data = Data(), status = "Draft" }]);
 
-        var body = await response.Content.ReadAsStringAsync(Ct);
-        response.IsSuccessStatusCode.Should().BeFalse(body);
+        ((int)status).Should().BeGreaterThanOrEqualTo(400, body);
         body.Should().Contain(type).And.Contain("has no definition");
         (await RowsAsync(type)).Should().Be(0);
     }
 
-    /// <summary>A bundle that defines a type and carries its entries is not refused for that type.</summary>
+    /// <summary>A document that defines a type and carries its entries is not refused for that type.</summary>
     [Fact]
-    public async Task On_the_portability_import_accepts_a_record_of_a_type_the_same_bundle_defines()
+    public async Task On_a_config_apply_accepts_a_record_of_a_type_the_same_document_defines()
     {
         var type = Undefined();
 
-        var response = await (await ClientAsync(On())).PostAsJsonAsync("/api/portability/import", new
-        {
-            contentTypes = new[]
-            {
-                new { name = type, displayName = type, fields = new[] { new { name = "Title", type = "string" } } },
-            },
-            contents = new[] { new { contentType = type, data = Data(), status = "Draft" } },
-        }, Ct);
+        var (status, body) = await BundleCalls.ApplyAsync(
+            await ClientAsync(On()),
+            [new { name = type, displayName = type, fields = new[] { new { name = "Title", type = "string" } } }],
+            [new { contentType = type, data = Data(), status = "Draft" }]);
 
-        response.IsSuccessStatusCode.Should().BeTrue(await response.Content.ReadAsStringAsync(Ct));
+        status.Should().Be(HttpStatusCode.OK, body);
         (await RowsAsync(type)).Should().Be(1);
     }
 

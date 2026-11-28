@@ -15,6 +15,7 @@ using barakoCMS.Infrastructure.Jobs;
 using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using BarakoCMS.Tests.Features.Collections;
+using BarakoCMS.Tests.Features.Config;
 using BarakoCMS.Tests.Features.Tenants;
 using Probe = BarakoCMS.Tests.TokenFieldProbe;
 
@@ -234,7 +235,7 @@ public class ComputedExpressionWriterTests
     }
 
     [Fact]
-    public async Task A_bundle_import_stores_the_value_the_formula_gives()
+    public async Task A_document_apply_stores_the_value_the_formula_gives()
     {
         var slug = await TenantProfileSeed.TenantAsync(_fixture, Ct);
         var admin = await TenantProfileSeed.AdminInAsync(_fixture, slug, Ct);
@@ -248,17 +249,12 @@ public class ComputedExpressionWriterTests
         (await admin.PostAsJsonAsync("/api/content-types", new { name = type, displayName = type, fields }, Ct))
             .StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var imported = await admin.PostAsJsonAsync("/api/portability/import", new
-        {
-            dryRun = false,
-            contentTypes = new[] { new { name = type, displayName = type, fields } },
-            contents = new[]
-            {
-                new { contentType = type, data = new Dictionary<string, object> { ["Qty"] = 3, ["Cost"] = 4 }, status = "Published" },
-            },
-        }, Ct);
+        var (status, body) = await BundleCalls.ApplyAsync(
+            admin,
+            [new { name = type, displayName = type, fields }],
+            [new { contentType = type, data = new Dictionary<string, object> { ["Qty"] = 3, ["Cost"] = 4 }, status = "Published" }]);
 
-        imported.StatusCode.Should().Be(HttpStatusCode.OK, await imported.Content.ReadAsStringAsync(Ct));
+        status.Should().Be(HttpStatusCode.OK, body);
         Computed((await EntriesAsync(type, slug)).Single()).Should().Be(Worked);
     }
 

@@ -99,11 +99,17 @@ public sealed class EnabledModuleEndpointTests(EnabledModuleEndpointTests.Host h
     }
 
     [Fact]
-    public async Task A_module_left_off_the_enabled_list_has_no_endpoints()
+    public async Task A_module_left_off_the_enabled_list_has_no_config_section()
     {
-        var response = await host.App.GetTestClient().GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
+        var userId = await SeedUserAsync(barakoCMS.Models.SystemRoles.SuperAdminRoleId);
 
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var response = await Client(fixture.CreateToken(["SuperAdmin"], userId.ToString()))
+            .GetAsync("/api/config/export?sections=contents", TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        var document = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        document.RootElement.TryGetProperty("contents", out _).Should().BeFalse(
+            "the module's section is only there when the module is enabled");
     }
 
     /// <summary>

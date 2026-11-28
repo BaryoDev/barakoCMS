@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using BarakoCMS.Tests.Features.Config;
 using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,39 +11,51 @@ using Xunit;
 namespace BarakoCMS.Tests.Features.Portability;
 
 /// <summary>
-/// Importing a bundle that carries both the content types and the content is the case import exists
-/// for: seeding a new site from an export. It is also the case that was broken, because everything a
-/// record needs in order to be found is decided by the type it arrives alongside.
+/// Applying a document that carries both the content types and the entries is the case the
+/// <c>contents</c> section exists for: seeding a new site from an export. It is also the case that
+/// was broken, because everything an entry needs in order to be found is decided by the type it
+/// arrives alongside.
 /// </summary>
 /// <remarks>
-/// An import into an already-configured site works, which is why this survives casual testing.
+/// An apply into an already-configured site works, which is why this survives casual testing.
 /// See issue #168.
 /// </remarks>
 [Collection("Integration1")]
 public class ImportTests : IAsyncLifetime
 {
     private readonly IntegrationTestFixture _fixture;
-    private readonly HttpClient _client;
+    private readonly ConfigCallers _callers;
+    private HttpClient _client = null!;
     private readonly HttpClient _anonymous;
 
     public ImportTests(IntegrationTestFixture fixture)
     {
         _fixture = fixture;
-        _client = fixture.CreateClient();
+        _callers = new ConfigCallers(fixture);
         _anonymous = fixture.CreateClient();
     }
 
     /// <summary>
-    /// The token needs a stored user, which is a write, which cannot happen in a constructor.
+    /// The caller needs a stored user, which is a write, which cannot happen in a constructor.
     /// </summary>
     /// <remarks>
     /// The capability gate answers from the stored user's roles rather than from the claim, so a
     /// token minted with no user behind it reaches nothing once the role-name fallback is off.
     /// </remarks>
-    public async ValueTask InitializeAsync() =>
-        _client.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue(
-                "Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin", "Admin"));
+    public async ValueTask InitializeAsync() => _client = await _callers.SuperAdminAsync(null);
+
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    /// <summary>Applies a document of <c>contentTypes</c> and <c>contents</c> to the default tenant.</summary>
+    private Task<(HttpStatusCode Status, string Body)> ApplyAsync(object bundle, bool dryRun = false)
+    {
+        var body = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(bundle));
+        return BundleCalls.ApplyAsync(
+            _client,
+            body.GetProperty("contentTypes").EnumerateArray().Select(e => (object)e),
+            body.GetProperty("contents").EnumerateArray().Select(e => (object)e),
+            dryRun);
+    }
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
@@ -83,11 +96,9 @@ public class ImportTests : IAsyncLifetime
     {
         var type = "imported" + Guid.NewGuid().ToString("n")[..8];
 
-        var response = await _client.PostAsJsonAsync(
-            "/api/portability/import", Bundle(type, deliverable: true, title: "Findable Kumquat"));
+        var (status, body) = await ApplyAsync(Bundle(type, deliverable: true, title: "Findable Kumquat"));
 
-        response.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}",
-            response.StatusCode, await response.Content.ReadAsStringAsync());
+        status.Should().Be(HttpStatusCode.OK, body);
 
         var search = await _anonymous.GetAsync($"/api/public/{type}/search?q=kumquat");
 
@@ -108,24 +119,23 @@ public class ImportTests : IAsyncLifetime
     {
         var type = "private" + Guid.NewGuid().ToString("n")[..8];
 
-        var response = await _client.PostAsJsonAsync(
-            "/api/portability/import", Bundle(type, deliverable: false, title: "Hidden Kumquat"));
-        response.IsSuccessStatusCode.Should().BeTrue();
+        var (status, body) = await ApplyAsync(Bundle(type, deliverable: false, title: "Hidden Kumquat"));
+        status.Should().Be(HttpStatusCode.OK, body);
 
         (await _anonymous.GetAsync($"/api/public/{type}/search?q=kumquat")).StatusCode
             .Should().Be(HttpStatusCode.NotFound);
     }
 
     /// <summary>
-    /// A record whose type is nowhere to be found is still imported, but the report says so rather
-    /// than leaving it to be discovered as content that never appears in search.
+    /// A record whose type is nowhere to be found is still applied, as an entry of a type with no
+    /// definition is on any write while the required-type rule is off.
     /// </summary>
     [Fact]
-    public async Task A_record_with_no_content_type_anywhere_is_reported()
+    public async Task A_record_with_no_content_type_anywhere_is_still_applied()
     {
         var missing = "nosuchtype" + Guid.NewGuid().ToString("n")[..8];
 
-        var response = await _client.PostAsJsonAsync("/api/portability/import", new
+        var (status, body) = await ApplyAsync(new
         {
             contentTypes = Array.Empty<object>(),
             contents = new[]
@@ -139,75 +149,59 @@ public class ImportTests : IAsyncLifetime
             },
         });
 
-        response.IsSuccessStatusCode.Should().BeTrue();
-
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        document.RootElement.GetProperty("contentsWithoutContentType").GetInt32().Should().Be(1);
-        document.RootElement.GetProperty("unknownContentTypes").EnumerateArray()
-            .Select(e => e.GetString()).Should().Contain(missing);
+        status.Should().Be(HttpStatusCode.OK, body);
+        using var scope = _fixture.Services.CreateScope();
+        var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        (await session.Query<Content>().CountAsync(c => c.ContentType == missing, Ct)).Should().Be(1);
     }
 
     /// <summary>
-    /// And a dry run reports the same thing, which it could not do while the type lookup was a
-    /// snapshot the dry run never added to.
+    /// And a plan names the type and the entry as creates, which it could not do while the type
+    /// lookup was a snapshot the plan never added to, and writes nothing.
     /// </summary>
     [Fact]
-    public async Task A_dry_run_does_not_report_a_type_the_bundle_itself_creates_as_unknown()
+    public async Task A_plan_names_a_type_the_document_itself_creates_and_writes_nothing()
     {
         var type = "dryrun" + Guid.NewGuid().ToString("n")[..8];
 
-        var bundle = Bundle(type, deliverable: true, title: "Preview Kumquat");
-        var body = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(bundle));
+        var (status, body) = await ApplyAsync(Bundle(type, deliverable: true, title: "Preview Kumquat"), dryRun: true);
 
-        var payload = new Dictionary<string, object>
-        {
-            ["dryRun"] = true,
-            ["contentTypes"] = body.GetProperty("contentTypes"),
-            ["contents"] = body.GetProperty("contents"),
-        };
-
-        var response = await _client.PostAsJsonAsync("/api/portability/import", payload);
-        response.IsSuccessStatusCode.Should().BeTrue();
-
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        document.RootElement.GetProperty("dryRun").GetBoolean().Should().BeTrue();
-        document.RootElement.GetProperty("contentsWithoutContentType").GetInt32().Should().Be(0,
-            "the bundle carries the type, so a preview must not report the record as orphaned");
+        status.Should().Be(HttpStatusCode.OK, body);
+        using var document = JsonDocument.Parse(body);
+        document.RootElement.GetProperty("applied").GetBoolean().Should().BeFalse();
+        ConfigCallers.Changes(document.RootElement).Should().Contain($"contentTypes/{type} create");
+        ConfigCallers.Changes(document.RootElement).Count(c => c.StartsWith("contents/", StringComparison.Ordinal)).Should().Be(1);
+        document.RootElement.GetProperty("sections").EnumerateArray()
+            .SelectMany(sec => sec.GetProperty("errors").EnumerateArray()).Should().BeEmpty(
+                "the document carries the type, so the entry is not refused for lacking one");
 
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
-        (await session.Query<ContentTypeDefinition>().AnyAsync(d => d.Name == type))
-            .Should().BeFalse("a dry run writes nothing");
+        (await session.Query<ContentTypeDefinition>().AnyAsync(d => d.Name == type, Ct))
+            .Should().BeFalse("a plan writes nothing");
     }
 
     /// <summary>
-    /// An imported content type is stored under the same normalized name a created one would get.
+    /// A content type applied from a document is stored under the same normalized name a created one
+    /// would get.
     /// </summary>
     /// <remarks>
-    /// The create endpoint slugified the name to lowercase and the importer stored the file's own
-    /// spelling, while the unique index is on the raw value.
-    ///
-    /// The sequential case was never broken: the importer looks up an existing type with
-    /// OrdinalIgnoreCase, so importing "Article" over a created "article" matches and updates. What
-    /// the raw name left open is the race, where two concurrent imports both miss the lookup and the
-    /// index is the only thing left, and it considered "Article" and "article" different rows.
-    ///
-    /// Racing two imports is not something this suite can do deterministically, so this asserts the
-    /// property that closes it: what gets written is normalized, so the index compares like with
-    /// like. Reverting the importer fails this on the stored value.
+    /// The create endpoint slugified the name to lowercase and a writer that kept the file's own
+    /// spelling left a name the unique index, which is on the raw value, would not recognise as a
+    /// duplicate of a created one. Racing two applies is not something this suite can do
+    /// deterministically, so this asserts the property that closes it: what gets written is
+    /// normalized, so the index compares like with like.
     /// </remarks>
     [Fact]
-    public async Task An_imported_type_is_stored_under_its_normalized_name()
+    public async Task An_applied_type_is_stored_under_its_normalized_name()
     {
         var lower = "casing" + Guid.NewGuid().ToString("n")[..8];
         var mixed = char.ToUpperInvariant(lower[0]) + lower[1..];
 
-        // A type that does not exist yet, so the importer takes the create branch rather than
+        // A type that does not exist yet, so the apply takes the create branch rather than
         // matching an existing row. That branch is the one the index has to police.
-        var imported = await _client.PostAsJsonAsync(
-            "/api/portability/import", Bundle(mixed, deliverable: true, title: "Case Variant"));
-        imported.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}",
-            imported.StatusCode, await imported.Content.ReadAsStringAsync());
+        var (status, body) = await ApplyAsync(Bundle(mixed, deliverable: true, title: "Case Variant"));
+        status.Should().Be(HttpStatusCode.OK, body);
 
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<Marten.IQuerySession>();
@@ -217,9 +211,10 @@ public class ImportTests : IAsyncLifetime
 
         stored.Select(x => x.Name).Should().BeEquivalentTo([lower],
             "a create would have stored this name lowercased, and the unique index compares the "
-            + "stored value, so an importer that keeps the file's spelling leaves a name the index "
+            + "stored value, so a writer that keeps the file's spelling leaves a name the index "
             + "will not recognise as a duplicate of the created one");
     }
+
     private static object[] ManyFields(int count) =>
         Enumerable.Range(1, count)
             .Select(i => (object)new { name = $"Field{i}", displayName = $"Field {i}", type = "string" })
@@ -261,58 +256,56 @@ public class ImportTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// Import is another way a content type comes into existence, so the field cap (#650) applies
+    /// An apply is another way a content type comes into existence, so the field cap (#650) applies
     /// to it the same as to create.
     /// </summary>
     [Fact]
-    public async Task A_bundle_type_with_one_field_more_than_the_cap_is_refused_and_nothing_is_stored()
+    public async Task A_document_type_with_one_field_more_than_the_cap_is_refused_and_nothing_is_stored()
     {
         var cap = barakoCMS.Infrastructure.Services.ContentTypeFieldLimit.Default;
         var type = "importcap" + Guid.NewGuid().ToString("n")[..8];
 
-        var response = await _client.PostAsJsonAsync("/api/portability/import", CappedBundle(type, cap + 1));
+        var (status, body) = await ApplyAsync(CappedBundle(type, cap + 1));
 
-        var body = await response.Content.ReadAsStringAsync();
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
+        status.Should().Be(HttpStatusCode.BadRequest, body);
         body.Should().Contain(type).And.Contain($"at most {cap} fields");
 
-        (await StoredTypeAsync(type)).Should().BeNull("a refused import must not leave the type behind");
+        (await StoredTypeAsync(type)).Should().BeNull("a refused apply must not leave the type behind");
         using var scope = _fixture.Services.CreateScope();
         var session = scope.ServiceProvider.GetRequiredService<IQuerySession>();
         (await session.Query<barakoCMS.Models.Content>().AnyAsync(c => c.ContentType == type))
-            .Should().BeFalse("a refused import must not create the bundle's content either");
+            .Should().BeFalse("a refused apply must not create the document's entries either");
     }
 
     [Fact]
-    public async Task An_import_may_not_grow_a_stored_type_past_the_cap()
+    public async Task An_apply_may_not_grow_a_stored_type_past_the_cap()
     {
         var cap = barakoCMS.Infrastructure.Services.ContentTypeFieldLimit.Default;
         var type = "importgrow" + Guid.NewGuid().ToString("n")[..8];
         await StoreTypeAsync(type, cap);
 
-        var response = await _client.PostAsJsonAsync("/api/portability/import", CappedBundle(type, cap + 1));
+        var (status, body) = await ApplyAsync(CappedBundle(type, cap + 1));
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        status.Should().Be(HttpStatusCode.BadRequest, body);
         (await StoredTypeAsync(type))!.Fields.Should().HaveCount(cap, "the refused fields must not have been written");
     }
 
     /// <summary>
-    /// The positive control: a type already stored over the cap round-trips through import at its
+    /// The positive control: a type already stored over the cap round-trips through an apply at its
     /// own size, because only growth is refused. This passes with or without the cap.
     /// </summary>
     [Fact]
-    public async Task A_type_stored_over_the_cap_can_be_imported_again_at_its_size()
+    public async Task A_type_stored_over_the_cap_can_be_applied_again_at_its_size()
     {
         var cap = barakoCMS.Infrastructure.Services.ContentTypeFieldLimit.Default;
         var type = "importover" + Guid.NewGuid().ToString("n")[..8];
         await StoreTypeAsync(type, cap + 50);
 
-        var response = await _client.PostAsJsonAsync(
-            "/api/portability/import", CappedBundle(type, cap + 50, deliverable: true));
+        var (status, body) = await ApplyAsync(CappedBundle(type, cap + 50, deliverable: true));
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        status.Should().Be(HttpStatusCode.OK, body);
         var stored = await StoredTypeAsync(type);
         stored!.Fields.Should().HaveCount(cap + 50);
-        stored.IsPubliclyDeliverable.Should().BeTrue("the rest of the imported definition still applies");
+        stored.IsPubliclyDeliverable.Should().BeTrue("the rest of the applied definition still applies");
     }
 }

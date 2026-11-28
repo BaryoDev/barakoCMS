@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
-using BarakoCMS.Portability;
 using FluentAssertions;
 using Marten;
 using Microsoft.AspNetCore.Hosting;
@@ -10,12 +9,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using barakoCMS.Models;
 
-#pragma warning disable CS0618
-
 namespace BarakoCMS.Tests;
 
 /// <summary>
-/// The bundle export and the preview mint ask Postgres for the entries they need, not for every
+/// The config export of entries and the preview mint ask Postgres for the entries they need, not for every
 /// entry of the tenant or of the type.
 /// </summary>
 /// <remarks>
@@ -99,28 +96,26 @@ public class BoundedLoadTests
                           && System.Text.RegularExpressions.Regex.IsMatch(sql, @"\b" + table + @"\b"));
 
     [Fact]
-    public async Task Export_of_named_types_filters_the_entries_in_postgres()
+    public async Task Export_of_entries_reads_a_bounded_number_in_postgres()
     {
         var wanted = await SeedTypeAsync("bl-exp-a", "one", "two");
-        var other = await SeedTypeAsync("bl-exp-b", "three");
         await AuthenticateAsync();
         _logger.Commands.Clear();
 
         var response = await _client.GetAsync(
-            "/api/portability/export?types=" + wanted, TestContext.Current.CancellationToken);
+            "/api/config/export?sections=contents", TestContext.Current.CancellationToken);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
-        var bundle = (await response.Content.ReadFromJsonAsync<PortabilityBundle>(ApiJson.Options, TestContext.Current.CancellationToken))!;
-        bundle.Contents.Should().HaveCount(2);
-        bundle.Contents.Should().OnlyContain(c => c.ContentType == wanted);
-        bundle.Contents.Should().NotContain(c => c.ContentType == other);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, body);
+        using var document = JsonDocument.Parse(body);
+        document.RootElement.GetProperty("contents").EnumerateObject()
+            .Where(e => e.Value.GetProperty("contentType").GetString() == wanted)
+            .Should().HaveCount(2);
 
         var selects = SelectsFrom("mt_doc_contents").ToList();
         selects.Should().NotBeEmpty("the export has to read the entries from the content table");
-        selects.Should().OnlyContain(sql => sql.Contains("ANY(", StringComparison.Ordinal),
-            "an export of named types must not read every entry of the tenant and filter in memory");
-        SelectsFrom("mt_doc_contenttypedefinition").Should().NotBeEmpty(
-            "the type definitions are read separately and are not what this test is about");
+        selects.Should().Contain(sql => sql.Contains("limit", StringComparison.OrdinalIgnoreCase),
+            "the read stops at the most an apply takes, in the database, not after loading every entry");
     }
 
     [Fact]

@@ -20,7 +20,7 @@ namespace BarakoCMS.Tests;
 
 /// <summary>
 /// <c>BarakoCMS.Testing</c>, proved on a real module. Portability is the smallest first-party one:
-/// one capability-gated endpoint, a seeder that grants Admin its capabilities, and no settings.
+/// one capability-gated config section, a seeder that grants Admin its capabilities, and no settings.
 /// </summary>
 /// <remarks>
 /// A fixture that stood in for the host it doubles is what the main suite got wrong for a long
@@ -71,6 +71,10 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
 
     private readonly Host _host;
 
+    private const string ModuleExport = "/api/config/export?sections=contents";
+
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
     public BarakoTestHostTests(Host host) => _host = host;
 
     [Fact]
@@ -78,17 +82,17 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
     {
         var client = await _host.CreateAdminClientAsync(TestContext.Current.CancellationToken);
 
-        var response = await client.GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
+        var response = await client.GetAsync(ModuleExport, Ct);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var bundle = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
-        bundle.TryGetProperty("contentTypes", out _).Should().BeTrue("the module answered with its own bundle shape");
+        var document = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        document.TryGetProperty("contents", out _).Should().BeTrue("the module answered with its own section");
     }
 
     [Fact]
     public async Task An_anonymous_caller_is_refused()
     {
-        var response = await _host.CreateClient().GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
+        var response = await _host.CreateClient().GetAsync(ModuleExport, Ct);
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
@@ -101,10 +105,13 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
         var admin = await _host.CreateClientAsync("Admin", TestContext.Current.CancellationToken);
         var user = await _host.CreateClientAsync("User", TestContext.Current.CancellationToken);
 
-        var reached = await admin.GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
-        var refused = await user.GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
+        var reached = await admin.GetAsync(ModuleExport, Ct);
+        var refused = await user.GetAsync(ModuleExport, Ct);
 
-        reached.StatusCode.Should().Be(HttpStatusCode.OK, "PortabilityModule.SeedAsync grants export_content to Admin");
+        reached.StatusCode.Should().Be(HttpStatusCode.OK);
+        var document = await reached.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        document.TryGetProperty("contents", out _).Should().BeTrue(
+            "PortabilityModule.SeedAsync grants export_content to Admin, or the section would be withheld");
         refused.StatusCode.Should().Be(HttpStatusCode.Forbidden, "User was never granted anything by the module");
     }
 
@@ -140,8 +147,8 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
         var defaultAdmin = await _host.CreateAdminClientAsync(TestContext.Current.CancellationToken);
         defaultAdmin.DefaultRequestHeaders.Add("X-Tenant", slug);
 
-        var own = await tenantAdmin.GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
-        var replayed = await defaultAdmin.GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
+        var own = await tenantAdmin.GetAsync(ModuleExport, Ct);
+        var replayed = await defaultAdmin.GetAsync(ModuleExport, Ct);
 
         own.StatusCode.Should().Be(HttpStatusCode.OK, "the admin was given a membership and a token for that tenant");
         replayed.StatusCode.Should().Be(HttpStatusCode.Forbidden, "a token minted for the default tenant is not valid on another");
@@ -171,13 +178,16 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
         // Stored first, so a lookup by name alone finds the other tenant's role before this one.
         var other = await _host.CreateTenantAsync(ct: TestContext.Current.CancellationToken);
         var slug = await _host.CreateTenantAsync(ct: TestContext.Current.CancellationToken);
-        await StoreRoleAsync("Exporter", other, capabilities: []);
-        await StoreRoleAsync("Exporter", slug, capabilities: [PortabilityCapabilities.ExportContent]);
+        await StoreRoleAsync("Exporter", other, capabilities: [SystemCapabilities.ManageConfig]);
+        await StoreRoleAsync("Exporter", slug, capabilities: [SystemCapabilities.ManageConfig, PortabilityCapabilities.ExportContent]);
 
-        var client = await _host.CreateClientAsync(["Exporter"], slug, TestContext.Current.CancellationToken);
-        var response = await client.GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
+        var client = await _host.CreateClientAsync(["Exporter"], slug, Ct);
+        var response = await client.GetAsync(ModuleExport, Ct);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK, "the client holds its own tenant's Exporter, which grants export_content");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var document = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        document.TryGetProperty("contents", out _).Should().BeTrue(
+            "the client holds its own tenant's Exporter, which grants export_content, not the other tenant's, which does not");
     }
 
     [Fact]
@@ -185,7 +195,7 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
     {
         var other = await _host.CreateTenantAsync(ct: TestContext.Current.CancellationToken);
         var name = $"Foreign-{Guid.NewGuid():N}"[..16];
-        await StoreRoleAsync(name, other, capabilities: [PortabilityCapabilities.ExportContent]);
+        await StoreRoleAsync(name, other, capabilities: [SystemCapabilities.ManageConfig, PortabilityCapabilities.ExportContent]);
 
         var client = await _host.CreateClientAsync(name, TestContext.Current.CancellationToken);
         var roles = new JwtSecurityTokenHandler()
@@ -264,7 +274,7 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
         });
         await production.InitializeAsync();
 
-        var response = await production.CreateClient().GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
+        var response = await production.CreateClient().GetAsync(ModuleExport, Ct);
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "the host started and routed the request");
     }
@@ -307,7 +317,7 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
     }
 
     [Fact]
-    public async Task A_host_running_no_modules_does_not_serve_the_module_endpoint()
+    public async Task A_host_running_no_modules_does_not_serve_the_module_section()
     {
         // Registration is what puts a module's endpoints in the host, so the same request on a host
         // without the module has to miss. Its own container, so it costs a few seconds.
@@ -315,8 +325,10 @@ public class BarakoTestHostTests : IClassFixture<BarakoTestHostTests.Host>
         await bare.InitializeAsync();
 
         var client = await bare.CreateAdminClientAsync(TestContext.Current.CancellationToken);
-        var response = await client.GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
+        var response = await client.GetAsync(ModuleExport, Ct);
 
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var document = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        document.TryGetProperty("contents", out _).Should().BeFalse("no module registered the section");
     }
 }

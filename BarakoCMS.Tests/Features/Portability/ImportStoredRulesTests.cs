@@ -1,81 +1,29 @@
 using System.Net;
-using System.Net.Http.Json;
-using BarakoCMS.Portability;
+using System.Text.Json.Nodes;
+using BarakoCMS.Tests.Features.Config;
 using FluentAssertions;
-using Marten;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using barakoCMS.Models;
-
-// The Portability routes and their bundle types are obsolete, and they are what these tests are about.
-#pragma warning disable CS0618
 
 namespace BarakoCMS.Tests.Features.Portability;
 
 /// <summary>
-/// A type saved before rules were checked may store a rule a save refuses today. An import does not
-/// refuse a bundle over that rule when the target already stores it, and still checks every field
-/// the bundle adds or changes.
+/// A type saved before rules were checked may store a rule a save refuses today. A config apply does
+/// not refuse a document over that rule when the target already stores it, and still checks every
+/// field the document adds or changes.
 /// </summary>
 [Collection("Integration1")]
 public class ImportStoredRulesTests
 {
     private const string UnknownRule = "matches";
 
-    private static int _ipCounter;
+    private readonly ConfigCallers _callers;
 
-    private readonly IntegrationTestFixture _fixture;
+    public ImportStoredRulesTests(IntegrationTestFixture fixture) => _callers = new ConfigCallers(fixture);
 
-    public ImportStoredRulesTests(IntegrationTestFixture fixture) => _fixture = fixture;
+    private Task<string> TenantAsync() => _callers.TenantAsync();
 
-    private static CancellationToken Ct => TestContext.Current.CancellationToken;
-
-    private async Task<string> TenantAsync()
-    {
-        using var scope = _fixture.Services.CreateScope();
-        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-        var slug = $"rule-{Guid.NewGuid():N}"[..14].ToLowerInvariant();
-        session.Store(new Tenant { Id = Guid.NewGuid(), Slug = slug, Name = slug });
-        await session.SaveChangesAsync(Ct);
-        return slug;
-    }
-
-    private async Task<HttpClient> AdminOfAsync(string tenantSlug)
-    {
-        var userId = Guid.NewGuid();
-
-        using (var scope = _fixture.Services.CreateScope())
-        {
-            var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
-            session.Store(new User
-            {
-                Id = userId,
-                Username = $"rule-{Guid.NewGuid():n}"[..14],
-                Email = $"rule-{Guid.NewGuid():n}@example.com",
-                RoleIds = [SystemRoles.SuperAdminRoleId],
-            });
-            session.Store(new Membership
-            {
-                Id = Guid.NewGuid(),
-                UserId = userId,
-                TenantSlug = tenantSlug,
-                Status = MembershipStatus.Active,
-                RoleIds = [SystemRoles.SuperAdminRoleId],
-            });
-            await session.SaveChangesAsync(Ct);
-        }
-
-        var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-            "Bearer", _fixture.CreateToken(
-                roles: ["SuperAdmin", "Admin"],
-                userId: userId.ToString(),
-                additionalClaims: new Dictionary<string, string> { ["tenant"] = tenantSlug }));
-        client.DefaultRequestHeaders.Add("X-Tenant", tenantSlug);
-        client.DefaultRequestHeaders.Add(
-            TestRemoteIpFilter.Header, $"198.51.101.{Interlocked.Increment(ref _ipCounter) % 200 + 20}");
-        return client;
-    }
+    private Task<HttpClient> AdminOfAsync(string tenantSlug) => _callers.SuperAdminAsync(tenantSlug);
 
     /// <summary>
     /// Stored straight into the tenant, because no endpoint accepts this rule any more and the point
@@ -85,9 +33,7 @@ public class ImportStoredRulesTests
     {
         var type = $"legacy{Guid.NewGuid():n}"[..14];
 
-        var store = _fixture.Services.GetRequiredService<IDocumentStore>();
-        await using var session = store.LightweightSession(tenantSlug);
-        session.Store(new ContentTypeDefinition
+        await _callers.StoreInTenantAsync(tenantSlug, new ContentTypeDefinition
         {
             Id = Guid.NewGuid(),
             Name = type,
@@ -103,49 +49,49 @@ public class ImportStoredRulesTests
                 },
             ],
         });
-        await session.SaveChangesAsync(Ct);
 
         return type;
     }
 
-    private static async Task<PortabilityBundle> ExportAsync(HttpClient client, string type)
+    /// <summary>The type as <c>GET /api/config/export</c> writes it, with its rules.</summary>
+    private static async Task<JsonObject> ExportAsync(HttpClient client, string type)
     {
-        var exported = await client.GetAsync($"/api/portability/export?types={type}", Ct);
-        exported.StatusCode.Should().Be(HttpStatusCode.OK);
+        var (exported, body) = await ConfigCallers.ExportAsync(client, "contentTypes");
+        exported.StatusCode.Should().Be(HttpStatusCode.OK, body.ToString());
 
-        var bundle = await exported.Content.ReadFromJsonAsync<PortabilityBundle>(ApiJson.Options, Ct);
+        var document = JsonNode.Parse(body.GetRawText())!.AsObject();
 
-        // The rule has to be in the bundle, or the import below proves nothing about it.
-        bundle!.ContentTypes.Should().HaveCount(1);
-        bundle.ContentTypes[0].Fields.Should().HaveCount(1);
-        bundle.ContentTypes[0].Fields[0].ValidationRules.Should().HaveCount(2);
-        bundle.ContentTypes[0].Fields[0].ValidationRules.Should().ContainKey(UnknownRule);
+        // The rule has to be in the document, or the apply below proves nothing about it.
+        document["contentTypes"]!.AsObject().Select(p => p.Key).Should().ContainSingle().Which.Should().Be(type);
+        var fields = Fields(document, type);
+        fields.Count.Should().Be(1);
+        fields[0]!["validationRules"]!.AsObject().Select(r => r.Key).Should().HaveCount(2).And.Contain(UnknownRule);
 
-        return bundle;
+        return document;
     }
 
-    private static Task<HttpResponseMessage> ImportAsync(HttpClient client, PortabilityBundle bundle) =>
-        client.PostAsJsonAsync(
-            "/api/portability/import",
-            new { contentTypes = bundle.ContentTypes, contents = bundle.Contents },
-            ApiJson.Options,
-            Ct);
+    private static JsonArray Fields(JsonObject document, string type) => document["contentTypes"]![type]!["fields"]!.AsArray();
+
+    private static async Task<(HttpStatusCode Status, string Body)> ImportAsync(HttpClient client, JsonObject document)
+    {
+        var (response, body) = await ConfigCallers.ApplyAsync(client, document);
+        return (response.StatusCode, body.ToString());
+    }
 
     [Fact]
-    public async Task A_type_storing_an_unknown_rule_exports_and_imports_back_into_its_own_tenant()
+    public async Task A_type_storing_an_unknown_rule_exports_and_applies_back_into_its_own_tenant()
     {
         var tenant = await TenantAsync();
         var type = await StoredTypeWithAnUnknownRuleAsync(tenant);
         var admin = await AdminOfAsync(tenant);
 
-        var bundle = await ExportAsync(admin, type);
-        var imported = await ImportAsync(admin, bundle);
+        var document = await ExportAsync(admin, type);
+        var (status, body) = await ImportAsync(admin, document);
 
-        imported.IsSuccessStatusCode.Should().BeTrue("got {0}: {1}", imported.StatusCode,
-            await imported.Content.ReadAsStringAsync(Ct));
+        status.Should().Be(HttpStatusCode.OK, body);
 
         var after = await ExportAsync(admin, type);
-        after.ContentTypes[0].Fields[0].Name.Should().Be("Code");
+        Fields(after, type)[0]!["name"]!.GetValue<string>().Should().Be("Code");
     }
 
     [Fact]
@@ -155,53 +101,48 @@ public class ImportStoredRulesTests
         var type = await StoredTypeWithAnUnknownRuleAsync(tenant);
         var admin = await AdminOfAsync(tenant);
 
-        var bundle = await ExportAsync(admin, type);
-        bundle.ContentTypes[0].Fields.Add(new FieldDefinition
-        {
-            Name = "Score",
-            DisplayName = "Score",
-            Type = "int",
-            ValidationRules = new() { ["maximum"] = 100 },
-        });
+        var document = await ExportAsync(admin, type);
+        Fields(document, type).Add(JsonNode.Parse("""
+            { "name": "Score", "displayName": "Score", "type": "int", "validationRules": { "maximum": 100 } }
+            """));
 
-        var imported = await ImportAsync(admin, bundle);
+        var (status, body) = await ImportAsync(admin, document);
 
-        imported.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var body = await imported.Content.ReadAsStringAsync(Ct);
+        status.Should().Be(HttpStatusCode.BadRequest, body);
         body.Should().Contain("Score").And.Contain("maximum");
         body.Should().NotContain(UnknownRule, "the stored field is unchanged, so its rule is not this request's to answer for");
     }
 
     [Fact]
-    public async Task A_stored_field_whose_rules_the_bundle_changes_is_checked()
+    public async Task A_stored_field_whose_rules_the_document_changes_is_checked()
     {
         var tenant = await TenantAsync();
         var type = await StoredTypeWithAnUnknownRuleAsync(tenant);
         var admin = await AdminOfAsync(tenant);
 
-        var bundle = await ExportAsync(admin, type);
-        bundle.ContentTypes[0].Fields[0].ValidationRules[UnknownRule] = "^[a-z]+$";
+        var document = await ExportAsync(admin, type);
+        Fields(document, type)[0]!["validationRules"]![UnknownRule] = "^[a-z]+$";
 
-        var imported = await ImportAsync(admin, bundle);
+        var (status, body) = await ImportAsync(admin, document);
 
-        imported.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await imported.Content.ReadAsStringAsync(Ct)).Should().Contain("Code").And.Contain(UnknownRule);
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("Code").And.Contain(UnknownRule);
     }
 
     [Fact]
-    public async Task A_stored_field_whose_type_the_bundle_changes_is_checked()
+    public async Task A_stored_field_whose_type_the_document_changes_is_checked()
     {
         var tenant = await TenantAsync();
         var type = await StoredTypeWithAnUnknownRuleAsync(tenant);
         var admin = await AdminOfAsync(tenant);
 
-        var bundle = await ExportAsync(admin, type);
-        bundle.ContentTypes[0].Fields[0].Type = "text";
+        var document = await ExportAsync(admin, type);
+        Fields(document, type)[0]!["type"] = "text";
 
-        var imported = await ImportAsync(admin, bundle);
+        var (status, body) = await ImportAsync(admin, document);
 
-        imported.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await imported.Content.ReadAsStringAsync(Ct)).Should().Contain("Code").And.Contain(UnknownRule);
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("Code").And.Contain(UnknownRule);
     }
 
     [Fact]
@@ -211,10 +152,10 @@ public class ImportStoredRulesTests
         var destination = await TenantAsync();
         var type = await StoredTypeWithAnUnknownRuleAsync(source);
 
-        var bundle = await ExportAsync(await AdminOfAsync(source), type);
-        var imported = await ImportAsync(await AdminOfAsync(destination), bundle);
+        var document = await ExportAsync(await AdminOfAsync(source), type);
+        var (status, body) = await ImportAsync(await AdminOfAsync(destination), document);
 
-        imported.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await imported.Content.ReadAsStringAsync(Ct)).Should().Contain("Code").And.Contain(UnknownRule);
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("Code").And.Contain(UnknownRule);
     }
 }

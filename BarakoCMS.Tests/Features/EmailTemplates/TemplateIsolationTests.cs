@@ -104,14 +104,13 @@ public class TemplateIsolationTests(IntegrationTestFixture fixture)
 
         var platform = await fixture.CreateClientAsync("SuperAdmin");
         var admin = await TenantProfileSeed.AdminInAsync(fixture, slug, Ct);
-        var types = string.Join(',', "invoice", "invoiceLine", EmailTemplateRenderer.TemplateType);
 
         var bodies = new List<string>();
         foreach (var (client, url) in new[]
         {
             (platform, $"/api/tenants/{slug}/export"),
             (admin, "/api/config/export"),
-            (admin, $"/api/portability/export?types={types}"),
+            (admin, "/api/config/export?sections=contentTypes,contents"),
         })
         {
             var response = await client.GetAsync(url, Ct);

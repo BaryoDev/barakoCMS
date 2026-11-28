@@ -1,20 +1,17 @@
 using System.Net;
 using System.Net.Http.Json;
-using System.Reflection;
 using System.Text.Json;
 using FluentAssertions;
 using Marten;
 using barakoCMS.Models;
 using static BarakoCMS.Tests.Features.Config.ConfigCallers;
 
-// The last test reads the obsolete Portability types to check they are marked so.
-#pragma warning disable CS0618
-
 namespace BarakoCMS.Tests.Features.Config;
 
 /// <summary>
 /// Sections a module registers: a form round trips through the Forms module's provider, and a
-/// Portability bundle applies as a config document through the Portability module's (#921).
+/// document in the older export shape, with its types and entries as arrays, applies through the
+/// Portability module's section (#921), and the two routes it replaced are gone.
 /// </summary>
 [Collection("Integration1")]
 public class ConfigModuleSectionsTests
@@ -35,8 +32,7 @@ public class ConfigModuleSectionsTests
         ],
     };
 
-    [Fact]
-    public async Task A_portability_bundle_applies_as_a_config_document()
+    private async Task<(string Source, string Target, string Type)> TwoTenantsWithTwoEntriesAsync()
     {
         var source = await _callers.TenantAsync();
         var target = await _callers.TenantAsync();
@@ -49,21 +45,76 @@ public class ConfigModuleSectionsTests
                 .StatusCode.Should().Be(HttpStatusCode.OK);
         }
 
-        var bundleResponse = await sourceClient.GetAsync($"/api/portability/export?types={type}", Ct);
-        bundleResponse.StatusCode.Should().Be(HttpStatusCode.OK, "the old route keeps working while it is obsolete");
-        var bundle = JsonDocument.Parse(await bundleResponse.Content.ReadAsStringAsync(Ct)).RootElement;
-        bundle.GetProperty("contents").GetArrayLength().Should().Be(2);
+        return (source, target, type);
+    }
+
+    [Fact]
+    public async Task An_export_of_types_and_entries_applies_as_a_config_document()
+    {
+        var (source, target, type) = await TwoTenantsWithTwoEntriesAsync();
+        var sourceClient = await _callers.SuperAdminAsync(source);
+
+        var (exported, document) = await ExportAsync(sourceClient, "contentTypes,contents");
+        exported.StatusCode.Should().Be(HttpStatusCode.OK, document.ToString());
+        document.GetProperty("contents").EnumerateObject().Should().HaveCount(2);
 
         var targetClient = await _callers.SuperAdminAsync(target);
-        var (planned, plan) = await PlanAsync(targetClient, bundle);
+        var (planned, plan) = await PlanAsync(targetClient, document);
         planned.StatusCode.Should().Be(HttpStatusCode.OK, plan.ToString());
         Changes(plan).Should().Contain($"contentTypes/{type} create");
         Changes(plan).Count(c => c.StartsWith("contents/", StringComparison.Ordinal)).Should().Be(2, plan.ToString());
 
-        var (applied, result) = await ApplyAsync(targetClient, bundle);
+        var (applied, result) = await ApplyAsync(targetClient, document);
         applied.StatusCode.Should().Be(HttpStatusCode.OK, result.ToString());
         var titles = await _callers.InTenantAsync(target, s => s.Query<Content>().Where(c => c.ContentType == type).ToListAsync(Ct));
         titles!.Select(c => c.Data["Title"]?.ToString()).Should().BeEquivalentTo("Ana", "Ben");
+    }
+
+    [Fact]
+    public async Task A_plan_accepts_the_older_export_shape_with_types_and_entries_as_arrays()
+    {
+        var (source, target, type) = await TwoTenantsWithTwoEntriesAsync();
+        var (_, exported) = await ExportAsync(await _callers.SuperAdminAsync(source), "contentTypes,contents");
+
+        // The shape the removed export route wrote: a version, and two arrays.
+        var older = new
+        {
+            version = 1,
+            contentTypes = exported.GetProperty("contentTypes").EnumerateObject().Select(p => p.Value).ToArray(),
+            contents = exported.GetProperty("contents").EnumerateObject().Select(p => p.Value).ToArray(),
+        };
+
+        var (planned, plan) = await PlanAsync(await _callers.SuperAdminAsync(target), older);
+
+        planned.StatusCode.Should().Be(HttpStatusCode.OK, plan.ToString());
+        Changes(plan).Should().Contain($"contentTypes/{type} create");
+        Changes(plan).Count(c => c.StartsWith("contents/", StringComparison.Ordinal)).Should().Be(2, plan.ToString());
+        plan.GetProperty("errors").GetArrayLength().Should().Be(0, plan.ToString());
+    }
+
+    [Fact]
+    public async Task A_document_without_a_version_is_refused_with_the_documented_400()
+    {
+        var target = await _callers.TenantAsync();
+        var client = await _callers.SuperAdminAsync(target);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/config/apply",
+            new { document = new { contentTypes = Array.Empty<object>(), contents = Array.Empty<object>() }, allowDestructive = false },
+            Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(Ct)).Should().Contain("The document declares no version");
+    }
+
+    [Fact]
+    public async Task The_removed_portability_routes_answer_404_for_an_admin()
+    {
+        var client = await _callers.SuperAdminAsync(await _callers.TenantAsync());
+
+        (await client.GetAsync("/api/portability/export", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await client.PostAsJsonAsync("/api/portability/import", new { contentTypes = Array.Empty<object>(), contents = Array.Empty<object>() }, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -82,25 +133,5 @@ public class ConfigModuleSectionsTests
 
         var (_, named) = await ExportAsync(client, "contents");
         named.GetProperty("contents").EnumerateObject().Select(p => p.Value.GetProperty("contentType").GetString()).Should().Contain(type);
-    }
-
-    [Fact]
-    public void The_portability_routes_and_bundle_types_are_obsolete_and_point_at_the_config_engine()
-    {
-        Type[] obsolete =
-        [
-            typeof(BarakoCMS.Portability.ImportEndpoint), typeof(BarakoCMS.Portability.ExportEndpoint),
-            typeof(BarakoCMS.Portability.PortabilityBundle), typeof(BarakoCMS.Portability.ContentRecord),
-            typeof(BarakoCMS.Portability.ImportRequest), typeof(BarakoCMS.Portability.ImportReport),
-        ];
-
-        obsolete.Should().HaveCount(6);
-        foreach (var type in obsolete)
-        {
-            var attribute = type.GetCustomAttribute<ObsoleteAttribute>();
-            attribute.Should().NotBeNull($"{type.Name} is retired in favour of the config engine");
-            attribute!.Message.Should().Contain("/api/config/apply").And.Contain("6.0");
-            attribute.IsError.Should().BeFalse("it keeps working until then");
-        }
     }
 }

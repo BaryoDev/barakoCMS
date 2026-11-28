@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using FluentAssertions;
 using Marten;
 using Microsoft.AspNetCore.Http;
@@ -42,31 +43,40 @@ public class ModuleCapabilityTests
         var client = await CallerHolding(BarakoCMS.FeatureFlags.FeatureFlagCapabilities.ManageFeatureFlags);
 
         var flags = await client.GetAsync("/api/feature-flags/admin", TestContext.Current.CancellationToken);
-        var export = await client.GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
+        var export = await client.GetAsync("/api/config/export", TestContext.Current.CancellationToken);
 
         flags.StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
             "manage_feature_flags is what the admin endpoint asks for");
         flags.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized);
         export.StatusCode.Should().Be(HttpStatusCode.Forbidden,
-            "a capability from one module says nothing about another");
+            "a capability from one module says nothing about the config engine");
     }
 
     /// <summary>
-    /// The export and import split, which is the one where the two risks are opposite.
+    /// The export and import split, which is the one where the two risks are opposite. The module's
+    /// section of a config document is read under export_content and written under import_content.
     /// </summary>
     [Fact]
     public async Task Export_and_import_are_separate_grants()
     {
-        var exporter = await CallerHolding(BarakoCMS.Portability.PortabilityCapabilities.ExportContent);
+        var exporter = await CallerHolding(
+            SystemCapabilities.ManageConfig, BarakoCMS.Portability.PortabilityCapabilities.ExportContent);
+        var importer = await CallerHolding(
+            SystemCapabilities.ManageConfig,
+            BarakoCMS.Portability.PortabilityCapabilities.ExportContent,
+            BarakoCMS.Portability.PortabilityCapabilities.ImportContent);
+        var document = new { document = new { version = 1, contents = Array.Empty<object>() } };
 
-        var export = await exporter.GetAsync("/api/portability/export", TestContext.Current.CancellationToken);
-        var import = await exporter.SendAsync(
-            Probe("POST", "/api/portability/import"), TestContext.Current.CancellationToken);
+        var export = await exporter.GetAsync("/api/config/export?sections=contents", TestContext.Current.CancellationToken);
+        var refused = await exporter.PostAsJsonAsync("/api/config/apply", document, TestContext.Current.CancellationToken);
+        var allowed = await importer.PostAsJsonAsync("/api/config/apply", document, TestContext.Current.CancellationToken);
 
-        export.StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
-            "reading a tenant out is what this role was granted");
-        import.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+        export.StatusCode.Should().Be(HttpStatusCode.OK, "reading a tenant out is what this role was granted");
+        var exported = await export.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(TestContext.Current.CancellationToken);
+        exported.TryGetProperty("contents", out _).Should().BeTrue("the section is exported, not withheld");
+        refused.StatusCode.Should().Be(HttpStatusCode.Forbidden,
             "writing a whole tenant in is the opposite risk and a separate grant");
+        allowed.StatusCode.Should().NotBe(HttpStatusCode.Forbidden, "import_content is what the apply asks for");
     }
 
     /// <summary>
@@ -80,7 +90,7 @@ public class ModuleCapabilityTests
 
         foreach (var route in new[]
         {
-            "/api/feature-flags/admin", "/api/portability/export",
+            "/api/feature-flags/admin", "/api/config/export",
             "/api/client-errors", "/api/files",
         })
         {
@@ -174,16 +184,6 @@ public class ModuleCapabilityTests
 
         ungated.Should().BeEmpty(
             "a module endpoint gating on a role name cannot be reached by a role somebody created");
-    }
-
-    private static HttpRequestMessage Probe(string verb, string path)
-    {
-        var request = new HttpRequestMessage(new HttpMethod(verb), path);
-
-        // Deliberately not valid JSON, as in RoleGateTests: the gate refuses before a binding failure
-        // is answered, so an allowed caller gets a 400 that mutates nothing.
-        request.Content = new StringContent("~", System.Text.Encoding.UTF8, "application/json");
-        return request;
     }
 
     /// <summary>

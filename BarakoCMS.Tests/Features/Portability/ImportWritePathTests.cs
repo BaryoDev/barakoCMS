@@ -5,24 +5,23 @@ using System.Threading;
 using barakoCMS.Core.Interfaces;
 using barakoCMS.Models;
 using BarakoCMS.Portability;
+using BarakoCMS.Tests.Features.Config;
 using FluentAssertions;
 using Marten;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
-// The Portability routes and their bundle types are obsolete, and they are what these tests are about.
-#pragma warning disable CS0618
-
 namespace BarakoCMS.Tests.Features.Portability;
 
 /// <summary>
-/// An import writes what <c>POST /api/content-types</c> and <c>POST /api/contents</c> would write
+/// A config apply writes what <c>POST /api/content-types</c> and <c>POST /api/contents</c> would write
 /// for the same caller, and refuses what they would refuse (issue #933).
 /// </summary>
 /// <remarks>
-/// Import is the one route that writes a whole schema and its content at once. Each test here sends
-/// a bundle the create endpoints refuse or change, and checks the import does the same.
+/// An apply is the one route that writes a whole schema and its entries at once. Each test here sends
+/// a document the create endpoints refuse or change, and checks the apply does the same. A refusal
+/// names the document key it is about: the type's name, or <c>'#i'</c> for the entry at index i.
 /// </remarks>
 [Collection("Integration1")]
 public class ImportWritePathTests
@@ -31,22 +30,25 @@ public class ImportWritePathTests
     private const string HookType = "importhookprobe";
 
     private readonly IntegrationTestFixture _fixture;
+    private readonly ConfigCallers _callers;
 
-    public ImportWritePathTests(IntegrationTestFixture fixture) => _fixture = fixture;
+    public ImportWritePathTests(IntegrationTestFixture fixture)
+    {
+        _fixture = fixture;
+        _callers = new ConfigCallers(fixture);
+    }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static string NewType(string prefix) => (prefix + Guid.NewGuid().ToString("n"))[..14];
 
-    private async Task<HttpClient> AdminAsync(WebApplicationFactory<Program>? host = null)
-    {
-        var client = (host ?? _fixture).CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-            "Bearer", await _fixture.StoredUserTokenAsync("SuperAdmin", "Admin"));
-        return client;
-    }
+    private Task<HttpClient> AdminAsync(WebApplicationFactory<Program>? host = null) =>
+        _callers.SuperAdminAsync(null, host);
 
-    /// <summary>A caller whose one role, under the given name, holds only import_content.</summary>
+    /// <summary>
+    /// A caller whose one role, under the given name, holds what an apply of types and entries
+    /// needs and nothing that reads a sensitive field.
+    /// </summary>
     private async Task<HttpClient> ImporterAsync(string roleName)
     {
         using var scope = _fixture.Services.CreateScope();
@@ -56,7 +58,13 @@ public class ImportWritePathTests
         {
             Id = Guid.NewGuid(),
             Name = roleName,
-            SystemCapabilities = [PortabilityCapabilities.ImportContent],
+            SystemCapabilities =
+            [
+                barakoCMS.Models.SystemCapabilities.ManageConfig,
+                barakoCMS.Models.SystemCapabilities.ManageContentTypes,
+                PortabilityCapabilities.ExportContent,
+                PortabilityCapabilities.ImportContent,
+            ],
         };
         session.Store(role);
         var userId = Guid.NewGuid();
@@ -72,6 +80,8 @@ public class ImportWritePathTests
         var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", _fixture.CreateToken(roles: [roleName], userId: userId.ToString()));
+        client.DefaultRequestHeaders.Add(
+            TestRemoteIpFilter.Header, $"10.93.{Random.Shared.Next(1, 250)}.{Random.Shared.Next(1, 250)}");
         return client;
     }
 
@@ -125,22 +135,15 @@ public class ImportWritePathTests
     private static object Record(string type, Dictionary<string, object> data) =>
         new { contentType = type, status = "Published", data };
 
-    private static async Task<(HttpStatusCode Status, string Body)> ImportAsync(
-        HttpClient client, IEnumerable<object> types, IEnumerable<object> records, bool dryRun = false)
-    {
-        var response = await client.PostAsJsonAsync("/api/portability/import", new
-        {
-            dryRun,
-            contentTypes = types.ToArray(),
-            contents = records.ToArray(),
-        }, Ct);
-        return (response.StatusCode, await response.Content.ReadAsStringAsync(Ct));
-    }
+    /// <summary>Applies the types and entries as a config document, or plans them when <paramref name="dryRun"/> is set.</summary>
+    private static Task<(HttpStatusCode Status, string Body)> ImportAsync(
+        HttpClient client, IEnumerable<object> types, IEnumerable<object> records, bool dryRun = false) =>
+        BundleCalls.ApplyAsync(client, types, records, dryRun);
 
     // Write-side sensitivity -------------------------------------------------------------------
 
     [Fact]
-    public async Task A_field_the_importer_may_not_see_is_dropped_the_way_create_drops_it()
+    public async Task A_field_the_caller_may_not_see_is_dropped_the_way_create_drops_it()
     {
         var type = NewType("impsens");
         var payroll = $"Payroll {Guid.NewGuid():N}";
@@ -162,7 +165,7 @@ public class ImportWritePathTests
     }
 
     [Fact]
-    public async Task A_field_the_importer_may_not_see_is_dropped_on_a_type_the_bundle_creates()
+    public async Task A_field_the_caller_may_not_see_is_dropped_on_a_type_the_document_creates()
     {
         var type = NewType("impsnew");
         var payroll = $"Payroll {Guid.NewGuid():N}";
@@ -176,12 +179,12 @@ public class ImportWritePathTests
         var entries = await StoredEntriesAsync(type);
         entries.Should().ContainSingle();
         entries[0].Data.Keys.Should().NotContain(k => k.Equals("Salary", StringComparison.OrdinalIgnoreCase),
-            "the type arriving in the same bundle is the schema the entry is written under");
+            "the type arriving in the same document is the schema the entry is written under");
     }
 
     /// <summary>The positive control: a caller who may read the field keeps it.</summary>
     [Fact]
-    public async Task An_importer_who_may_see_the_field_keeps_it()
+    public async Task A_caller_who_may_see_the_field_keeps_it()
     {
         var type = NewType("impskeep");
         var payroll = $"Payroll {Guid.NewGuid():N}";
@@ -203,7 +206,7 @@ public class ImportWritePathTests
     // Entry validation -------------------------------------------------------------------------
 
     [Fact]
-    public async Task A_record_that_fails_its_type_validation_refuses_the_whole_import()
+    public async Task A_record_that_fails_its_type_validation_refuses_the_whole_apply()
     {
         var type = NewType("impval");
         await StoreTypeAsync(new ContentTypeDefinition
@@ -219,13 +222,13 @@ public class ImportWritePathTests
         ]);
 
         status.Should().Be(HttpStatusCode.BadRequest, body);
-        body.Should().Contain("contents[1]").And.Contain("is required");
+        body.Should().Contain("'#1'").And.Contain("is required");
         (await StoredEntriesAsync(type)).Should().BeEmpty(
-            "an import is all or nothing, so rerunning it after the fix does not duplicate the valid records");
+            "an apply is all or nothing, so rerunning it after the fix does not duplicate the valid records");
     }
 
     [Fact]
-    public async Task A_dry_run_refuses_what_the_real_run_would_refuse()
+    public async Task A_plan_names_what_the_real_apply_would_refuse()
     {
         var type = NewType("impdry");
         await StoreTypeAsync(new ContentTypeDefinition
@@ -236,8 +239,8 @@ public class ImportWritePathTests
 
         var (status, body) = await ImportAsync(admin, [], [Record(type, new() { ["Other"] = "x" })], dryRun: true);
 
-        status.Should().Be(HttpStatusCode.BadRequest, body);
-        body.Should().Contain("contents[0]");
+        status.Should().Be(HttpStatusCode.OK, "a plan answers 200 and names its refusals in the body");
+        body.Should().Contain("'#0'").And.Contain("is required");
     }
 
     // Lifecycle hooks and initial state --------------------------------------------------------
@@ -250,7 +253,7 @@ public class ImportWritePathTests
         {
             var title = context.Data.TryGetValue("Title", out var t) ? t?.ToString() ?? "" : "";
 
-            // Read from a connection of its own, outside the import's transaction: a sequence value
+            // Read from a connection of its own, outside the apply's transaction: a sequence value
             // taken inside the batch is visible to everyone at once, which is what the daemon sees.
             if (title.StartsWith("seq-", StringComparison.Ordinal) && SequenceProbe is { } probe)
                 SequenceSeen[title] = await EventSequenceAsync(probe, ct);
@@ -259,7 +262,7 @@ public class ImportWritePathTests
                 return ["The probe hook refused this entry."];
 
             // Reads the entries stored before this one, the way a module rule that looks at its own
-            // type does. In an import those include the earlier entries of the same bundle.
+            // type does. In an apply those include the earlier entries of the same document.
             if (title.StartsWith("once-", StringComparison.Ordinal))
             {
                 var earlier = await ((IContentHookContext)context).Reader.ListAsync(HookType, 0, 1000, ct);
@@ -310,7 +313,7 @@ public class ImportWritePathTests
     };
 
     [Fact]
-    public async Task An_imported_entry_runs_the_lifecycle_hooks_and_starts_in_its_initial_state()
+    public async Task An_applied_entry_runs_the_lifecycle_hooks_and_starts_in_its_initial_state()
     {
         var admin = await AdminAsync(HookHost());
         var marker = $"hook-{Guid.NewGuid():n}";
@@ -325,11 +328,11 @@ public class ImportWritePathTests
         entry.LifecycleState.Should().Be("Review", "create starts an entry in its type's declared initial state");
 
         (await StoredTypeAsync(HookType))!.Lifecycle.Should().NotBeNull(
-            "the bundle's lifecycle is part of the type it carries");
+            "the document's lifecycle is part of the type it carries");
     }
 
     [Fact]
-    public async Task A_lifecycle_hook_can_refuse_an_imported_entry()
+    public async Task A_lifecycle_hook_can_refuse_an_applied_entry()
     {
         var admin = await AdminAsync(HookHost());
 
@@ -342,7 +345,7 @@ public class ImportWritePathTests
     }
 
     [Fact]
-    public async Task An_entry_a_hook_refuses_because_of_an_earlier_entry_in_the_bundle_refuses_the_import()
+    public async Task An_entry_a_hook_refuses_because_of_an_earlier_entry_in_the_document_refuses_the_apply()
     {
         var admin = await AdminAsync(HookHost());
         var title = $"once-{Guid.NewGuid():n}";
@@ -354,9 +357,9 @@ public class ImportWritePathTests
         ]);
 
         status.Should().Be(HttpStatusCode.BadRequest, body);
-        body.Should().Contain("contents[1]").And.Contain($"Title '{title}' is already in use.");
+        body.Should().Contain("'#1'").And.Contain($"Title '{title}' is already in use.");
         (await StoredEntriesAsync(HookType)).Should().NotContain(c => c.Data["Title"].ToString() == title,
-            "the import is all or nothing");
+            "the apply is all or nothing");
     }
 
     /// <summary>
@@ -371,7 +374,7 @@ public class ImportWritePathTests
     /// can see them, and their events all together at the end.
     /// </remarks>
     [Fact]
-    public async Task An_import_takes_no_event_numbers_until_it_commits()
+    public async Task An_apply_takes_no_event_numbers_until_it_commits()
     {
         var admin = await AdminAsync(HookHost());
         var marker = Guid.NewGuid().ToString("n");
@@ -393,11 +396,11 @@ public class ImportWritePathTests
         await using var count = new Npgsql.NpgsqlCommand(
             "select count(*) from public.mt_events where stream_id = any(@ids) and type = 'content_created'", connection);
         count.Parameters.AddWithValue("ids", entries.Select(e => e.Id).ToArray());
-        ((long)(await count.ExecuteScalarAsync(Ct))!).Should().Be(3, "each imported entry still gets its created event");
+        ((long)(await count.ExecuteScalarAsync(Ct))!).Should().Be(3, "each applied entry still gets its created event");
     }
 
     [Fact]
-    public async Task A_dry_run_and_a_refused_import_take_no_event_numbers()
+    public async Task A_plan_and_a_refused_apply_take_no_event_numbers()
     {
         var admin = await AdminAsync(HookHost());
         var marker = Guid.NewGuid().ToString("n");
@@ -408,6 +411,10 @@ public class ImportWritePathTests
             [Record(HookType, new() { ["Title"] = $"dry-{marker}-0" }), Record(HookType, new() { ["Title"] = $"dry-{marker}-1" })],
             dryRun: true);
         dryStatus.Should().Be(HttpStatusCode.OK, dryBody);
+        using (var planned = System.Text.Json.JsonDocument.Parse(dryBody))
+        {
+            planned.RootElement.GetProperty("applied").GetBoolean().Should().BeFalse();
+        }
 
         var (refusedStatus, refusedBody) = await ImportAsync(admin, [HookTypeWithLifecycle()],
             [Record(HookType, new() { ["Title"] = $"ref-{marker}" }), Record(HookType, new() { ["Title"] = "refuse" })]);
@@ -437,7 +444,7 @@ public class ImportWritePathTests
     // Content type validation ------------------------------------------------------------------
 
     [Fact]
-    public async Task A_bundle_that_gives_a_stored_field_an_unknown_type_is_refused_and_leaves_the_type_alone()
+    public async Task A_document_that_gives_a_stored_field_an_unknown_type_is_refused_and_leaves_the_type_alone()
     {
         var type = NewType("imptype");
         await StoreTypeAsync(new ContentTypeDefinition { Name = type, DisplayName = "Posts", Fields = [Text("Title")] });
@@ -452,7 +459,7 @@ public class ImportWritePathTests
             []);
 
         status.Should().Be(HttpStatusCode.BadRequest, body);
-        body.Should().Contain("contentTypes[0]").And.Contain("nonsense");
+        body.Should().Contain($"'{type}'").And.Contain("nonsense");
         (await StoredTypeAsync(type))!.Fields.Should().ContainSingle().Which.Type.Should().Be("string");
     }
 
@@ -476,7 +483,7 @@ public class ImportWritePathTests
     }
 
     [Fact]
-    public async Task A_custom_lifecycle_survives_an_import_over_an_existing_type()
+    public async Task A_custom_lifecycle_survives_an_apply_over_an_existing_type()
     {
         var type = NewType("implife");
         await StoreTypeAsync(new ContentTypeDefinition { Name = type, DisplayName = "Invoices", Fields = [Text("Title")] });
@@ -502,7 +509,7 @@ public class ImportWritePathTests
     }
 
     [Fact]
-    public async Task A_bundle_that_lowers_a_sensitive_field_is_refused()
+    public async Task A_document_that_lowers_a_sensitive_field_is_refused()
     {
         var type = NewType("implower");
         await StoreTypeAsync(new ContentTypeDefinition
@@ -522,7 +529,7 @@ public class ImportWritePathTests
     }
 
     [Fact]
-    public async Task A_bundle_that_raises_a_public_field_is_refused_so_its_old_values_are_not_left_searchable()
+    public async Task A_document_that_raises_a_public_field_is_refused_so_its_old_values_are_not_left_searchable()
     {
         var type = NewType("impraise");
         await StoreTypeAsync(
@@ -559,7 +566,7 @@ public class ImportWritePathTests
     }
 
     [Fact]
-    public async Task A_bundle_that_declares_a_stored_sensitive_field_twice_is_refused()
+    public async Task A_document_that_declares_a_stored_sensitive_field_twice_is_refused()
     {
         var type = NewType("impdup");
         await StoreTypeAsync(new ContentTypeDefinition
@@ -581,7 +588,7 @@ public class ImportWritePathTests
     }
 
     [Fact]
-    public async Task A_bundle_type_matches_a_stored_type_under_the_normalized_name()
+    public async Task A_document_type_matches_a_stored_type_under_the_normalized_name()
     {
         var type = NewType("impnorm");
         await StoreTypeAsync(new ContentTypeDefinition
@@ -598,17 +605,18 @@ public class ImportWritePathTests
             []);
 
         status.Should().Be(HttpStatusCode.BadRequest, body);
-        body.Should().Contain("/sensitivity", "the bundle type is the stored type, so lowering its field is refused");
+        body.Should().Contain("/sensitivity", "the document type is the stored type, so lowering its field is refused");
     }
 
     [Fact]
-    public async Task A_bundle_field_with_no_role_list_is_still_dropped_for_a_caller_who_may_not_see_it()
+    public async Task A_document_field_with_no_role_list_is_still_dropped_for_a_caller_who_may_not_see_it()
     {
         var type = NewType("impnull");
         var importer = await ImporterAsync($"Importer {Guid.NewGuid():N}");
 
-        var response = await importer.PostAsync("/api/portability/import", new StringContent($$"""
+        var (status, body) = await BundleCalls.ApplyJsonAsync(importer, $$"""
             {
+              "version": 1,
               "contentTypes": [{
                 "name": "{{type}}", "displayName": "Staff",
                 "fields": [
@@ -618,16 +626,16 @@ public class ImportWritePathTests
               }],
               "contents": [{ "contentType": "{{type}}", "status": "Published", "data": { "Name": "Ana", "Salary": "{{Secret}}" } }]
             }
-            """, System.Text.Encoding.UTF8, "application/json"), Ct);
+            """);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        status.Should().Be(HttpStatusCode.OK, body);
         var entries = await StoredEntriesAsync(type);
         entries.Should().ContainSingle();
         entries[0].Data.Keys.Should().NotContain(k => k.Equals("Salary", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task A_bundle_without_a_lifecycle_keeps_the_stored_one_and_a_different_one_is_refused()
+    public async Task A_document_without_a_lifecycle_keeps_the_stored_one_and_a_different_one_is_refused()
     {
         var type = NewType("implkeep");
         var lifecycle = new LifecycleDefinition
@@ -646,7 +654,7 @@ public class ImportWritePathTests
             [new ContentTypeDefinition { Name = type, DisplayName = "Invoices", Fields = [Text("Title")] }],
             []);
         keptStatus.Should().Be(HttpStatusCode.OK, keptBody);
-        (await StoredTypeAsync(type))!.Lifecycle.Should().NotBeNull("a bundle from before lifecycles must not wipe one");
+        (await StoredTypeAsync(type))!.Lifecycle.Should().NotBeNull("a document from before lifecycles must not wipe one");
 
         var (status, body) = await ImportAsync(admin,
             [new ContentTypeDefinition
@@ -668,7 +676,7 @@ public class ImportWritePathTests
     };
 
     [Fact]
-    public async Task A_bundle_whose_lifecycle_requires_a_field_the_type_does_not_declare_is_refused()
+    public async Task A_document_whose_lifecycle_requires_a_field_the_type_does_not_declare_is_refused()
     {
         var type = NewType("implreq");
         var admin = await AdminAsync();
@@ -695,7 +703,7 @@ public class ImportWritePathTests
     }
 
     [Fact]
-    public async Task A_bundle_that_changes_what_a_stored_transition_requires_is_refused()
+    public async Task A_document_that_changes_what_a_stored_transition_requires_is_refused()
     {
         var type = NewType("implchg");
         await StoreTypeAsync(new ContentTypeDefinition
@@ -717,11 +725,11 @@ public class ImportWritePathTests
     }
 
     /// <summary>
-    /// An import replaces a type's fields and keeps its lifecycle, so dropping a field a stored
+    /// An apply replaces a type's fields and keeps its lifecycle, so dropping a field a stored
     /// transition names would switch that requirement off without saying so.
     /// </summary>
     [Fact]
-    public async Task A_bundle_that_drops_a_field_a_stored_transition_names_is_refused()
+    public async Task A_document_that_drops_a_field_a_stored_transition_names_is_refused()
     {
         var type = NewType("impldrop");
         await StoreTypeAsync(new ContentTypeDefinition
@@ -745,12 +753,12 @@ public class ImportWritePathTests
     }
 
     /// <summary>
-    /// A tenant's own export imports back, even when a stored transition already names a field the
+    /// A tenant's own export applies back, even when a stored transition already names a field the
     /// stored type does not have. Passes before the change too: it guards the two refusals above
-    /// against being applied to a lifecycle the import does not store.
+    /// against being applied to a lifecycle the apply does not store.
     /// </summary>
     [Fact]
-    public async Task A_stored_transition_already_naming_a_missing_field_does_not_stop_the_type_importing_back()
+    public async Task A_stored_transition_already_naming_a_missing_field_does_not_stop_the_type_applying_back()
     {
         var type = NewType("implback");
         await StoreTypeAsync(new ContentTypeDefinition
@@ -801,7 +809,7 @@ public class ImportWritePathTests
     }
 
     [Fact]
-    public async Task A_page_and_its_parent_in_one_bundle_resolve_to_each_other_whatever_their_order()
+    public async Task A_page_and_its_parent_in_one_document_resolve_to_each_other_whatever_their_order()
     {
         await EnsurePageTypeAsync();
         var admin = await AdminAsync();
@@ -836,25 +844,28 @@ public class ImportWritePathTests
         pages.Should().HaveCount(2);
         var parent = pages.Single(p => p.Data["Slug"].ToString() == slug);
         var child = pages.Single(p => p.Data["Slug"].ToString() == slug + "-child");
-        parent.Id.Should().NotBe(parentSourceId, "an import creates new entries");
+        parent.Id.Should().NotBe(parentSourceId, "an apply creates new entries");
         child.Data["ParentPage"].ToString().Should().Be(parent.Id.ToString(),
-            "a reference to an entry in the same bundle points at that entry as imported");
+            "a reference to an entry in the same document points at that entry as applied");
     }
 
     [Fact]
-    public async Task An_export_carries_each_entry_id_so_a_reference_inside_the_bundle_can_follow_it()
+    public async Task An_export_carries_each_entry_id_so_a_reference_inside_the_document_can_follow_it()
     {
         var type = NewType("impexpid");
-        var entry = new Dictionary<string, object> { ["Title"] = "exported" };
-        await StoreTypeAsync(new ContentTypeDefinition { Name = type, DisplayName = "Posts", Fields = [Text("Title")] }, entry);
-        var storedId = (await StoredEntriesAsync(type)).Single().Id;
-        var admin = await AdminAsync();
+        var tenant = await _callers.TenantAsync();
+        var entryId = Guid.NewGuid();
+        await _callers.StoreInTenantAsync(tenant,
+            new ContentTypeDefinition { Id = Guid.NewGuid(), Name = type, DisplayName = "Posts", Fields = [Text("Title")] },
+            new Content { Id = entryId, ContentType = type, Status = ContentStatus.Published, Data = new() { ["Title"] = "exported" } });
+        var admin = await _callers.SuperAdminAsync(tenant);
 
-        var response = await admin.GetAsync($"/api/portability/export?types={type}", Ct);
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var bundle = await response.Content.ReadFromJsonAsync<PortabilityBundle>(ApiJson.Options, Ct);
+        var (response, document) = await ConfigCallers.ExportAsync(admin, "contentTypes,contents");
 
-        bundle!.Contents.Should().ContainSingle().Which.Id.Should().Be(storedId);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, document.ToString());
+        var entries = document.GetProperty("contents").EnumerateObject().ToList();
+        entries.Should().ContainSingle().Which.Name.Should().Be(entryId.ToString());
+        entries[0].Value.GetProperty("id").GetGuid().Should().Be(entryId);
     }
 
     // Bounds -----------------------------------------------------------------------------------
@@ -863,7 +874,7 @@ public class ImportWritePathTests
     private static WebApplicationFactory<Program>? _limitHost;
 
     [Fact]
-    public async Task A_bundle_over_the_record_limit_is_refused_before_anything_is_written()
+    public async Task A_document_over_the_record_limit_is_refused_before_anything_is_written()
     {
         WebApplicationFactory<Program> host;
         lock (LimitGate)

@@ -46,7 +46,9 @@ internal sealed class ConfigCallers(IntegrationTestFixture fixture)
     /// <paramref name="tenant"/>, <paramref name="memberRoles"/> through a membership. A null tenant
     /// is the default one.
     /// </summary>
-    public async Task<HttpClient> ClientAsync(string? tenant, Guid[] globalRoles, Guid[]? memberRoles = null)
+    public async Task<HttpClient> ClientAsync(
+        string? tenant, Guid[] globalRoles, Guid[]? memberRoles = null,
+        Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>? host = null)
     {
         var userId = Guid.NewGuid();
         await using (var session = fixture.Services.GetRequiredService<IDocumentStore>().LightweightSession())
@@ -80,7 +82,7 @@ internal sealed class ConfigCallers(IntegrationTestFixture fixture)
             claims["tenant"] = tenant;
         }
 
-        var client = fixture.CreateClient();
+        var client = (host ?? fixture).CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", fixture.CreateToken(["cfg-caller"], userId.ToString(), claims));
         if (tenant is not null)
@@ -93,7 +95,9 @@ internal sealed class ConfigCallers(IntegrationTestFixture fixture)
         return client;
     }
 
-    public Task<HttpClient> SuperAdminAsync(string? tenant) => ClientAsync(tenant, [SystemRoles.SuperAdminRoleId]);
+    public Task<HttpClient> SuperAdminAsync(
+        string? tenant, Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>? host = null) =>
+        ClientAsync(tenant, [SystemRoles.SuperAdminRoleId], host: host);
 
     public static async Task<(HttpResponseMessage Response, JsonElement Body)> ExportAsync(HttpClient client, string? sections = null)
     {
