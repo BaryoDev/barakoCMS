@@ -314,6 +314,15 @@ internal sealed class ContentTypeConfigProvider(
             }
         }
 
+        // After every type is written, so a header's line type may come later in the same document.
+        foreach (var held in stored.Where(t => t.Lines is not null))
+        {
+            if (ContentTypeUpsert.RespellLines(held, stored))
+            {
+                session.Store(held);
+            }
+        }
+
         return errors;
     }
 
@@ -443,6 +452,11 @@ internal sealed class ContentTypeConfigProvider(
     {
         var merged = JsonSerializer.Deserialize<ContentTypeDefinition>(ConfigJson.ToElement(stored), ConfigJson.Options)!;
         ContentTypeUpsert.MergeInto(merged, type);
+        if (ContentTypeUpsert.SameLines(stored.Lines, merged.Lines))
+        {
+            // Apply stores the lines in the spelling the lines route would, so another spelling is no change.
+            merged.Lines = stored.Lines;
+        }
 
         var before = Canonical(stored, eventSourced: false);
         var after = Canonical(merged, eventSourced: false);

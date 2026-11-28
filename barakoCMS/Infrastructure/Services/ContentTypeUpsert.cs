@@ -180,7 +180,39 @@ public static class ContentTypeUpsert
         stored.RealtimeTopic = type.RealtimeTopic;
         // An omitted list clears the rules, like Fields: the definition is the whole type.
         stored.Rules = type.Rules;
+        // Kept when the definition carries none: PUT lines with null is how lines are cleared, and a
+        // document written before lines existed must not drop them.
+        stored.Lines = type.Lines ?? stored.Lines;
         stored.UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>Whether two lines definitions differ at most in the spelling of the names.</summary>
+    public static bool SameLines(LinesDefinition? a, LinesDefinition? b) =>
+        a is not null && b is not null
+        && barakoCMS.Core.ContentTypeName.Normalize(a.ContentType) == barakoCMS.Core.ContentTypeName.Normalize(b.ContentType)
+        && string.Equals(a.ParentField, b.ParentField, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(a.TotalField, b.TotalField, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(a.LineAmountField, b.LineAmountField, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gives the lines of <paramref name="type"/> the spelling the lines route stores, once the line
+    /// type is among <paramref name="known"/>. Run after every type of a set is written, since a
+    /// header and its line type may arrive together.
+    /// </summary>
+    public static bool RespellLines(ContentTypeDefinition type, IEnumerable<ContentTypeDefinition> known)
+    {
+        if (type.Lines is not { } asked
+            || StoredMatch(known, asked.ContentType) is not { } child
+            || barakoCMS.Core.Validation.LinesRules.Errors(type, child, asked).Count > 0)
+        {
+            return false;
+        }
+
+        var stored = barakoCMS.Core.Validation.LinesRules.Stored(type, child, asked);
+        var changed = stored.ContentType != asked.ContentType || stored.ParentField != asked.ParentField
+            || stored.TotalField != asked.TotalField || stored.LineAmountField != asked.LineAmountField;
+        type.Lines = stored;
+        return changed;
     }
 
     /// <summary>A new stored type from <paramref name="type"/>, under the normalised name.</summary>
@@ -204,6 +236,7 @@ public static class ContentTypeUpsert
         BranchScoped = type.BranchScoped,
         RealtimeTopic = type.RealtimeTopic,
         Rules = type.Rules,
+        Lines = type.Lines,
         CreatedAt = DateTimeOffset.UtcNow,
         UpdatedAt = DateTimeOffset.UtcNow,
     };

@@ -347,6 +347,12 @@ public class ImportEndpoint : Endpoint<ImportRequest, ImportReport>
             created.Add(definition);
         }
 
+        // After every type of the bundle is written, so a header's line type may come later in it.
+        foreach (var held in toStore)
+        {
+            ContentTypeUpsert.RespellLines(held, existing);
+        }
+
         return (toStore, created, reindex, recompute);
     }
 

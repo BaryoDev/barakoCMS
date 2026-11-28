@@ -54,13 +54,7 @@ internal class Endpoint(
             }
 
             ThrowIfAnyErrors();
-            lines = new LinesDefinition
-            {
-                ContentType = child!.Name,
-                ParentField = child.Fields.First(f => string.Equals(f.Name, asked.ParentField, StringComparison.OrdinalIgnoreCase)).Name,
-                TotalField = asked.TotalField is null ? null : def.Fields.First(f => string.Equals(f.Name, asked.TotalField, StringComparison.OrdinalIgnoreCase)).Name,
-                LineAmountField = asked.LineAmountField is null ? null : child.Fields.First(f => string.Equals(f.Name, asked.LineAmountField, StringComparison.OrdinalIgnoreCase)).Name,
-            };
+            lines = LinesRules.Stored(def, child!, asked);
         }
 
         var before = def.Lines?.ContentType ?? "none";

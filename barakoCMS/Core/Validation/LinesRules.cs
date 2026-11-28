@@ -61,6 +61,18 @@ internal static class LinesRules
         return RollupFields.LinesErrors(header, child, asked).ToList();
     }
 
+    /// <summary>
+    /// <paramref name="asked"/> as it is stored: the line type's stored name and the stored spelling
+    /// of each field. Only for lines <see cref="Errors"/> accepted.
+    /// </summary>
+    public static LinesDefinition Stored(ContentTypeDefinition header, ContentTypeDefinition child, LinesDefinition asked) => new()
+    {
+        ContentType = child.Name,
+        ParentField = child.Fields.FieldNamed(asked.ParentField)!.Name,
+        TotalField = asked.TotalField is null ? null : header.Fields.FieldNamed(asked.TotalField)!.Name,
+        LineAmountField = asked.LineAmountField is null ? null : child.Fields.FieldNamed(asked.LineAmountField)!.Name,
+    };
+
     private static bool IsNumber(FieldDefinition field) =>
         field.Type.ToLowerInvariant() is "int" or "decimal" or "money" or "integer" or "number";
 }
