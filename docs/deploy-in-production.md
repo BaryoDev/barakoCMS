@@ -374,10 +374,13 @@ fixed subnet, Caddy has a fixed address on it, and the app trusts that one addre
 | --- | --- | --- |
 | `PROXY_SUBNET` | `10.87.51.0/28` | the `proxy` network's subnet |
 | `PROXY_ADDRESS` | `10.87.51.2` | Caddy's address on it, and the one address the app trusts |
+| `PROXY_IP_RANGE` | `10.87.51.8/29` | the part of the subnet Docker hands out automatically; keep `PROXY_ADDRESS` outside it |
 | `TRUSTED_PROXY_NETWORK` | empty | an extra trusted range in CIDR notation, if you need one |
 
 If `10.87.51.0/28` is already used on your host, by another Docker network or by a LAN or VPN route,
-set `PROXY_SUBNET` to a free range and `PROXY_ADDRESS` to an address inside it. An overlap with
+set `PROXY_SUBNET` to a free range, `PROXY_ADDRESS` to an address inside it, and `PROXY_IP_RANGE` to
+a part of the subnet that leaves `PROXY_ADDRESS` out (leave it unset and it falls back to the whole
+subnet, which can hand Caddy's address to the app). An overlap with
 another Docker network fails `up` with `Pool overlaps with other one on this address space`. An
 overlap with a host route does not fail anything, it just stops the containers reaching that range,
 so check `ip route` before you pick.
@@ -921,10 +924,13 @@ Postgres and its volume are not touched.
 
 - **You never set `TRUSTED_PROXY_NETWORK`.** Nothing to do. Caddy moves to `PROXY_ADDRESS` and the
   app trusts that address, so client IPs keep working. If `up` fails with a pool overlap, set
-  `PROXY_SUBNET` and `PROXY_ADDRESS` as described above.
+  `PROXY_SUBNET`, `PROXY_ADDRESS` and `PROXY_IP_RANGE` as described above.
 - **You set `TRUSTED_PROXY_NETWORK`.** It is still applied, so everything you trusted before is still
   trusted, and Caddy's new address is trusted on top. To close the gap this release is about, remove
   it from `.env` unless it names something other than Caddy that you do need.
+
+The first `up -d` after `PROXY_IP_RANGE` was added recreates the `proxy` network once to add the
+range. That is a short restart of `caddy` and `app`, and no data is touched.
 
 ## Backups
 
