@@ -237,6 +237,15 @@ public class RecomputeSkipsTests : IDisposable
     }
 
     [Fact]
+    public void A_skip_reason_is_clipped_to_two_hundred_characters()
+    {
+        var reason = FieldChanges.SkipReason(new EntryFailure(Guid.NewGuid(), new ContentUniquenessException("t", new string('r', 300), null)));
+
+        reason.Should().HaveLength(200);
+        reason.Should().StartWith("ContentUniquenessException (rule 'rrr");
+    }
+
+    [Fact]
     public async Task A_write_to_the_type_is_accepted_after_the_change_ends_completed_with_skips()
     {
         var seeded = await SeedAsync(3);
@@ -294,6 +303,85 @@ public class RecomputeSkipsTests : IDisposable
         done.Processed.Should().Be(0);
         var row = (await AuditAsync(seeded.Slug, "contenttype.field_change.completed_with_skips", id)).Should().ContainSingle().Subject;
         JsonSerializer.Serialize(row.Metadata).Should().Contain($"\"skippedCount\":{FieldChange.MaxSkipped + 5}");
+    }
+
+    [Fact]
+    public async Task A_skip_clears_the_recorded_error_and_stamps_the_change()
+    {
+        var seeded = await SeedAsync(3);
+        _failing.Add(seeded.Ids[2]);
+        var old = DateTimeOffset.UtcNow.AddDays(-1);
+        var id = await StoreChangeAsync(seeded.Slug, seeded.Type, c =>
+        {
+            c.Total = 3;
+            c.Error = "TimeoutException: slow";
+            c.UpdatedAt = old;
+        });
+
+        // One counted pass: the failed batch is not counted, the skip pass is, so nothing later clears the error.
+        await FieldChanges.RunAsync(Store, _fixture.Services.GetRequiredService<IConfiguration>(), seeded.Slug, id, maxBatches: 1, Ct);
+
+        var stored = await StoredAsync(seeded.Slug, id);
+        stored.State.Should().Be(FieldChangeState.Running);
+        stored.SkippedCount.Should().Be(1);
+        stored.Cursor.Should().Be(seeded.Ids[2]);
+        stored.Error.Should().BeNull();
+        stored.UpdatedAt.Should().BeAfter(old.AddHours(1));
+    }
+
+    [Fact]
+    public async Task A_skip_pass_does_nothing_when_the_type_is_gone()
+    {
+        var seeded = await SeedAsync(3);
+        var hits = 0;
+        FieldChanges.BeforeEntryForTests = async (content, _) =>
+        {
+            if (content.Id != seeded.Ids[1] || hits++ > 0)
+            {
+                return;
+            }
+
+            await using var other = Store.LightweightSession(seeded.Slug);
+            other.DeleteWhere<ContentTypeDefinition>(d => d.Name == seeded.Type);
+            await other.SaveChangesAsync(Ct);
+            throw new InvalidOperationException("cannot rewrite");
+        };
+        var id = await StoreRunningAsync(seeded);
+
+        var done = await DriveAsync(seeded.Slug, id);
+
+        done.State.Should().Be(FieldChangeState.Completed, "a type with no definition has nothing left to recompute");
+        done.SkippedCount.Should().Be(0);
+        done.Skipped.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_skip_pass_does_nothing_when_the_change_has_moved_past_the_entry()
+    {
+        var seeded = await SeedAsync(3);
+        var hits = 0;
+        var id = Guid.Empty;
+        FieldChanges.BeforeEntryForTests = async (content, _) =>
+        {
+            if (content.Id != seeded.Ids[1] || hits++ > 0)
+            {
+                return;
+            }
+
+            await using var other = Store.LightweightSession(seeded.Slug);
+            var moved = (await other.LoadAsync<FieldChange>(id, Ct))!;
+            moved.Cursor = seeded.Ids[2];
+            other.Store(moved);
+            await other.SaveChangesAsync(Ct);
+            throw new InvalidOperationException("cannot rewrite");
+        };
+        id = await StoreRunningAsync(seeded);
+
+        var done = await DriveAsync(seeded.Slug, id);
+
+        done.State.Should().Be(FieldChangeState.Completed);
+        done.SkippedCount.Should().Be(0, "another run had already passed the entry");
+        done.Skipped.Should().BeNull();
     }
 
     // What counts as an entry failure.
@@ -501,6 +589,65 @@ public class RecomputeSkipsTests : IDisposable
         res.StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await StoredAsync(seeded.Slug, first)).RetriedBy.Should().BeNull();
         (await RetryAsync(stranger, Guid.NewGuid())).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Abandoning_a_retry_frees_the_change_it_was_started_for_to_be_retried_again()
+    {
+        var seeded = await SeedAsync(3);
+        var admin = await TenantProfileSeed.AdminInAsync(_fixture, seeded.Slug, Ct);
+        var origin = Guid.NewGuid();
+        var retry = Guid.NewGuid();
+        await StoreChangeAsync(seeded.Slug, seeded.Type, c =>
+        {
+            c.Id = origin;
+            c.State = FieldChangeState.CompletedWithSkips;
+            c.SkippedCount = 1;
+            c.Skipped = [new FieldChangeSkip { EntryId = seeded.Ids[1], Reason = "InvalidOperationException", At = DateTimeOffset.UtcNow }];
+            c.RetriedBy = retry;
+        });
+        await StoreChangeAsync(seeded.Slug, seeded.Type, c =>
+        {
+            c.Id = retry;
+            c.RetryOf = origin;
+            c.EntryIds = [seeded.Ids[1]];
+            c.Total = 1;
+        });
+
+        var duringRetry = await RetryAsync(admin, origin);
+        duringRetry.StatusCode.Should().Be(HttpStatusCode.Conflict, "the retry is still running");
+
+        var abandoned = await admin.PostAsync($"/api/content-types/field-changes/{retry}/abandon", null, Ct);
+        abandoned.StatusCode.Should().Be(HttpStatusCode.OK, await abandoned.Content.ReadAsStringAsync(Ct));
+        (await StoredAsync(seeded.Slug, origin)).RetriedBy.Should().BeNull();
+
+        var again = await RetryAsync(admin, origin);
+        again.StatusCode.Should().Be(HttpStatusCode.Accepted, await again.Content.ReadAsStringAsync(Ct));
+        var body = await again.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        body.GetProperty("retryOf").GetGuid().Should().Be(origin);
+        (await StoredAsync(seeded.Slug, origin)).RetriedBy.Should().Be(body.GetProperty("id").GetGuid());
+    }
+
+    [Fact]
+    public async Task Abandoning_a_change_that_a_later_retry_replaced_leaves_the_origin_as_it_is()
+    {
+        var seeded = await SeedAsync(3);
+        var admin = await TenantProfileSeed.AdminInAsync(_fixture, seeded.Slug, Ct);
+        var origin = Guid.NewGuid();
+        var retry = Guid.NewGuid();
+        var newer = Guid.NewGuid();
+        await StoreChangeAsync(seeded.Slug, seeded.Type, c =>
+        {
+            c.Id = origin;
+            c.State = FieldChangeState.CompletedWithSkips;
+            c.SkippedCount = 1;
+            c.RetriedBy = newer;
+        });
+        await StoreChangeAsync(seeded.Slug, seeded.Type, c => { c.Id = retry; c.RetryOf = origin; });
+
+        (await admin.PostAsync($"/api/content-types/field-changes/{retry}/abandon", null, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await StoredAsync(seeded.Slug, origin)).RetriedBy.Should().Be(newer, "the origin names a different retry");
     }
 
     [Fact]

@@ -916,4 +916,39 @@ public class AccountContentTypeTests
         jobs.Should().ContainSingle("the change was saved running, and a change with no job locks its type for good");
         jobs[0].TenantId.Should().Be(held, "the job belongs to the tenant of the change, not the request's");
     }
+
+    [Fact]
+    public async Task The_field_changes_of_an_account_type_are_listed_in_a_tenant_of_the_account()
+    {
+        var account = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var admin = await KeyReadingManagerAsync(account.Id, inA);
+        var name = await CreateSharedTypeAsync(await ManagerAsync(account.Id), account);
+        var change = new FieldChange
+        {
+            Id = Guid.NewGuid(), ContentType = name, Field = "Title", Kind = FieldChangeKind.Recompute,
+            State = FieldChangeState.Completed, StartedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        await StoreInTenantAsync(inA, change);
+
+        var res = await admin.GetAsync($"/api/content-types/{name}/field-changes", Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync(Ct));
+        var body = await res.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        body.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetGuid()).Should().Equal(change.Id);
+    }
+
+    [Fact]
+    public async Task The_field_changes_of_another_accounts_type_are_not_found()
+    {
+        var account = await AccountAsync();
+        var other = await AccountAsync();
+        var inA = await TenantAsync(account.Id);
+        var admin = await KeyReadingManagerAsync(account.Id, inA);
+        var name = await CreateSharedTypeAsync(await ManagerAsync(other.Id), other);
+
+        var res = await admin.GetAsync($"/api/content-types/{name}/field-changes", Ct);
+
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
 }

@@ -1,5 +1,6 @@
 using barakoCMS.Features.ContentType.ChangeField;
 using barakoCMS.Infrastructure.Auth;
+using barakoCMS.Infrastructure.Services;
 using barakoCMS.Models;
 using FastEndpoints;
 using Marten;
@@ -14,8 +15,9 @@ internal sealed class Request : PaginatedRequest
 /// <remarks>
 /// How an operator finds a change that completed with skips, or one that is stuck, without its id.
 /// Ordered by when the change started, whatever sort order the request names. Paged like the
-/// uniqueness duplicates route. An unknown type, or another tenant's, is a 404; a type that has had
-/// no change is an empty page.
+/// uniqueness duplicates route. A type is the tenant's own or one its account owns, since an account
+/// type is recomputed in each tenant too. An unknown type, or another tenant's or account's, is a
+/// 404; a type that has had no change is an empty page.
 /// </remarks>
 internal sealed class Endpoint(IQuerySession session) : Endpoint<Request, PaginatedResponse<FieldChangeResponse>>
 {
@@ -28,7 +30,7 @@ internal sealed class Endpoint(IQuerySession session) : Endpoint<Request, Pagina
     public override async Task HandleAsync(Request req, CancellationToken ct)
     {
         var name = barakoCMS.Core.ContentTypeName.Normalize(Route<string>("name") ?? string.Empty);
-        if (!await session.Query<ContentTypeDefinition>().AnyAsync(d => d.Name.ToLower() == name, ct))
+        if (await AccountContentTypes.ResolveAsync(session, name, ct) is null)
         {
             await Send.NotFoundAsync(ct);
             return;

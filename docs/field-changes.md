@@ -140,8 +140,10 @@ the type's writes refused.
 
 ## Abandoning a recompute
 
-A change whose job keeps failing on one entry fails every resume, and while it is `running` the
-type refuses writes and edits. Abandoning a recompute is the way out. The change takes the state
+A change whose job keeps failing fails every resume, and while it is `running` the type refuses
+writes and edits. A recompute skips an entry it cannot rewrite (see below), so this is a recompute
+that keeps hitting a transient error, or a change of another kind that fails on one entry. For a
+recompute, abandoning it is the way out. The change takes the state
 `abandoned`, with `abandonedAt` and `abandonedBy` (the caller's user id, or the principal id for a
 service principal key), the type is free again, and the job does nothing if it runs later. It needs `manage_content_types`, and it is recorded in
 the audit log as `contenttype.field_change.abandoned` with the change's id, type, field and
@@ -159,8 +161,10 @@ running, since abandoning under a live job would race it. Abandon it once the qu
 on the job. Another tenant's change is a 404. An abandoned change is not resumed.
 
 Entries the job did not reach keep their old computed value until their next write. To work the
-value out again for all of them, change the formula, which starts a new recompute. Fix the entry
-that failed first, or the new recompute stops on it too.
+value out again for all of them, change the formula, which starts a new recompute. That recompute
+skips an entry it cannot rewrite and goes on, and the skipped entries can be retried.
+
+Abandoning a retry frees the change it was started for, so that change can be retried again.
 
 ## Entries a recompute skips
 
