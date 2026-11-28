@@ -30,14 +30,17 @@ public sealed class ConfigCaller
     public bool IsSystem => Principal is null;
 
     /// <summary>
-    /// The content type names an export is narrowed to, lowercased, or null for every type. A
-    /// section that holds content types or their entries reads it. Any other section ignores it.
+    /// The content type names an export is narrowed to, lowercased. Null means every type, and an
+    /// empty set means none. A section that holds content types or their entries reads it. Any
+    /// other section ignores it.
     /// </summary>
     public IReadOnlySet<string>? ExportTypes { get; }
 
     /// <summary>
     /// This caller with an export narrowed to the content types in <paramref name="names"/>, matched
-    /// without regard to case. Null or no names means every type.
+    /// without regard to case. Null means every type. A list with no names in it, once blanks are
+    /// dropped, means none, so a caller that skips the endpoint's validation never widens to every
+    /// type by passing an empty list.
     /// </summary>
     public ConfigCaller WithExportTypes(IEnumerable<string>? names)
     {
@@ -46,7 +49,7 @@ public sealed class ConfigCaller
             .Select(n => n.Trim().ToLowerInvariant())
             .ToHashSet(StringComparer.Ordinal);
 
-        return new ConfigCaller(Principal, wanted is { Count: > 0 } ? wanted : null);
+        return new ConfigCaller(Principal, wanted);
     }
 }
 

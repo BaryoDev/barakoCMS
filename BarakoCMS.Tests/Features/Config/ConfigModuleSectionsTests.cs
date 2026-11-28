@@ -225,6 +225,20 @@ public class ConfigModuleSectionsTests
     }
 
     [Fact]
+    public void A_null_export_types_list_means_every_type_and_a_list_of_blanks_means_none()
+    {
+        var caller = barakoCMS.Core.Interfaces.ConfigCaller.System;
+
+        caller.WithExportTypes(null).ExportTypes.Should().BeNull("null is the way to ask for every type");
+
+        var none = caller.WithExportTypes(new[] { " ", "" }).ExportTypes;
+        none.Should().NotBeNull("a list with no names must not widen to every type");
+        none!.Should().BeEmpty();
+
+        caller.WithExportTypes(new[] { " Article ", "" }).ExportTypes.Should().Equal("article");
+    }
+
+    [Fact]
     public async Task Types_that_match_nothing_export_no_types_and_no_entries()
     {
         var tenant = await _callers.TenantAsync();
