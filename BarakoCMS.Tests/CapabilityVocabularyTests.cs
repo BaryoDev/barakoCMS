@@ -199,7 +199,7 @@ public class CapabilityVocabularyTests
     [Fact]
     public async Task The_capabilities_of_a_config_section_with_no_route_are_listed_with_their_module()
     {
-        var client = await SuperAdminOn(_factory);
+        var client = await SuperAdminOn(HostWithPortabilityRegistered());
 
         var response = await client.GetAsync("/api/capabilities?pageSize=100", TestContext.Current.CancellationToken);
 
@@ -365,6 +365,7 @@ public class CapabilityVocabularyTests
     private static readonly Lock Gate = new();
     private static WebApplicationFactory<Program>? _strict;
     private static WebApplicationFactory<Program>? _withFixture;
+    private static WebApplicationFactory<Program>? _withPortability;
 
     private WebApplicationFactory<Program> StrictHost()
     {
@@ -385,6 +386,20 @@ public class CapabilityVocabularyTests
             return _withFixture ??= _factory.WithWebHostBuilder(builder =>
                 builder.ConfigureServices(services =>
                     services.AddSingleton<IBarakoModule>(new BarakoCMS.Testing.Fixture.FixtureModule())));
+        }
+    }
+
+    /// <summary>
+    /// The shared host runs the contents provider but does not register the module instance, so a
+    /// name from it would be attributed to its assembly. This one registers it, as the host does.
+    /// </summary>
+    private WebApplicationFactory<Program> HostWithPortabilityRegistered()
+    {
+        lock (Gate)
+        {
+            return _withPortability ??= _factory.WithWebHostBuilder(builder =>
+                builder.ConfigureServices(services =>
+                    services.AddSingleton<IBarakoModule>(new BarakoCMS.Portability.PortabilityModule())));
         }
     }
 }
