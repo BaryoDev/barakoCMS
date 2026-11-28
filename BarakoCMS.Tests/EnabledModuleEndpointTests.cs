@@ -106,8 +106,14 @@ public sealed class EnabledModuleEndpointTests(EnabledModuleEndpointTests.Host h
         var response = await Client(fixture.CreateToken(["SuperAdmin"], userId.ToString()))
             .GetAsync("/api/config/export?sections=contents", TestContext.Current.CancellationToken);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
-        var document = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        // An unknown section is refused, so naming it is a 400 and not an empty answer.
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        (await response.Content.ReadAsStringAsync()).Should().Contain("'contents' is not a section this server knows");
+
+        var plain = await Client(fixture.CreateToken(["SuperAdmin"], userId.ToString()))
+            .GetAsync("/api/config/export", TestContext.Current.CancellationToken);
+        plain.StatusCode.Should().Be(HttpStatusCode.OK, await plain.Content.ReadAsStringAsync());
+        var document = System.Text.Json.JsonDocument.Parse(await plain.Content.ReadAsStringAsync());
         document.RootElement.TryGetProperty("contents", out _).Should().BeFalse(
             "the module's section is only there when the module is enabled");
     }
