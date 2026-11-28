@@ -58,6 +58,13 @@ public interface IConfigProvider
     bool AppliesAsHost => true;
 
     /// <summary>
+    /// Whether a plan of this section can show what is stored. False when a plan holds only the
+    /// caller's own document and checks it against the type, so the section's write capability is
+    /// enough to plan and apply it, and a caller needs no read capability.
+    /// </summary>
+    bool PlanShowsStoredValues => true;
+
+    /// <summary>
     /// The section's documents as they are stored, or null when the section has nothing to export.
     /// </summary>
     Task<ConfigSectionExport?> ExportAsync(ConfigCaller caller, CancellationToken cancellationToken);

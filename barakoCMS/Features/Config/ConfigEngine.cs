@@ -400,6 +400,22 @@ internal sealed class ConfigEngine(
 
         foreach (var provider in Ordered(providers).Where(p => parsed.Sections.ContainsKey(p.Section)))
         {
+            if (!provider.PlanShowsStoredValues)
+            {
+                // A plan holds only the caller's document, so it shows nothing the caller did not send:
+                // a plan takes either capability, and an apply takes the write one.
+                if (apply
+                    ? !await HoldsAsync(caller, provider.WriteCapability, ct)
+                    : !await HoldsAsync(caller, provider.ReadCapability, ct) && !await HoldsAsync(caller, provider.WriteCapability, ct))
+                {
+                    missing.Add(apply
+                        ? $"The '{provider.Section}' section needs the '{provider.WriteCapability}' capability, which this caller is missing."
+                        : $"The '{provider.Section}' section needs the '{provider.ReadCapability}' or '{provider.WriteCapability}' capability, which this caller is missing.");
+                }
+
+                continue;
+            }
+
             var needed = apply ? new[] { provider.ReadCapability, provider.WriteCapability } : [provider.ReadCapability];
             foreach (var capability in needed.Distinct(StringComparer.OrdinalIgnoreCase))
             {

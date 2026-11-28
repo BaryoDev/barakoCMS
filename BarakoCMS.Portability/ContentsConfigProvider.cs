@@ -47,6 +47,8 @@ internal sealed class ContentsConfigProvider(
 
     public int Order => 900;
 
+    public bool PlanShowsStoredValues => false;
+
     public string ReadCapability => PortabilityCapabilities.ExportContent;
 
     public string WriteCapability => PortabilityCapabilities.ImportContent;
