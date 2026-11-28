@@ -80,7 +80,13 @@ public class ConfigModuleSectionsTests
         var older = new
         {
             version = 1,
-            contentTypes = exported.GetProperty("contentTypes").EnumerateObject().Select(p => p.Value).ToArray(),
+            // The removed route named each type inside its item, and the section export keys it instead.
+            contentTypes = exported.GetProperty("contentTypes").EnumerateObject()
+                .Select(p => p.Value.EnumerateObject()
+                    .ToDictionary(f => f.Name, f => (object?)f.Value)
+                    .Concat([new KeyValuePair<string, object?>("name", p.Name)])
+                    .ToDictionary())
+                .ToArray(),
             contents = exported.GetProperty("contents").EnumerateObject().Select(p => p.Value).ToArray(),
         };
 
