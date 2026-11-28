@@ -13,10 +13,15 @@ namespace BarakoCMS.Tests;
 /// give a parse error, with no other exception and in under 50 ms. Set EXPRESSION_FUZZ_SEED to replay
 /// a failure; the failure message prints the seed.
 /// </summary>
+/// <remarks>
+/// A shared runner can stall for a garbage collection or the scheduler, so an input over the bound is
+/// timed again, up to three runs, and fails only when every run is over. A slow path is slow every time.
+/// </remarks>
 public class ExpressionFuzzTests
 {
     private const int Count = 10_000;
     private const int FixedSeed = 1420;
+    private const int Tries = 3;
     private static readonly TimeSpan Slowest = TimeSpan.FromMilliseconds(50);
 
     private static readonly string[] Corpus =
@@ -264,47 +269,60 @@ public class ExpressionFuzzTests
         for (var i = 0; i < inputs.Count; i++)
         {
             var source = inputs[i];
-            var resolver = Resolver(seed, i);
-            var problem = string.Empty;
-            var isRefused = false;
-            var clock = Stopwatch.StartNew();
-            try
+            var run = RunOne(source, Resolver(seed, i));
+            parsed += run.Valid == true ? 1 : 0;
+            refused += run.Valid == false ? 1 : 0;
+            if (run.Problem.Length > 0)
             {
-                var result = FuzzCheck(source);
-                if (result.IsValid)
-                {
-                    parsed++;
-                    ExpressionEngine.Evaluate(result.Expression!, resolver, FuzzClock);
-                }
-                else
-                {
-                    isRefused = true;
-                    refused++;
-                    problem = result.Errors.Count > 0 && result.Errors.All(e => e.Position >= 0 && !string.IsNullOrEmpty(e.Rule))
-                        ? string.Empty
-                        : "a refusal without a rule and a position";
-                }
-            }
-            catch (Exception e)
-            {
-                problem = $"threw {e.GetType().Name}: {e.Message}";
+                failures.Add($"#{i} {(run.Valid == false ? "refused" : "ran")} with {run.Problem} on {Describe(source)}");
             }
 
-            clock.Stop();
-            if (problem.Length > 0)
+            var fastest = run.Elapsed;
+            for (var again = 1; again < Tries && fastest > Slowest; again++)
             {
-                failures.Add($"#{i} {(isRefused ? "refused" : "ran")} with {problem} on {Describe(source)}");
+                var retry = RunOne(source, Resolver(seed, i)).Elapsed;
+                fastest = retry < fastest ? retry : fastest;
             }
 
-            if (clock.Elapsed > Slowest)
+            if (fastest > Slowest)
             {
-                failures.Add($"#{i} took {clock.ElapsedMilliseconds} ms on {Describe(source)}");
+                failures.Add($"#{i} took at least {(long)fastest.TotalMilliseconds} ms on each of {Tries} runs on {Describe(source)}");
             }
         }
 
         failures.Should().BeEmpty($"seed {seed}; replay with EXPRESSION_FUZZ_SEED={seed}");
         parsed.Should().BeGreaterThan(100, $"seed {seed}: the mutated half should keep some valid inputs");
         refused.Should().BeGreaterThan(Count / 4, $"seed {seed}: the random half should mostly be refused");
+    }
+
+    private sealed record FuzzRun(bool? Valid, string Problem, TimeSpan Elapsed);
+
+    /// <summary>Checks one input and runs it when it parses, timing both. Valid is null when the check threw.</summary>
+    private static FuzzRun RunOne(string source, ValueResolver resolver)
+    {
+        bool? valid = null;
+        var problem = string.Empty;
+        var clock = Stopwatch.StartNew();
+        try
+        {
+            var result = FuzzCheck(source);
+            valid = result.IsValid;
+            if (result.IsValid)
+            {
+                ExpressionEngine.Evaluate(result.Expression!, resolver, FuzzClock);
+            }
+            else if (result.Errors.Count == 0 || !result.Errors.All(e => e.Position >= 0 && !string.IsNullOrEmpty(e.Rule)))
+            {
+                problem = "a refusal without a rule and a position";
+            }
+        }
+        catch (Exception e)
+        {
+            problem = $"threw {e.GetType().Name}: {e.Message}";
+        }
+
+        clock.Stop();
+        return new FuzzRun(valid, problem, clock.Elapsed);
     }
 
     [Theory]
