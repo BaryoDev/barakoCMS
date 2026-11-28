@@ -254,31 +254,83 @@ public class ReferenceSystemTests
     [Fact]
     public async Task A_copy_of_inventory_with_a_sum_over_a_text_field_is_refused_on_apply()
     {
+        var (status, body, applied) = await ApplyCopyAsync("inventory-text-sum", copy => Field(copy, "stock-move", "Qty")["type"] = "string");
+
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("OnHand").And.Contain("Qty");
+        applied.Should().BeFalse("nothing was applied");
+    }
+
+    [Fact]
+    public async Task A_copy_of_inventory_whose_lines_total_is_a_text_field_is_refused_on_apply()
+    {
+        var (status, body, applied) = await ApplyCopyAsync("inventory-text-total", copy =>
+        {
+            var total = Field(copy, "sales-order", "Total");
+            total["type"] = "string";
+            total.AsObject().Remove("currency");
+        });
+
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("'Total' on 'sales-order' and 'LineTotal' on 'sales-order-line' must both be number fields.");
+        applied.Should().BeFalse("nothing was applied");
+    }
+
+    [Fact]
+    public async Task A_copy_of_inventory_whose_line_type_is_in_neither_the_blueprint_nor_the_tenant_is_refused_on_apply()
+    {
+        var (status, body, applied) = await ApplyCopyAsync("inventory-no-line-type", copy =>
+            Type(copy, "sales-order")["lines"]!["contentType"] = "ghost-line");
+
+        status.Should().Be(HttpStatusCode.BadRequest, body);
+        body.Should().Contain("Line type 'ghost-line' does not exist.");
+        applied.Should().BeFalse("nothing was applied");
+    }
+
+    [Fact]
+    public async Task Changing_the_lines_total_of_an_applied_sales_order_to_text_is_refused()
+    {
+        var (_, client) = await TenantWithAsync("inventory");
+
+        var refused = await client.PostAsJsonAsync(
+            "/api/content-types/sales-order/fields/Total/change", new { toType = "text" }, Ct);
+
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await refused.Content.ReadAsStringAsync(Ct)).Should().Contain("named by the lines total");
+    }
+
+    private static JsonNode Type(JsonNode blueprint, string type) =>
+        blueprint["contentTypes"]!.AsArray().Single(t => t!["name"]!.GetValue<string>() == type)!;
+
+    private static JsonNode Field(JsonNode blueprint, string type, string field) =>
+        Type(blueprint, type)["fields"]!.AsArray().Single(f => f!["name"]!.GetValue<string>() == field)!;
+
+    /// <summary>
+    /// Applies a changed copy of inventory.json, served from a directory of its own, in a fresh
+    /// tenant. Returns the apply's status and body, and whether any of its types were stored.
+    /// </summary>
+    private async Task<(HttpStatusCode Status, string Body, bool Stored)> ApplyCopyAsync(string name, Action<JsonNode> change)
+    {
         var (_, client) = await R.OwnTenantAsync(_fixture);
         var dir = Path.Combine(Path.GetTempPath(), $"barako-reference-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         try
         {
-            var copy = InventoryCopy("inventory-text-sum");
-            var qty = copy["contentTypes"]!.AsArray().Single(t => t!["name"]!.GetValue<string>() == "stock-move")!
-                ["fields"]!.AsArray().Single(f => f!["name"]!.GetValue<string>() == "Qty")!;
-            qty["type"] = "string";
-            await File.WriteAllTextAsync(Path.Combine(dir, "inventory-text-sum.json"), copy.ToJsonString(), Ct);
+            var copy = InventoryCopy(name);
+            change(copy);
+            await File.WriteAllTextAsync(Path.Combine(dir, name + ".json"), copy.ToJsonString(), Ct);
 
-            var host = _fixture.WithSetting("Blueprints:Path", dir);
-            var custom = host.CreateClient();
+            var custom = _fixture.WithSetting("Blueprints:Path", dir).CreateClient();
             foreach (var header in client.DefaultRequestHeaders)
             {
                 custom.DefaultRequestHeaders.TryAddWithoutValidation(header.Key, header.Value);
             }
 
-            var refused = await custom.PostAsync($"{Blueprints}/inventory-text-sum", null, Ct);
-
+            var refused = await custom.PostAsync($"{Blueprints}/{name}", null, Ct);
             var body = await refused.Content.ReadAsStringAsync(Ct);
-            refused.StatusCode.Should().Be(HttpStatusCode.BadRequest, body);
-            body.Should().Contain("OnHand").And.Contain("Qty");
             var types = await custom.GetAsync("/api/content-types?pageSize=100", Ct);
-            (await types.Content.ReadAsStringAsync(Ct)).Should().NotContain("\"stock-move\"", "nothing was applied");
+            var stored = (await types.Content.ReadAsStringAsync(Ct)).Contains("\"stock-move\"", StringComparison.Ordinal);
+            return (refused.StatusCode, body, stored);
         }
         finally
         {

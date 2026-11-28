@@ -1,0 +1,1 @@
+- **A blueprint, config document or import with bad lines is now refused.** The checks that `PUT /api/content-types/{name}/lines` runs (the line type exists, one level deep, a single parent reference, number total and amount fields) now run on every save of a type that declares lines, so a text `totalField` or a missing line type no longer slips through apply.
