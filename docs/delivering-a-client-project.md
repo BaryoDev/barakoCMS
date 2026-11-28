@@ -393,7 +393,7 @@ types. `GET /api/config/export?sections=contentTypes,contents` downloads content
 content as one JSON document, and `POST /api/config/apply` applies it **into the calling tenant**.
 The module's own routes under `/api/portability` were removed in 6.0, and a document they wrote is
 still accepted unchanged. Add `&types=article,author` to export only those types and their entries,
-which also keeps a large site under `Portability:MaxImportRecords`. A `types` that names no type
+which also keeps a large site under `Portability:MaxImportRecords`. A blank `types`
 answers 400, and it takes at most 100 names of 200 characters each.
 
 Content types are upserted by name, so applying an evolved document updates rather than duplicates

@@ -219,7 +219,7 @@ goes to 5.0.0.
 
 - **Export.** `GET /api/config/export?sections=contentTypes,contents` replaces the old export. Add
   `&types=article,author` to export only those types and their entries (at most 100 names of 200
-  characters each, and a `types` that names none answers 400). A document the old route
+  characters each, and a blank `types` answers 400). A document the old route
   wrote (`version` 1, with `contentTypes` and `contents` as arrays) is still accepted by plan and
   apply.
 - **Roles.** A role that imported needs `manage_config` as well as `import_content`. It needs no
