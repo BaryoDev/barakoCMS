@@ -16,6 +16,12 @@ the two routes it had under `/api/portability` were removed in 6.0, as announced
 document exported by the old route (`{ "version": 1, "contentTypes": [...], "contents": [...] }`)
 is still accepted by plan and apply.
 
+`?types=` narrows the export to the content types you name, for example
+`GET /api/config/export?sections=contentTypes,contents&types=article,author`. It is a comma list,
+matched without regard to case. It narrows `contentTypes` and `contents` only, so another section
+in the same request is exported whole. A name that matches no type is ignored, and with no `types`
+every type is exported. For entries the filter runs in the database, before the limit below.
+
 ## Enable it
 
 ```sh
@@ -117,8 +123,8 @@ carries `contentTypes` needs `manage_content_types`. `Admin` and `SuperAdmin` ho
   and names the same refusals in its body, so a plan shows what the real apply would refuse.
 - A document holds at most 5,000 entries (`Portability:MaxImportRecords`) and 500 content types.
   Past either, the apply is refused before anything is written. The export reads no more than that
-  either, takes entries in id order, and says in its `gaps` when more are stored. Move a larger
-  site in several documents, or raise the limit.
+  either, takes entries in id order, and says in its `gaps` when more are stored. Export fewer
+  types with `?types=`, so each document stays under the limit, or raise the limit.
 - The apply runs inside the calling tenant. A document carries no tenant identity of its own, which
   is what makes it safe to move between environments.
 

@@ -392,7 +392,8 @@ The Portability module adds a `contents` section to the config engine, so entrie
 types. `GET /api/config/export?sections=contentTypes,contents` downloads content types and their
 content as one JSON document, and `POST /api/config/apply` applies it **into the calling tenant**.
 The module's own routes under `/api/portability` were removed in 6.0, and a document they wrote is
-still accepted unchanged.
+still accepted unchanged. Add `&types=article,author` to export only those types and their entries,
+which also keeps a large site under `Portability:MaxImportRecords`.
 
 Content types are upserted by name, so applying an evolved document updates rather than duplicates
 them. Entries in the same document do not: every record in the apply gets a fresh id, so applying
