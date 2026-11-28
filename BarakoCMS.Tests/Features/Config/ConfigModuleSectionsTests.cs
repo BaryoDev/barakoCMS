@@ -110,7 +110,7 @@ public class ConfigModuleSectionsTests
         var (both, all) = await ExportAsync(client, "contentTypes", $"{kept},{left}");
         both.StatusCode.Should().Be(HttpStatusCode.OK, all.ToString());
         all.GetProperty("contentTypes").EnumerateObject().Select(t => t.Name.ToLowerInvariant())
-            .Should().BeEquivalentTo(kept.ToLowerInvariant(), left.ToLowerInvariant(),
+            .Should().BeEquivalentTo(new[] { kept.ToLowerInvariant(), left.ToLowerInvariant() },
                 "the control: naming both types returns both, so a one-type answer below is the narrowing and not a tenant that holds one");
 
         var (one, narrowed) = await ExportAsync(client, "contentTypes", kept);
