@@ -221,9 +221,9 @@ goes to 5.0.0.
   `&types=article,author` to export only those types and their entries. A document the old route
   wrote (`version` 1, with `contentTypes` and `contents` as arrays) is still accepted by plan and
   apply.
-- **Roles.** A role that imported needs `manage_config` as well as `import_content`. An apply also
-  needs `export_content`. Check the roles of every user or script that called the old routes before
-  you upgrade, since without `manage_config` the new routes answer 403.
+- **Roles.** A role that imported needs `manage_config` as well as `import_content`. It needs no
+  `export_content`, and it can still plan. Check the roles of every user or script that called the
+  old routes before you upgrade, since without `manage_config` the new routes answer 403.
 - **Error keys.** A refused record was named `contents[i]` or `contentTypes[i]`. It is now named by
   its key in the document, in single quotes: the type name for a type, and `'#2'` for the third
   record of the `contents` array. A script that matched on the old keys needs the new ones.

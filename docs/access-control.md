@@ -1138,7 +1138,7 @@ it on the routing table, which is where `GET /api/capabilities` and the role wri
 | Files | `manage_all_files` | no route of its own: `GET /api/files/{id}` and `DELETE /api/files/{id}` for a private file somebody else uploaded |
 | Import | `analyze_spreadsheets` | `POST /api/import/analyze` |
 | Portability | `export_content` | no route of its own: the `contents` section of `GET /api/config/export`, `POST /api/config/plan` and `POST /api/config/apply` |
-| Portability | `import_content` | no route of its own: the same section, written by `POST /api/config/apply` |
+| Portability | `import_content` | no route of its own: the same section, written by `POST /api/config/apply`, which needs this and not `export_content`; a plan takes either |
 
 One of those is a split of a gate that used to be one role list. Portability
 splits export from import because the risks are opposite: export reads a whole tenant out in one

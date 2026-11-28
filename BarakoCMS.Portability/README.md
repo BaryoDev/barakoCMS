@@ -52,12 +52,14 @@ The module registers the `contents` section. The routes are the config routes, g
 | Method & path | Purpose | Access |
 |---|---|---|
 | `GET  /api/config/export?sections=contentTypes,contents` | Download the document | `manage_config`, `export_content` for the entries |
-| `POST /api/config/plan` | See what an apply would do | `manage_config` |
+| `POST /api/config/plan` | See what an apply would do | `manage_config`, `export_content` or `import_content` for the entries |
 | `POST /api/config/apply` | Apply a document | `manage_config`, `import_content` for the entries |
 
-The engine asks for the read and the write capability of every section a document holds, so an
-apply that carries `contents` needs `export_content` as well as `import_content`, and one that
-carries `contentTypes` needs `manage_content_types`. `Admin` and `SuperAdmin` hold all of them.
+The engine asks for the read and the write capability of every section a document holds, with one
+exception. A plan of `contents` holds only the document the caller sent, so a plan takes either
+`export_content` or `import_content`, and an apply takes `import_content` alone. A role that only
+imports needs no `export_content`. A document that carries `contentTypes` needs
+`manage_content_types`. `Admin` and `SuperAdmin` hold all of them.
 
 ## How an apply behaves
 
