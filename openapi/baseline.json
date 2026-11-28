@@ -11696,136 +11696,6 @@
           "Scheduled"
         ]
       },
-      "BarakoCMSModelsContentTypeDefinition": {
-        "additionalProperties": false,
-        "properties": {
-          "branchScoped": {
-            "description": "Whether every entry of this type belongs to one branch. A write then needs a branch\n(X-Branch-Id), and access rules can narrow rows with $branch.",
-            "type": "boolean"
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "displayName": {
-            "type": "string"
-          },
-          "fields": {
-            "items": {
-              "$ref": "#/components/schemas/BarakoCMSModelsFieldDefinition"
-            },
-            "type": "array"
-          },
-          "icon": {
-            "description": "The icon the console and a renderer draw this type with, or null for none.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BarakoCMSModelsContentTypeIcon"
-              }
-            ]
-          },
-          "id": {
-            "format": "guid",
-            "type": "string"
-          },
-          "isPubliclyDeliverable": {
-            "description": "Whether this type is served by the anonymous public delivery API (/api/public/{type},\nits search and slug routes, and the RSS feed).",
-            "type": "boolean"
-          },
-          "isSingleton": {
-            "description": "Whether this type holds exactly one entry, so it can model a site's own values: address,\nphone, opening hours, footer text.",
-            "type": "boolean"
-          },
-          "lifecycle": {
-            "description": "This type's own states, or null to use Draft, Published and Archived.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BarakoCMSModelsLifecycleDefinition"
-              }
-            ]
-          },
-          "lines": {
-            "description": "The child type whose entries are this type's lines, or null for a type with none.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BarakoCMSModelsLinesDefinition"
-              }
-            ]
-          },
-          "lookup": {
-            "description": "An anonymous lookup of one entry by a reference plus an identifier, or null for none.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BarakoCMSModelsLookupDefinition"
-              }
-            ]
-          },
-          "mergeClass": {
-            "description": "How edits made on two stations are merged when they sync. Null means the host decides.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BarakoCMSModelsMergeClass"
-              }
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "numbering": {
-            "description": "The field a new entry's number is written to, and how numbers are made, or null for none.",
-            "nullable": true,
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/BarakoCMSModelsNumberingRule"
-              }
-            ]
-          },
-          "realtimeTopic": {
-            "description": "Realtime topic for this type. Null means none. Lower case words joined by dots or dashes.",
-            "nullable": true,
-            "type": "string"
-          },
-          "routeTemplate": {
-            "description": "Where an entry of this type lives on the site, as a path holding {slug}, for example\n/blog/{slug}.",
-            "nullable": true,
-            "type": "string"
-          },
-          "rules": {
-            "description": "Server checks run on save and on transitions, or null for none. See RuleDefinition.",
-            "items": {
-              "$ref": "#/components/schemas/BarakoCMSModelsRuleDefinition"
-            },
-            "nullable": true,
-            "type": "array"
-          },
-          "structuredDataType": {
-            "description": "The schema.org type a delivered entry of this type is described as, for example\nArticle, or null for none.",
-            "nullable": true,
-            "type": "string"
-          },
-          "uniqueness": {
-            "description": "Values only one entry of this type may hold at a time, or null for none.",
-            "items": {
-              "$ref": "#/components/schemas/BarakoCMSModelsUniquenessRule"
-            },
-            "nullable": true,
-            "type": "array"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
       "BarakoCMSModelsContentTypeIcon": {
         "additionalProperties": false,
         "description": "The icon a content type is drawn with: a glyph from the client's sprite, named, or a custom\nSVG, never both.",
@@ -19951,7 +19821,7 @@
     },
     "/api/content-types/{name}/lifecycle": {
       "put": {
-        "description": "Its own endpoint because content types have no general update, and a config apply or a bundle\nimport refuses a changed lifecycle. No entry is read into memory or rewritten, so every reader\nfollows the new lifecycle at once, and an edit that would leave something pointing at a state or\na transition that is gone is refused instead: 409, with every blocker listed, each with its kind,\nthe state or transition it is about, what blocks it and a count where it has one. There is no\nforce and no mapping of entries to another state. Move the entries with a transition\nfirst.\n            \nThe type's lock is taken exclusive before anything is read. A move in flight holds it shared, so\nthe edit waits for it and a move that starts after it sees the new lifecycle, and two edits\ncannot interleave. The counts are a reading taken before the save, so the type is read again\nafter them and the edit is refused if its lifecycle is no longer the one counted against. A dry\nrun runs the same checks and answers 200 with the blockers, stored nothing.\n            \nA save sends the version it started from as If-Match, the way an entry update does: the\ntype's stored document version as a quoted ETag, 428 when it is missing, 400 when it is not a\nversion, 412 when it is stale. The version is read under the lock, so two edits that started\nfrom the same version cannot both be saved. A dry run needs none, and when it sends one it is\nchecked the same way.",
+        "description": "Its own endpoint because content types have no general update, and a config apply refuses a changed\nlifecycle. No entry is read into memory or rewritten, so every reader\nfollows the new lifecycle at once, and an edit that would leave something pointing at a state or\na transition that is gone is refused instead: 409, with every blocker listed, each with its kind,\nthe state or transition it is about, what blocks it and a count where it has one. There is no\nforce and no mapping of entries to another state. Move the entries with a transition\nfirst.\n            \nThe type's lock is taken exclusive before anything is read. A move in flight holds it shared, so\nthe edit waits for it and a move that starts after it sees the new lifecycle, and two edits\ncannot interleave. The counts are a reading taken before the save, so the type is read again\nafter them and the edit is refused if its lifecycle is no longer the one counted against. A dry\nrun runs the same checks and answers 200 with the blockers, stored nothing.\n            \nA save sends the version it started from as If-Match, the way an entry update does: the\ntype's stored document version as a quoted ETag, 428 when it is missing, 400 when it is not a\nversion, 412 when it is stale. The version is read under the lock, so two edits that started\nfrom the same version cannot both be saved. A dry run needs none, and when it sends one it is\nchecked the same way.",
         "operationId": "barakoCMSFeaturesContentTypeSetLifecycleEndpoint",
         "parameters": [
           {
