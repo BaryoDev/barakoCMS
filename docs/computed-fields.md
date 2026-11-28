@@ -76,7 +76,9 @@ background job that works the value out again for every entry. It is a field cha
 A change to an `fn` rule does not start one. If the job gets stuck and the type stays write-locked,
 an operator can abandon the recompute, see
 [Abandoning a recompute](field-changes.md#abandoning-a-recompute). Entries the job had not reached
-keep their old value until their next write.
+keep their old value until their next write. An entry the job cannot rewrite is skipped and keeps its
+value, and the job goes on with the rest, see
+[Entries a recompute skips](field-changes.md#entries-a-recompute-skips).
 
 A bundle import treats a changed `expression` as a change of computation, in the same way.
 
